@@ -11,6 +11,11 @@
 		DF4B998428C3F3F50087C1B9 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* ContentView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
 		DF4B998928C3F3F60087C1B9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */; };
+		DF4B999128C3F4FD0087C1B9 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF4B999028C3F4FD0087C1B9 /* TDLibKit */; };
+		DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */; };
+		DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */; };
+		DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */; };
+		DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999328C3F51C0087C1B9 /* libz.1.tbd */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +24,11 @@
 		DF4B998328C3F3F50087C1B9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DF4B998528C3F3F60087C1B9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		DF4B999328C3F51C0087C1B9 /* libz.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.1.tbd; path = usr/lib/libz.1.tbd; sourceTree = SDKROOT; };
+		DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.1.tbd"; path = "usr/lib/libc++.1.tbd"; sourceTree = SDKROOT; };
+		DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = usr/lib/libSystem.B.tbd; sourceTree = SDKROOT; };
+		DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "usr/lib/libc++abi.tbd"; sourceTree = SDKROOT; };
+		DF4B999728C3F6950087C1B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -26,6 +36,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DF4B999128C3F4FD0087C1B9 /* TDLibKit in Frameworks */,
+				DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */,
+				DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */,
+				DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */,
+				DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -37,6 +52,7 @@
 			children = (
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
+				DF4B999228C3F51C0087C1B9 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -51,10 +67,11 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
+				DF4B999728C3F6950087C1B9 /* Info.plist */,
+				DF4B998728C3F3F60087C1B9 /* Preview Content */,
+				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
 				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
 				DF4B998328C3F3F50087C1B9 /* ContentView.swift */,
-				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
-				DF4B998728C3F3F60087C1B9 /* Preview Content */,
 			);
 			path = BetterTG;
 			sourceTree = "<group>";
@@ -65,6 +82,17 @@
 				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
 			);
 			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		DF4B999228C3F51C0087C1B9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */,
+				DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */,
+				DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */,
+				DF4B999328C3F51C0087C1B9 /* libz.1.tbd */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -83,6 +111,9 @@
 			dependencies = (
 			);
 			name = BetterTG;
+			packageProductDependencies = (
+				DF4B999028C3F4FD0087C1B9 /* TDLibKit */,
+			);
 			productName = BetterTG;
 			productReference = DF4B997E28C3F3F50087C1B9 /* BetterTG.app */;
 			productType = "com.apple.product-type.application";
@@ -111,6 +142,9 @@
 				Base,
 			);
 			mainGroup = DF4B997528C3F3F50087C1B9;
+			packageReferences = (
+				DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */,
+			);
 			productRefGroup = DF4B997F28C3F3F50087C1B9 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -270,11 +304,11 @@
 				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BetterTG/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -282,9 +316,12 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.levochka.BetterTG;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -299,11 +336,11 @@
 				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BetterTG/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -311,9 +348,12 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.levochka.BetterTG;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -339,6 +379,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Swiftgram/TDLibKit";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DF4B999028C3F4FD0087C1B9 /* TDLibKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */;
+			productName = TDLibKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DF4B997628C3F3F50087C1B9 /* Project object */;
 }
