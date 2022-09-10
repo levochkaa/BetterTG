@@ -47,6 +47,28 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		DF0F9D4A28CCAAB300BCA763 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				DF4B998328C3F3F50087C1B9 /* ContentView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		DF0F9D4B28CCAAC000BCA763 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		DF0F9D4C28CCAACE00BCA763 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
 		DF4B997528C3F3F50087C1B9 = {
 			isa = PBXGroup;
 			children = (
@@ -67,21 +89,15 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
-				DF4B999728C3F6950087C1B9 /* Info.plist */,
-				DF4B998728C3F3F60087C1B9 /* Preview Content */,
+				DF0F9D4C28CCAACE00BCA763 /* ViewModels */,
+				DF0F9D4B28CCAAC000BCA763 /* Models */,
+				DF0F9D4A28CCAAB300BCA763 /* Views */,
 				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
+				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
+				DF4B999728C3F6950087C1B9 /* Info.plist */,
 				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
-				DF4B998328C3F3F50087C1B9 /* ContentView.swift */,
 			);
 			path = BetterTG;
-			sourceTree = "<group>";
-		};
-		DF4B998728C3F3F60087C1B9 /* Preview Content */ = {
-			isa = PBXGroup;
-			children = (
-				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
-			);
-			path = "Preview Content";
 			sourceTree = "<group>";
 		};
 		DF4B999228C3F51C0087C1B9 /* Frameworks */ = {
@@ -300,7 +316,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BetterTG/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "\"BetterTG/\"";
 				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -332,7 +348,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BetterTG/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "\"BetterTG/\"";
 				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
