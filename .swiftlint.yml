@@ -1,0 +1,4 @@
+disabled_rules:
+  - switch_case_alignment
+excluded:
+  - third-party

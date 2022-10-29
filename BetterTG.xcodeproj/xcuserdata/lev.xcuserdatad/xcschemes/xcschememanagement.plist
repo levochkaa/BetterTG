@@ -4,10 +4,28 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
-		<key>BetterTG.xcscheme_^#shared#^_</key>
+		<key>BetterTG-wOS Watch App.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
+		<key>BetterTG.xcscheme</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>0</integer>
+		</dict>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>DF4B997D28C3F3F50087C1B9</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>DFBB1D80290D6B8300CE7BB5</key>
+		<dict>
+			<key>primary</key>
+			<true/>
 		</dict>
 	</dict>
 </dict>
