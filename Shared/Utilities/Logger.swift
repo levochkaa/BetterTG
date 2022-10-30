@@ -12,20 +12,21 @@ struct Logger {
     }
 
     init(label: String) {
-        self.logger = os.Logger(subsystem: label, category: label)
+        self.logger = os.Logger(subsystem: "BetterTG", category: label)
         self.label = label
     }
 
     func log(_ message: String, level: LogLevel = .info) {
+        let date = Date.now.formatted(date: .omitted, time: .standard)
         switch level {
             case .info:
-                logger.info("[\(label)] [info] \(message)")
+                logger.info("[\(date)] [\(label)] [info] \(message)")
             case .error:
-                logger.error("[\(label)] [error] \(message)")
+                logger.error("[\(date)] [\(label)] [error] \(message)")
             case .critical:
-                logger.critical("[\(label)] [critical] \(message)")
+                logger.critical("[\(date)] [\(label)] [critical] \(message)")
             case .warning:
-                logger.warning("[\(label)] [warning] \(message)")
+                logger.warning("[\(date)] [\(label)] [warning] \(message)")
         }
     }
 }

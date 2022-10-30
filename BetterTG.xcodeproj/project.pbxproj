@@ -11,11 +11,20 @@
 		DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */; };
 		DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */; };
 		DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EE28DA4AE900281C7B /* LoginView.swift */; };
-		DF1F88E1290D6CC0004DB50F /* BetterTG_wOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F88E0290D6CC0004DB50F /* BetterTG_wOSApp.swift */; };
-		DF1F88E3290D6CC0004DB50F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F88E2290D6CC0004DB50F /* RootView.swift */; };
-		DF1F88E5290D6CC1004DB50F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88E4290D6CC1004DB50F /* Assets.xcassets */; };
-		DF1F88E8290D6CC1004DB50F /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88E7290D6CC1004DB50F /* Preview Assets.xcassets */; };
-		DF1F88EF290D6ED5004DB50F /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F88EE290D6ED5004DB50F /* LoginView.swift */; };
+		DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */; };
+		DF1F88FB290D7AC4004DB50F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88FA290D7AC4004DB50F /* Assets.xcassets */; };
+		DF1F88FE290D7AC4004DB50F /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */; };
+		DF1F8904290D7B79004DB50F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8903290D7B79004DB50F /* RootView.swift */; };
+		DF1F8906290D7B83004DB50F /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8905290D7B83004DB50F /* LoginView.swift */; };
+		DF1F8907290D7B8A004DB50F /* RootViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */; };
+		DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */; };
+		DF1F8909290D7B95004DB50F /* SystemUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* SystemUtils.swift */; };
+		DF1F890A290D7B99004DB50F /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
+		DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
+		DF1F890C290D7BA8004DB50F /* TdApi+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */; };
+		DF1F890E290D7D14004DB50F /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F890D290D7D14004DB50F /* TDLibKit */; };
+		DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */; };
+		DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F8911290D7D2D004DB50F /* ArgumentParser */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
@@ -26,11 +35,29 @@
 		DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */; };
 		DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */; };
 		DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999328C3F51C0087C1B9 /* libz.1.tbd */; };
+		DF51DA37290D96A400AB9E60 /* LoginState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA36290D96A400AB9E60 /* LoginState.swift */; };
+		DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA36290D96A400AB9E60 /* LoginState.swift */; };
+		DF51DA3A290D972300AB9E60 /* LoginView+PhoneNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */; };
+		DF51DA3C290D9D5A00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
+		DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
+		DF51DA43290DACF000AB9E60 /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */; };
+		DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */; };
 		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
+		DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D04290EE87A00F66E20 /* Image+File.swift */; };
+		DFB85D06290EE87A00F66E20 /* Image+File.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D04290EE87A00F66E20 /* Image+File.swift */; };
+		DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */; };
+		DFB85D0A290EEAD800F66E20 /* AsyncTdFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */; };
+		DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
+		DFB85D0D290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
+		DFBDED24290D8765008748A0 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */; };
+		DFBDED25290D87AB008748A0 /* WatchKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */; };
 		DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* SystemUtils.swift */; };
+		DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8913290D7D42004DB50F /* libc++.1.tbd */; };
+		DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8914290D7DD5004DB50F /* libc++abi.tbd */; };
+		DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -51,12 +78,14 @@
 		DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TdApi+Extension.swift"; sourceTree = "<group>"; };
 		DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewVM.swift; sourceTree = "<group>"; };
 		DF16E6EE28DA4AE900281C7B /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
-		DF1F88DE290D6CC0004DB50F /* BetterTG-wOS Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BetterTG-wOS Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		DF1F88E0290D6CC0004DB50F /* BetterTG_wOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTG_wOSApp.swift; sourceTree = "<group>"; };
-		DF1F88E2290D6CC0004DB50F /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		DF1F88E4290D6CC1004DB50F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		DF1F88E7290D6CC1004DB50F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		DF1F88EE290D6ED5004DB50F /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		DF1F88F4290D7AC3004DB50F /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTG_WatchApp_App.swift; sourceTree = "<group>"; };
+		DF1F88FA290D7AC4004DB50F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		DF1F8903290D7B79004DB50F /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		DF1F8905290D7B83004DB50F /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		DF1F8913290D7D42004DB50F /* libc++.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.1.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++.1.tbd"; sourceTree = DEVELOPER_DIR; };
+		DF1F8914290D7DD5004DB50F /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++abi.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
@@ -68,16 +97,35 @@
 		DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = usr/lib/libSystem.B.tbd; sourceTree = SDKROOT; };
 		DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "usr/lib/libc++abi.tbd"; sourceTree = SDKROOT; };
 		DF4B999728C3F6950087C1B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DF51DA36290D96A400AB9E60 /* LoginState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginState.swift; sourceTree = "<group>"; };
+		DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+PhoneNumber.swift"; sourceTree = "<group>"; };
+		DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberInfo.swift; sourceTree = "<group>"; };
+		DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+TwoFactor.swift"; sourceTree = "<group>"; };
+		DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+Code.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
+		DFB85D04290EE87A00F66E20 /* Image+File.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Image+File.swift"; sourceTree = "<group>"; };
+		DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdFile.swift; sourceTree = "<group>"; };
+		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
 		DFBFB86828CE48290076895C /* SystemUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemUtils.swift; sourceTree = "<group>"; };
+		DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libSystem.B.tbd; sourceTree = DEVELOPER_DIR; };
+		DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.1.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libz.1.tbd; sourceTree = DEVELOPER_DIR; };
+		DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchKit.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/System/Library/Frameworks/WatchKit.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		DF1F88DB290D6CC0004DB50F /* Frameworks */ = {
+		DF1F88F1290D7AC3004DB50F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */,
+				DF1F890E290D7D14004DB50F /* TDLibKit in Frameworks */,
+				DFBDED24290D8765008748A0 /* libz.1.tbd in Frameworks */,
+				DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */,
+				DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */,
+				DFBDED25290D87AB008748A0 /* WatchKit.framework in Frameworks */,
+				DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */,
+				DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +158,8 @@
 		DF0F9D4B28CCAAC000BCA763 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				DF51DA36290D96A400AB9E60 /* LoginState.swift */,
+				DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -131,20 +181,10 @@
 			path = Networking;
 			sourceTree = "<group>";
 		};
-		DF1F88DF290D6CC0004DB50F /* BetterTG-wOS Watch App */ = {
-			isa = PBXGroup;
-			children = (
-				DF1F88ED290D6EBB004DB50F /* Views */,
-				DF1F88E4290D6CC1004DB50F /* Assets.xcassets */,
-				DF1F88E7290D6CC1004DB50F /* Preview Assets.xcassets */,
-				DF1F88E0290D6CC0004DB50F /* BetterTG_wOSApp.swift */,
-			);
-			path = "BetterTG-wOS Watch App";
-			sourceTree = "<group>";
-		};
 		DF1F88EC290D6DB7004DB50F /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				DF0F9D4F28CCAD9900BCA763 /* Networking */,
 				DF0F9D4B28CCAAC000BCA763 /* Models */,
 				DF0F9D4C28CCAACE00BCA763 /* ViewModels */,
 				DFBFB86728CE48110076895C /* Utilities */,
@@ -152,11 +192,22 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
-		DF1F88ED290D6EBB004DB50F /* Views */ = {
+		DF1F88F5290D7AC3004DB50F /* BetterTG Watch App */ = {
 			isa = PBXGroup;
 			children = (
-				DF1F88E2290D6CC0004DB50F /* RootView.swift */,
-				DF1F88EE290D6ED5004DB50F /* LoginView.swift */,
+				DF1F8902290D7B5D004DB50F /* Views */,
+				DF1F88FA290D7AC4004DB50F /* Assets.xcassets */,
+				DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */,
+				DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */,
+			);
+			path = "BetterTG Watch App";
+			sourceTree = "<group>";
+		};
+		DF1F8902290D7B5D004DB50F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				DF51DA35290D968900AB9E60 /* Login */,
+				DF1F8903290D7B79004DB50F /* RootView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -172,10 +223,9 @@
 		DF4B997528C3F3F50087C1B9 = {
 			isa = PBXGroup;
 			children = (
-				DF0F9D4F28CCAD9900BCA763 /* Networking */,
 				DF1F88EC290D6DB7004DB50F /* Shared */,
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
-				DF1F88DF290D6CC0004DB50F /* BetterTG-wOS Watch App */,
+				DF1F88F5290D7AC3004DB50F /* BetterTG Watch App */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
 				DF4B999228C3F51C0087C1B9 /* Frameworks */,
 			);
@@ -185,7 +235,7 @@
 			isa = PBXGroup;
 			children = (
 				DF4B997E28C3F3F50087C1B9 /* BetterTG.app */,
-				DF1F88DE290D6CC0004DB50F /* BetterTG-wOS Watch App.app */,
+				DF1F88F4290D7AC3004DB50F /* BetterTG.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -205,12 +255,28 @@
 		DF4B999228C3F51C0087C1B9 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */,
+				DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */,
+				DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */,
+				DF1F8914290D7DD5004DB50F /* libc++abi.tbd */,
+				DF1F8913290D7D42004DB50F /* libc++.1.tbd */,
 				DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */,
 				DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */,
 				DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */,
 				DF4B999328C3F51C0087C1B9 /* libz.1.tbd */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		DF51DA35290D968900AB9E60 /* Login */ = {
+			isa = PBXGroup;
+			children = (
+				DF1F8905290D7B83004DB50F /* LoginView.swift */,
+				DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */,
+				DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */,
+				DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */,
+			);
+			path = Login;
 			sourceTree = "<group>";
 		};
 		DF820B7628D7C7CF007DD293 /* Templates */ = {
@@ -221,13 +287,24 @@
 			path = Templates;
 			sourceTree = "<group>";
 		};
+		DFB85D07290EEAC800F66E20 /* AsyncTd */ = {
+			isa = PBXGroup;
+			children = (
+				DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */,
+				DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */,
+			);
+			path = AsyncTd;
+			sourceTree = "<group>";
+		};
 		DFBFB86728CE48110076895C /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				DFB85D07290EEAC800F66E20 /* AsyncTd */,
 				DF3A159328D838C500789C32 /* Generated */,
 				DF820B7628D7C7CF007DD293 /* Templates */,
 				DFBFB86828CE48290076895C /* SystemUtils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
+				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -235,21 +312,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		DF1F88DD290D6CC0004DB50F /* BetterTG-wOS Watch App */ = {
+		DF1F88F3290D7AC3004DB50F /* BetterTG Watch App */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = DF1F88E9290D6CC1004DB50F /* Build configuration list for PBXNativeTarget "BetterTG-wOS Watch App" */;
+			buildConfigurationList = DF1F88FF290D7AC4004DB50F /* Build configuration list for PBXNativeTarget "BetterTG Watch App" */;
 			buildPhases = (
-				DF1F88DA290D6CC0004DB50F /* Sources */,
-				DF1F88DB290D6CC0004DB50F /* Frameworks */,
-				DF1F88DC290D6CC0004DB50F /* Resources */,
+				DF1F88F0290D7AC3004DB50F /* Sources */,
+				DF1F88F1290D7AC3004DB50F /* Frameworks */,
+				DF1F88F2290D7AC3004DB50F /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = "BetterTG-wOS Watch App";
-			productName = "BetterTG-wOS Watch App";
-			productReference = DF1F88DE290D6CC0004DB50F /* BetterTG-wOS Watch App.app */;
+			name = "BetterTG Watch App";
+			packageProductDependencies = (
+				DF1F890D290D7D14004DB50F /* TDLibKit */,
+				DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */,
+				DF1F8911290D7D2D004DB50F /* ArgumentParser */,
+			);
+			productName = "BetterTGw Watch App";
+			productReference = DF1F88F4290D7AC3004DB50F /* BetterTG.app */;
 			productType = "com.apple.product-type.application";
 		};
 		DF4B997D28C3F3F50087C1B9 /* BetterTG */ = {
@@ -286,7 +368,7 @@
 				LastSwiftUpdateCheck = 1410;
 				LastUpgradeCheck = 1400;
 				TargetAttributes = {
-					DF1F88DD290D6CC0004DB50F = {
+					DF1F88F3290D7AC3004DB50F = {
 						CreatedOnToolsVersion = 14.1;
 					};
 					DF4B997D28C3F3F50087C1B9 = {
@@ -313,18 +395,18 @@
 			projectRoot = "";
 			targets = (
 				DF4B997D28C3F3F50087C1B9 /* BetterTG */,
-				DF1F88DD290D6CC0004DB50F /* BetterTG-wOS Watch App */,
+				DF1F88F3290D7AC3004DB50F /* BetterTG Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		DF1F88DC290D6CC0004DB50F /* Resources */ = {
+		DF1F88F2290D7AC3004DB50F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DF1F88E8290D6CC1004DB50F /* Preview Assets.xcassets in Resources */,
-				DF1F88E5290D6CC1004DB50F /* Assets.xcassets in Resources */,
+				DF1F88FE290D7AC4004DB50F /* Preview Assets.xcassets in Resources */,
+				DF1F88FB290D7AC4004DB50F /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -363,13 +445,27 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		DF1F88DA290D6CC0004DB50F /* Sources */ = {
+		DF1F88F0290D7AC3004DB50F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DF1F88EF290D6ED5004DB50F /* LoginView.swift in Sources */,
-				DF1F88E3290D6CC0004DB50F /* RootView.swift in Sources */,
-				DF1F88E1290D6CC0004DB50F /* BetterTG_wOSApp.swift in Sources */,
+				DF1F8906290D7B83004DB50F /* LoginView.swift in Sources */,
+				DF1F8907290D7B8A004DB50F /* RootViewVM.swift in Sources */,
+				DFB85D0A290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
+				DF1F8909290D7B95004DB50F /* SystemUtils.swift in Sources */,
+				DF51DA37290D96A400AB9E60 /* LoginState.swift in Sources */,
+				DF51DA3A290D972300AB9E60 /* LoginView+PhoneNumber.swift in Sources */,
+				DFB85D0D290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
+				DF51DA3C290D9D5A00AB9E60 /* PhoneNumberInfo.swift in Sources */,
+				DF1F890C290D7BA8004DB50F /* TdApi+Extension.swift in Sources */,
+				DF51DA43290DACF000AB9E60 /* LoginView+TwoFactor.swift in Sources */,
+				DF1F8904290D7B79004DB50F /* RootView.swift in Sources */,
+				DFB85D06290EE87A00F66E20 /* Image+File.swift in Sources */,
+				DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */,
+				DF1F890A290D7B99004DB50F /* Logger.swift in Sources */,
+				DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */,
+				DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */,
+				DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -382,8 +478,13 @@
 				DF820B6228D76563007DD293 /* Logger.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */,
+				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
+				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
+				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
+				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
+				DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */,
 				DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
 			);
@@ -392,18 +493,17 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		DF1F88EA290D6CC1004DB50F /* Debug */ = {
+		DF1F8900290D7AC4004DB50F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BetterTG-wOS Watch App/\"";
+				DEVELOPMENT_ASSET_PATHS = "\"BetterTG Watch App\"";
 				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "BetterTG-wOS";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
@@ -413,7 +513,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = .watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = BetterTG;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -423,18 +523,17 @@
 			};
 			name = Debug;
 		};
-		DF1F88EB290D6CC1004DB50F /* Release */ = {
+		DF1F8901290D7AC4004DB50F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BetterTG-wOS Watch App/\"";
+				DEVELOPMENT_ASSET_PATHS = "\"BetterTG Watch App\"";
 				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "BetterTG-wOS";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
@@ -444,7 +543,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = .watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = BetterTG;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -511,6 +610,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
 			};
 			name = Debug;
 		};
@@ -565,6 +665,7 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
 			};
 			name = Release;
 		};
@@ -641,11 +742,11 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		DF1F88E9290D6CC1004DB50F /* Build configuration list for PBXNativeTarget "BetterTG-wOS Watch App" */ = {
+		DF1F88FF290D7AC4004DB50F /* Build configuration list for PBXNativeTarget "BetterTG Watch App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				DF1F88EA290D6CC1004DB50F /* Debug */,
-				DF1F88EB290D6CC1004DB50F /* Release */,
+				DF1F8900290D7AC4004DB50F /* Debug */,
+				DF1F8901290D7AC4004DB50F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -698,6 +799,21 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		DF1F890D290D7D14004DB50F /* TDLibKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */;
+			productName = TDLibKit;
+		};
+		DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */;
+			productName = CollectionConcurrencyKit;
+		};
+		DF1F8911290D7D2D004DB50F /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
 		DF4B999028C3F4FD0087C1B9 /* TDLibKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */;

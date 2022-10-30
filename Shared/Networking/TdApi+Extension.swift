@@ -4,8 +4,8 @@ import Foundation
 import TDLibKit
 
 extension TdApi {
-    static var shared = TdApi(client: TdClientImpl(completionQueue: .global()))
-    private static let logger = Logger(label: "Updates")
+    static var shared = TdApi(client: TdClientImpl(completionQueue: .global(qos: .userInitiated)))
+    private static let logger = Logger(label: "TdApi")
 
     // swiftlint:disable function_body_length
     func startTdLibUpdateHandler() {
@@ -49,10 +49,11 @@ extension TdApi {
                                     try? await self.checkDatabaseEncryptionKey(encryptionKey: Data())
                                 }
                             case .authorizationStateReady:
-                                Task {
-                                    _ = try await self.loadChats(chatList: .chatListMain, limit: 10)
-                                    _ = try await self.loadChats(chatList: .chatListArchive, limit: 10)
-                                }
+                                break
+//                                Task {
+//                                    _ = try await self.loadChats(chatList: .chatListMain, limit: 10)
+//                                    _ = try await self.loadChats(chatList: .chatListArchive, limit: 10)
+//                                }
                             case .authorizationStateClosed:
                                 TdApi.shared = TdApi(client: TdClientImpl(completionQueue: .global()))
                                 TdApi.shared.startTdLibUpdateHandler()
@@ -64,7 +65,7 @@ extension TdApi {
                 }
             } catch {
                 guard let tdError = error as? TDLibKit.Error else { return }
-                TdApi.logger.log("Code: \(tdError.code), message: \(tdError.message)", level: .error)
+                TdApi.logger.log("TdLibUpdateHandler: \(tdError.code) - \(tdError.message)", level: .error)
             }
         }
     }

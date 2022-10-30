@@ -11,23 +11,23 @@ class LoginViewVM: ObservableObject {
         return try await tdApi.getAuthorizationState()
     }
 
-    func resendAuthCode() async throws -> Ok {
-        return try await tdApi.resendAuthenticationCode()
+    func resendAuthCode() async throws {
+        _ = try await tdApi.resendAuthenticationCode()
     }
 
-    func checkAuth(phoneNumber: String) async throws -> Ok {
-        return try await tdApi.setAuthenticationPhoneNumber(
+    func checkAuth(phoneNumber: String) async throws {
+        _ = try await tdApi.setAuthenticationPhoneNumber(
             phoneNumber: phoneNumber,
             settings: nil
         )
     }
 
-    func checkAuth(code: String) async throws -> Ok {
-        return try await tdApi.checkAuthenticationCode(code: code)
+    func checkAuth(code: String) async throws {
+        _ = try await tdApi.checkAuthenticationCode(code: code)
     }
 
-    func checkAuth(password: String) async throws -> Ok {
-        return try await tdApi.checkAuthenticationPassword(password: password)
+    func checkAuth(password: String) async throws {
+        _ = try await tdApi.checkAuthenticationPassword(password: password)
     }
 
     func getCountries() async throws -> [CountryInfo] {
