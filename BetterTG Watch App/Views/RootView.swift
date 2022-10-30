@@ -17,53 +17,73 @@ struct RootView: View {
 
     @ViewBuilder var bodyView: some View {
         NavigationStack {
-            List(viewModel.mainChats, id: \.id) { chat in
-                HStack {
-                    if chat.photo != nil {
-                        AsyncTdImage(id: chat.photo!.small.id) { image in
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .clipShape(Circle())
-                                .frame(width: 40, height: 40)
-//                                .interpolation(.medium)
-//                                .antialiased(true)
-                        } placeholder: {
-                            Circle()
-                                .frame(width: 40, height: 40)
-                        }
-                    } else {
-                        Circle()
-                            .frame(width: 40, height: 40)
-                    }
+            mainChatsListView
+                .navigationTitle("BetterTG")
+        }
+    }
 
-                    VStack {
-                        Text(chat.title)
-                            .lineLimit(1)
-                            .font(.body)
+    @ViewBuilder var mainChatsListView: some View {
+        List(viewModel.mainChats, id: \.id) { chat in
+            NavigationLink {
+                ChatView(chat: chat)
+            } label: {
+                chatListView(for: chat)
+            }
+        }
+    }
 
-                        Group {
-                            switch chat.lastMessage?.content {
-                                case let .messageText(text):
-                                    Text(text.text.text)
-                                case .messageAudio(_):
-                                    Text("Audio")
-                                case .messagePhoto(_):
-                                    Text("Photo")
-                                case .messageUnsupported:
-                                    Text("Unsupported TDLib")
-                                default:
-                                    Text("Not supported")
-                            }
-                        }
+    @ViewBuilder var placeholder: some View {
+        Circle()
+            .foregroundColor(.black)
+            .frame(width: 40, height: 40)
+    }
+
+    @ViewBuilder func message(for content: MessageContent) -> some View {
+        switch content {
+            case let .messageText(text):
+                Text(text.text.text)
+            case .messageAudio(_):
+                Text("Audio")
+            case .messagePhoto(_):
+                Text("Photo")
+            case .messageUnsupported:
+                Text("TDLib not supported")
+            default:
+                Text("BTG not supported")
+        }
+    }
+
+    @ViewBuilder func chatListView(for chat: Chat) -> some View {
+        HStack {
+            if chat.photo != nil {
+                AsyncTdImage(id: chat.photo!.small.id) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(Circle())
+                        .frame(width: 40, height: 40)
+//                        .interpolation(.medium)
+//                        .antialiased(true)
+                } placeholder: {
+                    placeholder
+                }
+            } else {
+                placeholder
+            }
+
+            VStack {
+                Text(chat.title)
+                    .lineLimit(1)
+                    .font(.body)
+
+                if let lastMessage = chat.lastMessage {
+                    message(for: lastMessage.content)
                         .lineLimit(1)
                         .font(.caption)
                         .foregroundColor(.gray)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .navigationTitle("BetterTG")
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
