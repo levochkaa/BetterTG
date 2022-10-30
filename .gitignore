@@ -3,7 +3,7 @@
 build
 /Packages
 xcuserdata/
-!BetterTG.xcodeproj/project.xcworkspace/xcshareddata/
+# !BetterTG.xcodeproj/project.xcworkspace/xcshareddata/
 BetterTG.xcodeproj/project.xcworkspace/xcshareddata/*
 !BetterTG.xcodeproj/project.xcworkspace/xcshareddata/xcschemes/
 DerivedData/
