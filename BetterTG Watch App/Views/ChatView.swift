@@ -8,17 +8,13 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewVM
 
     @State var text = ""
-
-    let tempChat: Chat
-
-    init(chat: Chat) {
-        self.tempChat = chat
-        self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
-    }
     
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                if viewModel.messages.isEmpty {
+                    Text("No messages")
+                }
                 ForEach(viewModel.messages, id: \.id) { msg in
                     HStack {
                         if msg.isOutgoing { Spacer() }
@@ -53,11 +49,8 @@ struct ChatView: View {
             .onChange(of: viewModel.messages) { newValue in
                 proxy.scrollTo(viewModel.messages.last!.id, anchor: .bottom)
             }
-            //        .onAppear {
-            //            proxy.scrollTo(viewModel.messages.last!.id)
-            //        }
         }
-        .navigationTitle(tempChat.title)
+        .navigationTitle(viewModel.chat.title)
     }
 
     @ViewBuilder func message(for content: MessageContent) -> some View {

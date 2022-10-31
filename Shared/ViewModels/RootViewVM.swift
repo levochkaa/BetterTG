@@ -16,7 +16,6 @@ class RootViewVM: ObservableObject {
             do {
                 let update = try TdApi.shared.decoder.decode(Update.self, from: data)
 
-//                self.logger.log("\(update)")
                 switch update {
                     case .updateAuthorizationState(let updateAuthorizationState):
                         switch updateAuthorizationState.authorizationState {

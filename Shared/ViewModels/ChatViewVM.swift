@@ -8,9 +8,15 @@ class ChatViewVM: ObservableObject {
     let chat: Chat
 
     @Published var messages = [Message]()
+    var offset = 0
+    var retries = 0
+    var loaded = 0
+    let limit = 30
 
     let tdApi = TdApi.shared
     let logger = Logger(label: "ChatVM")
+
+    let maxNumberOfRetries = 10
 
     init(chat: Chat) {
         self.chat = chat
@@ -41,22 +47,35 @@ class ChatViewVM: ObservableObject {
     }
 
     func update() async throws {
-        logger.log("Updating messages list for \(chat.id)")
-        let msgs = try await getMessages()
-        DispatchQueue.main.async {
-            self.messages = msgs
-            self.logger.log("Updated messages list for \(self.chat.id)")
-        }
+        retries = 0
+        try await getMessages()
     }
 
-    func getMessages() async throws -> [Message] {
-        return try await self.tdApi.getChatHistory(
+    func getMessages() async throws {
+        let chatHistory = try await self.tdApi.getChatHistory(
             chatId: self.chat.id,
             fromMessageId: 0,
-            limit: 30,
-            offset: 0,
+            limit: limit,
+            offset: -offset,
             onlyLocal: false
-        ).messages?.reversed() ?? []
+        )
+        offset += chatHistory.totalCount
+
+        DispatchQueue.main.async {
+            self.messages = (chatHistory.messages?.reversed() ?? []).compactMap { msg in
+                if self.messages.first(where: { msg == $0 } ) == nil {
+                    return msg
+                }
+                return nil
+            } + self.messages
+        }
+
+        if offset % limit != 0 {
+            retries += 1
+            if retries != maxNumberOfRetries {
+                try await getMessages()
+            }
+        }
     }
 
     func sendMessage(text: String) async throws {
