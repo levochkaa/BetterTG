@@ -42,9 +42,9 @@ struct RootView: View {
         switch content {
             case let .messageText(text):
                 Text(text.text.text)
-            case .messageAudio(_):
+            case .messageAudio:
                 Text("Audio")
-            case .messagePhoto(_):
+            case .messagePhoto:
                 Text("Photo")
             case .messageUnsupported:
                 Text("TDLib not supported")

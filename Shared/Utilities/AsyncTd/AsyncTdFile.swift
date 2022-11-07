@@ -14,7 +14,13 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @State private var file: File?
     @State private var isDownloaded = true
 
-    init(id: Int, content: @escaping (File) -> Content, placeholder: @escaping () -> Placeholder, file: File? = nil, isDownloaded: Bool = true) {
+    init(
+        id: Int,
+        content: @escaping (File) -> Content,
+        placeholder: @escaping () -> Placeholder,
+        file: File? = nil,
+        isDownloaded: Bool = true
+    ) {
         self.id = id
         self.content = content
         self.placeholder = placeholder
@@ -68,6 +74,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         }
     }
 
+    // swiftlint:disable force_cast
     private func download(_ id: Int? = nil) {
         Task {
 //            logger.log("Downloading file \(id != nil ? id! : self.id)", level: .info)

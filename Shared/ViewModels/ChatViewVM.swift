@@ -63,7 +63,7 @@ class ChatViewVM: ObservableObject {
 
         DispatchQueue.main.async {
             self.messages = (chatHistory.messages?.reversed() ?? []).compactMap { msg in
-                if self.messages.first(where: { msg == $0 } ) == nil {
+                if self.messages.first(where: { msg == $0 }) == nil {
                     return msg
                 }
                 return nil

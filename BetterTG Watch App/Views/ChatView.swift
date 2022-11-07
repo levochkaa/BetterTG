@@ -8,7 +8,7 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewVM
 
     @State var text = ""
-    
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -32,7 +32,10 @@ struct ChatView: View {
                                         .foregroundColor(.green)
                                 }
                             }
-                            .frame(maxWidth: SystemInfo.size.width * 0.7, alignment: msg.isOutgoing ? .trailing : .leading)
+                            .frame(
+                                maxWidth: SystemInfo.size.width * 0.7,
+                                alignment: msg.isOutgoing ? .trailing : .leading
+                            )
 
                         if !msg.isOutgoing { Spacer() }
                     }
@@ -46,7 +49,7 @@ struct ChatView: View {
                         }
                     }
             }
-            .onChange(of: viewModel.messages) { newValue in
+            .onChange(of: viewModel.messages) { _ in
                 proxy.scrollTo(viewModel.messages.last!.id, anchor: .bottom)
             }
         }

@@ -57,11 +57,11 @@ struct LoginView: View {
             logger.log("\(state)")
 
             switch try await viewModel.getAuthorizationState() {
-                case .authorizationStateWaitPassword(_):
+                case .authorizationStateWaitPassword:
                     try await viewModel.checkAuth(password: twoFactor)
                     await handleAuthorizationState()
 
-                case .authorizationStateWaitCode(_):
+                case .authorizationStateWaitCode:
                     try await viewModel.checkAuth(code: code)
                     switch try await viewModel.getAuthorizationState() {
                         case let .authorizationStateWaitPassword(authorizationStateWaitPassword):
