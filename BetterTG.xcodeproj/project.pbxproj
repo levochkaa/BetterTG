@@ -22,7 +22,6 @@
 		DF1F890A290D7B99004DB50F /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF1F890C290D7BA8004DB50F /* TdApi+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */; };
-		DF1F890E290D7D14004DB50F /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F890D290D7D14004DB50F /* TDLibKit */; };
 		DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */; };
 		DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F8911290D7D2D004DB50F /* ArgumentParser */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
@@ -30,7 +29,6 @@
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
 		DF4B998928C3F3F60087C1B9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */; };
-		DF4B999128C3F4FD0087C1B9 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF4B999028C3F4FD0087C1B9 /* TDLibKit */; };
 		DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */; };
 		DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */; };
 		DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */; };
@@ -42,6 +40,8 @@
 		DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
 		DF51DA43290DACF000AB9E60 /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */; };
 		DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */; };
+		DF73536A291971BC00F7FAAA /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF735369291971BC00F7FAAA /* TDLibKit */; };
+		DF73536C291971C600F7FAAA /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF73536B291971C600F7FAAA /* TDLibKit */; };
 		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
@@ -73,6 +73,26 @@
 			files = (
 			);
 			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DFE2618429196F4C00267815 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DFE2618629196FB300267815 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -126,13 +146,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */,
-				DF1F890E290D7D14004DB50F /* TDLibKit in Frameworks */,
 				DFBDED24290D8765008748A0 /* libz.1.tbd in Frameworks */,
 				DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */,
 				DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */,
 				DFBDED25290D87AB008748A0 /* WatchKit.framework in Frameworks */,
 				DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */,
 				DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */,
+				DF73536C291971C600F7FAAA /* TDLibKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -140,9 +160,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DF4B999128C3F4FD0087C1B9 /* TDLibKit in Frameworks */,
 				DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */,
 				DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */,
+				DF73536A291971BC00F7FAAA /* TDLibKit in Frameworks */,
 				DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */,
 				DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */,
 				DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */,
@@ -337,6 +357,8 @@
 				DF1F88F0290D7AC3004DB50F /* Sources */,
 				DF1F88F1290D7AC3004DB50F /* Frameworks */,
 				DF1F88F2290D7AC3004DB50F /* Resources */,
+				DFE2618429196F4C00267815 /* Embed Frameworks */,
+				DF73292B29197C30008DF226 /* Run Swiftlint */,
 			);
 			buildRules = (
 			);
@@ -344,9 +366,9 @@
 			);
 			name = "BetterTG Watch App";
 			packageProductDependencies = (
-				DF1F890D290D7D14004DB50F /* TDLibKit */,
 				DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */,
 				DF1F8911290D7D2D004DB50F /* ArgumentParser */,
+				DF73536B291971C600F7FAAA /* TDLibKit */,
 			);
 			productName = "BetterTGw Watch App";
 			productReference = DF1F88F4290D7AC3004DB50F /* BetterTG.app */;
@@ -361,6 +383,7 @@
 				DF4B997C28C3F3F50087C1B9 /* Resources */,
 				DF820B6328D770FD007DD293 /* Run Swiftlint */,
 				DFBB1D92290D6B8400CE7BB5 /* Embed Watch Content */,
+				DFE2618629196FB300267815 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -368,9 +391,9 @@
 			);
 			name = BetterTG;
 			packageProductDependencies = (
-				DF4B999028C3F4FD0087C1B9 /* TDLibKit */,
 				DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */,
 				DF820B6F28D787AD007DD293 /* ArgumentParser */,
+				DF735369291971BC00F7FAAA /* TDLibKit */,
 			);
 			productName = BetterTG;
 			productReference = DF4B997E28C3F3F50087C1B9 /* BetterTG.app */;
@@ -404,9 +427,9 @@
 			);
 			mainGroup = DF4B997528C3F3F50087C1B9;
 			packageReferences = (
-				DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */,
 				DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */,
 				DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
+				DF735368291971BC00F7FAAA /* XCRemoteSwiftPackageReference "TDLibKit" */,
 			);
 			productRefGroup = DF4B997F28C3F3F50087C1B9 /* Products */;
 			projectDirPath = "";
@@ -441,6 +464,24 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		DF73292B29197C30008DF226 /* Run Swiftlint */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Run Swiftlint";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$PATH:/opt/homebrew/bin\"\nif which swiftlint > /dev/null; then\n  swiftlint\nelse\n  echo \"warning: SwiftLint not installed, download from https://github.com/realm/SwiftLint and if you are using not ARM mac remove path from script\"\nfi\n";
+		};
 		DF820B6328D770FD007DD293 /* Run Swiftlint */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -797,7 +838,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */ = {
+		DF735368291971BC00F7FAAA /* XCRemoteSwiftPackageReference "TDLibKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/Swiftgram/TDLibKit";
 			requirement = {
@@ -824,11 +865,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		DF1F890D290D7D14004DB50F /* TDLibKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */;
-			productName = TDLibKit;
-		};
 		DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */;
@@ -839,9 +875,14 @@
 			package = DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
 			productName = ArgumentParser;
 		};
-		DF4B999028C3F4FD0087C1B9 /* TDLibKit */ = {
+		DF735369291971BC00F7FAAA /* TDLibKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = DF4B998F28C3F4FD0087C1B9 /* XCRemoteSwiftPackageReference "TDLibKit" */;
+			package = DF735368291971BC00F7FAAA /* XCRemoteSwiftPackageReference "TDLibKit" */;
+			productName = TDLibKit;
+		};
+		DF73536B291971C600F7FAAA /* TDLibKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DF735368291971BC00F7FAAA /* XCRemoteSwiftPackageReference "TDLibKit" */;
 			productName = TDLibKit;
 		};
 		DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */ = {
