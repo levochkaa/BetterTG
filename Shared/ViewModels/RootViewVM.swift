@@ -27,8 +27,8 @@ class RootViewVM: ObservableObject {
                                 Task {
                                     try await self.loadMainChats()
                                 }
-                            case .authorizationStateWaitEncryptionKey,
-                                    .authorizationStateWaitTdlibParameters:
+                            case .authorizationStateWaitTdlibParameters:
+//                                    .authorizationStateWaitEncryptionKey:
                                 break
                             default:
                                 DispatchQueue.main.async {

@@ -26,11 +26,12 @@ extension TdApi {
                                     let dir = url.path()
                                     url.append(path: "td")
 
-                                    _ = try await self.setTdlibParameters(parameters: TdlibParameters(
+                                    _ = try await self.setTdlibParameters(
                                         apiHash: Secret.apiHash,
                                         apiId: Secret.apiId,
                                         applicationVersion: SystemUtils.info(key: "CFBundleShortVersionString"),
                                         databaseDirectory: dir,
+                                        databaseEncryptionKey: Data(),
                                         deviceModel: await SystemUtils.getDeviceModel(),
                                         enableStorageOptimizer: true,
                                         filesDirectory: dir,
@@ -42,12 +43,12 @@ extension TdApi {
                                         useMessageDatabase: true,
                                         useSecretChats: true,
                                         useTestDc: false
-                                    ))
+                                    )
                                 }
-                            case .authorizationStateWaitEncryptionKey:
-                                Task {
-                                    try? await self.checkDatabaseEncryptionKey(encryptionKey: Data())
-                                }
+//                            case .authorizationStateWaitEncryptionKey:
+//                                Task {
+//                                    try? await self.checkDatabaseEncryptionKey(encryptionKey: Data())
+//                                }
                             case .authorizationStateReady:
                                 break
 //                                Task {
