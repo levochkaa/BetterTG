@@ -62,7 +62,7 @@ struct ChatView: View {
                 case let .messageText(text):
                     Text(text.text.text)
                 default:
-                    Text("Unsopported")
+                    Text("Unsupported")
             }
         }
         .multilineTextAlignment(.leading)
