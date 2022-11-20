@@ -5,29 +5,35 @@ A Telegram client for iOS and watchOS
 
 # Currently implemented
 ## iOS
-- **nothing**
+- login
 ## watchOS
-- fixed amount of main chats
-- fixed amount of messages list
-- sending text messages
-- reading text messages
+- login
+- fixed amount of chats/messages
+- sending/reading text messages
 
 # Installation
-No way except for building on your own mac for contributing
+## iOS
+Download an ipa from release tab and install through [Sideloadly](https://altstore.io) or [AltStore](https://altstore.io).
+## watchOS
+There is a bug compiling TDLibKit for real Apple Watch at the moment.\
+Only possible way is to run on a Simulator.
 
 # Contributing
-You can contribute **any** change you want to, I'm happy with any PR!
+You can contribute **any** change you want to!
 ## Step 1 - Clone the repo
 ```shell
 git clone --recurse-submodules https://github.com/levochkaa/BetterTG.git
 ```
 ## Step 2 - Download XCode
-I'm using latest **Xcode 14 beta** versions. I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading.
+Latest **Xcode 14 beta** versions are used for this project.\
+I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading.
 ## Step 3 - `api_id` and `api_hash`
-Go to [this site](https://my.telegram.org/). Log in, open **API development tools**, fill up the info. Then click **Save changes**
+Go to [this site](https://my.telegram.org/).\
+Log in, open **API development tools**, fill up the info.\
+Then click **Save changes**
 at the bottom of the page. \
 Leave the page **open** for the next step.
-## Step 4 - Dev env
+## Step 4 - Development environment
 You need to have [Homebrew](https://brew.sh) installed. \
 Now run these commands:
 ```shell
