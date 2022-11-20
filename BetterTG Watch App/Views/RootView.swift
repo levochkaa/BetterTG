@@ -11,7 +11,7 @@ struct RootView: View {
         if viewModel.loggedIn {
             bodyView
         } else {
-            LoginView(rootVM: viewModel)
+            LoginView()
         }
     }
 
@@ -85,11 +85,5 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-}
-
-struct RootView_Previews: PreviewProvider {
-    static var previews: some View {
-        RootView()
     }
 }

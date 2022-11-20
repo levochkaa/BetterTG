@@ -62,6 +62,17 @@
 		DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8913290D7D42004DB50F /* libc++.1.tbd */; };
 		DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8914290D7DD5004DB50F /* libc++abi.tbd */; };
 		DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */; };
+		DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */; };
+		DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */; };
+		DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74B292A2286002A4BAD /* LoginView+Code.swift */; };
+		DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */; };
+		DFECD751292A7024002A4BAD /* SystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD750292A7024002A4BAD /* SystemInfo.swift */; };
+		DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
+		DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
+		DFECD757292A938B002A4BAD /* NSNotification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NSNotification+Name.swift */; };
+		DFECD758292A938B002A4BAD /* NSNotification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NSNotification+Name.swift */; };
+		DFECD75A292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */; };
+		DFECD75B292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -138,6 +149,14 @@
 		DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libSystem.B.tbd; sourceTree = DEVELOPER_DIR; };
 		DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.1.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libz.1.tbd; sourceTree = DEVELOPER_DIR; };
 		DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchKit.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/System/Library/Frameworks/WatchKit.framework; sourceTree = DEVELOPER_DIR; };
+		DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+PhoneNumber.swift"; sourceTree = "<group>"; };
+		DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+TwoFactor.swift"; sourceTree = "<group>"; };
+		DFECD74B292A2286002A4BAD /* LoginView+Code.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+Code.swift"; sourceTree = "<group>"; };
+		DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+SelectCountry.swift"; sourceTree = "<group>"; };
+		DFECD750292A7024002A4BAD /* SystemInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemInfo.swift; sourceTree = "<group>"; };
+		DFECD752292A7318002A4BAD /* Color+UIColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+UIColor.swift"; sourceTree = "<group>"; };
+		DFECD756292A938B002A4BAD /* NSNotification+Name.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSNotification+Name.swift"; sourceTree = "<group>"; };
+		DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationCenter+Extension.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,8 +195,8 @@
 		DF0F9D4A28CCAAB300BCA763 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				DF7B5916292937F1001900D1 /* Login */,
 				DF4B998328C3F3F50087C1B9 /* RootView.swift */,
-				DF16E6EE28DA4AE900281C7B /* LoginView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -273,11 +292,12 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
+				DFECD74F292A7015002A4BAD /* Utilities */,
 				DF0F9D4A28CCAAB300BCA763 /* Views */,
 				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
 				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
-				DF4B999728C3F6950087C1B9 /* Info.plist */,
 				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
+				DF4B999728C3F6950087C1B9 /* Info.plist */,
 			);
 			path = BetterTG;
 			sourceTree = "<group>";
@@ -305,6 +325,18 @@
 				DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */,
 				DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */,
 				DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */,
+			);
+			path = Login;
+			sourceTree = "<group>";
+		};
+		DF7B5916292937F1001900D1 /* Login */ = {
+			isa = PBXGroup;
+			children = (
+				DF16E6EE28DA4AE900281C7B /* LoginView.swift */,
+				DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */,
+				DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */,
+				DFECD74B292A2286002A4BAD /* LoginView+Code.swift */,
+				DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */,
 			);
 			path = Login;
 			sourceTree = "<group>";
@@ -337,14 +369,33 @@
 		DFBFB86728CE48110076895C /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				DFECD755292A92F7002A4BAD /* Extensions */,
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
 				DF3A159328D838C500789C32 /* Generated */,
 				DF820B7628D7C7CF007DD293 /* Templates */,
 				DFBFB86828CE48290076895C /* SystemUtils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
-				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
 			);
 			path = Utilities;
+			sourceTree = "<group>";
+		};
+		DFECD74F292A7015002A4BAD /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				DFECD750292A7024002A4BAD /* SystemInfo.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		DFECD755292A92F7002A4BAD /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				DFECD752292A7318002A4BAD /* Color+UIColor.swift */,
+				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
+				DFECD756292A938B002A4BAD /* NSNotification+Name.swift */,
+				DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */,
+			);
+			path = Extensions;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -514,6 +565,7 @@
 				DFB85D0A290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
 				DF1F8909290D7B95004DB50F /* SystemUtils.swift in Sources */,
 				DFB85D0F290EF7CC00F66E20 /* ChatView.swift in Sources */,
+				DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */,
 				DF51DA37290D96A400AB9E60 /* LoginState.swift in Sources */,
 				DF51DA3A290D972300AB9E60 /* LoginView+PhoneNumber.swift in Sources */,
 				DFB85D0D290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
@@ -525,7 +577,9 @@
 				DFB85D06290EE87A00F66E20 /* Image+File.swift in Sources */,
 				DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */,
 				DF1F890A290D7B99004DB50F /* Logger.swift in Sources */,
+				DFECD75B292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */,
 				DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */,
+				DFECD758292A938B002A4BAD /* NSNotification+Name.swift in Sources */,
 				DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */,
 				DFB85D12290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */,
@@ -541,14 +595,22 @@
 				DF820B6228D76563007DD293 /* Logger.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */,
+				DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */,
+				DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
+				DFECD751292A7024002A4BAD /* SystemInfo.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
+				DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */,
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */,
+				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,
+				DFECD75A292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */,
 				DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */,
+				DFECD757292A938B002A4BAD /* NSNotification+Name.swift in Sources */,
+				DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */,
 				DFB85D11290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
 			);

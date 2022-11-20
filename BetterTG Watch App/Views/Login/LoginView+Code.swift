@@ -5,12 +5,12 @@ import TDLibKit
 
 extension LoginView {
     @ViewBuilder var codeView: some View {
-        TextField("Code", text: $code)
+        TextField("Code", text: $viewModel.code)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task {
-                            await handleAuthorizationState()
+                            await viewModel.handleAuthorizationState()
                         }
                     } label: {
                         Text("Continue")

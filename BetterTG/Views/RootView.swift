@@ -8,15 +8,13 @@ struct RootView: View {
 
     var body: some View {
         if viewModel.loggedIn {
-            Text("")
+            bodyView
         } else {
             LoginView()
         }
     }
-}
 
-struct RootView_Previews: PreviewProvider {
-    static var previews: some View {
-        RootView()
+    @ViewBuilder var bodyView: some View {
+        Text("List of chats")
     }
 }

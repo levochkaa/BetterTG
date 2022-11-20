@@ -5,12 +5,12 @@ import TDLibKit
 
 extension LoginView {
     @ViewBuilder var twoFactorView: some View {
-        TextField(hint.isEmpty ? "2FA" : hint, text: $twoFactor)
+        TextField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task {
-                            await handleAuthorizationState()
+                            await viewModel.handleAuthorizationState()
                         }
                     } label: {
                         Text("Continue")
