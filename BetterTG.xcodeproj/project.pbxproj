@@ -69,8 +69,8 @@
 		DFECD751292A7024002A4BAD /* SystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD750292A7024002A4BAD /* SystemInfo.swift */; };
 		DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
 		DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
-		DFECD757292A938B002A4BAD /* NSNotification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NSNotification+Name.swift */; };
-		DFECD758292A938B002A4BAD /* NSNotification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NSNotification+Name.swift */; };
+		DFECD757292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
+		DFECD758292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
 		DFECD75A292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */; };
 		DFECD75B292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */; };
 /* End PBXBuildFile section */
@@ -155,7 +155,7 @@
 		DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+SelectCountry.swift"; sourceTree = "<group>"; };
 		DFECD750292A7024002A4BAD /* SystemInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemInfo.swift; sourceTree = "<group>"; };
 		DFECD752292A7318002A4BAD /* Color+UIColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+UIColor.swift"; sourceTree = "<group>"; };
-		DFECD756292A938B002A4BAD /* NSNotification+Name.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSNotification+Name.swift"; sourceTree = "<group>"; };
+		DFECD756292A938B002A4BAD /* Notification+Name.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Name.swift"; sourceTree = "<group>"; };
 		DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationCenter+Extension.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -392,7 +392,7 @@
 			children = (
 				DFECD752292A7318002A4BAD /* Color+UIColor.swift */,
 				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
-				DFECD756292A938B002A4BAD /* NSNotification+Name.swift */,
+				DFECD756292A938B002A4BAD /* Notification+Name.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */,
 			);
 			path = Extensions;
@@ -579,7 +579,7 @@
 				DF1F890A290D7B99004DB50F /* Logger.swift in Sources */,
 				DFECD75B292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */,
 				DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */,
-				DFECD758292A938B002A4BAD /* NSNotification+Name.swift in Sources */,
+				DFECD758292A938B002A4BAD /* Notification+Name.swift in Sources */,
 				DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */,
 				DFB85D12290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */,
@@ -609,7 +609,7 @@
 				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */,
 				DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */,
-				DFECD757292A938B002A4BAD /* NSNotification+Name.swift in Sources */,
+				DFECD757292A938B002A4BAD /* Notification+Name.swift in Sources */,
 				DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */,
 				DFB85D11290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
