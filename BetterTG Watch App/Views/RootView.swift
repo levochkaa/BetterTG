@@ -25,7 +25,7 @@ struct RootView: View {
     @ViewBuilder var mainChatsListView: some View {
         List(viewModel.mainChats, id: \.id) { chat in
             NavigationLink {
-                ChatView(viewModel: ChatViewVM(chat: chat))
+                ChatView(chat: chat)
             } label: {
                 chatListView(for: chat)
             }

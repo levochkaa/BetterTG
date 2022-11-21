@@ -5,9 +5,16 @@ import TDLibKit
 
 struct ChatView: View {
 
+    let chat: Chat
+    
     @StateObject var viewModel: ChatViewVM
 
     @State var text = ""
+    
+    init(chat: Chat) {
+        self.chat = chat
+        self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
