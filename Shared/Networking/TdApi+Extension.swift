@@ -67,6 +67,10 @@ extension TdApi {
         switch update {
         case let .updateAuthorizationState(updateAuthorizationState):
             self.updateAuthorizationState(updateAuthorizationState.authorizationState)
+        case let .updateFile(updateFile):
+            TdApi.nc.post(name: .file, object: updateFile)
+        case let .updateNewMessage(updateNewMessage):
+            TdApi.nc.post(name: .newMessage, object: updateNewMessage)
         default:
             break
         }

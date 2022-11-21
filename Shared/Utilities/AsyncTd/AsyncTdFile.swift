@@ -1,6 +1,7 @@
 // AsyncTdFile.swift
 
 import SwiftUI
+import Combine
 import TDLibKit
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {
@@ -10,6 +11,8 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
 
     private let tdApi = TdApi.shared
     private let logger = Logger(label: "AsyncTdFile")
+    private let nc = NotificationCenter.default
+    private var cancellable = Set<AnyCancellable>()
 
     @State private var file: File?
     @State private var isDownloaded = true
@@ -26,23 +29,16 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         self.placeholder = placeholder
         self.file = file
         self.isDownloaded = isDownloaded
-
-        tdApi.client.run { [self] data in
-            do {
-                let update = try TdApi.shared.decoder.decode(Update.self, from: data)
-
-                switch update {
-                    case let .updateFile(info):
-                        if info.file.id == id {
-                            self.file = info.file
-                            self.isDownloaded = info.file.local.isDownloadingCompleted
-                        }
-                    default:
-                        break
-                }
-            } catch {
-                guard let tdError = error as? TDLibKit.Error else { return }
-                self.logger.log("AsyncTdFile: \(tdError.code) - \(tdError.message)", level: .error)
+        
+        self.setPublishers()
+    }
+    
+    mutating func setPublishers() {
+        nc.publisher(for: .file, in: &cancellable) { [self] notification in
+            if let updateFile = notification.object as? UpdateFile,
+               updateFile.file.id == self.id {
+                self.file = updateFile.file
+                self.isDownloaded = updateFile.file.local.isDownloadingCompleted
             }
         }
     }

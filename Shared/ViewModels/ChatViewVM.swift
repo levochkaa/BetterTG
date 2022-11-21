@@ -1,6 +1,7 @@
 // ChatViewVM.swift
 
 import SwiftUI
+import Combine
 import TDLibKit
 import CollectionConcurrencyKit
 
@@ -13,8 +14,10 @@ class ChatViewVM: ObservableObject {
     var loaded = 0
     let limit = 30
 
-    let tdApi = TdApi.shared
-    let logger = Logger(label: "ChatVM")
+    private let tdApi = TdApi.shared
+    private let logger = Logger(label: "ChatVM")
+    private let nc = NotificationCenter.default
+    private var cancellable = Set<AnyCancellable>()
 
     let maxNumberOfRetries = 10
 
@@ -24,24 +27,17 @@ class ChatViewVM: ObservableObject {
         Task {
             try await self.update()
         }
-
-        self.tdApi.client.run { data in
-            do {
-                let update = try TdApi.shared.decoder.decode(Update.self, from: data)
-
-                switch update {
-                    case let .updateNewMessage(newMessage):
-                        if newMessage.message.chatId != chat.id { break }
-                        self.logger.log("Got a new message: \(newMessage.message)")
-                        DispatchQueue.main.async {
-                            self.messages.append(newMessage.message)
-                        }
-                    default:
-                        break
+        
+        self.setPublishers()
+    }
+    
+    func setPublishers() {
+        nc.publisher(for: .newMessage, in: &cancellable) { notification in
+            if let newMessage = notification.object as? UpdateNewMessage {
+                if newMessage.message.chatId != self.chat.id { return }
+                DispatchQueue.main.async {
+                    self.messages.append(newMessage.message)
                 }
-            } catch {
-                guard let tdError = error as? TDLibKit.Error else { return }
-                self.logger.log("\(tdError.code) - \(tdError.message)", level: .error)
             }
         }
     }
@@ -61,8 +57,9 @@ class ChatViewVM: ObservableObject {
         )
         offset += chatHistory.totalCount
 
+        let chatMessages = chatHistory.messages?.reversed() ?? []
         DispatchQueue.main.async {
-            self.messages = (chatHistory.messages?.reversed() ?? []).compactMap { msg in
+            self.messages = chatMessages.compactMap { msg in
                 if self.messages.first(where: { msg == $0 }) == nil {
                     return msg
                 }
@@ -88,7 +85,8 @@ class ChatViewVM: ObservableObject {
                             disableWebPagePreview: true,
                             text: FormattedText(
                                 entities: [],
-                                text: text)
+                                text: text
+                            )
                         )
                     ),
             messageThreadId: 0,
