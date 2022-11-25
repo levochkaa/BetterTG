@@ -37,7 +37,7 @@ extension TdApi {
                 var dir = url.path()
                 dir.replace("%20", with: " ")
                 
-                TdApi.logger.log(dir)
+                TdApi.logger.log("td directory: \(dir)")
                 
                 _ = try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,

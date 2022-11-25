@@ -40,14 +40,28 @@ struct RootView: View {
         }
     }
     
-    @ViewBuilder func message(_ msg: Message) -> some View {
+    @ViewBuilder func lastMessage(_ msg: Message) -> some View {
         switch msg.content {
-        case let .messageText(messageText):
-            Text(messageText.text.text)
-        case .messageUnsupported:
-            Text("TDLib not supported")
-        default:
-            Text("BTG not supported")
+            case let .messageText(messageText):
+                Text(messageText.text.text)
+            case .messageUnsupported:
+                Text("TDLib not supported")
+            default:
+                Text("BTG not supported")
+        }
+    }
+
+    @ViewBuilder func draftMessage(_ msg: DraftMessage) -> some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            Text("Draft: ")
+                .foregroundColor(.red)
+
+            switch msg.inputMessageText {
+                case let .inputMessageText(inputMessageText):
+                    Text(inputMessageText.text.text)
+                default:
+                    Text("BTG not supported")
+            }
         }
     }
     
@@ -83,11 +97,17 @@ struct RootView: View {
                     .lineLimit(1)
                     .font(.title2)
                     .foregroundColor(.white)
-                
-                if let lastMessage = chat.lastMessage {
-                    message(lastMessage)
+
+                if let draftMessage = chat.draftMessage {
+                    self.draftMessage(draftMessage)
                         .lineLimit(1)
                         .foregroundColor(.gray)
+                } else {
+                    if let lastMessage = chat.lastMessage {
+                        self.lastMessage(lastMessage)
+                            .lineLimit(1)
+                            .foregroundColor(.gray)
+                    }
                 }
             }
         }
