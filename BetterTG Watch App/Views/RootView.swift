@@ -40,12 +40,12 @@ struct RootView: View {
     
     @ViewBuilder func message(for content: MessageContent) -> some View {
         switch content {
-        case let .messageText(messageText):
-            Text(messageText.text.text)
-        case .messageUnsupported:
-            Text("TDLib not supported")
-        default:
-            Text("BTG not supported")
+            case let .messageText(messageText):
+                Text(messageText.text.text)
+            case .messageUnsupported:
+                Text("TDLib not supported")
+            default:
+                Text("BTG not supported")
         }
     }
     

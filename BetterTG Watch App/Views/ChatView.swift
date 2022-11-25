@@ -67,10 +67,10 @@ struct ChatView: View {
     @ViewBuilder func message(for content: MessageContent) -> some View {
         Group {
             switch content {
-            case let .messageText(text):
-                Text(text.text.text)
-            default:
-                Text("Unsupported")
+                case let .messageText(text):
+                    Text(text.text.text)
+                default:
+                    Text("Unsupported")
             }
         }
         .multilineTextAlignment(.leading)

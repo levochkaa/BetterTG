@@ -85,16 +85,16 @@ class LoginViewVM: ObservableObject {
     func handleAuthorizationState() async {
         do {
             switch try await getAuthorizationState() {
-            case .authorizationStateWaitPassword:
-                try await checkAuth(password: twoFactor)
-            case .authorizationStateWaitCode:
-                try await checkAuth(code: code)
-            case .authorizationStateWaitPhoneNumber:
-                try await checkAuth(
-                    phoneNumber: "\(selectedCountryNum.phoneNumberPrefix)\(phoneNumber)"
-                )
-            default:
-                break
+                case .authorizationStateWaitPassword:
+                    try await checkAuth(password: twoFactor)
+                case .authorizationStateWaitCode:
+                    try await checkAuth(code: code)
+                case .authorizationStateWaitPhoneNumber:
+                    try await checkAuth(
+                        phoneNumber: "\(selectedCountryNum.phoneNumberPrefix)\(phoneNumber)"
+                    )
+                default:
+                    break
             }
         } catch {
             guard let tdError = error as? TDLibKit.Error else { return }

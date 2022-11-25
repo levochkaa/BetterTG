@@ -69,77 +69,77 @@ extension TdApi {
     func update(_ update: Update) {
 //        TdApi.logger.log("Update: \(update)")
         switch update {
-        case let .updateAuthorizationState(updateAuthorizationState):
-            self.updateAuthorizationState(updateAuthorizationState.authorizationState)
-        case let .updateFile(updateFile):
-            DispatchQueue.main.async {
-                TdApi.nc.post(name: .file, object: updateFile)
-            }
-        case let .updateNewMessage(updateNewMessage):
-            TdApi.nc.post(name: .newMessage, object: updateNewMessage)
-        case let .updateChatLastMessage(updateChatLastMessage):
-            TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
-        case let .updateChatDraftMessage(updateChatDraftMessage):
-            TdApi.nc.post(name: .chatDraftMessage, object: updateChatDraftMessage)
-        case let .updateChatIsMarkedAsUnread(updateChatIsMarkedAsUnread):
-            TdApi.nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
-        case let .updateChatFilters(updateChatFilters):
-            TdApi.nc.post(name: .chatFilters, object: updateChatFilters)
-        case let .updateNewChat(updateNewChat):
-            TdApi.nc.post(name: .newChat, object: updateNewChat)
-        case let .updateChatPhoto(updateChatPhoto):
-            TdApi.nc.post(name: .chatPhoto, object: updateChatPhoto)
-        case let .updateChatTheme(updateChatTheme):
-            TdApi.nc.post(name: .chatTheme, object: updateChatTheme)
-        case let .updateChatTitle(updateChatTitle):
-            TdApi.nc.post(name: .chatTitle, object: updateChatTitle)
-        case let .updateUser(updateUser):
-            TdApi.nc.post(name: .user, object: updateUser.user)
-        case let .updateChatAction(updateChatAction):
-            self.updateChatAction(updateChatAction)
-        default:
-            break
+            case let .updateAuthorizationState(updateAuthorizationState):
+                self.updateAuthorizationState(updateAuthorizationState.authorizationState)
+            case let .updateFile(updateFile):
+                DispatchQueue.main.async {
+                    TdApi.nc.post(name: .file, object: updateFile)
+                }
+            case let .updateNewMessage(updateNewMessage):
+                TdApi.nc.post(name: .newMessage, object: updateNewMessage)
+            case let .updateChatLastMessage(updateChatLastMessage):
+                TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
+            case let .updateChatDraftMessage(updateChatDraftMessage):
+                TdApi.nc.post(name: .chatDraftMessage, object: updateChatDraftMessage)
+            case let .updateChatIsMarkedAsUnread(updateChatIsMarkedAsUnread):
+                TdApi.nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
+            case let .updateChatFilters(updateChatFilters):
+                TdApi.nc.post(name: .chatFilters, object: updateChatFilters)
+            case let .updateNewChat(updateNewChat):
+                TdApi.nc.post(name: .newChat, object: updateNewChat)
+            case let .updateChatPhoto(updateChatPhoto):
+                TdApi.nc.post(name: .chatPhoto, object: updateChatPhoto)
+            case let .updateChatTheme(updateChatTheme):
+                TdApi.nc.post(name: .chatTheme, object: updateChatTheme)
+            case let .updateChatTitle(updateChatTitle):
+                TdApi.nc.post(name: .chatTitle, object: updateChatTitle)
+            case let .updateUser(updateUser):
+                TdApi.nc.post(name: .user, object: updateUser.user)
+            case let .updateChatAction(updateChatAction):
+                self.updateChatAction(updateChatAction)
+            default:
+                break
         }
     }
     
     func updateChatAction(_ updateChatAction: UpdateChatAction) {
         switch updateChatAction.action {
-        case .chatActionUploadingDocument:
-            TdApi.nc.post(name: .uploadingDocument, object: updateChatAction)
-        case .chatActionChoosingContact:
-            TdApi.nc.post(name: .choosingContact, object: updateChatAction)
-        default:
-            break
+            case .chatActionUploadingDocument:
+                TdApi.nc.post(name: .uploadingDocument, object: updateChatAction)
+            case .chatActionChoosingContact:
+                TdApi.nc.post(name: .choosingContact, object: updateChatAction)
+            default:
+                break
         }
     }
     
     func updateAuthorizationState(_ authorizationState: AuthorizationState) {
         TdApi.logger.log("Auth: \(authorizationState)")
         switch authorizationState {
-        case .authorizationStateWaitTdlibParameters:
-            TdApi.nc.post(name: .waitTdlibParameters, object: nil)
-        case .authorizationStateClosing:
-            TdApi.nc.post(name: .closing, object: nil)
-        case .authorizationStateClosed:
-            TdApi.nc.post(name: .closed, object: nil)
-        case .authorizationStateLoggingOut:
-            TdApi.nc.post(name: .loggingOut, object: nil)
-        case .authorizationStateReady:
-            TdApi.nc.post(name: .ready, object: nil)
-        case .authorizationStateWaitPhoneNumber:
-            TdApi.nc.post(name: .waitPhoneNumber, object: nil)
-        case let .authorizationStateWaitCode(waitCode):
-            TdApi.nc.post(name: .waitCode, object: waitCode)
-        case let .authorizationStateWaitPassword(waitPassword):
-            TdApi.nc.post(name: .waitPassword, object: waitPassword)
-        case let .authorizationStateWaitEmailAddress(waitEmailAddress):
-            TdApi.nc.post(name: .waitEmailAddress, object: waitEmailAddress)
-        case let .authorizationStateWaitEmailCode(waitEmailCode):
-            TdApi.nc.post(name: .waitEmailCode, object: waitEmailCode)
-        case let .authorizationStateWaitOtherDeviceConfirmation(waitOtherDeviceConfirmation):
-            TdApi.nc.post(name: .waitOtherDeviceConfirmation, object: waitOtherDeviceConfirmation)
-        case let .authorizationStateWaitRegistration(waitRegistration):
-            TdApi.nc.post(name: .waitRegistration, object: waitRegistration)
+            case .authorizationStateWaitTdlibParameters:
+                TdApi.nc.post(name: .waitTdlibParameters, object: nil)
+            case .authorizationStateClosing:
+                TdApi.nc.post(name: .closing, object: nil)
+            case .authorizationStateClosed:
+                TdApi.nc.post(name: .closed, object: nil)
+            case .authorizationStateLoggingOut:
+                TdApi.nc.post(name: .loggingOut, object: nil)
+            case .authorizationStateReady:
+                TdApi.nc.post(name: .ready, object: nil)
+            case .authorizationStateWaitPhoneNumber:
+                TdApi.nc.post(name: .waitPhoneNumber, object: nil)
+            case let .authorizationStateWaitCode(waitCode):
+                TdApi.nc.post(name: .waitCode, object: waitCode)
+            case let .authorizationStateWaitPassword(waitPassword):
+                TdApi.nc.post(name: .waitPassword, object: waitPassword)
+            case let .authorizationStateWaitEmailAddress(waitEmailAddress):
+                TdApi.nc.post(name: .waitEmailAddress, object: waitEmailAddress)
+            case let .authorizationStateWaitEmailCode(waitEmailCode):
+                TdApi.nc.post(name: .waitEmailCode, object: waitEmailCode)
+            case let .authorizationStateWaitOtherDeviceConfirmation(waitOtherDeviceConfirmation):
+                TdApi.nc.post(name: .waitOtherDeviceConfirmation, object: waitOtherDeviceConfirmation)
+            case let .authorizationStateWaitRegistration(waitRegistration):
+                TdApi.nc.post(name: .waitRegistration, object: waitRegistration)
         }
     }
 }

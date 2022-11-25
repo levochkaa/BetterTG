@@ -50,10 +50,10 @@ class RootViewVM: ObservableObject {
         let mainChats = try await chats.chatIds.asyncCompactMap { id in
             let chat = try await tdApi.getChat(chatId: id)
             switch chat.type {
-            case .chatTypePrivate:
-                return try await tdApi.getUser(userId: chat.id).type == .userTypeRegular ? chat : nil
-            default:
-                return nil
+                case .chatTypePrivate:
+                    return try await tdApi.getUser(userId: chat.id).type == .userTypeRegular ? chat : nil
+                default:
+                    return nil
             }
         }
         DispatchQueue.main.async {
