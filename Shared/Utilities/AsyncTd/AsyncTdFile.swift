@@ -11,37 +11,10 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
 
     private let tdApi = TdApi.shared
     private let logger = Logger(label: "AsyncTdFile")
-    private let nc = NotificationCenter.default
-    private var cancellable = Set<AnyCancellable>()
+    private let nc: NotificationCenter = .default
 
     @State private var file: File?
     @State private var isDownloaded = true
-
-    init(
-        id: Int,
-        content: @escaping (File) -> Content,
-        placeholder: @escaping () -> Placeholder,
-        file: File? = nil,
-        isDownloaded: Bool = true
-    ) {
-        self.id = id
-        self.content = content
-        self.placeholder = placeholder
-        self.file = file
-        self.isDownloaded = isDownloaded
-        
-        self.setPublishers()
-    }
-    
-    mutating func setPublishers() {
-        nc.publisher(for: .file, in: &cancellable) { [self] notification in
-            if let updateFile = notification.object as? UpdateFile,
-               updateFile.file.id == self.id {
-                self.file = updateFile.file
-                self.isDownloaded = updateFile.file.local.isDownloadingCompleted
-            }
-        }
-    }
 
     @ViewBuilder
     var body: some View {
@@ -58,10 +31,16 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                 }
             }
             .transition(.opacity)
-//            .scaledToFill()
         }
         .animation(.easeInOut, value: isDownloaded)
         .animation(.easeInOut, value: file)
+        .onReceive(nc.publisher(for: .file)) { notification in
+            if let updateFile = notification.object as? UpdateFile,
+               updateFile.file.id == self.id {
+                file = updateFile.file
+                isDownloaded = updateFile.file.local.isDownloadingCompleted
+            }
+        }
         .onChange(of: id) { id in
             download(id)
         }
@@ -70,25 +49,19 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         }
     }
 
-    // swiftlint:disable force_cast
     private func download(_ id: Int? = nil) {
         Task {
-//            logger.log("Downloading file \(id != nil ? id! : self.id)", level: .info)
             do {
                 self.file = try await tdApi.downloadFile(
-                    fileId: id != nil ? id! : self.id,
+                    fileId: id ?? self.id,
                     limit: 0,
                     offset: 0,
                     priority: 4,
-                    synchronous: false)
-            } catch {
-                logger.log(
-                    """
-                    Failed to download file with ID \(id != nil ? id! : self.id), \
-                    reason: \((error as! TDLibKit.Error).message)
-                    """,
-                    level: .error
+                    synchronous: false
                 )
+            } catch {
+                guard let tdError = error as? TDLibKit.Error else { return }
+                logger.log("Failed to download file with ID \(id ?? self.id), reason: \(tdError.message)")
             }
         }
     }

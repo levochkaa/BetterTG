@@ -14,10 +14,9 @@ class ChatViewVM: ObservableObject {
     var loaded = 0
     let limit = 30
 
-    private let tdApi = TdApi.shared
+    private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
-    private let nc = NotificationCenter.default
-    private var cancellable = Set<AnyCancellable>()
+    private let nc: NotificationCenter = .default
 
     let maxNumberOfRetries = 10
 
@@ -32,7 +31,7 @@ class ChatViewVM: ObservableObject {
     }
     
     func setPublishers() {
-        nc.publisher(for: .newMessage, in: &cancellable) { notification in
+        nc.publisher(for: .newMessage) { notification in
             if let newMessage = notification.object as? UpdateNewMessage {
                 if newMessage.message.chatId != self.chat.id { return }
                 DispatchQueue.main.async {

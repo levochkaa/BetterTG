@@ -11,6 +11,8 @@ struct ChatView: View {
     
     @State var text = ""
     
+    let tdApi: TdApi = .shared
+    
     init(for chat: Chat) {
         self.chat = chat
         self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
@@ -27,27 +29,29 @@ struct ChatView: View {
                     HStack {
                         if msg.isOutgoing { Spacer() }
                         
-                        message(for: msg.content)
+                        message(msg)
                             .id(msg.id)
-                            .padding(5)
+                            .padding(8)
                             .background {
                                 if msg.isOutgoing {
-                                    RoundedRectangle(cornerRadius: 13)
+                                    RoundedRectangle(cornerRadius: 20)
                                         .frame(maxWidth: .infinity)
                                         .foregroundColor(.blue)
                                 } else {
-                                    RoundedRectangle(cornerRadius: 13)
-                                        .foregroundColor(.green)
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .foregroundColor(.white)
                                 }
                             }
                             .frame(
-                                maxWidth: SystemUtils.size.width * 0.7,
+                                maxWidth: SystemUtils.size.width * 0.8,
                                 alignment: msg.isOutgoing ? .trailing : .leading
                             )
                         
                         if !msg.isOutgoing { Spacer() }
                     }
+                    .padding(msg.isOutgoing ? .trailing : .leading)
                 }
+                
                 TextField("Message", text: $text)
                     .onSubmit {
                         if text.isEmpty { return }
@@ -62,17 +66,21 @@ struct ChatView: View {
             }
         }
         .navigationTitle(viewModel.chat.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
     
-    @ViewBuilder func message(for content: MessageContent) -> some View {
+    @ViewBuilder func message(_ msg: Message) -> some View {
         Group {
-            switch content {
-            case let .messageText(text):
-                Text(text.text.text)
+            switch msg.content {
+            case let .messageText(messageText):
+                Text(messageText.text.text)
+            case .messageUnsupported:
+                Text("TDLib not supported")
             default:
-                Text("Unsupported")
+                Text("BTG not supported")
             }
         }
         .multilineTextAlignment(.leading)
+        .foregroundColor(msg.isOutgoing ? .white : .black)
     }
 }

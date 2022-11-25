@@ -13,7 +13,6 @@ struct LoginView: View {
     let logger = Logger(label: "Login")
     
     @Environment(\.dismiss) var dismiss
-    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         NavigationStack {

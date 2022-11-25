@@ -4,9 +4,11 @@ import Foundation
 import Combine
 
 extension NotificationCenter {
+    
+    static var cancellable = Set<AnyCancellable>()
+    
     public func publisher(
         for name: Notification.Name,
-        in set: inout Set<AnyCancellable>,
         perform: @escaping ((Publisher.Output) -> Void)
     ) {
         self.publisher(for: name)
@@ -14,7 +16,7 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &set)
+            .store(in: &NotificationCenter.cancellable)
     }
     
     public func publisher(for name: Notification.Name) -> NotificationCenter.Publisher {
@@ -23,7 +25,6 @@ extension NotificationCenter {
     
     public func mergeMany(
         _ publishers: [Publisher],
-        in set: inout Set<AnyCancellable>,
         perform: @escaping ((Publisher.Output) -> Void)
     ) {
         Publishers.MergeMany(publishers)
@@ -31,6 +32,6 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &set)
+            .store(in: &NotificationCenter.cancellable)
     }
 }

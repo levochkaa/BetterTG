@@ -25,6 +25,7 @@
 		DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */; };
 		DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F8911290D7D2D004DB50F /* ArgumentParser */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
+		DF43058A292D419B00964375 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF430589292D419B00964375 /* ChatView.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
@@ -55,18 +56,19 @@
 		DFB85D0F290EF7CC00F66E20 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0E290EF7CC00F66E20 /* ChatView.swift */; };
 		DFB85D11290EF92300F66E20 /* ChatViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewVM.swift */; };
 		DFB85D12290EF92300F66E20 /* ChatViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewVM.swift */; };
-		DFB85D18290F0BAA00F66E20 /* SystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D17290F0BAA00F66E20 /* SystemInfo.swift */; };
 		DFBDED24290D8765008748A0 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */; };
 		DFBDED25290D87AB008748A0 /* WatchKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */; };
 		DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* SystemUtils.swift */; };
 		DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8913290D7D42004DB50F /* libc++.1.tbd */; };
 		DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8914290D7DD5004DB50F /* libc++abi.tbd */; };
 		DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */; };
+		DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */; };
+		DFD9F891292FE54A00D1E03B /* Color+UserId.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F890292FE54A00D1E03B /* Color+UserId.swift */; };
+		DFD9F892292FE54A00D1E03B /* Color+UserId.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F890292FE54A00D1E03B /* Color+UserId.swift */; };
 		DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */; };
 		DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */; };
 		DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74B292A2286002A4BAD /* LoginView+Code.swift */; };
 		DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */; };
-		DFECD751292A7024002A4BAD /* SystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD750292A7024002A4BAD /* SystemInfo.swift */; };
 		DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
 		DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
 		DFECD757292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
@@ -122,6 +124,7 @@
 		DF1F8913290D7D42004DB50F /* libc++.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.1.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++.1.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF1F8914290D7DD5004DB50F /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++abi.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
+		DF430589292D419B00964375 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
 		DF4B998328C3F3F50087C1B9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -144,16 +147,16 @@
 		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
 		DFB85D0E290EF7CC00F66E20 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		DFB85D10290EF92300F66E20 /* ChatViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewVM.swift; sourceTree = "<group>"; };
-		DFB85D17290F0BAA00F66E20 /* SystemInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemInfo.swift; sourceTree = "<group>"; };
 		DFBFB86828CE48290076895C /* SystemUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemUtils.swift; sourceTree = "<group>"; };
 		DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libSystem.B.tbd; sourceTree = DEVELOPER_DIR; };
 		DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.1.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libz.1.tbd; sourceTree = DEVELOPER_DIR; };
 		DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchKit.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/System/Library/Frameworks/WatchKit.framework; sourceTree = DEVELOPER_DIR; };
+		DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
+		DFD9F890292FE54A00D1E03B /* Color+UserId.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+UserId.swift"; sourceTree = "<group>"; };
 		DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+PhoneNumber.swift"; sourceTree = "<group>"; };
 		DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+TwoFactor.swift"; sourceTree = "<group>"; };
 		DFECD74B292A2286002A4BAD /* LoginView+Code.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+Code.swift"; sourceTree = "<group>"; };
 		DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+SelectCountry.swift"; sourceTree = "<group>"; };
-		DFECD750292A7024002A4BAD /* SystemInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemInfo.swift; sourceTree = "<group>"; };
 		DFECD752292A7318002A4BAD /* Color+UIColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+UIColor.swift"; sourceTree = "<group>"; };
 		DFECD756292A938B002A4BAD /* Notification+Name.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Name.swift"; sourceTree = "<group>"; };
 		DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationCenter+Extension.swift"; sourceTree = "<group>"; };
@@ -197,6 +200,8 @@
 			children = (
 				DF7B5916292937F1001900D1 /* Login */,
 				DF4B998328C3F3F50087C1B9 /* RootView.swift */,
+				DF430589292D419B00964375 /* ChatView.swift */,
+				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -242,7 +247,6 @@
 		DF1F88F5290D7AC3004DB50F /* BetterTG Watch App */ = {
 			isa = PBXGroup;
 			children = (
-				DFB85D16290F0B9600F66E20 /* Utilities */,
 				DF1F8902290D7B5D004DB50F /* Views */,
 				DF1F88FA290D7AC4004DB50F /* Assets.xcassets */,
 				DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */,
@@ -292,7 +296,6 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
-				DFECD74F292A7015002A4BAD /* Utilities */,
 				DF0F9D4A28CCAAB300BCA763 /* Views */,
 				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
 				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
@@ -358,14 +361,6 @@
 			path = AsyncTd;
 			sourceTree = "<group>";
 		};
-		DFB85D16290F0B9600F66E20 /* Utilities */ = {
-			isa = PBXGroup;
-			children = (
-				DFB85D17290F0BAA00F66E20 /* SystemInfo.swift */,
-			);
-			path = Utilities;
-			sourceTree = "<group>";
-		};
 		DFBFB86728CE48110076895C /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
@@ -379,14 +374,6 @@
 			path = Utilities;
 			sourceTree = "<group>";
 		};
-		DFECD74F292A7015002A4BAD /* Utilities */ = {
-			isa = PBXGroup;
-			children = (
-				DFECD750292A7024002A4BAD /* SystemInfo.swift */,
-			);
-			path = Utilities;
-			sourceTree = "<group>";
-		};
 		DFECD755292A92F7002A4BAD /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
@@ -394,6 +381,7 @@
 				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
 				DFECD756292A938B002A4BAD /* Notification+Name.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */,
+				DFD9F890292FE54A00D1E03B /* Color+UserId.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -567,9 +555,9 @@
 				DFB85D0F290EF7CC00F66E20 /* ChatView.swift in Sources */,
 				DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */,
 				DF51DA37290D96A400AB9E60 /* LoginState.swift in Sources */,
+				DFD9F892292FE54A00D1E03B /* Color+UserId.swift in Sources */,
 				DF51DA3A290D972300AB9E60 /* LoginView+PhoneNumber.swift in Sources */,
 				DFB85D0D290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
-				DFB85D18290F0BAA00F66E20 /* SystemInfo.swift in Sources */,
 				DF51DA3C290D9D5A00AB9E60 /* PhoneNumberInfo.swift in Sources */,
 				DF1F890C290D7BA8004DB50F /* TdApi+Extension.swift in Sources */,
 				DF51DA43290DACF000AB9E60 /* LoginView+TwoFactor.swift in Sources */,
@@ -594,16 +582,18 @@
 				DF3A159528D838C500789C32 /* Secret.swift in Sources */,
 				DF820B6228D76563007DD293 /* Logger.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
+				DF43058A292D419B00964375 /* ChatView.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */,
 				DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */,
 				DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
-				DFECD751292A7024002A4BAD /* SystemInfo.swift in Sources */,
+				DFD9F891292FE54A00D1E03B /* Color+UserId.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
 				DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */,
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */,
+				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */,
 				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,

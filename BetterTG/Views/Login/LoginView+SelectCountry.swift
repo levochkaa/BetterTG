@@ -21,7 +21,7 @@ extension LoginView {
                             Image(systemName: "checkmark")
                         }
                     }
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(.white)
                 }
             }
             .navigationTitle("Country")

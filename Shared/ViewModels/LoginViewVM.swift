@@ -23,22 +23,21 @@ class LoginViewVM: ObservableObject {
     
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "LoginVM")
-    private let nc = NotificationCenter.default
-    private var cancellable = Set<AnyCancellable>()
+    private let nc: NotificationCenter = .default
     
     init() {
         self.setPublishers()
     }
     
     func setPublishers() {
-        nc.publisher(for: .waitPassword, in: &cancellable) { notification in
+        nc.publisher(for: .waitPassword) { notification in
             self.loginState = .twoFactor
             if let waitPassword = notification.object as? AuthorizationStateWaitPassword {
                 self.hint = waitPassword.passwordHint
             }
         }
         
-        nc.publisher(for: .waitCode, in: &cancellable) { _ in
+        nc.publisher(for: .waitCode) { _ in
             self.loginState = .code
         }
         
@@ -47,7 +46,7 @@ class LoginViewVM: ObservableObject {
             nc.publisher(for: .closed),
             nc.publisher(for: .closing),
             nc.publisher(for: .loggingOut)
-        ], in: &cancellable) { _ in
+        ]) { _ in
             self.loginState = .phoneNumber
         }
     }
@@ -116,13 +115,13 @@ class LoginViewVM: ObservableObject {
             guard let country = countries
                 .first(where: { $0.countryCode == countryCode })
             else { return }
-
-            selectedCountryNum = PhoneNumberInfo(
+            
+            let selectedCountryNum = PhoneNumberInfo(
                 country: country.countryCode,
                 phoneNumberPrefix: country.callingCodes[0],
                 name: country.englishName
             )
-            countryNums = countries
+            let countryNums = countries
                 .map {
                     PhoneNumberInfo(
                         country: $0.countryCode,
@@ -133,6 +132,10 @@ class LoginViewVM: ObservableObject {
                 .sorted {
                     $0.name < $1.name
                 }
+            DispatchQueue.main.async {
+                self.selectedCountryNum = selectedCountryNum
+                self.countryNums = countryNums
+            }
         }
     }
     

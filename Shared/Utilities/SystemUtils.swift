@@ -1,6 +1,7 @@
 // SystemUtils.swift
 
 import Foundation
+import Combine
 #if os(iOS)
 import UIKit
 #elseif os(watchOS)
@@ -10,8 +11,10 @@ import WatchKit
 public enum SystemUtils {
     #if os(iOS)
     public static let osVersion = UIDevice.current.systemVersion
+    public static var size = UIScreen.main.bounds.size
     #elseif os(watchOS)
     public static let osVersion = WKInterfaceDevice.current().systemVersion
+    public static var size = WKInterfaceDevice.current().screenBounds
     #endif
 
     static let logger = Logger(label: "SystemUtils")
