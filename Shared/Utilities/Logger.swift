@@ -14,6 +14,6 @@ struct Logger {
 
     func log(_ message: String) {
         let date = Date.now.formatted(date: .omitted, time: .standard)
-        logger.info("[\(date)] [\(label)] \(message)")
+        logger.log("[\(date)] [\(label)] \(message)")
     }
 }
