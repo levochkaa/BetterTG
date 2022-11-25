@@ -39,8 +39,8 @@ class RootViewVM: ObservableObject {
                let index = self.mainChats.firstIndex(where: { $0.id == updateChatDraftMessage.chatId }) {
                 let newChat = self.getChat(
                         from: self.mainChats[index],
-                        draftMessage: updateChatDraftMessage.draftMessage
-
+                        draftMessage: updateChatDraftMessage.draftMessage,
+                        updatedChatDraftMessage: true
                 )
                 DispatchQueue.main.async {
                     self.mainChats[index] = newChat
@@ -119,7 +119,8 @@ class RootViewVM: ObservableObject {
                  unreadCount: Int? = nil,
                  unreadMentionCount: Int? = nil,
                  unreadReactionCount: Int? = nil,
-                 videoChat: VideoChat? = nil
+                 videoChat: VideoChat? = nil,
+                 updatedChatDraftMessage: Bool = false
     ) -> Chat {
         return Chat(
                 actionBar: actionBar ?? chat.actionBar,
@@ -129,7 +130,7 @@ class RootViewVM: ObservableObject {
                 canBeReported: canBeReported ?? chat.canBeReported,
                 clientData: clientData ?? chat.clientData,
                 defaultDisableNotification: defaultDisableNotification ?? chat.defaultDisableNotification,
-                draftMessage: draftMessage ?? chat.draftMessage,
+                draftMessage: updatedChatDraftMessage ? draftMessage : chat.draftMessage,
                 hasProtectedContent: hasProtectedContent ?? chat.hasProtectedContent,
                 hasScheduledMessages: hasScheduledMessages ?? chat.hasScheduledMessages,
                 id: id ?? chat.id,
