@@ -28,7 +28,8 @@ git clone --recurse-submodules https://github.com/levochkaa/BetterTG.git
 ```
 ## Step 2 - Download XCode
 Latest **Xcode 14 beta** versions are used for this project.\
-I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading.
+Now I am using **AppCode EAP**, so thats why there are strange tabs, that don't appear in XCode\
+I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading XCode.
 ## Step 3 - `api_id` and `api_hash`
 Go to [this site](https://my.telegram.org/).\
 Log in, open **API development tools**, fill up the info.\
