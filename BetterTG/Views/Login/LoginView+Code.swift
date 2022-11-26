@@ -14,6 +14,7 @@ extension LoginView {
             
             TextField("Code", text: $viewModel.code)
                 .focused($focused)
+                .keyboardType(.numberPad)
                 .padding()
                 .background(Color.gray6)
                 .cornerRadius(10)
@@ -21,6 +22,7 @@ extension LoginView {
             Spacer()
             
             Button {
+                focused = false
                 Task {
                     await viewModel.handleAuthorizationState()
                 }

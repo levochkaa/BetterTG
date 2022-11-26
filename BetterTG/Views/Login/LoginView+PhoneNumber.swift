@@ -14,6 +14,7 @@ extension LoginView {
             
             VStack {
                 Button {
+                    focused = false
                     showSelectCountryView.toggle()
                 } label: {
                     Text(viewModel.selectedCountryNum.name)
@@ -25,6 +26,7 @@ extension LoginView {
 
                     TextField("Phone Number", text: $viewModel.phoneNumber)
                         .focused($focused)
+                        .keyboardType(.numberPad)
                 }
             }
             .padding()
@@ -34,6 +36,7 @@ extension LoginView {
             Spacer()
             
             Button {
+                focused = false
                 Task {
                     await viewModel.handleAuthorizationState()
                 }

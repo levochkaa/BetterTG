@@ -14,6 +14,7 @@ extension LoginView {
             
             TextField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
                 .focused($focused)
+                .keyboardType(.alphabet)
                 .padding()
                 .background(Color.gray6)
                 .cornerRadius(10)
@@ -21,6 +22,7 @@ extension LoginView {
             Spacer()
             
             Button {
+                focused = false
                 Task {
                     await viewModel.handleAuthorizationState()
                 }

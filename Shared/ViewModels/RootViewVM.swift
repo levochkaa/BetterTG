@@ -47,9 +47,9 @@ class RootViewVM: ObservableObject {
                 return
             }
             let newChat = self.getChat(
-                    from: self.mainChats[index],
-                    draftMessage: updateChatDraftMessage.draftMessage,
-                    updatedChatDraftMessage: true
+                from: self.mainChats[index],
+                draftMessage: updateChatDraftMessage.draftMessage,
+                updatedChatDraftMessage: true
             )
             DispatchQueue.main.async {
                 self.mainChats[index] = newChat
@@ -62,7 +62,9 @@ class RootViewVM: ObservableObject {
             nc.publisher(for: .closed),
             nc.publisher(for: .closing),
             nc.publisher(for: .loggingOut),
-            nc.publisher(for: .waitPhoneNumber)
+            nc.publisher(for: .waitPhoneNumber),
+            nc.publisher(for: .waitCode),
+            nc.publisher(for: .waitPassword)
         ]) { _ in
             DispatchQueue.main.async {
                 self.loggedIn = false
@@ -143,37 +145,37 @@ class RootViewVM: ObservableObject {
                  updatedChatDraftMessage: Bool = false
     ) -> Chat {
         return Chat(
-                actionBar: actionBar ?? chat.actionBar,
-                availableReactions: availableReactions ?? chat.availableReactions,
-                canBeDeletedForAllUsers: canBeDeletedForAllUsers ?? chat.canBeDeletedForAllUsers,
-                canBeDeletedOnlyForSelf: canBeDeletedOnlyForSelf ?? chat.canBeDeletedOnlyForSelf,
-                canBeReported: canBeReported ?? chat.canBeReported,
-                clientData: clientData ?? chat.clientData,
-                defaultDisableNotification: defaultDisableNotification ?? chat.defaultDisableNotification,
-                draftMessage: updatedChatDraftMessage ? draftMessage : chat.draftMessage,
-                hasProtectedContent: hasProtectedContent ?? chat.hasProtectedContent,
-                hasScheduledMessages: hasScheduledMessages ?? chat.hasScheduledMessages,
-                id: id ?? chat.id,
-                isBlocked: isBlocked ?? chat.isBlocked,
-                isMarkedAsUnread: isMarkedAsUnread ?? chat.isMarkedAsUnread,
-                lastMessage: lastMessage ?? chat.lastMessage,
-                lastReadInboxMessageId: lastReadInboxMessageId ?? chat.lastReadInboxMessageId,
-                lastReadOutboxMessageId: lastReadOutboxMessageId ?? chat.lastReadOutboxMessageId,
-                messageSenderId: messageSenderId ?? chat.messageSenderId,
-                messageTtl: messageTtl ?? chat.messageTtl,
-                notificationSettings: notificationSettings ?? chat.notificationSettings,
-                pendingJoinRequests: pendingJoinRequests ?? chat.pendingJoinRequests,
-                permissions: permissions ?? chat.permissions,
-                photo: photo ?? chat.photo,
-                positions: positions ?? chat.positions,
-                replyMarkupMessageId: replyMarkupMessageId ?? chat.replyMarkupMessageId,
-                themeName: themeName ?? chat.themeName,
-                title: title ?? chat.title,
-                type: type ?? chat.type,
-                unreadCount: unreadCount ?? chat.unreadCount,
-                unreadMentionCount: unreadMentionCount ?? chat.unreadMentionCount,
-                unreadReactionCount: unreadReactionCount ?? chat.unreadReactionCount,
-                videoChat: videoChat ?? chat.videoChat
+            actionBar: actionBar ?? chat.actionBar,
+            availableReactions: availableReactions ?? chat.availableReactions,
+            canBeDeletedForAllUsers: canBeDeletedForAllUsers ?? chat.canBeDeletedForAllUsers,
+            canBeDeletedOnlyForSelf: canBeDeletedOnlyForSelf ?? chat.canBeDeletedOnlyForSelf,
+            canBeReported: canBeReported ?? chat.canBeReported,
+            clientData: clientData ?? chat.clientData,
+            defaultDisableNotification: defaultDisableNotification ?? chat.defaultDisableNotification,
+            draftMessage: updatedChatDraftMessage ? draftMessage : chat.draftMessage,
+            hasProtectedContent: hasProtectedContent ?? chat.hasProtectedContent,
+            hasScheduledMessages: hasScheduledMessages ?? chat.hasScheduledMessages,
+            id: id ?? chat.id,
+            isBlocked: isBlocked ?? chat.isBlocked,
+            isMarkedAsUnread: isMarkedAsUnread ?? chat.isMarkedAsUnread,
+            lastMessage: lastMessage ?? chat.lastMessage,
+            lastReadInboxMessageId: lastReadInboxMessageId ?? chat.lastReadInboxMessageId,
+            lastReadOutboxMessageId: lastReadOutboxMessageId ?? chat.lastReadOutboxMessageId,
+            messageSenderId: messageSenderId ?? chat.messageSenderId,
+            messageTtl: messageTtl ?? chat.messageTtl,
+            notificationSettings: notificationSettings ?? chat.notificationSettings,
+            pendingJoinRequests: pendingJoinRequests ?? chat.pendingJoinRequests,
+            permissions: permissions ?? chat.permissions,
+            photo: photo ?? chat.photo,
+            positions: positions ?? chat.positions,
+            replyMarkupMessageId: replyMarkupMessageId ?? chat.replyMarkupMessageId,
+            themeName: themeName ?? chat.themeName,
+            title: title ?? chat.title,
+            type: type ?? chat.type,
+            unreadCount: unreadCount ?? chat.unreadCount,
+            unreadMentionCount: unreadMentionCount ?? chat.unreadMentionCount,
+            unreadReactionCount: unreadReactionCount ?? chat.unreadReactionCount,
+            videoChat: videoChat ?? chat.videoChat
         )
     }
 }
