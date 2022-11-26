@@ -12,8 +12,10 @@ struct Logger {
         self.label = label
     }
 
-    func log(_ message: String) {
+    func log(_ messages: Any...) {
         let date = Date.now.formatted(date: .omitted, time: .standard)
-        logger.log("[\(date)] [\(label)] \(message)")
+        for message in messages {
+            logger.log("[\(date)] [\(label)] \(String(describing: message))")
+        }
     }
 }
