@@ -18,7 +18,7 @@ struct RootView: View {
             Text("Loading...")
         }
     }
-    
+
     @ViewBuilder var bodyView: some View {
         NavigationStack {
             mainChatsListView
@@ -64,7 +64,7 @@ struct RootView: View {
             }
         }
     }
-    
+
     @ViewBuilder func chatListView(for chat: Chat) -> some View {
         HStack {
             Group {
@@ -89,9 +89,9 @@ struct RootView: View {
                     PlaceholderView(userId: chat.id, title: chat.title)
                 }
             }
-            .clipShape(Circle())
-            .frame(width: 64, height: 64)
-            
+                .clipShape(Circle())
+                .frame(width: 64, height: 64)
+
             VStack(alignment: .leading) {
                 Text(chat.title)
                     .lineLimit(1)
@@ -111,10 +111,10 @@ struct RootView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(5)
-        .background(Color.gray6)
-        .cornerRadius(20)
-        .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(5)
+            .background(Color.gray6)
+            .cornerRadius(20)
+            .padding(.horizontal, 10)
     }
 }

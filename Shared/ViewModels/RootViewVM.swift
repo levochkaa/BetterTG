@@ -64,7 +64,7 @@ class RootViewVM: ObservableObject {
                 self.loggedIn = false
             }
         }
-        
+
         nc.publisher(for: .ready) { _ in
             Task {
                 try await self.loadMainChats()

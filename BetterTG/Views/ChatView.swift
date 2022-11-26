@@ -4,31 +4,33 @@ import SwiftUI
 import TDLibKit
 
 struct ChatView: View {
-    
+
     let chat: Chat
-    
+
     @StateObject var viewModel: ChatViewVM
-    
+
     @State var text = ""
-    
+
     let tdApi: TdApi = .shared
-    
+
     init(for chat: Chat) {
         self.chat = chat
         self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
     }
-    
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 if viewModel.messages.isEmpty {
                     Text("No messages")
                 }
-                
+
                 ForEach(viewModel.messages, id: \.id) { msg in
                     HStack {
-                        if msg.isOutgoing { Spacer() }
-                        
+                        if msg.isOutgoing {
+                            Spacer()
+                        }
+
                         message(msg)
                             .id(msg.id)
                             .padding(8)
@@ -46,29 +48,32 @@ struct ChatView: View {
                                 maxWidth: SystemUtils.size.width * 0.8,
                                 alignment: msg.isOutgoing ? .trailing : .leading
                             )
-                        
-                        if !msg.isOutgoing { Spacer() }
+
+                        if !msg.isOutgoing {
+                            Spacer()
+                        }
                     }
-                    .padding(msg.isOutgoing ? .trailing : .leading)
+                        .padding(msg.isOutgoing ? .trailing : .leading)
                 }
-                
+
                 TextField("Message", text: $text)
                     .onSubmit {
-                        if text.isEmpty { return }
+                        if text.isEmpty {
+                            return
+                        }
                         Task {
                             try await viewModel.sendMessage(text: text)
                             text = ""
                         }
                     }
             }
-            .onChange(of: viewModel.messages) { _ in
-                proxy.scrollTo(viewModel.messages.last!.id, anchor: .bottom)
-            }
+                .onChange(of: viewModel.messages) { _ in
+                    proxy.scrollTo(viewModel.messages.last!.id, anchor: .bottom)
+                }
         }
-        .navigationTitle(viewModel.chat.title)
-        .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(viewModel.chat.title)
     }
-    
+
     @ViewBuilder func message(_ msg: Message) -> some View {
         Group {
             switch msg.content {
@@ -80,7 +85,7 @@ struct ChatView: View {
                     Text("BTG not supported")
             }
         }
-        .multilineTextAlignment(.leading)
-        .foregroundColor(msg.isOutgoing ? .white : .black)
+            .multilineTextAlignment(.leading)
+            .foregroundColor(msg.isOutgoing ? .white : .black)
     }
 }
