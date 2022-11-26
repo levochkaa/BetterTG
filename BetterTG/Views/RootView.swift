@@ -8,7 +8,7 @@ struct RootView: View {
     @StateObject private var viewModel = RootViewVM()
 
     let scroll = "rootScroll"
-    static let chatListViewHeight = 84 // 64 for avatar + (5 * 2) padding around + 10 padding between chatListViews
+    static let chatListViewHeight = 82 // 64 for avatar + (5 * 2) padding around + 8 spacing between chatListViews
     let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(chatListViewHeight))
 
     var body: some View {
@@ -36,13 +36,14 @@ struct RootView: View {
     @ViewBuilder var mainChatsListView: some View {
         ScrollView {
             ZStack {
-                LazyVStack {
+                LazyVStack(spacing: 8) {
                     ForEach(viewModel.mainChats, id: \.id) { chat in
                         NavigationLink(value: chat) {
                             chatListView(for: chat)
                         }
                     }
                 }
+                    .padding(.top, 8)
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: ScrollOffsetPreferenceKey.self,
