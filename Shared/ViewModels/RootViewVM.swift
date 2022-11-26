@@ -128,7 +128,7 @@ class RootViewVM: ObservableObject {
     ) -> Chat {
         return Chat(
                 actionBar: actionBar ?? chat.actionBar,
-                availableReactions:  availableReactions ?? chat.availableReactions,
+                availableReactions: availableReactions ?? chat.availableReactions,
                 canBeDeletedForAllUsers: canBeDeletedForAllUsers ?? chat.canBeDeletedForAllUsers,
                 canBeDeletedOnlyForSelf: canBeDeletedOnlyForSelf ?? chat.canBeDeletedOnlyForSelf,
                 canBeReported: canBeReported ?? chat.canBeReported,
