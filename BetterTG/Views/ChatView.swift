@@ -10,8 +10,12 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewVM
 
     @State var text = ""
+    @FocusState var focused
 
     let tdApi: TdApi = .shared
+    let logger = Logger(label: "ChatView")
+
+    private let lastMessage = "lastMessage"
 
     init(for chat: Chat) {
         self.chat = chat
@@ -19,10 +23,27 @@ struct ChatView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
+        VStack {
             if viewModel.messages.isEmpty {
                 Text("No messages")
+            } else {
+                bodyView
             }
+        }
+            .task {
+                do {
+                    try await viewModel.update()
+                } catch {
+                    guard let tdError = error as? TDLibKit.Error else {
+                        return
+                    }
+                    logger.log(tdError)
+                }
+            }
+    }
+
+    var bodyView: some View {
+        ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack {
                     ForEach(viewModel.messages) { msg in
@@ -56,23 +77,54 @@ struct ChatView: View {
                             .padding(msg.isOutgoing ? .trailing : .leading)
                     }
                 }
-
-                TextField("Message", text: $text)
-                    .onSubmit {
-                        if text.isEmpty {
-                            return
-                        }
-                        Task {
-                            try await viewModel.sendMessage(text: text)
-                            text = ""
-                        }
+                    .id(lastMessage)
+                    .onChange(of: viewModel.messages) { _ in
+                        proxy.scrollTo(lastMessage, anchor: .bottom)
                     }
             }
-                .onChange(of: viewModel.messages) { _ in
-                    proxy.scrollTo(viewModel.messages.last!.id, anchor: .bottom)
+                .onAppear {
+                    proxy.scrollTo("lastMessage", anchor: .bottom)
+                }
+                .onTapGesture {
+                    focused = false
                 }
         }
             .navigationTitle(viewModel.chat.title)
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    TextField("Message", text: $text, axis: .vertical)
+                        .focused($focused)
+                        .padding(5)
+                        .background(Color.gray6)
+                        .cornerRadius(10)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(.black, lineWidth: 1)
+                        }
+
+                    Button(action: sendMessage) {
+                        Image("send")
+                            .resizable()
+                            .clipShape(Circle())
+                            .frame(width: 32, height: 32)
+                    }
+                }
+                    .padding(.horizontal)
+                    .padding(.vertical, 5)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(10)
+                    .padding(.bottom, 5)
+            }
+    }
+
+    func sendMessage() {
+        if text.isEmpty {
+            return
+        }
+        Task {
+            try await viewModel.sendMessage(text: text)
+            text = ""
+        }
     }
 
     @ViewBuilder func message(_ msg: Message) -> some View {

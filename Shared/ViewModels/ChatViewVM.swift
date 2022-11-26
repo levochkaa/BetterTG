@@ -11,29 +11,26 @@ class ChatViewVM: ObservableObject {
     @Published var messages = [Message]()
     var offset = 0
     var retries = 0
-    var loaded = 0
-    let limit = 30
 
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
     private let nc: NotificationCenter = .default
 
-    let maxNumberOfRetries = 10
+    let maxNumberOfRetries = 5
 
     init(chat: Chat) {
         self.chat = chat
-
-        Task {
-            try await self.update()
-        }
-        
         self.setPublishers()
     }
-    
+
     func setPublishers() {
         nc.publisher(for: .newMessage) { notification in
-            guard let newMessage = notification.object as? UpdateNewMessage else { return }
-            if newMessage.message.chatId != self.chat.id { return }
+            guard let newMessage = notification.object as? UpdateNewMessage else {
+                return
+            }
+            if newMessage.message.chatId != self.chat.id {
+                return
+            }
             DispatchQueue.main.async {
                 self.messages.append(newMessage.message)
             }
@@ -48,14 +45,14 @@ class ChatViewVM: ObservableObject {
     func getMessages() async throws {
         let chatHistory = try await self.tdApi.getChatHistory(
             chatId: self.chat.id,
-            fromMessageId: 0,
-            limit: limit,
-            offset: -offset,
+            fromMessageId: self.messages.first?.id ?? 0,
+            limit: 100,
+            offset: self.messages.first == nil ? -offset : 0,
             onlyLocal: false
         )
-        offset += chatHistory.totalCount
 
         let chatMessages = chatHistory.messages?.reversed() ?? []
+
         DispatchQueue.main.async {
             self.messages = chatMessages.compactMap { msg in
                 if self.messages.first(where: { msg == $0 }) == nil {
@@ -65,11 +62,11 @@ class ChatViewVM: ObservableObject {
             } + self.messages
         }
 
-        if offset % limit != 0 {
+        offset = messages.count
+
+        if retries != maxNumberOfRetries {
             retries += 1
-            if retries != maxNumberOfRetries {
-                try await getMessages()
-            }
+            try await getMessages()
         }
     }
 
@@ -77,16 +74,16 @@ class ChatViewVM: ObservableObject {
         _ = try await tdApi.sendMessage(
             chatId: chat.id,
             inputMessageContent:
-                    .inputMessageText(
-                        .init(
-                            clearDraft: true,
-                            disableWebPagePreview: true,
-                            text: FormattedText(
-                                entities: [],
-                                text: text
-                            )
-                        )
-                    ),
+            .inputMessageText(
+                .init(
+                    clearDraft: true,
+                    disableWebPagePreview: true,
+                    text: FormattedText(
+                        entities: [],
+                        text: text
+                    )
+                )
+            ),
             messageThreadId: 0,
             options: nil,
             replyMarkup: nil,

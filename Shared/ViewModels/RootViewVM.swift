@@ -83,14 +83,15 @@ class RootViewVM: ObservableObject {
 
     func loadMainChats() async throws {
 //        don't know why, but some times loadChats() gives Error: 404
-//        do {
-//            _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
-//        } catch {
-//            guard let tdError = error as? TDLibKit.Error else {
-//                return
-//            }
-//            logger.log(tdError)
-//        }
+        do {
+            _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
+        } catch {
+            guard let tdError = error as? TDLibKit.Error else {
+                return
+            }
+            logger.log(tdError)
+        }
+
         loadingUsers = true
         let chats = try await tdApi.getChats(chatList: .chatListMain, limit: limit)
         let mainChats = try await chats.chatIds.asyncCompactMap { id in
