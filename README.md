@@ -6,7 +6,7 @@ A Telegram client for iOS and watchOS
 # Currently implemented
 ## iOS
 - login
-- fixed amount of chats/messages with people (only)
+- all chats with people from main folder
 - sending/reading text messages
 ## watchOS
 - login
