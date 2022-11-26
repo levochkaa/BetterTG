@@ -20,40 +20,41 @@ struct ChatView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
+            if viewModel.messages.isEmpty {
+                Text("No messages")
+            }
             ScrollView {
-                if viewModel.messages.isEmpty {
-                    Text("No messages")
-                }
-
-                ForEach(viewModel.messages, id: \.id) { msg in
-                    HStack {
-                        if msg.isOutgoing {
-                            Spacer()
-                        }
-
-                        message(msg)
-                            .id(msg.id)
-                            .padding(8)
-                            .background {
-                                if msg.isOutgoing {
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .frame(maxWidth: .infinity)
-                                        .foregroundColor(.blue)
-                                } else {
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .foregroundColor(.white)
-                                }
+                LazyVStack {
+                    ForEach(viewModel.messages) { msg in
+                        HStack {
+                            if msg.isOutgoing {
+                                Spacer()
                             }
-                            .frame(
-                                maxWidth: SystemUtils.size.width * 0.8,
-                                alignment: msg.isOutgoing ? .trailing : .leading
-                            )
 
-                        if !msg.isOutgoing {
-                            Spacer()
+                            message(msg)
+                                .id(msg.id)
+                                .padding(8)
+                                .background {
+                                    if msg.isOutgoing {
+                                        RoundedRectangle(cornerRadius: 20)
+                                            .frame(maxWidth: .infinity)
+                                            .foregroundColor(.blue)
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 20)
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                                .frame(
+                                    maxWidth: SystemUtils.size.width * 0.8,
+                                    alignment: msg.isOutgoing ? .trailing : .leading
+                                )
+
+                            if !msg.isOutgoing {
+                                Spacer()
+                            }
                         }
+                            .padding(msg.isOutgoing ? .trailing : .leading)
                     }
-                        .padding(msg.isOutgoing ? .trailing : .leading)
                 }
 
                 TextField("Message", text: $text)

@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1A21D0251C8C1D4D3DD98A6A /* Message+Identifiable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D929193708F8AE4C5A5B /* Message+Identifiable.swift */; };
 		1A21D03E20E0A64A861C2A0F /* Chat+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */; };
+		1A21DB945468E61BF2A380C2 /* Message+Identifiable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D929193708F8AE4C5A5B /* Message+Identifiable.swift */; };
 		1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
 		1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
 		1A21DE82E412B9A6BD6F62A0 /* Chat+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */; };
@@ -116,6 +118,7 @@
 
 /* Begin PBXFileReference section */
 		1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScrollOffsetPreferenceKey.swift; sourceTree = "<group>"; };
+		1A21D929193708F8AE4C5A5B /* Message+Identifiable.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Message+Identifiable.swift"; sourceTree = "<group>"; };
 		1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Chat+Hashable.swift"; sourceTree = "<group>"; };
 		DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewVM.swift; sourceTree = "<group>"; };
 		DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TdApi+Extension.swift"; sourceTree = "<group>"; };
@@ -390,6 +393,7 @@
 				DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */,
 				DFD9F890292FE54A00D1E03B /* Color+UserId.swift */,
 				1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */,
+				1A21D929193708F8AE4C5A5B /* Message+Identifiable.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -581,6 +585,7 @@
 				DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */,
 				1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */,
 				1A21DE82E412B9A6BD6F62A0 /* Chat+Hashable.swift in Sources */,
+				1A21DB945468E61BF2A380C2 /* Message+Identifiable.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -615,6 +620,7 @@
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
 				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
 				1A21D03E20E0A64A861C2A0F /* Chat+Hashable.swift in Sources */,
+				1A21D0251C8C1D4D3DD98A6A /* Message+Identifiable.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
