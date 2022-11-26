@@ -8,8 +8,8 @@ struct RootView: View {
     @StateObject private var viewModel = RootViewVM()
 
     let scroll = "rootScroll"
-    static let chatSize = 84 // 64 for avatar + (5 * 2) padding around + 10 padding between chats
-    let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(chatSize))
+    static let chatListViewHeight = 84 // 64 for avatar + (5 * 2) padding around + 10 padding between chatListViews
+    let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(chatListViewHeight))
 
     var body: some View {
         if let loggedIn = viewModel.loggedIn {
@@ -58,7 +58,7 @@ struct RootView: View {
                 }
 
                 if viewModel.mainChats.count <= maxChatsOnScreen {
-                    let approximateValue = viewModel.loadedUsers * RootView.chatSize
+                    let approximateValue = viewModel.loadedUsers * RootView.chatListViewHeight
                     let bottom = approximateValue - 30
                     let top = approximateValue + 30
                     if (bottom...top).contains(value) {
