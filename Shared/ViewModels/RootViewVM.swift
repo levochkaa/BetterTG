@@ -6,18 +6,22 @@ import TDLibKit
 import CollectionConcurrencyKit
 
 class RootViewVM: ObservableObject {
-    
+
     @Published var loggedIn: Bool?
     @Published var mainChats = [Chat]()
-    
+
+    var loadedUsers = 0
+    var limit = 10
+    var loadingUsers = false
+
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "RootVM")
     private let nc: NotificationCenter = .default
-    
+
     init() {
         self.setPublishers()
     }
-    
+
     func setPublishers() {
         self.setAuthPublishers()
         self.setChatPublishers()
@@ -74,10 +78,19 @@ class RootViewVM: ObservableObject {
             }
         }
     }
-    
+
     func loadMainChats() async throws {
-        _ = try await tdApi.loadChats(chatList: .chatListMain, limit: 50)
-        let chats = try await tdApi.getChats(chatList: .chatListMain, limit: 50)
+//        don't know why, but some times loadChats() gives Error: 404
+//        do {
+//            _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
+//        } catch {
+//            guard let tdError = error as? TDLibKit.Error else {
+//                return
+//            }
+//            logger.log(tdError)
+//        }
+        loadingUsers = true
+        let chats = try await tdApi.getChats(chatList: .chatListMain, limit: limit)
         let mainChats = try await chats.chatIds.asyncCompactMap { id in
             let chat = try await tdApi.getChat(chatId: id)
             switch chat.type {
@@ -87,8 +100,11 @@ class RootViewVM: ObservableObject {
                     return nil
             }
         }
-        DispatchQueue.main.async {
-            self.mainChats = mainChats
+        loadedUsers = mainChats.count
+        limit += 10
+        DispatchQueue.main.async { [mainChats] in
+            self.mainChats += mainChats[self.mainChats.count...]
+            self.loadingUsers = false
         }
     }
 

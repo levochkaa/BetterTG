@@ -4,9 +4,13 @@ import SwiftUI
 import TDLibKit
 
 struct RootView: View {
-    
+
     @StateObject private var viewModel = RootViewVM()
-    
+
+    let scroll = "rootScroll"
+    static let chatSize = 84 // 64 for avatar + (5 * 2) padding around + 10 padding between chats
+    let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(chatSize))
+
     var body: some View {
         if let loggedIn = viewModel.loggedIn {
             if loggedIn {
@@ -23,23 +27,55 @@ struct RootView: View {
         NavigationStack {
             mainChatsListView
                 .navigationTitle("BetterTG")
+                .navigationDestination(for: Chat.self) { chat in
+                    ChatView(for: chat)
+                }
         }
     }
-    
+
     @ViewBuilder var mainChatsListView: some View {
         ScrollView {
-            LazyVStack {
-                ForEach(viewModel.mainChats, id: \.id) { chat in
-                    NavigationLink {
-                        ChatView(for: chat)
-                    } label: {
-                        chatListView(for: chat)
+            ZStack {
+                LazyVStack {
+                    ForEach(viewModel.mainChats, id: \.id) { chat in
+                        NavigationLink(value: chat) {
+                            chatListView(for: chat)
+                        }
                     }
+                }
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ScrollOffsetPreferenceKey.self,
+                        value: Int(proxy.frame(in: .named(scroll)).maxY)
+                    )
                 }
             }
         }
+            .coordinateSpace(name: scroll)
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                if viewModel.loadingUsers {
+                    return
+                }
+
+                if viewModel.mainChats.count <= maxChatsOnScreen {
+                    let approximateValue = viewModel.loadedUsers * RootView.chatSize
+                    let bottom = approximateValue - 30
+                    let top = approximateValue + 30
+                    if (bottom...top).contains(value) {
+                        Task {
+                            try await viewModel.loadMainChats()
+                        }
+                    }
+                } else {
+                    if (700...1100).contains(value) {
+                        Task {
+                            try await viewModel.loadMainChats()
+                        }
+                    }
+                }
+            }
     }
-    
+
     @ViewBuilder func lastMessage(_ msg: Message) -> some View {
         switch msg.content {
             case let .messageText(messageText):

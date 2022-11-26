@@ -1,4 +1,4 @@
-// NotificationCenter+Extension.swift
+// NotificationCenter+Publishers.swift
 
 import Foundation
 import Combine
@@ -9,7 +9,7 @@ extension NotificationCenter {
     
     public func publisher(
         for name: Notification.Name,
-        perform: @escaping ((Publisher.Output) -> Void)
+        perform: @escaping (Publisher.Output) -> Void
     ) {
         self.publisher(for: name)
             .receive(on: RunLoop.main)
@@ -25,7 +25,7 @@ extension NotificationCenter {
     
     public func mergeMany(
         _ publishers: [Publisher],
-        perform: @escaping ((Publisher.Output) -> Void)
+        perform: @escaping (Publisher.Output) -> Void
     ) {
         Publishers.MergeMany(publishers)
             .receive(on: RunLoop.main)

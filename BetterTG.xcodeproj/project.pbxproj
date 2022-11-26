@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1A21D03E20E0A64A861C2A0F /* Chat+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */; };
+		1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
+		1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
+		1A21DE82E412B9A6BD6F62A0 /* Chat+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */; };
 		DF0F9D4E28CCACE500BCA763 /* RootViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */; };
 		DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */; };
 		DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */; };
@@ -73,8 +77,8 @@
 		DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
 		DFECD757292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
 		DFECD758292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
-		DFECD75A292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */; };
-		DFECD75B292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */; };
+		DFECD75A292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */; };
+		DFECD75B292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -111,6 +115,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScrollOffsetPreferenceKey.swift; sourceTree = "<group>"; };
+		1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Chat+Hashable.swift"; sourceTree = "<group>"; };
 		DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewVM.swift; sourceTree = "<group>"; };
 		DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TdApi+Extension.swift"; sourceTree = "<group>"; };
 		DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewVM.swift; sourceTree = "<group>"; };
@@ -159,7 +165,7 @@
 		DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+SelectCountry.swift"; sourceTree = "<group>"; };
 		DFECD752292A7318002A4BAD /* Color+UIColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+UIColor.swift"; sourceTree = "<group>"; };
 		DFECD756292A938B002A4BAD /* Notification+Name.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Name.swift"; sourceTree = "<group>"; };
-		DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationCenter+Extension.swift"; sourceTree = "<group>"; };
+		DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationCenter+Publishers.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -370,6 +376,7 @@
 				DF820B7628D7C7CF007DD293 /* Templates */,
 				DFBFB86828CE48290076895C /* SystemUtils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
+				1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -380,8 +387,9 @@
 				DFECD752292A7318002A4BAD /* Color+UIColor.swift */,
 				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
 				DFECD756292A938B002A4BAD /* Notification+Name.swift */,
-				DFECD759292A99FE002A4BAD /* NotificationCenter+Extension.swift */,
+				DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */,
 				DFD9F890292FE54A00D1E03B /* Color+UserId.swift */,
+				1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -565,12 +573,14 @@
 				DFB85D06290EE87A00F66E20 /* Image+File.swift in Sources */,
 				DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */,
 				DF1F890A290D7B99004DB50F /* Logger.swift in Sources */,
-				DFECD75B292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */,
+				DFECD75B292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */,
 				DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */,
 				DFECD758292A938B002A4BAD /* Notification+Name.swift in Sources */,
 				DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */,
 				DFB85D12290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */,
+				1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */,
+				1A21DE82E412B9A6BD6F62A0 /* Chat+Hashable.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -597,12 +607,14 @@
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */,
 				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,
-				DFECD75A292A99FE002A4BAD /* NotificationCenter+Extension.swift in Sources */,
+				DFECD75A292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */,
 				DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */,
 				DFECD757292A938B002A4BAD /* Notification+Name.swift in Sources */,
 				DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */,
 				DFB85D11290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
+				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
+				1A21D03E20E0A64A861C2A0F /* Chat+Hashable.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
