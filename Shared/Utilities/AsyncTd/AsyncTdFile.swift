@@ -35,8 +35,8 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         .animation(.easeInOut, value: isDownloaded)
         .animation(.easeInOut, value: file)
         .onReceive(nc.publisher(for: .file)) { notification in
-            if let updateFile = notification.object as? UpdateFile,
-               updateFile.file.id == self.id {
+            guard let updateFile = notification.object as? UpdateFile else { return }
+            if updateFile.file.id == self.id {
                 file = updateFile.file
                 isDownloaded = updateFile.file.local.isDownloadingCompleted
             }

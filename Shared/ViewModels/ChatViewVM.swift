@@ -32,11 +32,10 @@ class ChatViewVM: ObservableObject {
     
     func setPublishers() {
         nc.publisher(for: .newMessage) { notification in
-            if let newMessage = notification.object as? UpdateNewMessage {
-                if newMessage.message.chatId != self.chat.id { return }
-                DispatchQueue.main.async {
-                    self.messages.append(newMessage.message)
-                }
+            guard let newMessage = notification.object as? UpdateNewMessage else { return }
+            if newMessage.message.chatId != self.chat.id { return }
+            DispatchQueue.main.async {
+                self.messages.append(newMessage.message)
             }
         }
     }

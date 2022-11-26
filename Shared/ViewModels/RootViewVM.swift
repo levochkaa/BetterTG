@@ -25,30 +25,34 @@ class RootViewVM: ObservableObject {
 
     func setChatPublishers() {
         nc.publisher(for: .chatLastMessage) { notification in
-            if let updateChatLastMessage = notification.object as? UpdateChatLastMessage,
-               let index = self.mainChats.firstIndex(where: { $0.id == updateChatLastMessage.chatId }) {
-                let newChat = self.getChat(from: self.mainChats[index], lastMessage: updateChatLastMessage.lastMessage)
-                DispatchQueue.main.async {
-                    self.mainChats[index] = newChat
-                }
+            guard let updateChatLastMessage = notification.object as? UpdateChatLastMessage,
+                  let index = self.mainChats.firstIndex(where: { $0.id == updateChatLastMessage.chatId })
+            else {
+                return
+            }
+            let newChat = self.getChat(from: self.mainChats[index], lastMessage: updateChatLastMessage.lastMessage)
+            DispatchQueue.main.async {
+                self.mainChats[index] = newChat
             }
         }
 
         nc.publisher(for: .chatDraftMessage) { notification in
-            if let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage,
-               let index = self.mainChats.firstIndex(where: { $0.id == updateChatDraftMessage.chatId }) {
-                let newChat = self.getChat(
-                        from: self.mainChats[index],
-                        draftMessage: updateChatDraftMessage.draftMessage,
-                        updatedChatDraftMessage: true
-                )
-                DispatchQueue.main.async {
-                    self.mainChats[index] = newChat
-                }
+            guard let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage,
+                  let index = self.mainChats.firstIndex(where: { $0.id == updateChatDraftMessage.chatId })
+            else {
+                return
+            }
+            let newChat = self.getChat(
+                    from: self.mainChats[index],
+                    draftMessage: updateChatDraftMessage.draftMessage,
+                    updatedChatDraftMessage: true
+            )
+            DispatchQueue.main.async {
+                self.mainChats[index] = newChat
             }
         }
     }
-    
+
     func setAuthPublishers() {
         nc.mergeMany([
             nc.publisher(for: .closed),

@@ -32,9 +32,8 @@ class LoginViewVM: ObservableObject {
     func setPublishers() {
         nc.publisher(for: .waitPassword) { notification in
             self.loginState = .twoFactor
-            if let waitPassword = notification.object as? AuthorizationStateWaitPassword {
-                self.hint = waitPassword.passwordHint
-            }
+            guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
+            self.hint = waitPassword.passwordHint
         }
         
         nc.publisher(for: .waitCode) { _ in
