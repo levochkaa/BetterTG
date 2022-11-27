@@ -19,12 +19,12 @@ class RootViewVM: ObservableObject {
     private let nc: NotificationCenter = .default
 
     init() {
-        self.setPublishers()
+        setPublishers()
     }
 
     func setPublishers() {
-        self.setAuthPublishers()
-        self.setChatPublishers()
+        setAuthPublishers()
+        setChatPublishers()
     }
 
     func setChatPublishers() {
@@ -151,7 +151,7 @@ class RootViewVM: ObservableObject {
                  videoChat: VideoChat? = nil,
                  updatedChatDraftMessage: Bool = false
     ) -> Chat {
-        return Chat(
+        Chat(
             actionBar: actionBar ?? chat.actionBar,
             availableReactions: availableReactions ?? chat.availableReactions,
             canBeDeletedForAllUsers: canBeDeletedForAllUsers ?? chat.canBeDeletedForAllUsers,

@@ -30,23 +30,25 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                     placeholder()
                 }
             }
-            .transition(.opacity)
+                .transition(.opacity)
         }
-        .animation(.easeInOut, value: isDownloaded)
-        .animation(.easeInOut, value: file)
-        .onReceive(nc.publisher(for: .file)) { notification in
-            guard let updateFile = notification.object as? UpdateFile else { return }
-            if updateFile.file.id == self.id {
-                file = updateFile.file
-                isDownloaded = updateFile.file.local.isDownloadingCompleted
+            .animation(.easeInOut, value: isDownloaded)
+            .animation(.easeInOut, value: file)
+            .onReceive(nc.publisher(for: .file)) { notification in
+                guard let updateFile = notification.object as? UpdateFile else {
+                    return
+                }
+                if updateFile.file.id == id {
+                    file = updateFile.file
+                    isDownloaded = updateFile.file.local.isDownloadingCompleted
+                }
             }
-        }
-        .onChange(of: id) { id in
-            download(id)
-        }
-        .onAppear {
-            download()
-        }
+            .onChange(of: id) { id in
+                download(id)
+            }
+            .onAppear {
+                download()
+            }
     }
 
     private func download(_ id: Int? = nil) {
@@ -60,7 +62,9 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                     synchronous: false
                 )
             } catch {
-                guard let tdError = error as? TDLibKit.Error else { return }
+                guard let tdError = error as? TDLibKit.Error else {
+                    return
+                }
                 logger.log("Failed to download file with ID \(id ?? self.id), reason: \(tdError.message)")
             }
         }

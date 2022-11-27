@@ -72,7 +72,7 @@ struct EnvironmentScript: ParsableCommand {
                 }
             }
         } else {
-            log("Not enought arguments supplied, please check if you did insert API ID and hash values.")
+            log("Not enough arguments supplied, please check if you did insert API ID and hash values.")
         }
 
         log("Finished environment setup!")
@@ -177,20 +177,20 @@ struct EnvironmentScript: ParsableCommand {
         // This mess is just a system for lighting the choices in different ways
         print(
             message + " "
-            + (explicit
-               ? "(" + (preferred == .yes
-                        ? "yes"
-                        : "yes")
-               + "/" + (preferred == .no
-                        ? "no"
-                        : "no") + ")"
-               : "(" + (preferred == .yes
-                        ? "Y"
-                        : "Y") + "/"
-               + (preferred == .no
-                  ? "n"
-                  : "n") + ")")
-            + " ", terminator: "")
+                + (explicit
+                ? "(" + (preferred == .yes
+                ? "yes"
+                : "yes")
+                + "/" + (preferred == .no
+                ? "no"
+                : "no") + ")"
+                : "(" + (preferred == .yes
+                ? "Y"
+                : "Y") + "/"
+                + (preferred == .no
+                ? "n"
+                : "n") + ")")
+                + " ", terminator: "")
 
         if let result = readLine() {
             switch result.lowercased() {

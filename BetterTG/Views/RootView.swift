@@ -53,7 +53,7 @@ struct RootView: View {
                             .onAppear {
                                 Task {
                                     // preloading chatHistory
-                                    _ = try await self.tdApi.getChatHistory(
+                                    _ = try await tdApi.getChatHistory(
                                         chatId: chat.id,
                                         fromMessageId: 0,
                                         limit: 30,

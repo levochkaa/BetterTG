@@ -4,24 +4,28 @@ import SwiftUI
 import TDLibKit
 
 struct RootView: View {
-    
+
     @StateObject private var viewModel = RootViewVM()
-    
+
     var body: some View {
-        if viewModel.loggedIn {
-            bodyView
+        if let loggedIn = viewModel.loggedIn {
+            if loggedIn {
+                bodyView
+            } else {
+                LoginView()
+            }
         } else {
-            LoginView()
+            Text("Loading")
         }
     }
-    
+
     @ViewBuilder var bodyView: some View {
         NavigationStack {
             mainChatsListView
                 .navigationTitle("BetterTG")
         }
     }
-    
+
     @ViewBuilder var mainChatsListView: some View {
         List(viewModel.mainChats, id: \.id) { chat in
             NavigationLink {
@@ -31,13 +35,13 @@ struct RootView: View {
             }
         }
     }
-    
+
     @ViewBuilder var placeholder: some View {
         Circle()
             .foregroundColor(.black)
             .frame(width: 40, height: 40)
     }
-    
+
     @ViewBuilder func message(for content: MessageContent) -> some View {
         switch content {
             case let .messageText(messageText):
@@ -48,7 +52,7 @@ struct RootView: View {
                 Text("BTG not supported")
         }
     }
-    
+
     @ViewBuilder func chatListView(for chat: Chat) -> some View {
         HStack {
             if let photo = chat.photo {
@@ -64,12 +68,12 @@ struct RootView: View {
             } else {
                 placeholder
             }
-            
+
             VStack {
                 Text(chat.title)
                     .lineLimit(1)
                     .font(.body)
-                
+
                 if let lastMessage = chat.lastMessage {
                     message(for: lastMessage.content)
                         .lineLimit(1)
@@ -77,7 +81,7 @@ struct RootView: View {
                         .foregroundColor(.gray)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

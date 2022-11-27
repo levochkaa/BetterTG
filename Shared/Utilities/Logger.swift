@@ -8,7 +8,7 @@ struct Logger {
     private let label: String
 
     init(label: String) {
-        self.logger = os.Logger(subsystem: "BetterTG", category: label)
+        logger = os.Logger(subsystem: "BetterTG", category: label)
         self.label = label
     }
 
