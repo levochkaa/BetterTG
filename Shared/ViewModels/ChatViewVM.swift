@@ -9,24 +9,23 @@ class ChatViewVM: ObservableObject {
 
     let chat: Chat
 
+    var scrollViewProxy: ScrollViewProxy?
+
     @Published var messages = [Message]()
     var offset = 0
+    var loadingMessages = false
 
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
     private let nc: NotificationCenter = .default
 
-//    var retries = 0
-//    let maxNumberOfRetries = 5
-
     init(chat: Chat) {
         self.chat = chat
-        self.setPublishers()
+        setPublishers()
         Task {
-            try await self.update()
+            try await self.loadMessages(true)
         }
     }
-
 
     func setPublishers() {
         nc.publisher(for: .newMessage) { notification in
@@ -37,44 +36,32 @@ class ChatViewVM: ObservableObject {
                 return
             }
             DispatchQueue.main.async {
-                self.messages.append(newMessage.message)
+                self.messages.insert(newMessage.message, at: 0)
             }
         }
-
     }
 
-    func update() async throws {
-//        retries = 0
-        try await getMessages()
-    }
-
-    func getMessages() async throws {
+    func loadMessages(_ isInit: Bool = false) async throws {
+        loadingMessages = true
         let chatHistory = try await self.tdApi.getChatHistory(
-            chatId: self.chat.id,
-            fromMessageId: self.messages.first?.id ?? 0,
+            chatId: chat.id,
+            fromMessageId: self.messages.last?.id ?? 0,
             limit: 30,
-            offset: self.messages.first == nil ? -offset : 0,
+            offset: messages.last == nil ? -offset : 0,
             onlyLocal: false
         )
 
-        let chatMessages = chatHistory.messages?.reversed() ?? []
+        let chatMessages = chatHistory.messages ?? []
 
         DispatchQueue.main.async {
-            self.messages = chatMessages.compactMap { msg in
-                if self.messages.first(where: { msg == $0 }) == nil {
-                    return msg
-                }
-                return nil
-            } + self.messages
+            self.messages += chatMessages
+            self.offset = self.messages.count
+            self.loadingMessages = false
+
+            if isInit {
+                self.scrollViewProxy?.scrollTo(self.messages.last?.id)
+            }
         }
-
-        offset = messages.count
-
-//        did preloading, so, retries aren't needed
-//        if retries != maxNumberOfRetries {
-//            retries += 1
-//            try await getMessages()
-//        }
     }
 
     func sendMessage(text: String) async throws {
