@@ -82,7 +82,7 @@ class RootViewVM: ObservableObject {
     }
 
     func loadMainChats() async throws {
-//        don't know why, but some times loadChats() gives Error: 404
+        // don't know why, but some times loadChats() gives Error: 404
         do {
             _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
         } catch {
@@ -98,7 +98,13 @@ class RootViewVM: ObservableObject {
             let chat = try await tdApi.getChat(chatId: id)
             switch chat.type {
                 case .chatTypePrivate:
-                    return try await tdApi.getUser(userId: chat.id).type == .userTypeRegular ? chat : nil
+                    let user = try await tdApi.getUser(userId: chat.id)
+                    switch user.type {
+                        case .userTypeRegular:
+                            return chat
+                        default:
+                            return nil
+                    }
                 default:
                     return nil
             }

@@ -11,6 +11,16 @@ struct RootView: View {
     static let chatListViewHeight = 82 // 64 for avatar + (5 * 2) padding around + 8 spacing between chatListViews
     let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(chatListViewHeight))
 
+    let nc: NotificationCenter = .default
+    let tdApi: TdApi = .shared
+    let logger = Logger(label: "RootView")
+
+    init() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+    }
+
     var body: some View {
         if let loggedIn = viewModel.loggedIn {
             if loggedIn {
@@ -27,9 +37,6 @@ struct RootView: View {
         NavigationStack {
             mainChatsListView
                 .navigationTitle("BetterTG")
-                .navigationDestination(for: Chat.self) { chat in
-                    ChatView(for: chat)
-                }
         }
     }
 
@@ -38,9 +45,23 @@ struct RootView: View {
             ZStack {
                 LazyVStack(spacing: 8) {
                     ForEach(viewModel.mainChats, id: \.id) { chat in
-                        NavigationLink(value: chat) {
+                        NavigationLink {
+                            ChatView(viewModel: ChatViewVM(chat: chat))
+                        } label: {
                             chatListView(for: chat)
                         }
+                            .onAppear {
+                                Task {
+                                    // preloading chatHistory
+                                    _ = try await self.tdApi.getChatHistory(
+                                        chatId: chat.id,
+                                        fromMessageId: 0,
+                                        limit: 30,
+                                        offset: 0,
+                                        onlyLocal: false
+                                    )
+                                }
+                            }
                     }
                 }
                     .padding(.top, 8)
