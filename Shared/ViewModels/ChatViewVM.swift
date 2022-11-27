@@ -6,22 +6,27 @@ import TDLibKit
 import CollectionConcurrencyKit
 
 class ChatViewVM: ObservableObject {
+
     let chat: Chat
 
     @Published var messages = [Message]()
     var offset = 0
-    var retries = 0
 
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
     private let nc: NotificationCenter = .default
 
-    let maxNumberOfRetries = 5
+//    var retries = 0
+//    let maxNumberOfRetries = 5
 
     init(chat: Chat) {
         self.chat = chat
         self.setPublishers()
+        Task {
+            try await self.update()
+        }
     }
+
 
     func setPublishers() {
         nc.publisher(for: .newMessage) { notification in
@@ -35,10 +40,11 @@ class ChatViewVM: ObservableObject {
                 self.messages.append(newMessage.message)
             }
         }
+
     }
 
     func update() async throws {
-        retries = 0
+//        retries = 0
         try await getMessages()
     }
 
@@ -46,7 +52,7 @@ class ChatViewVM: ObservableObject {
         let chatHistory = try await self.tdApi.getChatHistory(
             chatId: self.chat.id,
             fromMessageId: self.messages.first?.id ?? 0,
-            limit: 100,
+            limit: 30,
             offset: self.messages.first == nil ? -offset : 0,
             onlyLocal: false
         )
@@ -64,10 +70,11 @@ class ChatViewVM: ObservableObject {
 
         offset = messages.count
 
-        if retries != maxNumberOfRetries {
-            retries += 1
-            try await getMessages()
-        }
+//        did preloading, so, retries aren't needed
+//        if retries != maxNumberOfRetries {
+//            retries += 1
+//            try await getMessages()
+//        }
     }
 
     func sendMessage(text: String) async throws {

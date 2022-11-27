@@ -5,8 +5,6 @@ import TDLibKit
 
 struct ChatView: View {
 
-    let chat: Chat
-
     @StateObject var viewModel: ChatViewVM
 
     @State var text = ""
@@ -15,31 +13,16 @@ struct ChatView: View {
     let tdApi: TdApi = .shared
     let logger = Logger(label: "ChatView")
 
-    private let lastMessage = "lastMessage"
-
-    init(for chat: Chat) {
-        self.chat = chat
-        self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
-    }
-
     var body: some View {
-        VStack {
+        Group {
             if viewModel.messages.isEmpty {
                 Text("No messages")
             } else {
                 bodyView
             }
         }
-            .task {
-                do {
-                    try await viewModel.update()
-                } catch {
-                    guard let tdError = error as? TDLibKit.Error else {
-                        return
-                    }
-                    logger.log(tdError)
-                }
-            }
+            .navigationTitle(viewModel.chat.title)
+            .navigationBarTitleDisplayMode(.inline)
     }
 
     var bodyView: some View {
@@ -53,7 +36,6 @@ struct ChatView: View {
                             }
 
                             message(msg)
-                                .id(msg.id)
                                 .padding(8)
                                 .background {
                                     if msg.isOutgoing {
@@ -74,47 +56,67 @@ struct ChatView: View {
                                 Spacer()
                             }
                         }
+                            .id(msg.id)
                             .padding(msg.isOutgoing ? .trailing : .leading)
                     }
                 }
-                    .id(lastMessage)
-                    .onChange(of: viewModel.messages) { _ in
-                        proxy.scrollTo(lastMessage, anchor: .bottom)
-                    }
             }
+                .scrollDismissesKeyboard(.interactively)
                 .onAppear {
-                    proxy.scrollTo("lastMessage", anchor: .bottom)
+                    guard let lastId = viewModel.messages.last?.id else {
+                        return
+                    }
+                    proxy.scrollTo(lastId, anchor: .bottom)
+                }
+                .onChange(of: viewModel.messages) { _ in
+                    guard let lastId = viewModel.messages.last?.id else {
+                        return
+                    }
+                    withAnimation {
+                        proxy.scrollTo(lastId, anchor: .bottom)
+                    }
+                }
+                .onChange(of: focused) { _ in
+                    guard let lastId = viewModel.messages.last?.id else {
+                        return
+                    }
+                    withAnimation {
+                        proxy.scrollTo(lastId, anchor: .bottom)
+                    }
                 }
                 .onTapGesture {
                     focused = false
                 }
         }
-            .navigationTitle(viewModel.chat.title)
             .safeAreaInset(edge: .bottom) {
-                HStack {
-                    TextField("Message", text: $text, axis: .vertical)
-                        .focused($focused)
-                        .padding(5)
-                        .background(Color.gray6)
-                        .cornerRadius(10)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(.black, lineWidth: 1)
-                        }
-
-                    Button(action: sendMessage) {
-                        Image("send")
-                            .resizable()
-                            .clipShape(Circle())
-                            .frame(width: 32, height: 32)
-                    }
-                }
-                    .padding(.horizontal)
-                    .padding(.vertical, 5)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(10)
+                textField
                     .padding(.bottom, 5)
             }
+    }
+
+    @ViewBuilder var textField: some View {
+        HStack {
+            TextField("Message", text: $text, axis: .vertical)
+                .focused($focused)
+                .padding(5)
+                .background(Color.gray6)
+                .cornerRadius(10)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.black, lineWidth: 1)
+                }
+
+            Button(action: sendMessage) {
+                Image("send")
+                    .resizable()
+                    .clipShape(Circle())
+                    .frame(width: 32, height: 32)
+            }
+        }
+            .padding(.horizontal)
+            .padding(.vertical, 5)
+            .background(.bar)
+            .cornerRadius(10)
     }
 
     func sendMessage() {
