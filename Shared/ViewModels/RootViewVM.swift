@@ -35,7 +35,7 @@ class RootViewVM: ObservableObject {
                 return
             }
             let newChat = self.getChat(from: self.mainChats[index], lastMessage: updateChatLastMessage.lastMessage)
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.mainChats[index] = newChat
             }
         }
@@ -51,7 +51,7 @@ class RootViewVM: ObservableObject {
                 draftMessage: updateChatDraftMessage.draftMessage,
                 updatedChatDraftMessage: true
             )
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.mainChats[index] = newChat
             }
         }
@@ -66,7 +66,7 @@ class RootViewVM: ObservableObject {
             nc.publisher(for: .waitCode),
             nc.publisher(for: .waitPassword)
         ]) { _ in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.loggedIn = false
             }
         }
@@ -74,9 +74,10 @@ class RootViewVM: ObservableObject {
         nc.publisher(for: .ready) { _ in
             Task {
                 try await self.loadMainChats()
-            }
-            DispatchQueue.main.async {
-                self.loggedIn = true
+
+                await MainActor.run {
+                    self.loggedIn = true
+                }
             }
         }
     }
@@ -111,7 +112,7 @@ class RootViewVM: ObservableObject {
         }
         loadedUsers = mainChats.count
         limit += 10
-        DispatchQueue.main.async { [mainChats] in
+        await MainActor.run {
             self.mainChats += mainChats[self.mainChats.count...]
             self.loadingUsers = false
         }

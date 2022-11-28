@@ -35,7 +35,7 @@ class ChatViewVM: ObservableObject {
             if newMessage.message.chatId != self.chat.id {
                 return
             }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.messages.insert(newMessage.message, at: 0)
             }
         }
@@ -53,7 +53,7 @@ class ChatViewVM: ObservableObject {
 
         let chatMessages = chatHistory.messages ?? []
 
-        DispatchQueue.main.async {
+        await MainActor.run {
             self.messages += chatMessages
             self.offset = self.messages.count
             self.loadingMessages = false

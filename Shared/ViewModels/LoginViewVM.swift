@@ -103,7 +103,7 @@ class LoginViewVM: ObservableObject {
             }
             logger.log("HandlingAuthStateError: \(tdError.code) - \(tdError.localizedDescription)")
 
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.errorMessage = "\(tdError.message)"
                 self.showError = true
             }
@@ -137,7 +137,7 @@ class LoginViewVM: ObservableObject {
                 .sorted {
                     $0.name < $1.name
                 }
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.selectedCountryNum = selectedCountryNum
                 self.countryNums = countryNums
             }

@@ -74,7 +74,7 @@ extension TdApi {
             case let .updateAuthorizationState(updateAuthorizationState):
                 self.updateAuthorizationState(updateAuthorizationState.authorizationState)
             case let .updateFile(updateFile):
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     TdApi.nc.post(name: .file, object: updateFile)
                 }
             case let .updateNewMessage(updateNewMessage):
