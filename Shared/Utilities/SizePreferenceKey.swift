@@ -1,6 +1,6 @@
 // SizePreferenceKey.swift
 
-import Foundation
+import SwiftUI
 
 struct SizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
