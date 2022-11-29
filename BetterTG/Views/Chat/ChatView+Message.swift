@@ -4,9 +4,11 @@ import SwiftUI
 import TDLibKit
 
 extension ChatView {
-    @ViewBuilder func message(_ msg: Message) -> some View {
-        Group {
-            switch msg.content {
+    @ViewBuilder func message(_ msg: CustomMessage) -> some View {
+        VStack(alignment: .leading) {
+            replyMessage(msg)
+
+            switch msg.message.content {
                 case let .messageText(messageText):
                     Text(messageText.text.text)
                 case .messageUnsupported:
@@ -16,6 +18,6 @@ extension ChatView {
             }
         }
             .multilineTextAlignment(.leading)
-            .foregroundColor(msg.isOutgoing ? .white : .black)
+            .foregroundColor(msg.message.isOutgoing ? .white : .black)
     }
 }

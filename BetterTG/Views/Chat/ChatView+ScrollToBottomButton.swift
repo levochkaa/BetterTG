@@ -15,7 +15,7 @@ extension ChatView {
             .padding(.trailing)
             .padding(.bottom, 5)
             .onTapGesture {
-                guard let firstId = viewModel.messages.first?.id else {
+                guard let firstId = viewModel.messages.first?.message.id else {
                     return
                 }
 

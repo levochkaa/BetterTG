@@ -9,19 +9,19 @@ extension ChatView {
                 LazyVStack {
                     ForEach(viewModel.messages) { msg in
                         HStack {
-                            if msg.isOutgoing {
+                            if msg.message.isOutgoing {
                                 Spacer()
                             }
 
                             message(msg)
-                                .messageBubble(for: msg)
+                                .messageBubble(for: msg.message)
 
-                            if !msg.isOutgoing {
+                            if !msg.message.isOutgoing {
                                 Spacer()
                             }
                         }
-                            .id(msg.id)
-                            .padding(msg.isOutgoing ? .trailing : .leading)
+                            .id(msg.message.id)
+                            .padding(msg.message.isOutgoing ? .trailing : .leading)
                             .flippedUpsideDown()
                     }
                     if viewModel.loadingMessages {

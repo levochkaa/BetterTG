@@ -11,7 +11,7 @@ class ChatViewVM: ObservableObject {
 
     var scrollViewProxy: ScrollViewProxy?
 
-    @Published var messages = [Message]()
+    @Published var messages = [CustomMessage]()
     var offset = 0
     var loadingMessages = false
 
@@ -37,9 +37,52 @@ class ChatViewVM: ObservableObject {
             if newMessage.message.chatId != self.chat.id {
                 return
             }
-            Task { @MainActor in
-                self.messages.insert(newMessage.message, at: 0)
+
+            Task {
+                let customMessage = try await self.getCustomMessage(from: newMessage.message)
+                Task { @MainActor in
+                    self.messages.insert(customMessage, at: 0)
+                }
             }
+        }
+    }
+
+    func deleteMessages(ids: [Int64], deleteForBoth: Bool) async throws {
+        _ = try await tdApi.deleteMessages(chatId: self.chat.id, messageIds: ids, revoke: deleteForBoth)
+    }
+
+    func getMessage(id: Int64) async throws -> Message {
+        try await tdApi.getMessage(chatId: chat.id, messageId: id)
+    }
+
+    func getReplyToMessage(id: Int64) async throws -> Message? {
+        id != 0 ? try await getMessage(id: id) : nil
+    }
+
+    func getCustomMessage(from message: Message) async throws -> CustomMessage {
+        let replyToMessage = try await getReplyToMessage(id: message.replyToMessageId)
+        if let reply = replyToMessage {
+            switch reply.senderId {
+                case let .messageSenderUser(messageSenderUser):
+                    let replyUser = try await tdApi.getUser(userId: messageSenderUser.userId)
+                    return CustomMessage(
+                        message: message,
+                        replyToMessage: replyToMessage,
+                        replyUser: replyUser
+                    )
+                default:
+                    return CustomMessage(
+                        message: message,
+                        replyToMessage: replyToMessage,
+                        replyUser: nil
+                    )
+            }
+        } else {
+            return CustomMessage(
+                message: message,
+                replyToMessage: nil,
+                replyUser: nil
+            )
         }
     }
 
@@ -47,21 +90,24 @@ class ChatViewVM: ObservableObject {
         loadingMessages = true
         let chatHistory = try await self.tdApi.getChatHistory(
             chatId: chat.id,
-            fromMessageId: self.messages.last?.id ?? 0,
+            fromMessageId: self.messages.last?.message.id ?? 0,
             limit: 30,
             offset: messages.last == nil ? -offset : 0,
             onlyLocal: false
         )
 
         let chatMessages = chatHistory.messages ?? []
+        let messages = try await chatMessages.asyncMap { chatMessage in
+            try await self.getCustomMessage(from: chatMessage)
+        }
 
         await MainActor.run {
-            self.messages += chatMessages
+            self.messages += messages
             self.offset = self.messages.count
             self.loadingMessages = false
 
             if isInit {
-                self.scrollViewProxy?.scrollTo(self.messages.last?.id)
+                self.scrollViewProxy?.scrollTo(self.messages.last?.message.id)
             }
         }
     }

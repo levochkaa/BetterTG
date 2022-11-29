@@ -62,7 +62,7 @@ struct ChatView: View {
                 }
                 .onChange(of: focused) { _ in
                     if focused {
-                        guard let firstId = viewModel.messages.first?.id else {
+                        guard let firstId = viewModel.messages.first?.message.id else {
                             return
                         }
                         withAnimation {
