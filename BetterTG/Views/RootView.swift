@@ -8,8 +8,10 @@ struct RootView: View {
     @StateObject private var viewModel = RootViewVM()
 
     let scroll = "rootScroll"
-    static let chatListViewHeight = 82 // 64 for avatar + (5 * 2) padding around + 8 spacing between chatListViews
-    let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(chatListViewHeight))
+
+    static let spacing: CGFloat = 8
+    static let chatListViewHeight = Int(74 + RootView.spacing) // 64 for avatar + (5 * 2) padding around
+    static let maxChatsOnScreen = Int(SystemUtils.size.height / CGFloat(RootView.chatListViewHeight))
 
     let nc: NotificationCenter = .default
     let tdApi: TdApi = .shared
@@ -46,7 +48,7 @@ struct RootView: View {
     @ViewBuilder var mainChatsListView: some View {
         ScrollView {
             ZStack {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: RootView.spacing) {
                     ForEach(viewModel.mainChats, id: \.id) { chat in
                         NavigationLink {
                             ChatView(chat: chat)
@@ -82,17 +84,19 @@ struct RootView: View {
                     return
                 }
 
-                if viewModel.mainChats.count <= maxChatsOnScreen {
+                if viewModel.mainChats.count <= RootView.maxChatsOnScreen {
                     let approximateValue = viewModel.loadedUsers * RootView.chatListViewHeight
                     let bottom = approximateValue - 30
                     let top = approximateValue + 30
-                    if (bottom...top).contains(value) {
+                    let range = (bottom...top)
+                    if range.contains(value) {
                         Task {
                             try await viewModel.loadMainChats()
                         }
                     }
                 } else {
-                    if (700...1100).contains(value) {
+                    let range = (700...1100)
+                    if range.contains(value) {
                         Task {
                             try await viewModel.loadMainChats()
                         }
