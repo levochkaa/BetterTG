@@ -17,6 +17,8 @@ struct RootView: View {
     let tdApi: TdApi = .shared
     let logger = Logger(label: "RootView")
 
+    @Environment(\.scenePhase) var scenePhase
+
     init() {
         let appearance = UINavigationBarAppearance()
         appearance.backgroundColor = .black
@@ -42,6 +44,21 @@ struct RootView: View {
         NavigationStack {
             mainChatsListView
                 .navigationTitle("BetterTG")
+                .onChange(of: scenePhase) { newPhase in
+                    Task {
+                        switch newPhase {
+                            case .active:
+                                logger.log("App is Active")
+                                try await viewModel.fetchChatsHistory()
+                            case .inactive:
+                                logger.log("App is Inactive")
+                            case .background:
+                                logger.log("App is in a Background")
+                            @unknown default:
+                                logger.log("Unknown state of an App")
+                        }
+                    }
+                }
         }
     }
 

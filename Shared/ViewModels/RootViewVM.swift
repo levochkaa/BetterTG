@@ -82,6 +82,18 @@ class RootViewVM: ObservableObject {
         }
     }
 
+    func fetchChatsHistory() async throws {
+        try await mainChats.asyncForEach { chat in
+            _ = try await tdApi.getChatHistory(
+                chatId: chat.id,
+                fromMessageId: 0,
+                limit: 30,
+                offset: 0,
+                onlyLocal: false
+            )
+        }
+    }
+
     func loadMainChats() async throws {
         // don't know why, but some times loadChats() gives Error: 404
         do {
