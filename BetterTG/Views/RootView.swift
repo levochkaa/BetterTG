@@ -49,7 +49,7 @@ struct RootView: View {
                 LazyVStack(spacing: 8) {
                     ForEach(viewModel.mainChats, id: \.id) { chat in
                         NavigationLink {
-                            ChatView(viewModel: ChatViewVM(chat: chat))
+                            ChatView(chat: chat)
                         } label: {
                             chatListView(for: chat)
                         }

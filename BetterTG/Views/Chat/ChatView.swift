@@ -15,6 +15,10 @@ struct ChatView: View {
     let tdApi: TdApi = .shared
     let logger = Logger(label: "ChatView")
 
+    init(chat: Chat) {
+        self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
+    }
+
     var body: some View {
         Group {
             if viewModel.messages.isEmpty {
