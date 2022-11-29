@@ -5,7 +5,8 @@ import SwiftUI
 extension LoginView {
     @ViewBuilder var selectCountryView: some View {
         NavigationStack {
-            List(viewModel.getFilteredCountries(query: searchCountries), id: \.self) { info in
+            let countries = viewModel.getFilteredCountries(query: searchCountries)
+            List(countries, id: \.self) { info in
                 Button {
                     viewModel.selectedCountryNum = info
                     showSelectCountryView.toggle()
@@ -16,24 +17,27 @@ extension LoginView {
                         Spacer()
 
                         Text("+\(info.phoneNumberPrefix)")
-                        
+
                         if info == viewModel.selectedCountryNum {
                             Image(systemName: "checkmark")
                         }
                     }
-                    .foregroundColor(.white)
+                        .foregroundColor(.white)
                 }
+                    .listRowBackground(Color.black)
             }
-            .navigationTitle("Country")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchCountries, placement: .navigationBarDrawer(displayMode: .always))
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        showSelectCountryView.toggle()
+                .background(.black)
+                .scrollContentBackground(.hidden)
+                .navigationTitle("Country")
+                .navigationBarTitleDisplayMode(.inline)
+                .searchable(text: $searchCountries, placement: .navigationBarDrawer(displayMode: .always))
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Cancel") {
+                            showSelectCountryView.toggle()
+                        }
                     }
                 }
-            }
         }
     }
 }

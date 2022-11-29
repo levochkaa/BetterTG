@@ -8,7 +8,9 @@ struct LoginView: View {
 
     @State var showSelectCountryView = false
     @State var searchCountries = ""
-    @FocusState var focused
+    @FocusState var focusedPhoneNumber
+    @FocusState var focusedTwoFactor
+    @FocusState var focusedCode
 
     let logger = Logger(label: "Login")
     

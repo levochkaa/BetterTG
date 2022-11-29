@@ -6,23 +6,23 @@ extension LoginView {
     @ViewBuilder var codeView: some View {
         VStack {
             Spacer()
-            
+
             Text("Code from Telegram")
                 .font(.largeTitle)
-            
+
             Spacer()
-            
+
             TextField("Code", text: $viewModel.code)
-                .focused($focused)
+                .focused($focusedCode)
                 .keyboardType(.numberPad)
                 .padding()
                 .background(Color.gray6)
                 .cornerRadius(10)
-            
+
             Spacer()
-            
+
             Button {
-                focused = false
+                focusedCode = false
                 Task {
                     await viewModel.handleAuthorizationState()
                 }
@@ -31,13 +31,12 @@ extension LoginView {
                     .padding(.vertical, 5)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            
-            Spacer()
+                .buttonStyle(.borderedProminent)
+                .padding(.bottom, 10)
         }
-        .padding()
-        .onAppear {
-            focused = true
-        }
+            .padding()
+            .onAppear {
+                focusedCode = true
+            }
     }
 }
