@@ -93,7 +93,7 @@ struct RootView: View {
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: ScrollOffsetPreferenceKey.self,
-                        value: Int(proxy.frame(in: .named(scroll)).maxY)
+                        value: proxy.frame(in: .named(scroll))
                     )
                 }
             }
@@ -104,19 +104,21 @@ struct RootView: View {
                     return
                 }
 
+                let maxY = Int(value.maxY)
+
                 if viewModel.mainChats.count <= RootView.maxChatsOnScreen {
                     let approximateValue = viewModel.loadedUsers * RootView.chatListViewHeight
                     let bottom = approximateValue - 30
                     let top = approximateValue + 30
                     let range = (bottom...top)
-                    if range.contains(value) {
+                    if range.contains(maxY) {
                         Task {
                             try await viewModel.loadMainChats()
                         }
                     }
                 } else {
                     let range = (700...1100)
-                    if range.contains(value) {
+                    if range.contains(maxY) {
                         Task {
                             try await viewModel.loadMainChats()
                         }

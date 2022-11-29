@@ -32,7 +32,7 @@ extension ChatView {
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: ScrollOffsetPreferenceKey.self,
-                        value: Int(proxy.frame(in: .named(scroll)).minY)
+                        value: proxy.frame(in: .named(scroll))
                     )
                 }
             }

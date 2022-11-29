@@ -36,23 +36,38 @@ struct ChatView: View {
             listOfMessages
                 .coordinateSpace(name: scroll)
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                    let maxY = Int(value.maxY)
+                    if maxY > 672 { // 672 - lowest number of the scroll
+                        if viewModel.isScrollToBottomButtonShown == false {
+                            viewModel.isScrollToBottomButtonShown = true
+                        }
+                    } else {
+                        if viewModel.isScrollToBottomButtonShown == true {
+                            viewModel.isScrollToBottomButtonShown = false
+                        }
+                    }
+
                     if viewModel.loadingMessages {
                         return
                     }
 
+                    let minY = Int(value.minY)
+
                     let range = Range(uncheckedBounds: (lower: -500, upper: 100))
-                    if range.contains(value) {
+                    if range.contains(minY) {
                         Task {
                             try await viewModel.loadMessages()
                         }
                     }
                 }
                 .onChange(of: focused) { _ in
-                    guard let firstId = viewModel.messages.first?.id else {
-                        return
-                    }
-                    withAnimation {
-                        proxy.scrollTo(firstId, anchor: .bottom)
+                    if focused {
+                        guard let firstId = viewModel.messages.first?.id else {
+                            return
+                        }
+                        withAnimation {
+                            proxy.scrollTo(firstId, anchor: .bottom)
+                        }
                     }
                 }
                 .onAppear {
@@ -62,9 +77,23 @@ struct ChatView: View {
                     focused = false
                 }
         }
+            .overlay(alignment: .bottomTrailing) {
+                Group {
+                    if viewModel.isScrollToBottomButtonShown {
+                        scrollToBottomButton
+                            .transition(.move(edge: .trailing))
+                    } else {
+                        scrollToBottomButton
+                            .offset(x: 60)
+                            .transition(.move(edge: .trailing))
+                    }
+                }
+                    .animation(.default, value: viewModel.isScrollToBottomButtonShown)
+            }
             .safeAreaInset(edge: .bottom) {
                 textField
             }
+
     }
 
     func sendMessage() {

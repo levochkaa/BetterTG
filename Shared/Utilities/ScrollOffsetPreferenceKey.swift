@@ -3,9 +3,9 @@
 import SwiftUI
 
 struct ScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: Int = 0
+    static var defaultValue: CGRect = .zero
 
-    static func reduce(value: inout Int, nextValue: () -> Int) {
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         value = nextValue()
     }
 }

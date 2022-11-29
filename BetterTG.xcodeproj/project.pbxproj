@@ -15,6 +15,7 @@
 		1A21D640A5574B5FAF9223EA /* View+FlippedUpsideDown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DA716F6259A775D09423 /* View+FlippedUpsideDown.swift */; };
 		1A21D66C458D17D7D214358D /* ChatView+MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCE0538E7CCE4BC0F018 /* ChatView+MessageBubble.swift */; };
 		1A21D784063CE2FA273658FF /* SizePreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D3AA803B5B4DCF8AC3E5 /* SizePreferenceKey.swift */; };
+		1A21D8015275B3826842C4AF /* ChatView+ScrollToBottomButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DD298CCA10E58E1DB3EA /* ChatView+ScrollToBottomButton.swift */; };
 		1A21DAE2BADBE9A5D6ADB856 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D6E4B3EE6D349DB55696 /* ChatView.swift */; };
 		1A21DB945468E61BF2A380C2 /* Message+Identifiable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D929193708F8AE4C5A5B /* Message+Identifiable.swift */; };
 		1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
@@ -140,6 +141,7 @@
 		1A21DA716F6259A775D09423 /* View+FlippedUpsideDown.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "View+FlippedUpsideDown.swift"; sourceTree = "<group>"; };
 		1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Chat+Hashable.swift"; sourceTree = "<group>"; };
 		1A21DCE0538E7CCE4BC0F018 /* ChatView+MessageBubble.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "ChatView+MessageBubble.swift"; sourceTree = "<group>"; };
+		1A21DD298CCA10E58E1DB3EA /* ChatView+ScrollToBottomButton.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "ChatView+ScrollToBottomButton.swift"; sourceTree = "<group>"; };
 		1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "View+ReadSize.swift"; sourceTree = "<group>"; };
 		DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewVM.swift; sourceTree = "<group>"; };
 		DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TdApi+Extension.swift"; sourceTree = "<group>"; };
@@ -232,6 +234,7 @@
 				1A21D632264AD070F20C1D32 /* ChatView+Message.swift */,
 				1A21DCE0538E7CCE4BC0F018 /* ChatView+MessageBubble.swift */,
 				1A21D779D749860C7447D251 /* ChatView+ListOfMessages.swift */,
+				1A21DD298CCA10E58E1DB3EA /* ChatView+ScrollToBottomButton.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -668,6 +671,7 @@
 				1A21D50A96117D1FD83F6EA4 /* View+FlippedUpsideDown.swift in Sources */,
 				1A21DC64C76CD45E513C8669 /* View+ReadSize.swift in Sources */,
 				1A21DCADE88829359F41E2F2 /* SizePreferenceKey.swift in Sources */,
+				1A21D8015275B3826842C4AF /* ChatView+ScrollToBottomButton.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

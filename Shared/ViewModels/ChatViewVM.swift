@@ -15,6 +15,8 @@ class ChatViewVM: ObservableObject {
     var offset = 0
     var loadingMessages = false
 
+    @Published var isScrollToBottomButtonShown = false
+
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
     private let nc: NotificationCenter = .default
