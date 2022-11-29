@@ -24,6 +24,9 @@ extension ChatView {
                             .padding(msg.isOutgoing ? .trailing : .leading)
                             .flippedUpsideDown()
                     }
+                    if viewModel.loadingMessages {
+                        ProgressView()
+                    }
                 }
 
                 GeometryReader { proxy in

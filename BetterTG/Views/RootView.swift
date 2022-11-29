@@ -68,6 +68,9 @@ struct RootView: View {
                                 }
                             }
                     }
+                    if viewModel.loadingUsers {
+                        ProgressView()
+                    }
                 }
                     .padding(.top, 8)
                 GeometryReader { proxy in
