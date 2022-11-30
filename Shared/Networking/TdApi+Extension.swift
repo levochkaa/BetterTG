@@ -45,7 +45,7 @@ extension TdApi {
                     applicationVersion: SystemUtils.info(key: "CFBundleShortVersionString"),
                     databaseDirectory: dir,
                     databaseEncryptionKey: Data(),
-                    deviceModel: await SystemUtils.getDeviceModel(),
+                    deviceModel: SystemUtils.modelName,
                     enableStorageOptimizer: true,
                     filesDirectory: dir,
                     ignoreFileNames: false,
