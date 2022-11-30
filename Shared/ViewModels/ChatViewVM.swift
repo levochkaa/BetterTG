@@ -40,7 +40,7 @@ class ChatViewVM: ObservableObject {
 
             Task {
                 let customMessage = try await self.getCustomMessage(from: newMessage.message)
-                Task { @MainActor in
+                await MainActor.run {
                     self.messages.insert(customMessage, at: 0)
                 }
             }

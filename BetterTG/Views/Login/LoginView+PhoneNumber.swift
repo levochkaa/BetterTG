@@ -12,15 +12,7 @@ extension LoginView {
 
             Spacer()
 
-            VStack {
-                Button {
-                    focusedPhoneNumber = false
-                    showSelectCountryView.toggle()
-                } label: {
-                    Text(viewModel.selectedCountryNum.name)
-                }
-                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-
+            GroupBox {
                 HStack {
                     Text("+\(viewModel.selectedCountryNum.phoneNumberPrefix)")
 
@@ -28,10 +20,14 @@ extension LoginView {
                         .focused($focusedPhoneNumber)
                         .keyboardType(.numberPad)
                 }
+            } label: {
+                Button {
+                    focusedPhoneNumber = false
+                    showSelectCountryView.toggle()
+                } label: {
+                    Text(viewModel.selectedCountryNum.name)
+                }
             }
-                .padding()
-                .background(Color.gray6)
-                .cornerRadius(10)
 
             Spacer()
 

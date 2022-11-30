@@ -27,6 +27,17 @@ class LoginViewVM: ObservableObject {
 
     init() {
         setPublishers()
+
+        Task {
+            switch try await self.getAuthorizationState() {
+                case .authorizationStateWaitPassword:
+                    self.loginState = .twoFactor
+                case .authorizationStateWaitCode:
+                    self.loginState = .code
+                default:
+                    break
+            }
+        }
     }
 
     func setPublishers() {
