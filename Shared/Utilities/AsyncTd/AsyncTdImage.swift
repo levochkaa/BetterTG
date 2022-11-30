@@ -7,7 +7,7 @@ struct AsyncTdImage<Content: View, Placeholder: View>: View {
     let id: Int
     let image: (Image) -> Content
     let placeholder: () -> Placeholder
-
+    
     var body: some View {
         AsyncTdFile(id: id) { file in
             image(Image(file: file))

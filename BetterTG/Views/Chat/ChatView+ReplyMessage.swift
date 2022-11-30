@@ -20,7 +20,7 @@ extension ChatView {
                         if let replyUser = msg.replyUser {
                             Text(replyUser.firstName)
                         }
-
+                        
                         switch reply.content {
                             case let .messageText(messageText):
                                 Text(messageText.text.text)
@@ -30,11 +30,11 @@ extension ChatView {
                                 Text("BTG not supported")
                         }
                     }
-                        .font(.subheadline)
+                    .font(.subheadline)
                 }
             }
-                .buttonStyle(.plain)
-                .frame(height: 30)
+            .buttonStyle(.plain)
+            .frame(height: 30)
         }
     }
 }

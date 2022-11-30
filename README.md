@@ -42,7 +42,6 @@ git clone --recurse-submodules https://github.com/levochkaa/BetterTG.git
 ## Step 2 - Download XCode
 
 Latest **Xcode 14 beta** versions are used for this project.\
-Now I am using **AppCode EAP**, so that is why there are strange tabs, that don't appear in XCode\
 I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading XCode.
 
 ## Step 3 - `api_id` and `api_hash`

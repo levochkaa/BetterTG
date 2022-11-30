@@ -10,15 +10,15 @@ extension LoginView {
                 ForEach(viewModel.countryNums, id: \.self) { info in
                     HStack {
                         Text(info.country)
-
+                        
                         Spacer()
-
+                        
                         Text("+\(info.phoneNumberPrefix)")
                     }
                 }
             }
             .pickerStyle(.navigationLink)
-
+            
             TextField("Phone Number", text: $viewModel.phoneNumber)
         }
         .toolbar {

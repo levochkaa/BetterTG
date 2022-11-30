@@ -16,14 +16,14 @@ public enum SystemUtils {
     public static let osVersion = WKInterfaceDevice.current().systemVersion
     public static var size = WKInterfaceDevice.current().screenBounds
     #endif
-
+    
     static let logger = Logger(label: "SystemUtils")
-
+    
     // swiftlint:disable force_cast
     public static func info<T>(key: String) -> T {
         Bundle.main.infoDictionary?[key]! as! T
     }
-
+    
     private static func getWatchModel() -> String {
         var size: size_t = 0
         sysctlbyname("hw.machine", nil, &size, nil, 0)
@@ -34,32 +34,12 @@ public enum SystemUtils {
             encoding: String.Encoding.utf8
         )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
-
+    
     // swiftlint:disable function_body_length cyclomatic_complexity
     private static func getWatchName() -> String {
         let model = getWatchModel()
         logger.log("Watch model: \(model)")
         switch model {
-            case "Watch1,1":
-                return "Apple Watch Series 0 38mm"
-            case "Watch1,2":
-                return"Apple Watch Series 0 42mm"
-            case "Watch2,3":
-                return "Apple Watch Series 2 38mm"
-            case "Watch2,4":
-                return "Apple Watch Series 2 42mmm"
-            case "Watch2,6":
-                return "Apple Watch Series 1 38mm"
-            case "Watch2,7":
-                return "Apple Watch Series 1 42mm"
-            case "Watch3,1":
-                return "Apple Watch Series 3 38mm Cellular"
-            case "Watch3,2":
-                return "Apple Watch Series 3 42mm Cellular"
-            case "Watch3,3":
-                return "Apple Watch Series 3 38mm"
-            case "Watch3,4":
-                return "Apple Watch Series 3 42mm"
             case "Watch4,1":
                 return "Apple Watch Series 4 40mm"
             case "Watch4,2":
@@ -106,16 +86,9 @@ public enum SystemUtils {
                 return "Unknown"
         }
     }
-
+    
     public static func getDeviceModel() async -> String {
         #if os(iOS)
-//        var systemInfo = utsname()
-//        uname(&systemInfo)
-//        return withUnsafePointer(to: &systemInfo.machine) {
-//            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
-//                String(validatingUTF8: $0)
-//            }
-//        } ?? "Unknown"
         return await UIDevice.current.name
         #elseif os(watchOS)
         return getWatchName()

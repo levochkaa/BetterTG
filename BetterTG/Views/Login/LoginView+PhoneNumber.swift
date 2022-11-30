@@ -6,16 +6,16 @@ extension LoginView {
     @ViewBuilder var phoneNumberView: some View {
         VStack(spacing: 10) {
             Spacer()
-
+            
             Text("Your phone")
                 .font(.largeTitle)
-
+            
             Spacer()
-
+            
             GroupBox {
                 HStack {
                     Text("+\(viewModel.selectedCountryNum.phoneNumberPrefix)")
-
+                    
                     TextField("Phone Number", text: $viewModel.phoneNumber)
                         .focused($focusedPhoneNumber)
                         .keyboardType(.numberPad)
@@ -28,9 +28,9 @@ extension LoginView {
                     Text(viewModel.selectedCountryNum.name)
                 }
             }
-
+            
             Spacer()
-
+            
             Button {
                 focusedPhoneNumber = false
                 Task {
@@ -41,17 +41,17 @@ extension LoginView {
                     .padding(.vertical, 5)
                     .frame(maxWidth: .infinity)
             }
-                .buttonStyle(.borderedProminent)
-                .padding(.bottom, 10)
+            .buttonStyle(.borderedProminent)
+            .padding(.bottom, 10)
         }
-            .padding()
-            .sheet(isPresented: $showSelectCountryView) {
-                selectCountryView
-                    .presentationDetents([.medium, .large])
-            }
-            .onAppear {
-                focusedPhoneNumber = true
-                viewModel.loadCountries()
-            }
+        .padding()
+        .sheet(isPresented: $showSelectCountryView) {
+            selectCountryView
+                .presentationDetents([.medium, .large])
+        }
+        .onAppear {
+            focusedPhoneNumber = true
+            viewModel.loadCountries()
+        }
     }
 }

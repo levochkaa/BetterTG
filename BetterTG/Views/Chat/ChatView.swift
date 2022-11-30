@@ -4,21 +4,21 @@ import SwiftUI
 import TDLibKit
 
 struct ChatView: View {
-
+    
     @StateObject var viewModel: ChatViewVM
-
+    
     @State var text = ""
     @FocusState var focused
-
+    
     let scroll = "chatScroll"
-
+    
     let tdApi: TdApi = .shared
     let logger = Logger(label: "ChatView")
-
+    
     init(chat: Chat) {
         self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
     }
-
+    
     var body: some View {
         Group {
             if viewModel.messages.isEmpty {
@@ -27,10 +27,10 @@ struct ChatView: View {
                 bodyView
             }
         }
-            .navigationTitle(viewModel.chat.title)
-            .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(viewModel.chat.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
-
+    
     var bodyView: some View {
         ScrollViewReader { proxy in
             listOfMessages
@@ -46,13 +46,13 @@ struct ChatView: View {
                             viewModel.isScrollToBottomButtonShown = false
                         }
                     }
-
+                    
                     if viewModel.loadingMessages {
                         return
                     }
-
+                    
                     let minY = Int(value.minY)
-
+                    
                     let range = Range(uncheckedBounds: (lower: -500, upper: 100))
                     if range.contains(minY) {
                         Task {
@@ -77,25 +77,25 @@ struct ChatView: View {
                     focused = false
                 }
         }
-            .overlay(alignment: .bottomTrailing) {
-                Group {
-                    if viewModel.isScrollToBottomButtonShown {
-                        scrollToBottomButton
-                            .transition(.move(edge: .trailing))
-                    } else {
-                        scrollToBottomButton
-                            .offset(x: 60)
-                            .transition(.move(edge: .trailing))
-                    }
+        .overlay(alignment: .bottomTrailing) {
+            Group {
+                if viewModel.isScrollToBottomButtonShown {
+                    scrollToBottomButton
+                        .transition(.move(edge: .trailing))
+                } else {
+                    scrollToBottomButton
+                        .offset(x: 60)
+                        .transition(.move(edge: .trailing))
                 }
-                    .animation(.default, value: viewModel.isScrollToBottomButtonShown)
             }
-            .safeAreaInset(edge: .bottom) {
-                textField
-            }
-
+            .animation(.default, value: viewModel.isScrollToBottomButtonShown)
+        }
+        .safeAreaInset(edge: .bottom) {
+            textField
+        }
+        
     }
-
+    
     func sendMessage() {
         if text.isEmpty {
             return

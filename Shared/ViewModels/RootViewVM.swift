@@ -6,27 +6,27 @@ import TDLibKit
 import CollectionConcurrencyKit
 
 class RootViewVM: ObservableObject {
-
+    
     @Published var loggedIn: Bool?
     @Published var mainChats = [Chat]()
-
+    
     var loadedUsers = 0
     var limit = 10
     var loadingUsers = false
-
+    
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "RootVM")
     private let nc: NotificationCenter = .default
-
+    
     init() {
         setPublishers()
     }
-
+    
     func setPublishers() {
         setAuthPublishers()
         setChatPublishers()
     }
-
+    
     func setChatPublishers() {
         nc.publisher(for: .chatLastMessage) { notification in
             guard let updateChatLastMessage = notification.object as? UpdateChatLastMessage,
@@ -39,7 +39,7 @@ class RootViewVM: ObservableObject {
                 self.mainChats[index] = newChat
             }
         }
-
+        
         nc.publisher(for: .chatDraftMessage) { notification in
             guard let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage,
                   let index = self.mainChats.firstIndex(where: { $0.id == updateChatDraftMessage.chatId })
@@ -56,7 +56,7 @@ class RootViewVM: ObservableObject {
             }
         }
     }
-
+    
     func setAuthPublishers() {
         nc.mergeMany([
             nc.publisher(for: .closed),
@@ -70,18 +70,18 @@ class RootViewVM: ObservableObject {
                 self.loggedIn = false
             }
         }
-
+        
         nc.publisher(for: .ready) { _ in
             Task {
                 try await self.loadMainChats()
-
+                
                 await MainActor.run {
                     self.loggedIn = true
                 }
             }
         }
     }
-
+    
     func fetchChatsHistory() async throws {
         try await mainChats.asyncForEach { chat in
             _ = try await tdApi.getChatHistory(
@@ -93,19 +93,19 @@ class RootViewVM: ObservableObject {
             )
         }
     }
-
+    
     func loadMainChats() async throws {
         // don't know why, but some times loadChats() gives Error: 404
         do {
             _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
         } catch {
             // tired of this error in logs.
-//            guard let tdError = error as? TDLibKit.Error else {
-//                return
-//            }
-//            logger.log(tdError)
+            // guard let tdError = error as? TDLibKit.Error else {
+            //     return
+            // }
+            // logger.log(tdError)
         }
-
+        
         loadingUsers = true
         let chats = try await tdApi.getChats(chatList: .chatListMain, limit: limit)
         let mainChats = try await chats.chatIds.asyncCompactMap { id in
@@ -130,7 +130,7 @@ class RootViewVM: ObservableObject {
             self.loadingUsers = false
         }
     }
-
+    
     func getChat(from chat: Chat,
                  actionBar: ChatActionBar? = nil,
                  availableReactions: ChatAvailableReactions? = nil,

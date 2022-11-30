@@ -13,31 +13,31 @@ extension LoginView {
                 } label: {
                     HStack {
                         Text(info.name)
-
+                        
                         Spacer()
-
+                        
                         Text("+\(info.phoneNumberPrefix)")
-
+                        
                         if info == viewModel.selectedCountryNum {
                             Image(systemName: "checkmark")
                         }
                     }
-                        .foregroundColor(.white)
+                    .foregroundColor(.white)
                 }
-                    .listRowBackground(Color.black)
+                .listRowBackground(Color.black)
             }
-                .background(.black)
-                .scrollContentBackground(.hidden)
-                .navigationTitle("Country")
-                .navigationBarTitleDisplayMode(.inline)
-                .searchable(text: $searchCountries, placement: .navigationBarDrawer(displayMode: .always))
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Cancel") {
-                            showSelectCountryView.toggle()
-                        }
+            .background(.black)
+            .scrollContentBackground(.hidden)
+            .navigationTitle("Country")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchCountries, placement: .navigationBarDrawer(displayMode: .always))
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        showSelectCountryView.toggle()
                     }
                 }
+            }
         }
     }
 }

@@ -8,14 +8,14 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     let id: Int
     @ViewBuilder let content: (File) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
-
+    
     private let tdApi = TdApi.shared
     private let logger = Logger(label: "AsyncTdFile")
     private let nc: NotificationCenter = .default
-
+    
     @State private var file: File?
     @State private var isDownloaded = true
-
+    
     @ViewBuilder
     var body: some View {
         ZStack {
@@ -30,27 +30,27 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                     placeholder()
                 }
             }
-                .transition(.opacity)
+            .transition(.opacity)
         }
-            .animation(.easeInOut, value: isDownloaded)
-            .animation(.easeInOut, value: file)
-            .onReceive(nc.publisher(for: .file)) { notification in
-                guard let updateFile = notification.object as? UpdateFile else {
-                    return
-                }
-                if updateFile.file.id == id {
-                    file = updateFile.file
-                    isDownloaded = updateFile.file.local.isDownloadingCompleted
-                }
+        .animation(.easeInOut, value: isDownloaded)
+        .animation(.easeInOut, value: file)
+        .onReceive(nc.publisher(for: .file)) { notification in
+            guard let updateFile = notification.object as? UpdateFile else {
+                return
             }
-            .onChange(of: id) { id in
-                download(id)
+            if updateFile.file.id == id {
+                file = updateFile.file
+                isDownloaded = updateFile.file.local.isDownloadingCompleted
             }
-            .onAppear {
-                download()
-            }
+        }
+        .onChange(of: id) { id in
+            download(id)
+        }
+        .onAppear {
+            download()
+        }
     }
-
+    
     private func download(_ id: Int? = nil) {
         Task {
             do {

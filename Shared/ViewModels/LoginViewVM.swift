@@ -6,7 +6,7 @@ import TDLibKit
 
 class LoginViewVM: ObservableObject {
     @Published var loginState: LoginState = .phoneNumber
-
+    
     @Published var countryNums = [PhoneNumberInfo]()
     @Published var selectedCountryNum = PhoneNumberInfo(
         country: "RU",
@@ -17,17 +17,17 @@ class LoginViewVM: ObservableObject {
     @Published var code = ""
     @Published var hint = ""
     @Published var twoFactor = ""
-
+    
     @Published var showError = false
     @Published var errorMessage = ""
-
+    
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "LoginVM")
     private let nc: NotificationCenter = .default
-
+    
     init() {
         setPublishers()
-
+        
         Task {
             switch try await self.getAuthorizationState() {
                 case .authorizationStateWaitPassword:
@@ -39,7 +39,7 @@ class LoginViewVM: ObservableObject {
             }
         }
     }
-
+    
     func setPublishers() {
         nc.publisher(for: .waitPassword) { notification in
             self.loginState = .twoFactor
@@ -48,11 +48,11 @@ class LoginViewVM: ObservableObject {
             }
             self.hint = waitPassword.passwordHint
         }
-
+        
         nc.publisher(for: .waitCode) { _ in
             self.loginState = .code
         }
-
+        
         nc.mergeMany([
             nc.publisher(for: .waitPhoneNumber),
             nc.publisher(for: .closed),
@@ -62,38 +62,38 @@ class LoginViewVM: ObservableObject {
             self.loginState = .phoneNumber
         }
     }
-
+    
     func getAuthorizationState() async throws -> AuthorizationState {
         try await tdApi.getAuthorizationState()
     }
-
+    
     func resendAuthCode() async throws {
         _ = try await tdApi.resendAuthenticationCode()
     }
-
+    
     func checkAuth(phoneNumber: String) async throws {
         _ = try await tdApi.setAuthenticationPhoneNumber(
             phoneNumber: phoneNumber,
             settings: nil
         )
     }
-
+    
     func checkAuth(code: String) async throws {
         _ = try await tdApi.checkAuthenticationCode(code: code)
     }
-
+    
     func checkAuth(password: String) async throws {
         _ = try await tdApi.checkAuthenticationPassword(password: password)
     }
-
+    
     func getCountries() async throws -> [CountryInfo] {
         try await tdApi.getCountries().countries
     }
-
+    
     func getCountryCode() async throws -> String {
         try await tdApi.getCountryCode().text
     }
-
+    
     func handleAuthorizationState() async {
         do {
             switch try await getAuthorizationState() {
@@ -113,25 +113,25 @@ class LoginViewVM: ObservableObject {
                 return
             }
             logger.log("HandlingAuthStateError: \(tdError.code) - \(tdError.localizedDescription)")
-
+            
             await MainActor.run {
                 self.errorMessage = "\(tdError.message)"
                 self.showError = true
             }
         }
     }
-
+    
     func loadCountries() {
         Task {
             let countries = try await getCountries()
             let countryCode = try await getCountryCode()
-
+            
             guard let country = countries
                 .first(where: { $0.countryCode == countryCode })
             else {
                 return
             }
-
+            
             let selectedCountryNum = PhoneNumberInfo(
                 country: country.countryCode,
                 phoneNumberPrefix: country.callingCodes[0],
@@ -154,18 +154,18 @@ class LoginViewVM: ObservableObject {
             }
         }
     }
-
+    
     func getFilteredCountries(query: String) -> [PhoneNumberInfo] {
         let countries = countryNums
         let query = query.lowercased()
-
+        
         if query.isEmpty {
             return countries
         } else {
             return countries.filter {
                 $0.name.lowercased().contains(query)
-                    || $0.phoneNumberPrefix.lowercased().contains(query)
-                    || $0.country.lowercased().contains(query)
+                || $0.phoneNumberPrefix.lowercased().contains(query)
+                || $0.country.lowercased().contains(query)
             }
         }
     }

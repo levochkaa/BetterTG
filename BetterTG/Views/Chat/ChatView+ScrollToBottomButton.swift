@@ -18,7 +18,7 @@ extension ChatView {
                 guard let firstId = viewModel.messages.first?.message.id else {
                     return
                 }
-
+                
                 withAnimation {
                     viewModel.scrollViewProxy?.scrollTo(firstId, anchor: .bottom)
                 }

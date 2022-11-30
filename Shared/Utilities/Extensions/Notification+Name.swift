@@ -16,7 +16,7 @@ extension Notification.Name {
     static let waitEmailCode = Notification.Name("waitEmailCode")
     static let waitRegistration = Notification.Name("waitRegistration")
     static let waitOtherDeviceConfirmation = Notification.Name("waitOtherDeviceConfirmation")
-
+    
     // MARK: file
     static let file = Notification.Name("file")
     
@@ -32,7 +32,7 @@ extension Notification.Name {
     static let chatPhoto = Notification.Name("chatPhoto")
     static let chatTheme = Notification.Name("chatTheme")
     static let chatTitle = Notification.Name("chatTitle")
-
+    
     // MARK: chatAction
     static let uploadingDocument = Notification.Name("uploadingDocument")
     static let choosingContact = Notification.Name("choosingContact")

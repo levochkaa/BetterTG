@@ -6,12 +6,12 @@ extension LoginView {
     @ViewBuilder var twoFactorView: some View {
         VStack {
             Spacer()
-
+            
             Text("2FA Password")
                 .font(.largeTitle)
-
+            
             Spacer()
-
+            
             SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
                 .focused($focusedTwoFactor)
                 .textContentType(.password)
@@ -19,9 +19,9 @@ extension LoginView {
                 .padding()
                 .background(Color.gray6)
                 .cornerRadius(10)
-
+            
             Spacer()
-
+            
             Button {
                 focusedTwoFactor = false
                 Task {
@@ -32,12 +32,12 @@ extension LoginView {
                     .padding(.vertical, 5)
                     .frame(maxWidth: .infinity)
             }
-                .buttonStyle(.borderedProminent)
-                .padding(.bottom, 10)
+            .buttonStyle(.borderedProminent)
+            .padding(.bottom, 10)
         }
-            .padding()
-            .onAppear {
-                focusedTwoFactor = true
-            }
+        .padding()
+        .onAppear {
+            focusedTwoFactor = true
+        }
     }
 }

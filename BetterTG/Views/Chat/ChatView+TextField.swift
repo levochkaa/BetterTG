@@ -11,7 +11,7 @@ extension ChatView {
                 .padding(5)
                 .background(Color.gray6)
                 .cornerRadius(10)
-
+            
             Button(action: sendMessage) {
                 Image("send")
                     .resizable()
@@ -19,7 +19,7 @@ extension ChatView {
                     .frame(width: 32, height: 32)
             }
         }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 }

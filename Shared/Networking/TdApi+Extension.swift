@@ -6,13 +6,13 @@ import TDLibKit
 
 extension TdApi {
     static var shared = TdApi(client: TdClientImpl(completionQueue: .global(qos: .userInitiated)))
-
+    
     static let logger = Logger(label: "TdApi")
     static let nc: NotificationCenter = .default
-
+    
     func startTdLibUpdateHandler() {
         setPublishers()
-
+        
         client.run { data in
             do {
                 let update = try TdApi.shared.decoder.decode(Update.self, from: data)
@@ -25,7 +25,7 @@ extension TdApi {
             }
         }
     }
-
+    
     func setPublishers() {
         TdApi.nc.publisher(for: .waitTdlibParameters) { _ in
             Task {
@@ -38,9 +38,9 @@ extension TdApi {
                 url.append(path: "td")
                 var dir = url.path()
                 dir.replace("%20", with: " ")
-
+                
                 TdApi.logger.log("td directory: \(dir)")
-
+                
                 _ = try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
@@ -61,15 +61,15 @@ extension TdApi {
                 )
             }
         }
-
+        
         TdApi.nc.publisher(for: .closed) { _ in
             TdApi.shared = TdApi(client: TdClientImpl(completionQueue: .global()))
             TdApi.shared.startTdLibUpdateHandler()
         }
     }
-
+    
     func update(_ update: Update) {
-//        TdApi.logger.log("Update: \(update)")
+        // TdApi.logger.log("Update: \(update)")
         switch update {
             case let .updateAuthorizationState(updateAuthorizationState):
                 self.updateAuthorizationState(updateAuthorizationState.authorizationState)
@@ -103,7 +103,7 @@ extension TdApi {
                 break
         }
     }
-
+    
     func updateChatAction(_ updateChatAction: UpdateChatAction) {
         switch updateChatAction.action {
             case .chatActionUploadingDocument:
@@ -114,7 +114,7 @@ extension TdApi {
                 break
         }
     }
-
+    
     func updateAuthorizationState(_ authorizationState: AuthorizationState) {
         TdApi.logger.log("Auth: \(authorizationState)")
         switch authorizationState {

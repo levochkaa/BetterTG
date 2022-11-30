@@ -4,11 +4,11 @@ import SwiftUI
 import TDLibKit
 
 struct LoginView: View {
-
+    
     @StateObject var viewModel = LoginViewVM()
-
+    
     let logger = Logger(label: "Login")
-
+    
     var body: some View {
         NavigationStack {
             ZStack {
