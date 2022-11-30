@@ -14,8 +14,8 @@ extension ChatView {
                 HStack {
                     Capsule()
                         .fill(msg.message.isOutgoing ? .white : .black)
-                        .frame(width: 3)
-
+                        .frame(width: 2)
+                    
                     VStack(alignment: .leading) {
                         if let replyUser = msg.replyUser {
                             Text(replyUser.firstName)
