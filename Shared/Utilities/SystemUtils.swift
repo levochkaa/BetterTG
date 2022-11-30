@@ -26,7 +26,7 @@ public enum SystemUtils {
             return identifier + String(UnicodeScalar(UInt8(value)))
         }
         
-        // swiftlint:disable cyclomatic_complexity
+        // swiftlint:disable cyclomatic_complexity function_body_length
         func mapToDevice(identifier: String) -> String {
             switch identifier {
                 case "iPhone10,1", "iPhone10,4": return "iPhone 8"
