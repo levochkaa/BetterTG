@@ -155,14 +155,10 @@ class LoginViewVM: ObservableObject {
         let countries = countryNums
         let query = query.lowercased()
         
-        if query.isEmpty {
-            return countries
-        } else {
-            return countries.filter {
-                $0.name.lowercased().contains(query)
-                || $0.phoneNumberPrefix.lowercased().contains(query)
-                || $0.country.lowercased().contains(query)
-            }
+        return query.isEmpty ? countries : countries.filter { country in
+            country.name.lowercased().contains(query)
+            || country.phoneNumberPrefix.lowercased().contains(query)
+            || country.country.lowercased().contains(query)
         }
     }
 }

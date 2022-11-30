@@ -73,19 +73,16 @@ class ChatViewVM: ObservableObject {
                 default:
                     return CustomMessage(
                         message: message,
-                        replyToMessage: replyToMessage,
-                        replyUser: nil
+                        replyToMessage: replyToMessage
                     )
             }
         } else {
             return CustomMessage(
-                message: message,
-                replyToMessage: nil,
-                replyUser: nil
+                message: message
             )
         }
     }
-
+    
     func loadMessages(_ isInit: Bool = false) async throws {
         loadingMessages = true
         let chatHistory = try await self.tdApi.getChatHistory(

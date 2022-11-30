@@ -21,7 +21,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         ZStack {
             Group {
                 if isDownloaded {
-                    if let file = file {
+                    if let file {
                         content(file)
                     } else {
                         placeholder()

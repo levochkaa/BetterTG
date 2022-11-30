@@ -100,9 +100,7 @@ class RootViewVM: ObservableObject {
             _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
         } catch {
             // tired of this error in logs.
-            // guard let tdError = error as? TDLibKit.Error else {
-            //     return
-            // }
+            // guard let tdError = error as? TDLibKit.Error else { return }
             // logger.log(tdError)
         }
         
