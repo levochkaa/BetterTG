@@ -47,6 +47,7 @@ extension LoginView {
             .padding()
             .sheet(isPresented: $showSelectCountryView) {
                 selectCountryView
+                    .presentationDetents([.medium, .large])
             }
             .onAppear {
                 focusedPhoneNumber = true
