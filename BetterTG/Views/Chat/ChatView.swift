@@ -37,7 +37,7 @@ struct ChatView: View {
                 .coordinateSpace(name: scroll)
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                     let maxY = Int(value.maxY)
-                    if maxY > 672 { // 672 - lowest number of the scroll
+                    if maxY > 800 {
                         if viewModel.isScrollToBottomButtonShown == false {
                             viewModel.isScrollToBottomButtonShown = true
                         }
