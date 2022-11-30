@@ -31,17 +31,15 @@ class ChatViewVM: ObservableObject {
     
     func setPublishers() {
         nc.publisher(for: .newMessage) { notification in
-            guard let newMessage = notification.object as? UpdateNewMessage else {
-                return
-            }
-            if newMessage.message.chatId != self.chat.id {
-                return
-            }
-
+            guard let newMessage = notification.object as? UpdateNewMessage else { return }
+            if newMessage.message.chatId != self.chat.id { return }
+            
             Task {
                 let customMessage = try await self.getCustomMessage(from: newMessage.message)
                 await MainActor.run {
-                    self.messages.insert(customMessage, at: 0)
+                    withAnimation {
+                        self.messages.insert(customMessage, at: 0)
+                    }
                 }
             }
         }
