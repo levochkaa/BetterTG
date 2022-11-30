@@ -28,7 +28,7 @@ extension ChatView {
                         ProgressView()
                     }
                 }
-
+                
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: ScrollOffsetPreferenceKey.self,
@@ -37,7 +37,7 @@ extension ChatView {
                 }
             }
         }
-            .scrollDismissesKeyboard(.interactively)
-            .flippedUpsideDown()
+        .scrollDismissesKeyboard(.interactively)
+        .flippedUpsideDown()
     }
 }
