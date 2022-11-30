@@ -47,9 +47,7 @@ struct ChatView: View {
                         }
                     }
                     
-                    if viewModel.loadingMessages {
-                        return
-                    }
+                    if viewModel.loadingMessages { return }
                     
                     let minY = Int(value.minY)
                     
@@ -62,9 +60,7 @@ struct ChatView: View {
                 }
                 .onChange(of: focused) { _ in
                     if focused {
-                        guard let firstId = viewModel.messages.first?.message.id else {
-                            return
-                        }
+                        guard let firstId = viewModel.messages.first?.message.id else { return }
                         withAnimation {
                             proxy.scrollTo(firstId, anchor: .bottom)
                         }
@@ -97,9 +93,7 @@ struct ChatView: View {
     }
     
     func sendMessage() {
-        if text.isEmpty {
-            return
-        }
+        if text.isEmpty { return }
         Task {
             try await viewModel.sendMessage(text: text)
             text = ""

@@ -18,9 +18,7 @@ extension TdApi {
                 let update = try TdApi.shared.decoder.decode(Update.self, from: data)
                 self.update(update)
             } catch {
-                guard let tdError = error as? TDLibKit.Error else {
-                    return
-                }
+                guard let tdError = error as? TDLibKit.Error else { return }
                 TdApi.logger.log("TdLibUpdateHandler: \(tdError.code) - \(tdError.message)")
             }
         }

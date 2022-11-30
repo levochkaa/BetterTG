@@ -100,9 +100,7 @@ struct RootView: View {
         }
         .coordinateSpace(name: scroll)
         .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-            if viewModel.loadingUsers {
-                return
-            }
+            if viewModel.loadingUsers { return }
             
             let maxY = Int(value.maxY)
             

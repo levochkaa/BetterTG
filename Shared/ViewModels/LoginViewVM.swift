@@ -43,9 +43,7 @@ class LoginViewVM: ObservableObject {
     func setPublishers() {
         nc.publisher(for: .waitPassword) { notification in
             self.loginState = .twoFactor
-            guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else {
-                return
-            }
+            guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
             self.hint = waitPassword.passwordHint
         }
         
@@ -109,9 +107,7 @@ class LoginViewVM: ObservableObject {
                     break
             }
         } catch {
-            guard let tdError = error as? TDLibKit.Error else {
-                return
-            }
+            guard let tdError = error as? TDLibKit.Error else { return }
             logger.log("HandlingAuthStateError: \(tdError.code) - \(tdError.localizedDescription)")
             
             await MainActor.run {

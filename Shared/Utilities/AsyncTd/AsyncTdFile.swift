@@ -35,9 +35,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         .animation(.easeInOut, value: isDownloaded)
         .animation(.easeInOut, value: file)
         .onReceive(nc.publisher(for: .file)) { notification in
-            guard let updateFile = notification.object as? UpdateFile else {
-                return
-            }
+            guard let updateFile = notification.object as? UpdateFile else { return }
             if updateFile.file.id == id {
                 file = updateFile.file
                 isDownloaded = updateFile.file.local.isDownloadingCompleted
@@ -62,9 +60,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                     synchronous: false
                 )
             } catch {
-                guard let tdError = error as? TDLibKit.Error else {
-                    return
-                }
+                guard let tdError = error as? TDLibKit.Error else { return }
                 logger.log("Failed to download file with ID \(id ?? self.id), reason: \(tdError.message)")
             }
         }
