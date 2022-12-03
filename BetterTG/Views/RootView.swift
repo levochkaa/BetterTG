@@ -7,6 +7,8 @@ struct RootView: View {
     
     @StateObject private var viewModel = RootViewVM()
     
+    @State var shownContextMenuMessage: CustomMessage?
+    
     let scroll = "rootScroll"
     
     static let spacing: CGFloat = 8
@@ -60,6 +62,43 @@ struct RootView: View {
                     }
                 }
         }
+        .overlay {
+            if shownContextMenuMessage != nil {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .environment(\.colorScheme, .dark)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation {
+                            shownContextMenuMessage = nil
+                        }
+                    }
+            }
+        }
+        .overlayPreferenceValue(BoundsPreferenceKey.self) { values in
+            if let shownContextMenuMessage,
+               let preference = values.first(where: { item1 in
+                   let f = item1.key.first(where: { item2 in
+                       item2.key == shownContextMenuMessage.message.id
+                   })
+                   return f == nil ? false : true
+               }) {
+                GeometryReader { proxy in
+                    let rect = proxy[preference.value]
+
+                    MessageView(
+                        customMessage: shownContextMenuMessage,
+                        showContextMenu: true,
+                        viewModel: preference.key.first!.value, // will never throw, that's why `first!`
+                        onDismiss: {
+                            self.shownContextMenuMessage = nil
+                        }
+                    )
+//                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                }
+            }
+        }
     }
     
     @ViewBuilder var mainChatsListView: some View {
@@ -68,7 +107,10 @@ struct RootView: View {
                 LazyVStack(spacing: RootView.spacing) {
                     ForEach(viewModel.mainChats, id: \.id) { chat in
                         NavigationLink {
-                            ChatView(chat: chat)
+                            ChatView(
+                                chat: chat,
+                                shownContextMenuMessage: $shownContextMenuMessage
+                            )
                         } label: {
                             chatListView(for: chat)
                         }
@@ -90,6 +132,7 @@ struct RootView: View {
                     }
                 }
                 .padding(.top, 8)
+                
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: ScrollOffsetPreferenceKey.self,

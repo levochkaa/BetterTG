@@ -22,6 +22,7 @@ extension Notification.Name {
     
     // MARK: message
     static let newMessage = Notification.Name("newMessage")
+    static let deleteMessages = Notification.Name("deleteMessages")
     
     // MARK: chat
     static let newChat = Notification.Name("newChat")

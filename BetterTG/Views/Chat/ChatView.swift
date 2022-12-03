@@ -10,13 +10,16 @@ struct ChatView: View {
     @State var text = ""
     @FocusState var focused
     
+    @Binding var shownContextMenuMessage: CustomMessage?
+    
     let scroll = "chatScroll"
     
     let tdApi: TdApi = .shared
     let logger = Logger(label: "ChatView")
     
-    init(chat: Chat) {
+    init(chat: Chat, shownContextMenuMessage: Binding<CustomMessage?>) {
         self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
+        self._shownContextMenuMessage = shownContextMenuMessage
     }
     
     var body: some View {
@@ -89,7 +92,6 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             textField
         }
-        
     }
     
     func sendMessage() {

@@ -95,6 +95,8 @@ extension TdApi {
                 TdApi.nc.post(name: .chatTitle, object: updateChatTitle)
             case let .updateUser(updateUser):
                 TdApi.nc.post(name: .user, object: updateUser.user)
+            case let .updateDeleteMessages(updateDeleteMessages):
+                TdApi.nc.post(name: .deleteMessages, object: updateDeleteMessages)
             case let .updateChatAction(updateChatAction):
                 self.updateChatAction(updateChatAction)
             default:

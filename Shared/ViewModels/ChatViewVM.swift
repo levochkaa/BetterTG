@@ -5,17 +5,23 @@ import Combine
 import TDLibKit
 import CollectionConcurrencyKit
 
-class ChatViewVM: ObservableObject {
+class ChatViewVM: ObservableObject, Hashable {
+    static func == (lhs: ChatViewVM, rhs: ChatViewVM) -> Bool {
+        lhs.chat.id == rhs.chat.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(chat.id)
+    }
     
     let chat: Chat
     
     var scrollViewProxy: ScrollViewProxy?
+    @Published var isScrollToBottomButtonShown = false
     
     @Published var messages = [CustomMessage]()
     var offset = 0
     var loadingMessages = false
-    
-    @Published var isScrollToBottomButtonShown = false
     
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
@@ -41,6 +47,19 @@ class ChatViewVM: ObservableObject {
                         self.messages.insert(customMessage, at: 0)
                     }
                 }
+            }
+        }
+        
+        nc.publisher(for: .deleteMessages) { notification in
+            guard let deleteMessages = notification.object as? UpdateDeleteMessages else { return }
+            if deleteMessages.chatId != self.chat.id { return }
+            if deleteMessages.fromCache { return }
+            if !deleteMessages.isPermanent { return }
+            
+            withAnimation {
+                self.messages.removeAll(where: {
+                    deleteMessages.messageIds.contains($0.message.id)
+                })
             }
         }
     }
