@@ -1,5 +1,5 @@
-mkdir Shared/Utilities/Generated
-cd Shared/Utilities/Templates
+mkdir BetterTG/Utilities/Generated
+cd BetterTG/Utilities/Templates
 find . -name "*.gyb" |
 while read file; do
     filename=$(echo "$file" | sed 's/.\///')

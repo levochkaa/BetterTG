@@ -8,45 +8,24 @@
 
 /* Begin PBXBuildFile section */
 		1A21D03E20E0A64A861C2A0F /* Chat+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */; };
-		1A21D331B0B94466BEA01435 /* View+ReadSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */; };
 		1A21D50A96117D1FD83F6EA4 /* View+FlippedUpsideDown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DA716F6259A775D09423 /* View+FlippedUpsideDown.swift */; };
-		1A21D640A5574B5FAF9223EA /* View+FlippedUpsideDown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DA716F6259A775D09423 /* View+FlippedUpsideDown.swift */; };
 		1A21D66C458D17D7D214358D /* ChatView+MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCE0538E7CCE4BC0F018 /* ChatView+MessageBubble.swift */; };
-		1A21D784063CE2FA273658FF /* SizePreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D3AA803B5B4DCF8AC3E5 /* SizePreferenceKey.swift */; };
 		1A21D8015275B3826842C4AF /* ChatView+ScrollToBottomButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DD298CCA10E58E1DB3EA /* ChatView+ScrollToBottomButton.swift */; };
 		1A21D83CE04AB792BC7926AC /* CustomMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */; };
 		1A21DAE2BADBE9A5D6ADB856 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D6E4B3EE6D349DB55696 /* ChatView.swift */; };
-		1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
 		1A21DC53220E5CD2F71644FF /* ChatView+BottomArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2200D2C61AD571EC864 /* ChatView+BottomArea.swift */; };
 		1A21DC64C76CD45E513C8669 /* View+ReadSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */; };
 		1A21DCADE88829359F41E2F2 /* SizePreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D3AA803B5B4DCF8AC3E5 /* SizePreferenceKey.swift */; };
 		1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */; };
 		1A21DD03B6876C47203219A8 /* View+if.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D7EDDC8AFF28411C178C /* View+if.swift */; };
-		1A21DDFCAFC49F00CF59A0DF /* View+if.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D7EDDC8AFF28411C178C /* View+if.swift */; };
-		1A21DE1AA47F184759AB371E /* CustomMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */; };
-		1A21DE82E412B9A6BD6F62A0 /* Chat+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21DCBAF44B7EC5D11A41EA /* Chat+Hashable.swift */; };
 		1A21DEB0AEA5264CCA4C99D4 /* ChatView+MessagesList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D779D749860C7447D251 /* ChatView+MessagesList.swift */; };
 		DF0F9D4E28CCACE500BCA763 /* RootViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */; };
-		DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */; };
+		DF0F9D5128CCADB300BCA763 /* TdApi+Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Updates.swift */; };
 		DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */; };
 		DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EE28DA4AE900281C7B /* LoginView.swift */; };
 		DF1F7EA2293E0C2E0058D5FF /* MessageView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA1293E0C2E0058D5FF /* MessageView+ContextMenu.swift */; };
 		DF1F7EA5293E0E740058D5FF /* AsyncButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */; };
-		DF1F7EA6293E0E740058D5FF /* AsyncButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */; };
 		DF1F7EA8293E5A540058D5FF /* ChatView+Preview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA7293E5A540058D5FF /* ChatView+Preview.swift */; };
-		DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */; };
-		DF1F88FB290D7AC4004DB50F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88FA290D7AC4004DB50F /* Assets.xcassets */; };
-		DF1F88FE290D7AC4004DB50F /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */; };
-		DF1F8904290D7B79004DB50F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8903290D7B79004DB50F /* RootView.swift */; };
-		DF1F8906290D7B83004DB50F /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8905290D7B83004DB50F /* LoginView.swift */; };
-		DF1F8907290D7B8A004DB50F /* RootViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */; };
-		DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */; };
-		DF1F8909290D7B95004DB50F /* SystemUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* SystemUtils.swift */; };
-		DF1F890A290D7B99004DB50F /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
-		DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
-		DF1F890C290D7BA8004DB50F /* TdApi+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */; };
-		DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */; };
-		DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF1F8911290D7D2D004DB50F /* ArgumentParser */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
@@ -56,52 +35,31 @@
 		DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */; };
 		DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */; };
 		DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999328C3F51C0087C1B9 /* libz.1.tbd */; };
-		DF51DA37290D96A400AB9E60 /* LoginState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA36290D96A400AB9E60 /* LoginState.swift */; };
 		DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA36290D96A400AB9E60 /* LoginState.swift */; };
-		DF51DA3A290D972300AB9E60 /* LoginView+PhoneNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */; };
-		DF51DA3C290D9D5A00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
 		DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
-		DF51DA43290DACF000AB9E60 /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */; };
-		DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */; };
 		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
-		DF9C5CC3292698C200ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC2292698C200ED1CA8 /* TDLibKit */; };
 		DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D04290EE87A00F66E20 /* Image+File.swift */; };
-		DFB85D06290EE87A00F66E20 /* Image+File.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D04290EE87A00F66E20 /* Image+File.swift */; };
 		DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */; };
-		DFB85D0A290EEAD800F66E20 /* AsyncTdFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */; };
 		DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
-		DFB85D0D290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
-		DFB85D0F290EF7CC00F66E20 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0E290EF7CC00F66E20 /* ChatView.swift */; };
 		DFB85D11290EF92300F66E20 /* ChatViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewVM.swift */; };
-		DFB85D12290EF92300F66E20 /* ChatViewVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewVM.swift */; };
-		DFBDED24290D8765008748A0 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E7A0290D7E24002F0B4F /* libz.1.tbd */; };
-		DFBDED25290D87AB008748A0 /* WatchKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E7A5290D7FA9002F0B4F /* WatchKit.framework */; };
 		DFBFB86928CE48290076895C /* SystemUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* SystemUtils.swift */; };
-		DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8913290D7D42004DB50F /* libc++.1.tbd */; };
-		DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF1F8914290D7DD5004DB50F /* libc++abi.tbd */; };
-		DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */; };
 		DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */; };
 		DFD9F891292FE54A00D1E03B /* Color+UserId.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F890292FE54A00D1E03B /* Color+UserId.swift */; };
-		DFD9F892292FE54A00D1E03B /* Color+UserId.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F890292FE54A00D1E03B /* Color+UserId.swift */; };
 		DFDFC6D82938DFD800A5919E /* MessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6D72938DFD800A5919E /* MessageView.swift */; };
 		DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6DA2938E01900A5919E /* ReplyMessageView.swift */; };
 		DFDFC6E1293905C600A5919E /* Introspect in Frameworks */ = {isa = PBXBuildFile; productRef = DFDFC6E0293905C600A5919E /* Introspect */; };
 		DFDFC6EA293B7DC000A5919E /* ContextButtonInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6E9293B7DC000A5919E /* ContextButtonInfo.swift */; };
-		DFDFC6EB293B7DC000A5919E /* ContextButtonInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6E9293B7DC000A5919E /* ContextButtonInfo.swift */; };
 		DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */; };
 		DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */; };
 		DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74B292A2286002A4BAD /* LoginView+Code.swift */; };
 		DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */; };
 		DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
-		DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* Color+UIColor.swift */; };
 		DFECD757292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
-		DFECD758292A938B002A4BAD /* Notification+Name.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* Notification+Name.swift */; };
 		DFECD75A292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */; };
-		DFECD75B292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -113,16 +71,6 @@
 			files = (
 			);
 			name = "Embed Watch Content";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		DFE2618429196F4C00267815 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		DFE2618629196FB300267815 /* Embed Frameworks */ = {
@@ -151,18 +99,12 @@
 		1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CustomMessage.swift; sourceTree = "<group>"; };
 		1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "View+ReadSize.swift"; sourceTree = "<group>"; };
 		DF0F9D4D28CCACE500BCA763 /* RootViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewVM.swift; sourceTree = "<group>"; };
-		DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TdApi+Extension.swift"; sourceTree = "<group>"; };
+		DF0F9D5028CCADB300BCA763 /* TdApi+Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TdApi+Updates.swift"; sourceTree = "<group>"; };
 		DF16E6EC28DA4ACB00281C7B /* LoginViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewVM.swift; sourceTree = "<group>"; };
 		DF16E6EE28DA4AE900281C7B /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		DF1F7EA1293E0C2E0058D5FF /* MessageView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+ContextMenu.swift"; sourceTree = "<group>"; };
 		DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncButton.swift; sourceTree = "<group>"; };
 		DF1F7EA7293E5A540058D5FF /* ChatView+Preview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatView+Preview.swift"; sourceTree = "<group>"; };
-		DF1F88F4290D7AC3004DB50F /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTG_WatchApp_App.swift; sourceTree = "<group>"; };
-		DF1F88FA290D7AC4004DB50F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		DF1F8903290D7B79004DB50F /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		DF1F8905290D7B83004DB50F /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		DF1F8913290D7D42004DB50F /* libc++.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.1.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++.1.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF1F8914290D7DD5004DB50F /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++abi.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
@@ -177,16 +119,12 @@
 		DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "usr/lib/libc++abi.tbd"; sourceTree = SDKROOT; };
 		DF4B999728C3F6950087C1B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DF51DA36290D96A400AB9E60 /* LoginState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginState.swift; sourceTree = "<group>"; };
-		DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+PhoneNumber.swift"; sourceTree = "<group>"; };
 		DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberInfo.swift; sourceTree = "<group>"; };
-		DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+TwoFactor.swift"; sourceTree = "<group>"; };
-		DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+Code.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
 		DFB85D04290EE87A00F66E20 /* Image+File.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Image+File.swift"; sourceTree = "<group>"; };
 		DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdFile.swift; sourceTree = "<group>"; };
 		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
-		DFB85D0E290EF7CC00F66E20 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		DFB85D10290EF92300F66E20 /* ChatViewVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewVM.swift; sourceTree = "<group>"; };
 		DFBFB86828CE48290076895C /* SystemUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemUtils.swift; sourceTree = "<group>"; };
 		DFD2E79F290D7E1B002F0B4F /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libSystem.B.tbd; sourceTree = DEVELOPER_DIR; };
@@ -207,21 +145,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		DF1F88F1290D7AC3004DB50F /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DF1F8912290D7D2D004DB50F /* ArgumentParser in Frameworks */,
-				DFBDED24290D8765008748A0 /* libz.1.tbd in Frameworks */,
-				DFD2E7A2290D7E4E002F0B4F /* libc++abi.tbd in Frameworks */,
-				DFD2E7A4290D7E5B002F0B4F /* libSystem.B.tbd in Frameworks */,
-				DFBDED25290D87AB008748A0 /* WatchKit.framework in Frameworks */,
-				DF1F8910290D7D1E004DB50F /* CollectionConcurrencyKit in Frameworks */,
-				DFD2E7A1290D7E48002F0B4F /* libc++.1.tbd in Frameworks */,
-				DF9C5CC3292698C200ED1CA8 /* TDLibKit in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		DF4B997B28C3F3F50087C1B9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -257,6 +180,7 @@
 		DF0F9D4A28CCAAB300BCA763 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				DF1F7EA9293E74530058D5FF /* Custom */,
 				DF7B5916292937F1001900D1 /* Login */,
 				1A21DB0D4D4C7776F005DB90 /* Chat */,
 				DF4B998328C3F3F50087C1B9 /* RootView.swift */,
@@ -286,52 +210,12 @@
 			path = ViewModels;
 			sourceTree = "<group>";
 		};
-		DF0F9D4F28CCAD9900BCA763 /* Networking */ = {
-			isa = PBXGroup;
-			children = (
-				DF0F9D5028CCADB300BCA763 /* TdApi+Extension.swift */,
-			);
-			path = Networking;
-			sourceTree = "<group>";
-		};
-		DF1F7EA3293E0E610058D5FF /* CustomViews */ = {
+		DF1F7EA9293E74530058D5FF /* Custom */ = {
 			isa = PBXGroup;
 			children = (
 				DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */,
 			);
-			path = CustomViews;
-			sourceTree = "<group>";
-		};
-		DF1F88EC290D6DB7004DB50F /* Shared */ = {
-			isa = PBXGroup;
-			children = (
-				DF0F9D4F28CCAD9900BCA763 /* Networking */,
-				DF0F9D4B28CCAAC000BCA763 /* Models */,
-				DF0F9D4C28CCAACE00BCA763 /* ViewModels */,
-				DFBFB86728CE48110076895C /* Utilities */,
-			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
-		DF1F88F5290D7AC3004DB50F /* BetterTG Watch App */ = {
-			isa = PBXGroup;
-			children = (
-				DF1F8902290D7B5D004DB50F /* Views */,
-				DF1F88FA290D7AC4004DB50F /* Assets.xcassets */,
-				DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */,
-				DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */,
-			);
-			path = "BetterTG Watch App";
-			sourceTree = "<group>";
-		};
-		DF1F8902290D7B5D004DB50F /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				DF51DA35290D968900AB9E60 /* Login */,
-				DF1F8903290D7B79004DB50F /* RootView.swift */,
-				DFB85D0E290EF7CC00F66E20 /* ChatView.swift */,
-			);
-			path = Views;
+			path = Custom;
 			sourceTree = "<group>";
 		};
 		DF3A159328D838C500789C32 /* Generated */ = {
@@ -345,9 +229,7 @@
 		DF4B997528C3F3F50087C1B9 = {
 			isa = PBXGroup;
 			children = (
-				DF1F88EC290D6DB7004DB50F /* Shared */,
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
-				DF1F88F5290D7AC3004DB50F /* BetterTG Watch App */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
 				DF4B999228C3F51C0087C1B9 /* Frameworks */,
 			);
@@ -357,7 +239,6 @@
 			isa = PBXGroup;
 			children = (
 				DF4B997E28C3F3F50087C1B9 /* BetterTG.app */,
-				DF1F88F4290D7AC3004DB50F /* BetterTG.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -365,7 +246,10 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
+				DFBFB86728CE48110076895C /* Utilities */,
+				DF0F9D4B28CCAAC000BCA763 /* Models */,
 				DF0F9D4A28CCAAB300BCA763 /* Views */,
+				DF0F9D4C28CCAACE00BCA763 /* ViewModels */,
 				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
 				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
 				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
@@ -388,17 +272,6 @@
 				DF4B999328C3F51C0087C1B9 /* libz.1.tbd */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		DF51DA35290D968900AB9E60 /* Login */ = {
-			isa = PBXGroup;
-			children = (
-				DF1F8905290D7B83004DB50F /* LoginView.swift */,
-				DF51DA39290D972300AB9E60 /* LoginView+PhoneNumber.swift */,
-				DF51DA41290DACF000AB9E60 /* LoginView+TwoFactor.swift */,
-				DF51DA44290DAD3100AB9E60 /* LoginView+Code.swift */,
-			);
-			path = Login;
 			sourceTree = "<group>";
 		};
 		DF7B5916292937F1001900D1 /* Login */ = {
@@ -433,12 +306,11 @@
 		DFBFB86728CE48110076895C /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
-				DF1F7EA3293E0E610058D5FF /* CustomViews */,
+				DF820B7628D7C7CF007DD293 /* Templates */,
+				DF3A159328D838C500789C32 /* Generated */,
 				DFDFC6D32938DA2C00A5919E /* PreferenceKeys */,
 				DFECD755292A92F7002A4BAD /* Extensions */,
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
-				DF3A159328D838C500789C32 /* Generated */,
-				DF820B7628D7C7CF007DD293 /* Templates */,
 				DFBFB86828CE48290076895C /* SystemUtils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
 			);
@@ -467,6 +339,7 @@
 		DFECD755292A92F7002A4BAD /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
+				DF0F9D5028CCADB300BCA763 /* TdApi+Updates.swift */,
 				DFECD752292A7318002A4BAD /* Color+UIColor.swift */,
 				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
 				DFECD756292A938B002A4BAD /* Notification+Name.swift */,
@@ -483,30 +356,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		DF1F88F3290D7AC3004DB50F /* BetterTG Watch App */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = DF1F88FF290D7AC4004DB50F /* Build configuration list for PBXNativeTarget "BetterTG Watch App" */;
-			buildPhases = (
-				DF1F88F0290D7AC3004DB50F /* Sources */,
-				DF1F88F1290D7AC3004DB50F /* Frameworks */,
-				DF1F88F2290D7AC3004DB50F /* Resources */,
-				DFE2618429196F4C00267815 /* Embed Frameworks */,
-				DF73292B29197C30008DF226 /* Run Swiftlint */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = "BetterTG Watch App";
-			packageProductDependencies = (
-				DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */,
-				DF1F8911290D7D2D004DB50F /* ArgumentParser */,
-				DF9C5CC2292698C200ED1CA8 /* TDLibKit */,
-			);
-			productName = "BetterTGw Watch App";
-			productReference = DF1F88F4290D7AC3004DB50F /* BetterTG.app */;
-			productType = "com.apple.product-type.application";
-		};
 		DF4B997D28C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DF4B998C28C3F3F60087C1B9 /* Build configuration list for PBXNativeTarget "BetterTG" */;
@@ -543,9 +392,6 @@
 				LastSwiftUpdateCheck = 1410;
 				LastUpgradeCheck = 1400;
 				TargetAttributes = {
-					DF1F88F3290D7AC3004DB50F = {
-						CreatedOnToolsVersion = 14.1;
-					};
 					DF4B997D28C3F3F50087C1B9 = {
 						CreatedOnToolsVersion = 14.0;
 					};
@@ -571,21 +417,11 @@
 			projectRoot = "";
 			targets = (
 				DF4B997D28C3F3F50087C1B9 /* BetterTG */,
-				DF1F88F3290D7AC3004DB50F /* BetterTG Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		DF1F88F2290D7AC3004DB50F /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DF1F88FE290D7AC4004DB50F /* Preview Assets.xcassets in Resources */,
-				DF1F88FB290D7AC4004DB50F /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		DF4B997C28C3F3F50087C1B9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -599,25 +435,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		DF73292B29197C30008DF226 /* Run Swiftlint */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Run Swiftlint";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "export PATH=\"$PATH:/opt/homebrew/bin\"\nif which swiftlint > /dev/null; then\n  swiftlint\nelse\n  echo \"warning: SwiftLint not installed, download from https://github.com/realm/SwiftLint and if you are using not ARM mac remove path from script\"\nfi\n";
-		};
 		DF820B6328D770FD007DD293 /* Run Swiftlint */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -640,45 +457,6 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		DF1F88F0290D7AC3004DB50F /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DF1F8906290D7B83004DB50F /* LoginView.swift in Sources */,
-				DF1F8907290D7B8A004DB50F /* RootViewVM.swift in Sources */,
-				DFB85D0A290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
-				DF1F8909290D7B95004DB50F /* SystemUtils.swift in Sources */,
-				DFB85D0F290EF7CC00F66E20 /* ChatView.swift in Sources */,
-				DFECD754292A7318002A4BAD /* Color+UIColor.swift in Sources */,
-				DF1F7EA6293E0E740058D5FF /* AsyncButton.swift in Sources */,
-				DF51DA37290D96A400AB9E60 /* LoginState.swift in Sources */,
-				DFD9F892292FE54A00D1E03B /* Color+UserId.swift in Sources */,
-				DF51DA3A290D972300AB9E60 /* LoginView+PhoneNumber.swift in Sources */,
-				DFB85D0D290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
-				DF51DA3C290D9D5A00AB9E60 /* PhoneNumberInfo.swift in Sources */,
-				DF1F890C290D7BA8004DB50F /* TdApi+Extension.swift in Sources */,
-				DF51DA43290DACF000AB9E60 /* LoginView+TwoFactor.swift in Sources */,
-				DF1F8904290D7B79004DB50F /* RootView.swift in Sources */,
-				DFB85D06290EE87A00F66E20 /* Image+File.swift in Sources */,
-				DF51DA45290DAD3100AB9E60 /* LoginView+Code.swift in Sources */,
-				DF1F890A290D7B99004DB50F /* Logger.swift in Sources */,
-				DFECD75B292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */,
-				DF1F890B290D7BA3004DB50F /* Secret.swift in Sources */,
-				DFECD758292A938B002A4BAD /* Notification+Name.swift in Sources */,
-				DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */,
-				DFB85D12290EF92300F66E20 /* ChatViewVM.swift in Sources */,
-				DF1F8908290D7B8F004DB50F /* LoginViewVM.swift in Sources */,
-				1A21DBE704CB058CFC01AFF2 /* ScrollOffsetPreferenceKey.swift in Sources */,
-				1A21DE82E412B9A6BD6F62A0 /* Chat+Hashable.swift in Sources */,
-				1A21DDFCAFC49F00CF59A0DF /* View+if.swift in Sources */,
-				1A21D640A5574B5FAF9223EA /* View+FlippedUpsideDown.swift in Sources */,
-				1A21D331B0B94466BEA01435 /* View+ReadSize.swift in Sources */,
-				1A21D784063CE2FA273658FF /* SizePreferenceKey.swift in Sources */,
-				1A21DE1AA47F184759AB371E /* CustomMessage.swift in Sources */,
-				DFDFC6EB293B7DC000A5919E /* ContextButtonInfo.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		DF4B997A28C3F3F50087C1B9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -701,7 +479,7 @@
 				DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */,
 				DF1F7EA5293E0E740058D5FF /* AsyncButton.swift in Sources */,
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
-				DF0F9D5128CCADB300BCA763 /* TdApi+Extension.swift in Sources */,
+				DF0F9D5128CCADB300BCA763 /* TdApi+Updates.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */,
@@ -731,72 +509,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		DF1F8900290D7AC4004DB50F /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BetterTG Watch App/Preview Assets.xcassets\"";
-				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
-				ENABLE_PREVIEWS = YES;
-				EXCLUDED_SOURCE_FILE_NAMES = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
-				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.levochka.BetterTG.watchkitapp;
-				PRODUCT_NAME = BetterTG;
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
-			};
-			name = Debug;
-		};
-		DF1F8901290D7AC4004DB50F /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BetterTG Watch App/Preview Assets.xcassets\"";
-				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
-				ENABLE_PREVIEWS = YES;
-				EXCLUDED_SOURCE_FILE_NAMES = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
-				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.levochka.BetterTG.watchkitapp;
-				PRODUCT_NAME = BetterTG;
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
-			};
-			name = Release;
-		};
 		DF4B998A28C3F3F60087C1B9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -988,15 +700,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		DF1F88FF290D7AC4004DB50F /* Build configuration list for PBXNativeTarget "BetterTG Watch App" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				DF1F8900290D7AC4004DB50F /* Debug */,
-				DF1F8901290D7AC4004DB50F /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		DF4B997928C3F3F50087C1B9 /* Build configuration list for PBXProject "BetterTG" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1053,16 +756,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		DF1F890F290D7D1E004DB50F /* CollectionConcurrencyKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */;
-			productName = CollectionConcurrencyKit;
-		};
-		DF1F8911290D7D2D004DB50F /* ArgumentParser */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
-			productName = ArgumentParser;
-		};
 		DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */;
@@ -1074,11 +767,6 @@
 			productName = ArgumentParser;
 		};
 		DF9C5CC0292698BC00ED1CA8 /* TDLibKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF9C5CBF292698BC00ED1CA8 /* XCRemoteSwiftPackageReference "TDLibKit" */;
-			productName = TDLibKit;
-		};
-		DF9C5CC2292698C200ED1CA8 /* TDLibKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = DF9C5CBF292698BC00ED1CA8 /* XCRemoteSwiftPackageReference "TDLibKit" */;
 			productName = TDLibKit;

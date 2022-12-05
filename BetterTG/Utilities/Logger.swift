@@ -18,6 +18,6 @@ struct Logger {
         for message in messages {
             output += "\(message) "
         }
-        logger.log("[\(date)] [\(label)] \(output)")
+        logger.log("[\(date, privacy: .public)] [\(label, privacy: .public)] \(output, privacy: .public)")
     }
 }

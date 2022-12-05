@@ -1,4 +1,4 @@
-// TdApi+Extension.swift
+// TdApi+Updates.swift
 
 import Foundation
 import Combine

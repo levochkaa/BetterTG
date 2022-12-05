@@ -1,33 +1,21 @@
 <h1 align="center">BetterTG</h1>
 <p align="center">
-A Telegram client for iOS and watchOS
+A Telegram client for iOS
 </p>
 
 # Currently implemented
 
-## iOS
-
 - login
 - all chats with people from main folder
 - sending/reading text messages
-
-## watchOS
-
-- login
-- fixed amount of chats/messages
-- sending/reading text messages
+- replying to messages
+- chat draft
 
 # Installation
-
-## iOS
 
 Download an ipa from release tab and install through [Sideloadly](https://altstore.io)
 or [AltStore](https://altstore.io).
 
-## watchOS
-
-There is a bug compiling TDLibKit for real Apple Watch at the moment.\
-Only possible way is to run on a Simulator.
 
 # Contributing
 
