@@ -8,12 +8,8 @@ extension LoginView {
         TextField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            await viewModel.handleAuthorizationState()
-                        }
-                    } label: {
-                        Text("Continue")
+                    AsyncButton("Continue") {
+                        await viewModel.handleAuthorizationState()
                     }
                 }
             }

@@ -8,12 +8,8 @@ extension LoginView {
         TextField("Code", text: $viewModel.code)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            await viewModel.handleAuthorizationState()
-                        }
-                    } label: {
-                        Text("Continue")
+                    AsyncButton("Continue") {
+                        await viewModel.handleAuthorizationState()
                     }
                 }
             }

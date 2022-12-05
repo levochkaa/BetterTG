@@ -10,33 +10,45 @@ struct ChatView: View {
     @State var text = ""
     @FocusState var focused
     
-    @Binding var shownContextMenuMessage: CustomMessage?
-    
     let scroll = "chatScroll"
     
     let tdApi: TdApi = .shared
     let logger = Logger(label: "ChatView")
     
-    init(chat: Chat, shownContextMenuMessage: Binding<CustomMessage?>) {
+    init(chat: Chat) {
         self._viewModel = StateObject(wrappedValue: ChatViewVM(chat: chat))
-        self._shownContextMenuMessage = shownContextMenuMessage
     }
     
     var body: some View {
         Group {
-            if viewModel.messages.isEmpty {
-                Text("No messages")
+            if viewModel.initLoadingMessages {
+                Spacer()
+                Text("Loading...")
+                Spacer()
+            } else if viewModel.messages.isEmpty {
+                VStack {
+                    Spacer()
+                    Text("No messages")
+                    Spacer()
+                }
+                .safeAreaInset(edge: .bottom) {
+                    textField
+                }
             } else {
                 bodyView
+                    .safeAreaInset(edge: .bottom) {
+                        textField
+                    }
             }
         }
         .navigationTitle(viewModel.chat.title)
         .navigationBarTitleDisplayMode(.inline)
+        
     }
     
     var bodyView: some View {
-        ScrollViewReader { proxy in
-            listOfMessages
+        ScrollViewReader { scrollViewProxy in
+            messagesList
                 .coordinateSpace(name: scroll)
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                     let maxY = Int(value.maxY)
@@ -49,28 +61,17 @@ struct ChatView: View {
                             viewModel.isScrollToBottomButtonShown = false
                         }
                     }
-                    
-                    if viewModel.loadingMessages { return }
-                    
-                    let minY = Int(value.minY)
-                    
-                    let range = Range(uncheckedBounds: (lower: -500, upper: 100))
-                    if range.contains(minY) {
-                        Task {
-                            try await viewModel.loadMessages()
-                        }
-                    }
                 }
                 .onChange(of: focused) { _ in
                     if focused {
-                        guard let firstId = viewModel.messages.first?.message.id else { return }
+                        guard let lastId = viewModel.messages.last?.id else { return }
                         withAnimation {
-                            proxy.scrollTo(firstId, anchor: .bottom)
+                            scrollViewProxy.scrollTo(lastId, anchor: .bottom)
                         }
                     }
                 }
                 .onAppear {
-                    viewModel.scrollViewProxy = proxy
+                    viewModel.scrollViewProxy = scrollViewProxy
                 }
                 .onTapGesture {
                     focused = false
@@ -88,9 +89,6 @@ struct ChatView: View {
                 }
             }
             .animation(.default, value: viewModel.isScrollToBottomButtonShown)
-        }
-        .safeAreaInset(edge: .bottom) {
-            textField
         }
     }
     

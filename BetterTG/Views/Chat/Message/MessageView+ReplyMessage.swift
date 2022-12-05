@@ -29,10 +29,8 @@ extension MessageView {
                 .lineLimit(1)
             }
             .onTapGesture {
-                if !showContextMenu {
-                    withAnimation {
-                        viewModel.scrollViewProxy?.scrollTo(msg.message.replyToMessageId, anchor: .center)
-                    }
+                withAnimation {
+                    viewModel.scrollViewProxy?.scrollTo(msg.message.replyToMessageId, anchor: .center)
                 }
             }
         }

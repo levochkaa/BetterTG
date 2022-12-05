@@ -15,10 +15,10 @@ extension ChatView {
             .padding(.trailing)
             .padding(.bottom, 5)
             .onTapGesture {
-                guard let firstId = viewModel.messages.first?.message.id else { return }
+                guard let lastId = viewModel.messages.last?.message.id else { return }
                 
                 withAnimation {
-                    viewModel.scrollViewProxy?.scrollTo(firstId, anchor: .bottom)
+                    viewModel.scrollViewProxy?.scrollTo(lastId, anchor: .bottom)
                 }
             }
     }

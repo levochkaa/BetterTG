@@ -5,23 +5,19 @@ import Combine
 import TDLibKit
 import CollectionConcurrencyKit
 
-class ChatViewVM: ObservableObject, Hashable {
-    static func == (lhs: ChatViewVM, rhs: ChatViewVM) -> Bool {
-        lhs.chat.id == rhs.chat.id
-    }
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(chat.id)
-    }
-    
+class ChatViewVM: ObservableObject {
+
     let chat: Chat
     
-    var scrollViewProxy: ScrollViewProxy?
+    @Published var scrollViewProxy: ScrollViewProxy?
     @Published var isScrollToBottomButtonShown = false
     
+    var initSavedFirstMessage: CustomMessage?
+    @Published var savedFirstMessage: CustomMessage?
     @Published var messages = [CustomMessage]()
+    @Published var loadingMessages = false
+    @Published var initLoadingMessages = false
     var offset = 0
-    var loadingMessages = false
     
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
@@ -31,20 +27,21 @@ class ChatViewVM: ObservableObject, Hashable {
         self.chat = chat
         setPublishers()
         Task {
-            try await self.loadMessages(true)
+            try await self.loadMessages(isInit: true)
         }
     }
     
     func setPublishers() {
         nc.publisher(for: .newMessage) { notification in
-            guard let newMessage = notification.object as? UpdateNewMessage else { return }
-            if newMessage.message.chatId != self.chat.id { return }
+            guard let newMessage = notification.object as? UpdateNewMessage,
+                  newMessage.message.chatId == self.chat.id
+            else { return }
             
             Task {
                 let customMessage = try await self.getCustomMessage(from: newMessage.message)
                 await MainActor.run {
                     withAnimation {
-                        self.messages.insert(customMessage, at: 0)
+                        self.messages.append(customMessage)
                     }
                 }
             }
@@ -52,13 +49,13 @@ class ChatViewVM: ObservableObject, Hashable {
         
         nc.publisher(for: .deleteMessages) { notification in
             guard let deleteMessages = notification.object as? UpdateDeleteMessages else { return }
-            if deleteMessages.chatId != self.chat.id { return }
-            if deleteMessages.fromCache { return }
-            if !deleteMessages.isPermanent { return }
+            if deleteMessages.chatId != self.chat.id
+                || deleteMessages.fromCache
+                || !deleteMessages.isPermanent { return }
             
             withAnimation {
-                self.messages.removeAll(where: {
-                    deleteMessages.messageIds.contains($0.message.id)
+                self.messages.removeAll(where: { customMessage in
+                    deleteMessages.messageIds.contains(customMessage.message.id)
                 })
             }
         }
@@ -99,29 +96,41 @@ class ChatViewVM: ObservableObject, Hashable {
             )
         }
     }
-    
-    func loadMessages(_ isInit: Bool = false) async throws {
-        loadingMessages = true
+
+    func loadMessages(isInit: Bool = false) async throws {
+        await MainActor.run {
+            self.loadingMessages = true
+            
+            if isInit {
+                self.initLoadingMessages = true
+            }
+        }
+        
         let chatHistory = try await self.tdApi.getChatHistory(
             chatId: chat.id,
-            fromMessageId: self.messages.last?.message.id ?? 0,
+            fromMessageId: self.messages.first?.message.id ?? 0,
             limit: 30,
-            offset: messages.last == nil ? -offset : 0,
+            offset: messages.first == nil ? -offset : 0,
             onlyLocal: false
         )
         
-        let chatMessages = chatHistory.messages ?? []
+        let chatMessages = chatHistory.messages?.reversed() ?? []
         let messages = try await chatMessages.asyncMap { chatMessage in
             try await self.getCustomMessage(from: chatMessage)
         }
         
+        if isInit {
+            initSavedFirstMessage = messages.first
+        }
+        
         await MainActor.run {
-            self.messages += messages
+            self.savedFirstMessage = self.messages.first
+            self.messages = messages + self.messages
             self.offset = self.messages.count
             self.loadingMessages = false
             
             if isInit {
-                self.scrollViewProxy?.scrollTo(self.messages.last?.message.id)
+                self.initLoadingMessages = false
             }
         }
     }
