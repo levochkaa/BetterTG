@@ -22,27 +22,26 @@ struct ChatView: View {
     var body: some View {
         Group {
             if viewModel.initLoadingMessages {
-                Spacer()
-                Text("Loading...")
-                Spacer()
+                VStack {
+                    Spacer()
+                    Text("Loading...")
+                    Spacer()
+                }
             } else if viewModel.messages.isEmpty {
                 VStack {
                     Spacer()
                     Text("No messages")
                     Spacer()
                 }
-                .safeAreaInset(edge: .bottom) {
-                    textField
-                }
             } else {
                 bodyView
-                    .safeAreaInset(edge: .bottom) {
-                        textField
-                    }
             }
         }
         .navigationTitle(viewModel.chat.title)
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            bottomArea
+        }
         
     }
     
@@ -54,11 +53,15 @@ struct ChatView: View {
                     let maxY = Int(value.maxY)
                     if maxY > 800 {
                         if viewModel.isScrollToBottomButtonShown == false {
-                            viewModel.isScrollToBottomButtonShown = true
+                            withAnimation {
+                                viewModel.isScrollToBottomButtonShown = true
+                            }
                         }
                     } else {
                         if viewModel.isScrollToBottomButtonShown == true {
-                            viewModel.isScrollToBottomButtonShown = false
+                            withAnimation {
+                                viewModel.isScrollToBottomButtonShown = false
+                            }
                         }
                     }
                 }
@@ -70,6 +73,12 @@ struct ChatView: View {
                         }
                     }
                 }
+                .onChange(of: viewModel.replyMessage) { _ in
+                    guard let lastId = viewModel.messages.last?.message.id else { return }
+                    withAnimation {
+                        viewModel.scrollViewProxy?.scrollTo(lastId, anchor: .bottom)
+                    }
+                }
                 .onAppear {
                     viewModel.scrollViewProxy = scrollViewProxy
                 }
@@ -78,17 +87,10 @@ struct ChatView: View {
                 }
         }
         .overlay(alignment: .bottomTrailing) {
-            Group {
-                if viewModel.isScrollToBottomButtonShown {
-                    scrollToBottomButton
-                        .transition(.move(edge: .trailing))
-                } else {
-                    scrollToBottomButton
-                        .offset(x: 60)
-                        .transition(.move(edge: .trailing))
-                }
+            if viewModel.isScrollToBottomButtonShown {
+                scrollToBottomButton
+                    .transition(.move(edge: .trailing))
             }
-            .animation(.default, value: viewModel.isScrollToBottomButtonShown)
         }
     }
     

@@ -22,7 +22,8 @@ extension ChatView {
                         HStack {
                             if customMessage.message.isOutgoing { Spacer() }
                             
-                            MessageView(customMessage: customMessage, viewModel: viewModel)
+                            MessageView(customMessage: customMessage)
+                                .environmentObject(viewModel)
                             
                             if !customMessage.message.isOutgoing { Spacer() }
                         }

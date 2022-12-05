@@ -19,6 +19,8 @@ class ChatViewVM: ObservableObject {
     @Published var initLoadingMessages = false
     var offset = 0
     
+    @Published var replyMessage: CustomMessage?
+    
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
     private let nc: NotificationCenter = .default
@@ -75,25 +77,29 @@ class ChatViewVM: ObservableObject {
     
     func getCustomMessage(from message: Message) async throws -> CustomMessage {
         let replyToMessage = try await getReplyToMessage(id: message.replyToMessageId)
+        var customMessage = CustomMessage(message: message)
+        
+        switch message.senderId {
+            case let .messageSenderUser(messageSenderUser):
+                let senderUser = try await tdApi.getUser(userId: messageSenderUser.userId)
+                customMessage.senderUser = senderUser
+            case .messageSenderChat:
+                break
+        }
+        
         if let reply = replyToMessage {
             switch reply.senderId {
                 case let .messageSenderUser(messageSenderUser):
                     let replyUser = try await tdApi.getUser(userId: messageSenderUser.userId)
-                    return CustomMessage(
-                        message: message,
-                        replyToMessage: replyToMessage,
-                        replyUser: replyUser
-                    )
+                    customMessage.replyToMessage = replyToMessage
+                    customMessage.replyUser = replyUser
+                    return customMessage
                 default:
-                    return CustomMessage(
-                        message: message,
-                        replyToMessage: replyToMessage
-                    )
+                    customMessage.replyToMessage = replyToMessage
+                    return customMessage
             }
         } else {
-            return CustomMessage(
-                message: message
-            )
+            return customMessage
         }
     }
 
@@ -152,7 +158,8 @@ class ChatViewVM: ObservableObject {
             messageThreadId: 0,
             options: nil,
             replyMarkup: nil,
-            replyToMessageId: 0
+            replyToMessageId: replyMessage?.message.id ?? 0
         )
+        replyMessage = nil
     }
 }

@@ -6,11 +6,13 @@ import TDLibKit
 struct MessageView: View {
     
     @State var customMessage: CustomMessage
-    @ObservedObject var viewModel: ChatViewVM
+    @EnvironmentObject var viewModel: ChatViewVM
+    
+    let logger = Logger(label: "MessageView")
     
     var body: some View {
         VStack(alignment: .leading) {
-            replyMessage(customMessage)
+            ReplyMessageView(customMessage: customMessage)
             
             switch customMessage.message.content {
                 case let .messageText(messageText):

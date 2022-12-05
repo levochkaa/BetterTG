@@ -13,7 +13,6 @@ extension ChatView {
                     .stroke(.blue, lineWidth: 1)
             )
             .padding(.trailing)
-            .padding(.bottom, 5)
             .onTapGesture {
                 guard let lastId = viewModel.messages.last?.message.id else { return }
                 
