@@ -26,14 +26,21 @@ extension ChatView {
             
             // message
             HStack(alignment: .bottom) {
-                TextField("Message", text: $text, axis: .vertical)
+                TextField("Message", text: $viewModel.text, axis: .vertical)
                     .focused($focused)
                     .lineLimit(10)
                     .padding(5)
                     .background(Color.gray6)
                     .cornerRadius(10)
+                    .onChange(of: viewModel.text) { _ in
+                        Task {
+                            try await viewModel.updateDraft()
+                        }
+                    }
                 
-                Button(action: sendMessage) {
+                AsyncButton {
+                    try await viewModel.sendMessage()
+                } label: {
                     Image("send")
                         .resizable()
                         .clipShape(Circle())

@@ -9,6 +9,8 @@ class ChatViewVM: ObservableObject {
 
     let chat: Chat
     
+    @Published var text = ""
+    
     @Published var scrollViewProxy: ScrollViewProxy?
     @Published var isScrollToBottomButtonShown = false
     
@@ -19,7 +21,13 @@ class ChatViewVM: ObservableObject {
     @Published var initLoadingMessages = false
     var offset = 0
     
-    @Published var replyMessage: CustomMessage?
+    @Published var replyMessage: CustomMessage? {
+        didSet {
+            Task {
+                try await updateDraft()
+            }
+        }
+    }
     
     private let tdApi: TdApi = .shared
     private let logger = Logger(label: "ChatVM")
@@ -27,13 +35,28 @@ class ChatViewVM: ObservableObject {
     
     init(chat: Chat) {
         self.chat = chat
+        
         setPublishers()
         Task {
             try await self.loadMessages(isInit: true)
+            
+            guard let draftMessage = chat.draftMessage else { return }
+            try await self.setDraft(draftMessage)
         }
     }
     
     func setPublishers() {
+        nc.publisher(for: .chatDraftMessage) { notification in
+            guard let chatDraftMessage = notification.object as? UpdateChatDraftMessage,
+                  let draftMessage = chatDraftMessage.draftMessage,
+                  chatDraftMessage.chatId == self.chat.id
+            else { return }
+            
+            Task {
+                try await self.setDraft(draftMessage)
+            }
+        }
+        
         nc.publisher(for: .newMessage) { notification in
             guard let newMessage = notification.object as? UpdateNewMessage,
                   newMessage.message.chatId == self.chat.id
@@ -102,6 +125,44 @@ class ChatViewVM: ObservableObject {
             return customMessage
         }
     }
+    
+    func setDraft(_ draftMessage: DraftMessage) async throws {
+        switch draftMessage.inputMessageText {
+            case let .inputMessageText(inputMessageText):
+                await MainActor.run {
+                    text = inputMessageText.text.text
+                }
+            default:
+                break
+        }
+        let message = try await tdApi.getMessage(chatId: chat.id, messageId: draftMessage.replyToMessageId)
+        let customMessage = try await getCustomMessage(from: message)
+        await MainActor.run {
+            replyMessage = customMessage
+        }
+    }
+    
+    func updateDraft() async throws {
+        let draftMessage = DraftMessage(
+            date: Int(Date.now.timeIntervalSince1970),
+            inputMessageText: .inputMessageText(
+                .init(
+                    clearDraft: true,
+                    disableWebPagePreview: true,
+                    text: FormattedText(
+                        entities: [],
+                        text: text
+                    )
+                )
+            ),
+            replyToMessageId: replyMessage?.message.id ?? 0
+        )
+        _ = try await tdApi.setChatDraftMessage(
+            chatId: chat.id,
+            draftMessage: draftMessage,
+            messageThreadId: 0
+        )
+    }
 
     func loadMessages(isInit: Bool = false) async throws {
         await MainActor.run {
@@ -141,7 +202,9 @@ class ChatViewVM: ObservableObject {
         }
     }
     
-    func sendMessage(text: String) async throws {
+    func sendMessage() async throws {
+        if text.isEmpty { return }
+        
         _ = try await tdApi.sendMessage(
             chatId: chat.id,
             inputMessageContent:
@@ -160,6 +223,8 @@ class ChatViewVM: ObservableObject {
             replyMarkup: nil,
             replyToMessageId: replyMessage?.message.id ?? 0
         )
+        
         replyMessage = nil
+        text = ""
     }
 }

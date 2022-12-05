@@ -7,6 +7,9 @@ struct RootView: View {
     
     @StateObject private var viewModel = RootViewVM()
     
+    @State private var showConfirmChatDelete = false
+    @State private var confirmedChatId: Int64 = 0
+    
     let scroll = "rootScroll"
     
     static let spacing: CGFloat = 8
@@ -29,14 +32,24 @@ struct RootView: View {
     }
     
     var body: some View {
-        if let loggedIn = viewModel.loggedIn {
-            if loggedIn {
-                bodyView
+        Group {
+            if let loggedIn = viewModel.loggedIn {
+                if loggedIn {
+                    bodyView
+                } else {
+                    LoginView()
+                }
             } else {
-                LoginView()
+                Text("Loading...")
             }
-        } else {
-            Text("Loading...")
+        }
+        .onAppear {
+            let window = UIApplication
+                .shared
+                .connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+                .first
+            window?.overrideUserInterfaceStyle = .dark
         }
     }
     
@@ -59,6 +72,11 @@ struct RootView: View {
                         }
                     }
                 }
+                .confirmationDialog("Are you sure?", isPresented: $showConfirmChatDelete, titleVisibility: .visible) {
+                    AsyncButton("Delete", role: .destructive) {
+                        try await viewModel.deleteChat(id: confirmedChatId)
+                    }
+                }
         }
     }
     
@@ -71,6 +89,13 @@ struct RootView: View {
                             ChatView(chat: chat)
                         } label: {
                             chatListView(for: chat)
+                                .contextMenu {
+                                    chatListContextMenu(for: chat.id)
+                                } preview: {
+                                    NavigationStack {
+                                        ChatViewPreview(chat: chat)
+                                    }
+                                }
                         }
                         .onAppear {
                             Task {
@@ -151,32 +176,43 @@ struct RootView: View {
         }
     }
     
-    @ViewBuilder func chatListView(for chat: Chat) -> some View {
-        HStack {
-            Group {
-                if let photo = chat.photo {
-                    AsyncTdImage(id: photo.small.id) { image in
-                        image
-                            .resizable()
-                            .scaledToFit()
-                    } placeholder: {
-                        Group {
-                            if let thumbnailData = photo.minithumbnail?.data,
-                               let thumbnailUiImage = UIImage(data: thumbnailData) {
-                                Image(uiImage: thumbnailUiImage)
-                                    .resizable()
-                                    .scaledToFill()
-                            } else {
-                                PlaceholderView(userId: chat.id, title: chat.title)
-                            }
+    @ViewBuilder func chatListContextMenu(for id: Int64) -> some View {
+        Button("Delete", role: .destructive) {
+            showConfirmChatDelete = true
+            confirmedChatId = id
+        }
+    }
+    
+    @ViewBuilder func chatListPhotoView(for chat: Chat) -> some View {
+        Group {
+            if let photo = chat.photo {
+                AsyncTdImage(id: photo.small.id) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                } placeholder: {
+                    Group {
+                        if let thumbnailData = photo.minithumbnail?.data,
+                           let thumbnailUiImage = UIImage(data: thumbnailData) {
+                            Image(uiImage: thumbnailUiImage)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            PlaceholderView(userId: chat.id, title: chat.title)
                         }
                     }
-                } else {
-                    PlaceholderView(userId: chat.id, title: chat.title)
                 }
+            } else {
+                PlaceholderView(userId: chat.id, title: chat.title)
             }
-            .clipShape(Circle())
-            .frame(width: 64, height: 64)
+        }
+        .clipShape(Circle())
+        .frame(width: 64, height: 64)
+    }
+    
+    @ViewBuilder func chatListView(for chat: Chat) -> some View {
+        HStack {
+            chatListPhotoView(for: chat)
             
             VStack(alignment: .leading) {
                 Text(chat.title)
@@ -195,6 +231,14 @@ struct RootView: View {
                             .foregroundColor(.gray)
                     }
                 }
+            }
+            
+            Spacer()
+            
+            if viewModel.pinnedChatIds.contains(chat.id) {
+                Image(systemName: "pin.fill")
+                    .foregroundColor(.white)
+                    .padding(.trailing)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

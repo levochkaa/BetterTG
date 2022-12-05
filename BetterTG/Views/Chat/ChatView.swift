@@ -7,7 +7,6 @@ struct ChatView: View {
     
     @StateObject var viewModel: ChatViewVM
     
-    @State var text = ""
     @FocusState var focused
     
     let scroll = "chatScroll"
@@ -91,14 +90,6 @@ struct ChatView: View {
                 scrollToBottomButton
                     .transition(.move(edge: .trailing))
             }
-        }
-    }
-    
-    func sendMessage() {
-        if text.isEmpty { return }
-        Task {
-            try await viewModel.sendMessage(text: text)
-            text = ""
         }
     }
 }

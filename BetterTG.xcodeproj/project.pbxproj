@@ -33,6 +33,7 @@
 		DF1F7EA2293E0C2E0058D5FF /* MessageView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA1293E0C2E0058D5FF /* MessageView+ContextMenu.swift */; };
 		DF1F7EA5293E0E740058D5FF /* AsyncButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */; };
 		DF1F7EA6293E0E740058D5FF /* AsyncButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */; };
+		DF1F7EA8293E5A540058D5FF /* ChatView+Preview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA7293E5A540058D5FF /* ChatView+Preview.swift */; };
 		DF1F88F7290D7AC3004DB50F /* BetterTG_WatchApp_App.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */; };
 		DF1F88FB290D7AC4004DB50F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88FA290D7AC4004DB50F /* Assets.xcassets */; };
 		DF1F88FE290D7AC4004DB50F /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1F88FD290D7AC4004DB50F /* Preview Assets.xcassets */; };
@@ -155,6 +156,7 @@
 		DF16E6EE28DA4AE900281C7B /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		DF1F7EA1293E0C2E0058D5FF /* MessageView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+ContextMenu.swift"; sourceTree = "<group>"; };
 		DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncButton.swift; sourceTree = "<group>"; };
+		DF1F7EA7293E5A540058D5FF /* ChatView+Preview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatView+Preview.swift"; sourceTree = "<group>"; };
 		DF1F88F4290D7AC3004DB50F /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF1F88F6290D7AC3004DB50F /* BetterTG_WatchApp_App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTG_WatchApp_App.swift; sourceTree = "<group>"; };
 		DF1F88FA290D7AC4004DB50F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 			children = (
 				DFDFC6D92938DFDD00A5919E /* Message */,
 				1A21D6E4B3EE6D349DB55696 /* ChatView.swift */,
+				DF1F7EA7293E5A540058D5FF /* ChatView+Preview.swift */,
 				1A21D2200D2C61AD571EC864 /* ChatView+BottomArea.swift */,
 				1A21DCE0538E7CCE4BC0F018 /* ChatView+MessageBubble.swift */,
 				1A21D779D749860C7447D251 /* ChatView+MessagesList.swift */,
@@ -689,6 +692,7 @@
 				DF16E6ED28DA4ACB00281C7B /* LoginViewVM.swift in Sources */,
 				DFECD753292A7318002A4BAD /* Color+UIColor.swift in Sources */,
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
+				DF1F7EA8293E5A540058D5FF /* ChatView+Preview.swift in Sources */,
 				DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,

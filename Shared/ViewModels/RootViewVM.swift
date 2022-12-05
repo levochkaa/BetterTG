@@ -9,6 +9,7 @@ class RootViewVM: ObservableObject {
     
     @Published var loggedIn: Bool?
     @Published var mainChats = [Chat]()
+    @Published var pinnedChatIds = [Int64]()
     
     var loadedUsers = 0
     var limit = 10
@@ -94,6 +95,10 @@ class RootViewVM: ObservableObject {
         }
     }
     
+    func deleteChat(id: Int64) async throws {
+        _ = try await tdApi.deleteChat(chatId: id)
+    }
+    
     func loadMainChats() async throws {
         // don't know why, but some times loadChats() gives Error: 404
         do {
@@ -113,6 +118,13 @@ class RootViewVM: ObservableObject {
                     let user = try await tdApi.getUser(userId: chat.id)
                     switch user.type {
                         case .userTypeRegular:
+                            if let chatPosition = chat.positions.first(where: {
+                                $0.list == .chatListMain
+                            }), chatPosition.isPinned, !pinnedChatIds.contains(chat.id) {
+                                await MainActor.run {
+                                    pinnedChatIds.append(chat.id)
+                                }
+                            }
                             return chat
                         default:
                             return nil
