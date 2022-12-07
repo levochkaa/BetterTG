@@ -26,6 +26,7 @@
 		DF1F7EA5293E0E740058D5FF /* AsyncButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA4293E0E740058D5FF /* AsyncButton.swift */; };
 		DF1F7EA8293E5A540058D5FF /* ChatView+Preview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F7EA7293E5A540058D5FF /* ChatView+Preview.swift */; };
 		DF2367452940ECFC0076B821 /* Color+RGB.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2367442940ECFC0076B821 /* Color+RGB.swift */; };
+		DF2367472940F9810076B821 /* Task+Delayed.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2367462940F9810076B821 /* Task+Delayed.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
@@ -106,6 +107,7 @@
 		DF1F8913290D7D42004DB50F /* libc++.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.1.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++.1.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF1F8914290D7DD5004DB50F /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "Platforms/WatchOS.platform/Developer/SDKs/WatchOS9.1.sdk/usr/lib/libc++abi.tbd"; sourceTree = DEVELOPER_DIR; };
 		DF2367442940ECFC0076B821 /* Color+RGB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+RGB.swift"; sourceTree = "<group>"; };
+		DF2367462940F9810076B821 /* Task+Delayed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Delayed.swift"; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
@@ -346,6 +348,7 @@
 				1A21D7EDDC8AFF28411C178C /* View+if.swift */,
 				1A21DA716F6259A775D09423 /* View+FlippedUpsideDown.swift */,
 				1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */,
+				DF2367462940F9810076B821 /* Task+Delayed.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -489,6 +492,7 @@
 				DFB85D11290EF92300F66E20 /* ChatViewVM.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
 				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
+				DF2367472940F9810076B821 /* Task+Delayed.swift in Sources */,
 				1A21D03E20E0A64A861C2A0F /* Chat+Hashable.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* View+if.swift in Sources */,
 				1A21DAE2BADBE9A5D6ADB856 /* ChatView.swift in Sources */,
