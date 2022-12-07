@@ -9,8 +9,4 @@ struct CustomMessage: Identifiable, Equatable {
     var senderUser: User?
     var replyToMessage: Message?
     var replyUser: User?
-    
-    static func == (lhs: CustomMessage, rhs: CustomMessage) -> Bool {
-        lhs.message.id == rhs.message.id
-    }
 }

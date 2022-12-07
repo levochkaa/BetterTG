@@ -65,18 +65,13 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: focused) { _ in
-                    if focused {
-                        guard let lastId = viewModel.messages.last?.id else { return }
-                        withAnimation {
-                            scrollViewProxy.scrollTo(lastId, anchor: .bottom)
-                        }
-                    }
+                    viewModel.scrollToLast()
                 }
                 .onChange(of: viewModel.replyMessage) { _ in
-                    guard let lastId = viewModel.messages.last?.message.id else { return }
-                    withAnimation {
-                        viewModel.scrollViewProxy?.scrollTo(lastId, anchor: .bottom)
-                    }
+                    focused = true
+                }
+                .onChange(of: viewModel.editMessage) { _ in
+                    focused = true
                 }
                 .onAppear {
                     viewModel.scrollViewProxy = scrollViewProxy
@@ -89,6 +84,11 @@ struct ChatView: View {
             if viewModel.isScrollToBottomButtonShown {
                 scrollToBottomButton
                     .transition(.move(edge: .trailing))
+            }
+        }
+        .onDisappear {
+            Task {
+                try await viewModel.updateDraft()
             }
         }
     }

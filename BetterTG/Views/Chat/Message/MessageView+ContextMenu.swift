@@ -23,11 +23,38 @@ extension MessageView {
             Label("Reply", systemImage: "arrowshape.turn.up.left")
         }
         
+        if customMessage.message.isOutgoing {
+            Button {
+                if viewModel.editMessage != nil {
+                    withAnimation {
+                        viewModel.editMessage = nil
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35 + 0.05) { // defaultAnimationDuration = 0.35
+                        withAnimation {
+                            viewModel.editMessage = customMessage
+                        }
+                        if case let .messageText(messageText) = customMessage.message.content {
+                            viewModel.editMessageText = messageText.text.text
+                        }
+                    }
+                } else {
+                    withAnimation {
+                        viewModel.editMessage = customMessage
+                    }
+                    if case let .messageText(messageText) = customMessage.message.content {
+                        viewModel.editMessageText = messageText.text.text
+                    }
+                }
+            } label: {
+                Label("Edit", systemImage: "square.and.pencil")
+            }
+        }
+        
         Divider()
         
         AsyncButton(role: .destructive) {
-            try await viewModel.deleteMessages(
-                ids: [customMessage.message.id],
+            try await viewModel.deleteMessage(
+                id: customMessage.message.id,
                 deleteForBoth: false
             )
         } label: {
@@ -35,8 +62,8 @@ extension MessageView {
         }
         
         AsyncButton(role: .destructive) {
-            try await viewModel.deleteMessages(
-                ids: [customMessage.message.id],
+            try await viewModel.deleteMessage(
+                id: customMessage.message.id,
                 deleteForBoth: true
             )
         } label: {

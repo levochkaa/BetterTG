@@ -10,6 +10,7 @@ class ChatViewVM: ObservableObject {
     let chat: Chat
     
     @Published var text = ""
+    @Published var editMessageText = ""
     
     @Published var scrollViewProxy: ScrollViewProxy?
     @Published var isScrollToBottomButtonShown = false
@@ -17,10 +18,12 @@ class ChatViewVM: ObservableObject {
     var initSavedFirstMessage: CustomMessage?
     @Published var savedFirstMessage: CustomMessage?
     @Published var messages = [CustomMessage]()
+    @Published var highlightedMessageId: Int64?
     @Published var loadingMessages = false
     @Published var initLoadingMessages = false
     var offset = 0
     
+    @Published var editMessage: CustomMessage?
     @Published var replyMessage: CustomMessage? {
         didSet {
             Task {
@@ -46,14 +49,31 @@ class ChatViewVM: ObservableObject {
     }
     
     func setPublishers() {
-        nc.publisher(for: .chatDraftMessage) { notification in
-            guard let chatDraftMessage = notification.object as? UpdateChatDraftMessage,
-                  let draftMessage = chatDraftMessage.draftMessage,
-                  chatDraftMessage.chatId == self.chat.id
+        nc.publisher(for: .messageEdited) { notification in
+            guard let messageEdited = notification.object as? UpdateMessageEdited,
+                  messageEdited.chatId == self.chat.id
             else { return }
             
+            if let index = self.messages.firstIndex(where: { $0.message.id == messageEdited.messageId }) {
+                Task {
+                    let customMessage = try await self.getCustomMessage(fromId: messageEdited.messageId)
+                    await MainActor.run {
+                        self.messages[index] = customMessage
+                    }
+                }
+            }
+            
+            let indices = self.messages.enumerated().compactMap { index, customMessage in
+                return customMessage.replyToMessage?.id == messageEdited.messageId ? index : nil
+            }
+            if indices == [] { return }
             Task {
-                try await self.setDraft(draftMessage)
+                let message = try await self.getMessage(id: messageEdited.messageId)
+                for index in indices {
+                    await MainActor.run {
+                        self.messages[index].replyToMessage = message
+                    }
+                }
             }
         }
         
@@ -86,6 +106,60 @@ class ChatViewVM: ObservableObject {
         }
     }
     
+    func editMessage() async throws {
+        guard let editMessage else { return }
+        
+        _ = try await tdApi.editMessageText(
+            chatId: chat.id,
+            inputMessageContent:
+                    .inputMessageText(
+                        .init(
+                            clearDraft: true,
+                            disableWebPagePreview: true,
+                            text: FormattedText(
+                                entities: [],
+                                text: editMessageText
+                            )
+                        )
+                    ),
+            messageId: editMessage.message.id,
+            replyMarkup: nil
+        )
+        
+        await MainActor.run {
+            self.editMessage = nil
+            editMessageText = ""
+        }
+    }
+    
+    func scrollToLast() {
+        guard let lastId = messages.last?.message.id,
+              let scrollViewProxy
+        else { return }
+        
+        withAnimation {
+            scrollViewProxy.scrollTo(lastId, anchor: .bottom)
+        }
+    }
+    
+    func scrollTo(id: Int64?, anchor: UnitPoint = .center) {
+        guard let scrollViewProxy, let id else { return }
+        
+        withAnimation {
+            scrollViewProxy.scrollTo(id, anchor: anchor)
+            highlightedMessageId = id
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            withAnimation {
+                self.highlightedMessageId = nil
+            }
+        }
+    }
+    
+    func deleteMessage(id: Int64, deleteForBoth: Bool) async throws {
+        try await deleteMessages(ids: [id], deleteForBoth: deleteForBoth)
+    }
+    
     func deleteMessages(ids: [Int64], deleteForBoth: Bool) async throws {
         _ = try await tdApi.deleteMessages(chatId: self.chat.id, messageIds: ids, revoke: deleteForBoth)
     }
@@ -96,6 +170,12 @@ class ChatViewVM: ObservableObject {
     
     func getReplyToMessage(id: Int64) async throws -> Message? {
         id != 0 ? try await getMessage(id: id) : nil
+    }
+    
+    func getCustomMessage(fromId id: Int64) async throws -> CustomMessage {
+        let message = try await getMessage(id: id)
+        let customMessage = try await getCustomMessage(from: message)
+        return customMessage
     }
     
     func getCustomMessage(from message: Message) async throws -> CustomMessage {
@@ -135,8 +215,7 @@ class ChatViewVM: ObservableObject {
             default:
                 break
         }
-        let message = try await tdApi.getMessage(chatId: chat.id, messageId: draftMessage.replyToMessageId)
-        let customMessage = try await getCustomMessage(from: message)
+        let customMessage = try await getCustomMessage(fromId: draftMessage.replyToMessageId)
         await MainActor.run {
             replyMessage = customMessage
         }
@@ -224,7 +303,9 @@ class ChatViewVM: ObservableObject {
             replyToMessageId: replyMessage?.message.id ?? 0
         )
         
-        replyMessage = nil
-        text = ""
+        await MainActor.run {
+            replyMessage = nil
+            text = ""
+        }
     }
 }

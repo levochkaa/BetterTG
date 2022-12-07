@@ -99,6 +99,10 @@ extension TdApi {
                 TdApi.nc.post(name: .deleteMessages, object: updateDeleteMessages)
             case let .updateChatAction(updateChatAction):
                 self.updateChatAction(updateChatAction)
+            case let .updateMessageEdited(updateMessageEdited):
+                Task { @MainActor in
+                    TdApi.nc.post(name: .messageEdited, object: updateMessageEdited)
+                }
             default:
                 break
         }

@@ -14,11 +14,7 @@ extension ChatView {
             )
             .padding(.trailing)
             .onTapGesture {
-                guard let lastId = viewModel.messages.last?.message.id else { return }
-                
-                withAnimation {
-                    viewModel.scrollViewProxy?.scrollTo(lastId, anchor: .bottom)
-                }
+                viewModel.scrollToLast()
             }
     }
 }
