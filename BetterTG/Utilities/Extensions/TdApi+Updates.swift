@@ -60,7 +60,7 @@ extension TdApi {
         }
         
         TdApi.nc.publisher(for: .closed) { _ in
-            TdApi.shared = TdApi(client: TdClientImpl(completionQueue: .global()))
+            TdApi.shared = TdApi(client: TdClientImpl(completionQueue: .global(qos: .userInitiated)))
             TdApi.shared.startTdLibUpdateHandler()
         }
     }

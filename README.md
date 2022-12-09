@@ -1,9 +1,11 @@
-<img src="https://github.com/levochkaa/BetterTG/blob/main/BetterTG/Assets.xcassets/AppIcon.appiconset/bettertg.png?raw=true" 
-width="256" height="256" 
-style="border-radius: 45px; display: block; margin: auto;" 
-alt="AppIcon">
-<h1 style="text-align: center;">BetterTG</h1>
-<p style="text-align: center;">A Telegram client for iOS</p>
+<div align="center">
+    <img src="https://github.com/levochkaa/BetterTG/blob/main/BetterTG/Assets.xcassets/AppIcon.appiconset/bettertg.png?raw=true" 
+    width="256" height="256" alt="AppIcon" 
+    border-radius="45px">
+</div>
+
+<h1 align="center">BetterTG</h1>
+<p align="center">A Telegram client for iOS</p>
 
 ![](https://img.shields.io/badge/platform-iOS-000000?style=flat&logo=apple&logoColor=white)
 ![](https://img.shields.io/badge/minimum%20OS-iOS%2016-blueviolet?style=flat&logo=apple&logoColor=white)
