@@ -12,7 +12,7 @@ extension ChatView {
                             ProgressView()
                         } else {
                             AsyncButton("Load messages") {
-                                try await viewModel.loadMessages()
+                                await viewModel.loadMessages()
                             }
                         }
                     }
@@ -23,13 +23,18 @@ extension ChatView {
                             if customMessage.message.isOutgoing { Spacer() }
                             
                             MessageView(customMessage: customMessage)
-                                .environmentObject(viewModel)
                             
                             if !customMessage.message.isOutgoing { Spacer() }
                         }
                         .id(customMessage.message.id)
                         .padding(customMessage.message.isOutgoing ? .trailing : .leading)
-                        .transition(.move(edge: .bottom))
+                        .transition(
+                            .asymmetric(
+                                insertion: .move(edge: .bottom),
+                                removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading)
+                            )
+                            .combined(with: .opacity)
+                        )
                         .onAppear {
                             guard let scrollViewProxy = viewModel.scrollViewProxy else { return }
                             

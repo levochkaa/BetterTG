@@ -6,11 +6,23 @@ import TDLibKit
 struct MessageView: View {
     
     @State var customMessage: CustomMessage
-    @EnvironmentObject var viewModel: ChatViewVM
     
-    @State private var replySize: CGSize = .zero
-    @State private var textSize: CGSize = .zero
-    @State private var bottomTextSize: CGSize = .zero
+    @EnvironmentObject var viewModel: ChatViewModel
+    
+    @State var replySize: CGSize = .zero
+    @State var textSize: CGSize = .zero
+    @State var bottomTextSize: CGSize = .zero
+    
+    var spacerMaxWidth: CGFloat {
+        // maxWidth = 5 just for spacing between `messageText` and `bottomText`
+        if replySize.width < (bottomTextSize.width + textSize.width) {
+            return 5
+        } else if replySize.width > (bottomTextSize.width + textSize.width) {
+            return replySize.width - (bottomTextSize.width + textSize.width)
+        } else {
+            return 5
+        }
+    }
     
     let logger = Logger(label: "MessageView")
     let nc: NotificationCenter = .default
@@ -18,28 +30,20 @@ struct MessageView: View {
     var body: some View {
         VStack(alignment: .leading) {
             ReplyMessageView(customMessage: customMessage)
+                .environmentObject(viewModel)
                 .readSize { size in
                     replySize = size
                 }
             
             HStack(alignment: .bottom) {
-                Group {
-                    switch customMessage.message.content {
-                        case let .messageText(messageText):
-                            Text(messageText.text.text)
-                        case .messageUnsupported:
-                            Text("TDLib not supported")
-                        default:
-                            Text("BTG not supported")
+                messageContent
+                    .readSize { size in
+                        textSize = size
                     }
-                }
-                .readSize { size in
-                    textSize = size
-                }
                 
                 if customMessage.message.editDate != 0 {
                     Spacer()
-                        .frame(maxWidth: spacerMaxWidth())
+                        .frame(maxWidth: spacerMaxWidth)
                     
                     Text("edited")
                         .font(.caption)
@@ -65,7 +69,7 @@ struct MessageView: View {
             
         }
         .frame(
-            maxWidth: SystemUtils.size.width * 0.8,
+            maxWidth: Utils.size.width * 0.8,
             alignment: customMessage.message.isOutgoing ? .trailing : .leading
         )
         .contextMenu {
@@ -73,10 +77,11 @@ struct MessageView: View {
         }
         .onReceive(nc.publisher(for: .messageEdited)) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited else { return }
-            
+
             if messageEdited.messageId == customMessage.message.id {
                 Task {
-                    let customMessage = try await viewModel.getCustomMessage(fromId: messageEdited.messageId)
+                    guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
+                    else { return }
                     await MainActor.run {
                         withAnimation {
                             self.customMessage = customMessage
@@ -85,16 +90,5 @@ struct MessageView: View {
                 }
             }
         }
-    }
-    
-    func spacerMaxWidth() -> CGFloat {
-        if replySize.width < (bottomTextSize.width + textSize.width) {
-            return 5
-        } else if replySize.width > (bottomTextSize.width + textSize.width) {
-            return replySize.width - (bottomTextSize.width + textSize.width)
-        } else {
-            return 5
-        }
-        // maxWidth = 5 just for spacing between `messageText` and `bottomText`
     }
 }

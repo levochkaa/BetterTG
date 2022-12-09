@@ -18,8 +18,7 @@ extension TdApi {
                 let update = try TdApi.shared.decoder.decode(Update.self, from: data)
                 self.update(update)
             } catch {
-                guard let tdError = error as? TDLibKit.Error else { return }
-                TdApi.logger.log("TdLibUpdateHandler: \(tdError.code) - \(tdError.message)")
+                TdApi.logger.log("Error TdLibUpdateHandler: \(error)")
             }
         }
     }
@@ -42,15 +41,15 @@ extension TdApi {
                 _ = try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
-                    applicationVersion: SystemUtils.info(key: "CFBundleShortVersionString"),
+                    applicationVersion: Utils.info(key: "CFBundleShortVersionString"),
                     databaseDirectory: dir,
                     databaseEncryptionKey: Data(),
-                    deviceModel: SystemUtils.modelName,
+                    deviceModel: Utils.modelName,
                     enableStorageOptimizer: true,
                     filesDirectory: dir,
                     ignoreFileNames: false,
                     systemLanguageCode: "en-US",
-                    systemVersion: SystemUtils.osVersion,
+                    systemVersion: Utils.osVersion,
                     useChatInfoDatabase: true,
                     useFileDatabase: true,
                     useMessageDatabase: true,
@@ -78,7 +77,9 @@ extension TdApi {
             case let .updateNewMessage(updateNewMessage):
                 TdApi.nc.post(name: .newMessage, object: updateNewMessage)
             case let .updateChatLastMessage(updateChatLastMessage):
-                TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
+                Task { @MainActor in
+                    TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
+                }
             case let .updateChatDraftMessage(updateChatDraftMessage):
                 TdApi.nc.post(name: .chatDraftMessage, object: updateChatDraftMessage)
             case let .updateChatIsMarkedAsUnread(updateChatIsMarkedAsUnread):

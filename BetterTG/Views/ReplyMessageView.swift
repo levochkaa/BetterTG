@@ -6,17 +6,17 @@ import TDLibKit
 struct ReplyMessageView: View {
     
     @State var customMessage: CustomMessage
-    @State var isReply = false
-    @State var isEdit = false
-    @EnvironmentObject var viewModel: ChatViewVM
+    @State var type: ReplyMessageType?
+    
+    @EnvironmentObject var viewModel: ChatViewModel
     
     let nc: NotificationCenter = .default
     
     var body: some View {
-        if isReply || customMessage.replyToMessage != nil || isEdit {
+        if type != nil || customMessage.replyToMessage != nil {
             HStack {
                 Capsule()
-                    .if(isReply || isEdit) {
+                    .if(type != nil) {
                         $0.fill(.white)
                     } else: {
                         $0.fill(customMessage.message.isOutgoing ? .white : .black)
@@ -24,30 +24,29 @@ struct ReplyMessageView: View {
                     .frame(width: 2, height: 30)
                 
                 VStack(alignment: .leading) {
-                    if isEdit {
+                    if type == .edit {
                         Text("Edit message")
-                        message(for: customMessage.message.content)
-                    } else if isReply, let senderUser = customMessage.senderUser {
+                        InlineMessageContentView(message: customMessage.message)
+                    } else if type == .reply, let senderUser = customMessage.senderUser {
                         Text(senderUser.firstName)
-                        message(for: customMessage.message.content)
-                    } else if let replyUser = customMessage.replyUser,
-                              let reply = customMessage.replyToMessage {
+                        InlineMessageContentView(message: customMessage.message)
+                    } else if let replyUser = customMessage.replyUser, let reply = customMessage.replyToMessage {
                         Text(replyUser.firstName)
-                        message(for: reply.content)
+                        InlineMessageContentView(message: reply)
                     }
                 }
                 .font(.subheadline)
                 .lineLimit(1)
                 
-                if isReply || isEdit {
+                if type != nil {
                     Spacer()
                 }
             }
             .onTapGesture {
                 withAnimation {
-                    if isEdit {
+                    if type == .edit {
                         viewModel.scrollTo(id: viewModel.editMessage?.message.id)
-                    } else if isReply {
+                    } else if type == .reply {
                         viewModel.scrollTo(id: viewModel.replyMessage?.message.id)
                     } else {
                         viewModel.scrollTo(id: customMessage.replyToMessage?.id)
@@ -59,9 +58,7 @@ struct ReplyMessageView: View {
                 
                 if messageEdited.messageId == customMessage.replyToMessage?.id {
                     Task {
-                        let message = try await viewModel.getMessage(id: messageEdited.messageId)
-                        var customMessage = try await viewModel.getCustomMessage(from: customMessage.message)
-                        customMessage.replyToMessage = message
+                        let customMessage = await viewModel.getCustomMessage(from: customMessage.message)
                         await MainActor.run { [customMessage] in
                             withAnimation {
                                 self.customMessage = customMessage
@@ -70,17 +67,6 @@ struct ReplyMessageView: View {
                     }
                 }
             }
-        }
-    }
-    
-    @ViewBuilder func message(for content: MessageContent) -> some View {
-        switch content {
-            case let .messageText(messageText):
-                Text(messageText.text.text)
-            case .messageUnsupported:
-                Text("TDLib not supported")
-            default:
-                Text("BTG not supported")
         }
     }
 }

@@ -7,6 +7,6 @@ struct CustomMessage: Identifiable, Equatable {
     var id = UUID()
     var message: Message
     var senderUser: User?
-    var replyToMessage: Message?
     var replyUser: User?
+    var replyToMessage: Message?
 }

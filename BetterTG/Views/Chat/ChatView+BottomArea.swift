@@ -5,40 +5,23 @@ import SwiftUI
 extension ChatView {
     @ViewBuilder var bottomArea: some View {
         VStack(alignment: .center, spacing: 5) {
-            if viewModel.editMessage != nil { // edit
-                HStack {
-                    ReplyMessageView(customMessage: viewModel.editMessage!, isEdit: true)
-                        .environmentObject(viewModel)
-                        .padding(5)
-                        .background(Color.gray6)
-                        .cornerRadius(10)
-                    
-                    Image(systemName: "xmark")
-                        .onTapGesture {
-                            withAnimation {
-                                viewModel.editMessage = nil
-                                viewModel.editMessageText = ""
-                            }
+            Group {
+                if let editMessage = viewModel.editMessage {
+                    replyMessageView(editMessage, type: .edit) {
+                        withAnimation {
+                            viewModel.editMessage = nil
+                            viewModel.editMessageText = ""
                         }
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if viewModel.replyMessage != nil { // reply
-                HStack {
-                    ReplyMessageView(customMessage: viewModel.replyMessage!, isReply: true)
-                        .environmentObject(viewModel)
-                        .padding(5)
-                        .background(Color.gray6)
-                        .cornerRadius(10)
-                        
-                    Image(systemName: "xmark")
-                        .onTapGesture {
-                            withAnimation {
-                                viewModel.replyMessage = nil
-                            }
+                    }
+                } else if let replyMessage = viewModel.replyMessage {
+                    replyMessageView(replyMessage, type: .reply) {
+                        withAnimation {
+                            viewModel.replyMessage = nil
                         }
+                    }
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
             
             // message
             HStack(alignment: .bottom) {
@@ -54,15 +37,15 @@ extension ChatView {
                 .cornerRadius(10)
                 .onReceive(viewModel.$text.debounce(for: 2, scheduler: DispatchQueue.main)) { _ in
                     Task {
-                        try await viewModel.updateDraft()
+                        await viewModel.updateDraft()
                     }
                 }
                 
                 AsyncButton {
                     if await viewModel.editMessage == nil {
-                        try await viewModel.sendMessage()
+                        await viewModel.sendMessage()
                     } else {
-                        try await viewModel.editMessage()
+                        await viewModel.editMessage()
                     }
                 } label: {
                     Group {
@@ -77,6 +60,7 @@ extension ChatView {
                     }
                     .clipShape(Circle())
                     .frame(width: 32, height: 32)
+                    .transition(.scale)
                 }
             }
         }
@@ -85,5 +69,23 @@ extension ChatView {
         .background(.bar)
         .cornerRadius(10)
         .padding([.horizontal, .bottom], 5)
+    }
+    
+    @ViewBuilder func replyMessageView(
+        _ customMessage: CustomMessage,
+        type: ReplyMessageType?,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            ReplyMessageView(customMessage: customMessage, type: type)
+                .padding(5)
+                .background(Color.gray6)
+                .cornerRadius(10)
+            
+            Image(systemName: "xmark")
+                .onTapGesture {
+                    action()
+                }
+        }
     }
 }

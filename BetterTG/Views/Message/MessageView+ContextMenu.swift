@@ -9,7 +9,7 @@ extension MessageView {
                 withAnimation {
                     viewModel.replyMessage = nil
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35 + 0.05) { // defaultAnimationDuration = 0.35
+                DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.05) {
                     withAnimation {
                         viewModel.replyMessage = customMessage
                     }
@@ -29,7 +29,7 @@ extension MessageView {
                     withAnimation {
                         viewModel.editMessage = nil
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35 + 0.05) { // defaultAnimationDuration = 0.35
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.05) {
                         withAnimation {
                             viewModel.editMessage = customMessage
                         }
@@ -53,7 +53,7 @@ extension MessageView {
         Divider()
         
         AsyncButton(role: .destructive) {
-            try await viewModel.deleteMessage(
+            await viewModel.deleteMessage(
                 id: customMessage.message.id,
                 deleteForBoth: false
             )
@@ -62,7 +62,7 @@ extension MessageView {
         }
         
         AsyncButton(role: .destructive) {
-            try await viewModel.deleteMessage(
+            await viewModel.deleteMessage(
                 id: customMessage.message.id,
                 deleteForBoth: true
             )

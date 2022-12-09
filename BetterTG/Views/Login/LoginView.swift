@@ -4,17 +4,13 @@ import SwiftUI
 
 struct LoginView: View {
     
-    @StateObject var viewModel = LoginViewVM()
+    @StateObject var viewModel = LoginViewModel()
     
     @State var showSelectCountryView = false
     @State var searchCountries = ""
     @FocusState var focusedPhoneNumber
     @FocusState var focusedTwoFactor
     @FocusState var focusedCode
-    
-    let logger = Logger(label: "Login")
-    
-    @Environment(\.dismiss) var dismiss
     
     var body: some View {
         NavigationStack {
@@ -37,11 +33,8 @@ struct LoginView: View {
                     .combined(with: .opacity)
                 )
             }
-            .animation(.spring(), value: viewModel.loginState)
+            .animation(.default, value: viewModel.loginState)
             .navigationTitle("Login")
-            .alert("Error", isPresented: $viewModel.showError, actions: {}, message: {
-                Text(viewModel.errorMessage)
-            })
         }
     }
 }

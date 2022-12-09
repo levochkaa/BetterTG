@@ -2,7 +2,7 @@
 
 import SwiftUI
 
-public extension Color {
+extension Color {
     init(fromUserId userId: Int64) {
         let colors: [Color] = [
             .red,
