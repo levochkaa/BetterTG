@@ -1,9 +1,6 @@
 <div align="center">
-    <img src="https://github.com/levochkaa/BetterTG/blob/main/BetterTG/Assets.xcassets/AppIcon.appiconset/bettertg.png?raw=true" 
-    width="256" height="256" alt="AppIcon" 
-    border-radius="45px">
+    <img src="https://github.com/levochkaa/BetterTG/blob/main/BetterTG/Assets.xcassets/AppIcon_README.appiconset/bettertg256.png?raw=true" alt="AppIcon">
 </div>
-
 <h1 align="center">BetterTG</h1>
 <p align="center">A Telegram client for iOS</p>
 
