@@ -1,5 +1,6 @@
 // ChatView+MessagesList.swift
 
+import SwiftUI
 
 extension ChatView {
     @ViewBuilder var messagesList: some View {
