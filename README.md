@@ -25,6 +25,13 @@
 Download an ipa from release tab and install through [Sideloadly](https://altstore.io)
 or [AltStore](https://altstore.io).
 
+# Screenshots
+
+![](.github/images/screenshots/listOfChats.PNG)
+![](.github/images/screenshots/messagesList.PNG)
+![](.github/images/screenshots/replying.PNG)
+![](.github/images/screenshots/editing.PNG)
+
 # Contributing
 
 You can contribute **any** change you want to!
