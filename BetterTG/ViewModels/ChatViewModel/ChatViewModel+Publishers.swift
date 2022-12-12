@@ -23,10 +23,6 @@ extension ChatViewModel {
                 await MainActor.run {
                     withAnimation {
                         self.messages.append(customMessage)
-                        
-                        if newMessage.message.isOutgoing {
-                            self.scrollToLast()
-                        }
                     }
                 }
             }
