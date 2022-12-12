@@ -27,10 +27,18 @@ or [AltStore](https://altstore.io).
 
 # Screenshots
 
-![](.github/images/screenshots/listOfChats.PNG)
-![](.github/images/screenshots/messagesList.PNG)
-![](.github/images/screenshots/replying.PNG)
-![](.github/images/screenshots/editing.PNG)
+<span>
+    <img src=".github/images/screenshots/listOfChats.PNG" alt="screenshots/listOfChats" width="249px">
+</span>
+<span>
+    <img src=".github/images/screenshots/messagesList.PNG" alt="screenshots/messagesList" width="249px">
+</span>
+<span>
+    <img src=".github/images/screenshots/replying.PNG" alt="screenshots/replying" width="249px">
+</span>
+<span>
+    <img src=".github/images/screenshots/editing.PNG" alt="screenshots/editing" width="249px">
+</span>
 
 # Contributing
 
