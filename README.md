@@ -28,16 +28,16 @@ or [AltStore](https://altstore.io).
 # Screenshots
 
 <span>
-    <img src=".github/images/screenshots/listOfChats.PNG" alt="screenshots/listOfChats" width="249px">
+    <img src=".github/images/screenshots/listOfChats.PNG" alt="screenshots/listOfChats" width="220px">
 </span>
 <span>
-    <img src=".github/images/screenshots/messagesList.PNG" alt="screenshots/messagesList" width="249px">
+    <img src=".github/images/screenshots/messagesList.PNG" alt="screenshots/messagesList" width="220px">
 </span>
 <span>
-    <img src=".github/images/screenshots/replying.PNG" alt="screenshots/replying" width="249px">
+    <img src=".github/images/screenshots/replying.PNG" alt="screenshots/replying" width="220px">
 </span>
 <span>
-    <img src=".github/images/screenshots/editing.PNG" alt="screenshots/editing" width="249px">
+    <img src=".github/images/screenshots/editing.PNG" alt="screenshots/editing" width="220px">
 </span>
 
 # Contributing
