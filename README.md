@@ -22,8 +22,8 @@
 
 # Installation
 
-Download an ipa from release tab and install through [Sideloadly](https://altstore.io)
-or [AltStore](https://altstore.io).
+Download an .ipa file from [releases tab](https://github.com/levochkaa/BetterTG/releases/latest) and install through [Sideloadly](https://altstore.io)
+or [AltStore (suggested)](https://altstore.io).
 
 # Screenshots
 
