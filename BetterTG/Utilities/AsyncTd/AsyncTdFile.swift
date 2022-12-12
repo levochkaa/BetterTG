@@ -60,7 +60,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                     synchronous: false
                 )
             } catch {
-                logger.log("Failed to download file \(id ?? self.id), error: \(error as? TDLibKit.Error)")
+                logger.log("Error downloading file: \(error)")
             }
         }
     }

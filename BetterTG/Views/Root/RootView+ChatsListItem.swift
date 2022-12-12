@@ -1,6 +1,6 @@
 // RootView+ChatsListItem.swift
 
-import SwiftUI
+import SwiftUIX
 import TDLibKit
 
 extension RootView {
@@ -8,7 +8,7 @@ extension RootView {
         HStack {
             chatsListPhoto(for: chat)
             
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(chat.title)
                     .lineLimit(1)
                     .font(.title2)
@@ -50,9 +50,9 @@ extension RootView {
                         .scaledToFit()
                 } placeholder: {
                     Group {
-                        if let thumbnailData = photo.minithumbnail?.data,
-                           let thumbnailUiImage = UIImage(data: thumbnailData) {
-                            Image(uiImage: thumbnailUiImage)
+                        if let minithumbnail = photo.minithumbnail,
+                           let image = Image(data: minithumbnail.data) {
+                            image
                                 .resizable()
                                 .scaledToFill()
                         } else {

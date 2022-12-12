@@ -127,7 +127,6 @@ class ChatViewModel: ObservableObject {
         await MainActor.run {
             replyMessage = nil
             text = ""
-            scrollToLast()
         }
     }
     
@@ -149,6 +148,8 @@ class ChatViewModel: ObservableObject {
     // MARK: Draft
     
     func setDraft(_ draftMessage: DraftMessage) async {
+        if !text.isEmpty || replyMessage != nil { return }
+        
         if case let .inputMessageText(inputMessageText) = draftMessage.inputMessageText {
             await MainActor.run {
                 text = inputMessageText.text.text

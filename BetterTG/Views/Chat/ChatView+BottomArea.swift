@@ -52,6 +52,7 @@ extension ChatView {
                         if viewModel.editMessage == nil {
                             Image("send")
                                 .resizable()
+                                .disabled(viewModel.text.isEmpty)
                         } else {
                             Image(systemName: "pencil.circle")
                                 .resizable()

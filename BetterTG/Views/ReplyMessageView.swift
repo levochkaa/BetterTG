@@ -23,7 +23,7 @@ struct ReplyMessageView: View {
                     }
                     .frame(width: 2, height: 30)
                 
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 0) {
                     if type == .edit {
                         Text("Edit message")
                         InlineMessageContentView(message: customMessage.message)
