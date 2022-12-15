@@ -16,7 +16,6 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @State private var file: File?
     @State private var isDownloaded = true
     
-    @ViewBuilder
     var body: some View {
         ZStack {
             Group {

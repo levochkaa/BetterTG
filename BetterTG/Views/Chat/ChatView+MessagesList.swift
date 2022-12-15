@@ -40,9 +40,8 @@ extension ChatView {
                             
                             // for init scrollTo bottom
                             if let initSavedFirstMessage = viewModel.initSavedFirstMessage,
-                               let lastId = viewModel.messages.last?.message.id,
                                customMessage.message.id == initSavedFirstMessage.message.id {
-                                scrollViewProxy.scrollTo(lastId, anchor: .bottom)
+                                viewModel.scrollToLast()
                                 viewModel.initSavedFirstMessage = nil
                             }
                             

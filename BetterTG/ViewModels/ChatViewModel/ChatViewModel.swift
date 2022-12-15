@@ -53,7 +53,7 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    // MARK: Load
+    // MARK: - Load -
     
     func loadMessages(isInit: Bool = false) async {
         await MainActor.run {
@@ -87,7 +87,7 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    // MARK: Get
+    // MARK: - Get -
     
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
         guard let message = await tdGetMessage(id: id) else { return nil }
@@ -117,7 +117,7 @@ class ChatViewModel: ObservableObject {
         return id != 0 ? await tdGetMessage(id: id) : nil
     }
     
-    // MARK: Send/Edit/Delete
+    // MARK: - Send/Edit/Delete -
     
     func sendMessage() async {
         if text.isEmpty { return }
@@ -145,7 +145,7 @@ class ChatViewModel: ObservableObject {
         await tdDeleteMessages(ids: [id], deleteForBoth: deleteForBoth)
     }
     
-    // MARK: Draft
+    // MARK: - Draft -
     
     func setDraft(_ draftMessage: DraftMessage) async {
         if !text.isEmpty || replyMessage != nil { return }
@@ -182,7 +182,7 @@ class ChatViewModel: ObservableObject {
         await tdSetChatDraftMessage(draftMessage)
     }
     
-    // MARK: Scroll
+    // MARK: - Scroll -
     
     func scrollToLast() {
         guard let lastId = messages.last?.message.id,
@@ -201,7 +201,7 @@ class ChatViewModel: ObservableObject {
             scrollViewProxy.scrollTo(id, anchor: anchor)
             highlightedMessageId = id
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             withAnimation {
                 self.highlightedMessageId = nil
             }

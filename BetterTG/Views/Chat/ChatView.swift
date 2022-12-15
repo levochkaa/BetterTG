@@ -31,20 +31,25 @@ struct ChatView: View {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
+                    .safeAreaInset(edge: .bottom) {
+                        if !isPreview {
+                            bottomArea
+                                .environmentObject(viewModel)
+                        }
+                    }
             } else {
                 bodyView
                     .environmentObject(viewModel)
+                    .safeAreaInset(edge: .bottom) {
+                        if !isPreview {
+                            bottomArea
+                                .environmentObject(viewModel)
+                        }
+                    }
             }
         }
         .navigationTitle(viewModel.chat.title)
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
-            if !isPreview {
-                bottomArea
-                    .environmentObject(viewModel)
-            }
-        }
-        
     }
     
     var bodyView: some View {
