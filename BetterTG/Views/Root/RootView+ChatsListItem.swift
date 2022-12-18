@@ -14,16 +14,16 @@ extension RootView {
                     .font(.title2)
                     .foregroundColor(.white)
                 
-                if let draftMessage = chat.draftMessage {
-                    draftMessageView(for: draftMessage)
-                        .lineLimit(1)
-                        .foregroundColor(.gray)
-                } else if let lastMessage = chat.lastMessage {
-                    InlineMessageContentView(message: lastMessage)
-                        .environmentObject(viewModel)
-                        .lineLimit(1)
-                        .foregroundColor(.gray)
+                Group {
+                    if let draftMessage = chat.draftMessage {
+                        draftMessageView(for: draftMessage)
+                    } else if let lastMessage = chat.lastMessage {
+                        InlineMessageContentView(message: lastMessage, type: .last)
+                            .environmentObject(viewModel)
+                    }
                 }
+                .lineLimit(1)
+                .foregroundColor(.gray)
             }
             
             Spacer()

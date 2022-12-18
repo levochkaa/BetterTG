@@ -14,15 +14,30 @@ extension ChatViewModel {
         }
         
         nc.publisher(for: .newMessage) { notification in
-            guard let newMessage = notification.object as? UpdateNewMessage,
-                  newMessage.message.chatId == self.chat.id
+            guard let message = (notification.object as? UpdateNewMessage)?.message,
+                  message.chatId == self.chat.id
             else { return }
             
             Task {
-                let customMessage = await self.getCustomMessage(from: newMessage.message)
+                let customMessage = await self.getCustomMessage(from: message)
                 await MainActor.run {
                     withAnimation {
-                        self.messages.append(customMessage)
+                        if message.mediaAlbumId == 0 {
+                            self.messages.append(customMessage)
+                        } else if !self.loadedAlbums.contains(message.mediaAlbumId) {
+                            self.messages.append(customMessage)
+                            self.loadedAlbums.append(message.mediaAlbumId)
+                        } else if self.loadedAlbums.contains(message.mediaAlbumId) {
+                            guard let index = self.messages.firstIndex(where: {
+                                $0.message.mediaAlbumId == message.mediaAlbumId
+                            }) else { return }
+                            
+                            if self.messages[index].album == nil {
+                                self.messages[index].album = [message]
+                            } else {
+                                self.messages[index].album?.append(message)
+                            }
+                        }
                     }
                 }
             }

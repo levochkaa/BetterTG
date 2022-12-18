@@ -6,6 +6,7 @@ import TDLibKit
 struct InlineMessageContentView: View {
     
     @State var message: Message
+    @State var type: ReplyMessageType?
     
     @OptionalEnvironmentObject var rootViewModel: RootViewModel?
     @OptionalEnvironmentObject var chatViewModel: ChatViewModel?
@@ -15,13 +16,36 @@ struct InlineMessageContentView: View {
     
     var body: some View {
         Group {
-            switch message.content {
-                case let .messageText(messageText):
-                    Text(messageText.text.text)
-                case .messageUnsupported:
-                    Text("TDLib not supported")
-                default:
-                    Text("BTG not supported")
+            switch type {
+                case .last:
+                    switch message.content {
+                        case let .messagePhoto(messagePhoto):
+                            HStack(alignment: .center, spacing: 5) {
+                                makeMessagePhoto(from: messagePhoto)
+                                
+                                Text(messagePhoto.caption.text.isEmpty ? "Photo" : messagePhoto.caption.text)
+                            }
+                        case let .messageText(messageText):
+                            Text(messageText.text.text)
+                        case .messageUnsupported:
+                            Text("TDLib not supported")
+                        default:
+                            Text("BTG not supported")
+                    }
+                case let .replied(_, replyMessage):
+                    switch replyMessage.content {
+                        case let .messagePhoto(messagePhoto):
+                            makeMessagePhoto(from: messagePhoto)
+                        default:
+                            EmptyView()
+                    }
+                default: // .edit and .reply
+                    switch message.content {
+                        case let .messagePhoto(messagePhoto):
+                            makeMessagePhoto(from: messagePhoto)
+                        default:
+                            EmptyView()
+                    }
             }
         }
         .onReceive(nc.publisher(for: .chatLastMessage)) { notification in

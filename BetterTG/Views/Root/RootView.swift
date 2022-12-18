@@ -9,6 +9,9 @@ struct RootView: View {
     
     @State var showConfirmChatDelete = false
     @State var confirmedChat: Chat?
+
+    @State var openedPhotoInfo: OpenedPhotoInfo?
+    @Namespace var openedPhotoNamespace
     
     let scroll = "rootScroll"
     
@@ -54,34 +57,44 @@ struct RootView: View {
     }
     
     @ViewBuilder var bodyView: some View {
-        NavigationStack {
-            mainChatsList
-                .navigationTitle("BetterTG")
-                .onChange(of: scenePhase) { newPhase in
-                    Task {
-                        switch newPhase {
-                            case .active:
-                                logger.log("App is Active")
-                                await viewModel.fetchChatsHistory()
-                            case .inactive:
-                                logger.log("App is Inactive")
-                            case .background:
-                                logger.log("App is in a Background")
-                            @unknown default:
-                                logger.log("Unknown state of an App")
+        ZStack {
+            NavigationStack {
+                mainChatsList
+                    .navigationTitle("BetterTG")
+                    .onChange(of: scenePhase) { newPhase in
+                        Task {
+                            switch newPhase {
+                                case .active:
+                                    logger.log("App is Active")
+                                    await viewModel.fetchChatsHistory()
+                                case .inactive:
+                                    logger.log("App is Inactive")
+                                case .background:
+                                    logger.log("App is in a Background")
+                                @unknown default:
+                                    logger.log("Unknown state of an App")
+                            }
                         }
                     }
-                }
-                .confirmationDialog(
-                    "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
-                    isPresented: $showConfirmChatDelete,
-                    titleVisibility: .visible
-                ) {
-                    AsyncButton("Delete", role: .destructive) {
-                        guard let id = await confirmedChat?.id else { return }
-                        await viewModel.tdDeleteChat(id: id)
+                    .confirmationDialog(
+                        "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
+                        isPresented: $showConfirmChatDelete,
+                        titleVisibility: .visible
+                    ) {
+                        AsyncButton("Delete", role: .destructive) {
+                            guard let id = await confirmedChat?.id else { return }
+                            await viewModel.tdDeleteChat(id: id)
+                        }
                     }
-                }
+            }
+            
+            if openedPhotoInfo != nil {
+                PhotoViewer(
+                    photoInfo: $openedPhotoInfo,
+                    namespace: openedPhotoNamespace
+                )
+                .zIndex(1)
+            }
         }
     }
 }

@@ -32,18 +32,15 @@ extension MessageView {
                     DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.05) {
                         withAnimation {
                             viewModel.editMessage = customMessage
-                        }
-                        if case let .messageText(messageText) = customMessage.message.content {
-                            viewModel.editMessageText = messageText.text.text
+                            setEditMessageText()
                         }
                     }
                 } else {
                     withAnimation {
                         viewModel.editMessage = customMessage
+                        setEditMessageText()
                     }
-                    if case let .messageText(messageText) = customMessage.message.content {
-                        viewModel.editMessageText = messageText.text.text
-                    }
+                    
                 }
             } label: {
                 Label("Edit", systemImage: "square.and.pencil")
@@ -68,6 +65,17 @@ extension MessageView {
             )
         } label: {
             Label("Delete for both", systemImage: "trash.fill")
+        }
+    }
+    
+    func setEditMessageText() {
+        switch customMessage.message.content {
+            case let .messageText(messageText):
+                viewModel.editMessageText = messageText.text.text
+            case let .messagePhoto(messagePhoto):
+                viewModel.editMessageText = messagePhoto.caption.text
+            default:
+                break
         }
     }
 }

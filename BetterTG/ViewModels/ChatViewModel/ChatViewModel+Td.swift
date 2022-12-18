@@ -30,24 +30,39 @@ extension ChatViewModel {
         }
     }
     
-    func tdEditMessageText(_ editMessage: CustomMessage) async {
+    func tdEditMessageText(_ editMessage: CustomMessage, content: MessageContent) async {
         do {
-            _ = try await tdApi.editMessageText(
-                chatId: chat.id,
-                inputMessageContent:
-                        .inputMessageText(
-                            .init(
-                                clearDraft: true,
-                                disableWebPagePreview: true,
-                                text: FormattedText(
-                                    entities: [],
-                                    text: editMessageText
-                                )
-                            )
+            switch content {
+                case .messageText:
+                    _ = try await tdApi.editMessageText(
+                        chatId: chat.id,
+                        inputMessageContent:
+                                .inputMessageText(
+                                    .init(
+                                        clearDraft: true,
+                                        disableWebPagePreview: true,
+                                        text: FormattedText(
+                                            entities: [],
+                                            text: editMessageText
+                                        )
+                                    )
+                                ),
+                        messageId: editMessage.message.id,
+                        replyMarkup: nil
+                    )
+                case .messagePhoto:
+                    _ = try await tdApi.editMessageCaption(
+                        caption: FormattedText(
+                            entities: [],
+                            text: editMessageText
                         ),
-                messageId: editMessage.message.id,
-                replyMarkup: nil
-            )
+                        chatId: chat.id,
+                        messageId: editMessage.message.id,
+                        replyMarkup: nil
+                    )
+                default:
+                    throw Error(code: 0, message: "Not supported edit message type")
+            }
         } catch {
             logger.log("Error editing message: \(error)")
         }
@@ -67,27 +82,78 @@ extension ChatViewModel {
     
     func tdSendMessage() async {
         do {
-            _ = try await tdApi.sendMessage(
-                chatId: chat.id,
-                inputMessageContent:
-                        .inputMessageText(
-                            .init(
-                                clearDraft: true,
-                                disableWebPagePreview: true,
-                                text: FormattedText(
-                                    entities: [],
-                                    text: text
+            if displayedPhotos.isEmpty {
+                _ = try await tdApi.sendMessage(
+                    chatId: chat.id,
+                    inputMessageContent:
+                            .inputMessageText(
+                                .init(
+                                    clearDraft: true,
+                                    disableWebPagePreview: true,
+                                    text: FormattedText(
+                                        entities: [],
+                                        text: text
+                                    )
                                 )
-                            )
-                        ),
-                messageThreadId: 0,
-                options: nil,
-                replyMarkup: nil,
-                replyToMessageId: replyMessage?.message.id ?? 0
-            )
+                            ),
+                    messageThreadId: 0,
+                    options: nil,
+                    replyMarkup: nil,
+                    replyToMessageId: replyMessage?.message.id ?? 0
+                )
+            } else {
+                if displayedPhotos.count == 1, let photo = displayedPhotos.first {
+                    _ = try await tdApi.sendMessage(
+                        chatId: chat.id,
+                        inputMessageContent: makeInputMessageContent(for: photo.url),
+                        messageThreadId: 0,
+                        options: nil,
+                        replyMarkup: nil,
+                        replyToMessageId: replyMessage?.message.id ?? 0
+                    )
+                } else {
+                    let messageContents = displayedPhotos.map {
+                        makeInputMessageContent(for: $0.url)
+                    }
+                    _ = try await tdApi.sendMessageAlbum(
+                        chatId: chat.id,
+                        inputMessageContents: messageContents,
+                        messageThreadId: nil,
+                        onlyPreview: nil,
+                        options: nil,
+                        replyToMessageId: replyMessage?.message.id ?? 0
+                    )
+                }
+            }
         } catch {
             logger.log("Error sending message: \(error)")
         }
+    }
+    
+    func makeInputMessageContent(for url: URL) -> InputMessageContent {
+        let path = url.path()
+        
+        let image = UIImage(contentsOfFile: path)!
+        
+        let input: InputFile = .inputFileLocal(
+            InputFileLocal(path: path)
+        )
+        
+        return .inputMessagePhoto(
+            InputMessagePhoto(
+                addedStickerFileIds: [],
+                caption: FormattedText(entities: [], text: caption),
+                height: Int(image.size.height),
+                photo: input,
+                thumbnail: InputThumbnail(
+                    height: Int(image.size.height),
+                    thumbnail: input,
+                    width: Int(image.size.width)
+                ),
+                ttl: 0,
+                width: Int(image.size.width)
+            )
+        )
     }
     
     func tdGetChatHistory() async -> Messages? {

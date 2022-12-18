@@ -10,7 +10,11 @@ extension RootView {
                 LazyVStack(spacing: RootView.spacing) {
                     ForEach(viewModel.mainChats, id: \.id) { chat in
                         NavigationLink {
-                            ChatView(chat: chat)
+                            ChatView(
+                                chat: chat,
+                                openedPhotoInfo: $openedPhotoInfo,
+                                openedPhotoNamespace: openedPhotoNamespace
+                            )
                         } label: {
                             chatsListItem(for: chat)
                                 .contextMenu {

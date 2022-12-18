@@ -1,6 +1,6 @@
 // ChatView.swift
 
-import SwiftUI
+import SwiftUIX
 import TDLibKit
 
 struct ChatView: View {
@@ -8,7 +8,11 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewModel
     @State var isPreview: Bool
     
+    @Binding var openedPhotoInfo: OpenedPhotoInfo?
+    var openedPhotoNamespace: Namespace.ID?
+    
     @FocusState var focused
+    @State var showPicker = false
     
     let scroll = "chatScroll"
     @State private var scrollOnFocus = true
@@ -16,9 +20,21 @@ struct ChatView: View {
     let tdApi: TdApi = .shared
     let logger = Logger(label: "ChatView")
     
-    init(chat: Chat, isPreview: Bool = false) {
+    init(chat: Chat,
+         isPreview: Bool = false,
+         openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,
+         openedPhotoNamespace: Namespace.ID? = nil
+    ) {
         self._viewModel = StateObject(wrappedValue: ChatViewModel(chat: chat))
         self._isPreview = State(initialValue: isPreview)
+        
+        if let openedPhotoInfo {
+            self._openedPhotoInfo = Binding(projectedValue: openedPhotoInfo)
+        } else {
+            // only possible in contextMenu, where it isn't needed
+            self._openedPhotoInfo = Binding(get: { nil }, set: { _ in })
+        }
+        self.openedPhotoNamespace = openedPhotoNamespace
     }
     
     var body: some View {
@@ -31,19 +47,23 @@ struct ChatView: View {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
-                    .safeAreaInset(edge: .bottom) {
-                        if !isPreview {
-                            bottomArea
-                                .environmentObject(viewModel)
-                        }
-                    }
+//                    .safeAreaInset(edge: .bottom) {
+//                        Group {
+//                            if !isPreview {
+//                                bottomArea
+////                                    .environmentObject(viewModel)
+//                            }
+//                        }
+//                    }
             } else {
                 bodyView
-                    .environmentObject(viewModel)
+//                    .environmentObject(viewModel)
                     .safeAreaInset(edge: .bottom) {
-                        if !isPreview {
-                            bottomArea
-                                .environmentObject(viewModel)
+                        Group {
+                            if !isPreview {
+                                bottomArea
+//                                    .environmentObject(viewModel)
+                            }
                         }
                     }
             }
@@ -96,6 +116,11 @@ struct ChatView: View {
                         viewModel.scrollToLast()
                     } else if edit != nil {
                         focused = true
+                    }
+                }
+                .onChange(of: viewModel.displayedPhotos) { _ in
+                    if scrollOnFocus {
+                        viewModel.scrollToLast()
                     }
                 }
                 .onAppear {

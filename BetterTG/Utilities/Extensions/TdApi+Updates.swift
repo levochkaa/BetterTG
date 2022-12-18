@@ -75,7 +75,9 @@ extension TdApi {
                     TdApi.nc.post(name: .file, object: updateFile)
                 }
             case let .updateNewMessage(updateNewMessage):
-                TdApi.nc.post(name: .newMessage, object: updateNewMessage)
+                Task { @MainActor in
+                    TdApi.nc.post(name: .newMessage, object: updateNewMessage)
+                }
             case let .updateChatLastMessage(updateChatLastMessage):
                 Task { @MainActor in
                     TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)

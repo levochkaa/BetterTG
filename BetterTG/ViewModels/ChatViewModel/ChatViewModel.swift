@@ -4,6 +4,7 @@ import SwiftUI
 import Combine
 import TDLibKit
 import CollectionConcurrencyKit
+import PhotosUI
 
 class ChatViewModel: ObservableObject {
 
@@ -11,6 +12,17 @@ class ChatViewModel: ObservableObject {
     
     @Published var text = ""
     @Published var editMessageText = ""
+    @Published var caption = ""
+    
+    var loadedAlbums = [TdInt64]()
+    @Published var displayedPhotos = [SelectedImage]()
+    @Published var selectedPhotos = [PhotosPickerItem]() {
+        didSet {
+            Task {
+                try await loadPhotos()
+            }
+        }
+    }
     
     @Published var scrollViewProxy: ScrollViewProxy?
     @Published var isScrollToBottomButtonShown = false
@@ -18,6 +30,7 @@ class ChatViewModel: ObservableObject {
     var initSavedFirstMessage: CustomMessage?
     @Published var savedFirstMessage: CustomMessage?
     
+    @Published var savedNewMessages = [Message]()
     @Published var messages = [CustomMessage]()
     @Published var highlightedMessageId: Int64?
     
@@ -55,6 +68,32 @@ class ChatViewModel: ObservableObject {
     
     // MARK: - Load -
     
+    func loadPhotos() async throws {
+        await MainActor.run {
+            withAnimation {
+                self.displayedPhotos.removeAll()
+            }
+        }
+        
+        let processedImages: [SelectedImage] = await selectedPhotos.asyncCompactMap {
+            do {
+                if let selectedImage = try await $0.loadTransferable(type: SelectedImage.self) {
+                    return selectedImage
+                }
+                return nil
+            } catch {
+                logger.log("Error transfering image data: \(error)")
+                return nil
+            }
+        }
+        
+        await MainActor.run {
+            withAnimation {
+                self.displayedPhotos = processedImages
+            }
+        }
+    }
+    
     func loadMessages(isInit: Bool = false) async {
         await MainActor.run {
             self.loadingMessages = true
@@ -67,17 +106,35 @@ class ChatViewModel: ObservableObject {
         guard let chatHistory = await tdGetChatHistory() else { return }
         
         let chatMessages = chatHistory.messages?.reversed() ?? []
-        let messages = await chatMessages.asyncMap { chatMessage in
+        let customMessages = await chatMessages.asyncMap { chatMessage in
             await self.getCustomMessage(from: chatMessage)
         }
         
-        if isInit {
-            initSavedFirstMessage = messages.first
+        var savedMessages = [CustomMessage]()
+        for customMessage in customMessages {
+            if customMessage.message.mediaAlbumId != 0 {
+                let index = savedMessages.firstIndex(where: {
+                    $0.message.mediaAlbumId == customMessage.message.mediaAlbumId
+                })
+                if let index {
+                    savedMessages[index].album?.append(customMessage.message)
+                } else {
+                    var newMessage = customMessage
+                    newMessage.album = [customMessage.message]
+                    savedMessages.append(newMessage)
+                }
+            } else {
+                savedMessages.append(customMessage)
+            }
         }
         
-        await MainActor.run {
+        if isInit {
+            initSavedFirstMessage = savedMessages.first
+        }
+        
+        await MainActor.run { [savedMessages] in
             self.savedFirstMessage = self.messages.first
-            self.messages = messages + self.messages
+            self.messages = savedMessages + self.messages
             self.offset = self.messages.count
             self.loadingMessages = false
             
@@ -110,6 +167,14 @@ class ChatViewModel: ObservableObject {
             return customMessage
         }
         
+        if message.mediaAlbumId != 0 {
+            if customMessage.album == nil {
+                customMessage.album = [message]
+            } else {
+                customMessage.album?.append(message)
+            }
+        }
+        
         return customMessage
     }
     
@@ -119,25 +184,43 @@ class ChatViewModel: ObservableObject {
     
     // MARK: - Send/Edit/Delete -
     
+    func sendMedia() async {
+        if displayedPhotos.isEmpty { return }
+        
+        await tdSendMessage()
+        
+        await MainActor.run {
+            withAnimation {
+                caption = ""
+                displayedPhotos = []
+                replyMessage = nil
+            }
+        }
+    }
+    
     func sendMessage() async {
         if text.isEmpty { return }
         
         await tdSendMessage()
         
         await MainActor.run {
-            replyMessage = nil
-            text = ""
+            withAnimation {
+                replyMessage = nil
+                text = ""
+            }
         }
     }
     
     func editMessage() async {
         guard let editMessage = self.editMessage else { return }
         
-        await tdEditMessageText(editMessage)
+        await tdEditMessageText(editMessage, content: editMessage.message.content)
         
         await MainActor.run {
-            self.editMessage = nil
-            editMessageText = ""
+            withAnimation {
+                self.editMessage = nil
+                editMessageText = ""
+            }
         }
     }
     
@@ -159,7 +242,9 @@ class ChatViewModel: ObservableObject {
         let customMessage = await getCustomMessage(fromId: draftMessage.replyToMessageId)
         
         await MainActor.run {
-            replyMessage = customMessage
+            withAnimation {
+                replyMessage = customMessage
+            }
         }
     }
     
