@@ -30,9 +30,9 @@ extension ChatViewModel {
         }
     }
     
-    func tdEditMessageText(_ editMessage: CustomMessage, content: MessageContent) async {
+    func tdEditMessageText(_ editMessage: CustomMessage) async {
         do {
-            switch content {
+            switch editMessage.message.content {
                 case .messageText:
                     _ = try await tdApi.editMessageText(
                         chatId: chat.id,
@@ -142,7 +142,7 @@ extension ChatViewModel {
         return .inputMessagePhoto(
             InputMessagePhoto(
                 addedStickerFileIds: [],
-                caption: FormattedText(entities: [], text: caption),
+                caption: FormattedText(entities: [], text: text),
                 height: Int(image.size.height),
                 photo: input,
                 thumbnail: InputThumbnail(

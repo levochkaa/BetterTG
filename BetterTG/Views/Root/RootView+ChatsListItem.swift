@@ -18,7 +18,7 @@ extension RootView {
                     if let draftMessage = chat.draftMessage {
                         draftMessageView(for: draftMessage)
                     } else if let lastMessage = chat.lastMessage {
-                        InlineMessageContentView(message: lastMessage, type: .last)
+                        InlineMessageContentView(customMessage: CustomMessage(message: lastMessage), type: .last)
                             .environmentObject(viewModel)
                     }
                 }

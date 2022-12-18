@@ -7,6 +7,7 @@ import UIKit
 enum Utils {
     static let osVersion = UIDevice.current.systemVersion
     static var size = UIScreen.main.bounds.size
+    static var maxMessageContentWidth = size.width * 0.8 - 32
     static let defaultAnimationDuration = 0.35
     
     static let modelName: String = {

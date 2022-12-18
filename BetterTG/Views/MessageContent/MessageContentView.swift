@@ -8,8 +8,6 @@ struct MessageContentView: View {
     @State var customMessage: CustomMessage
     let width = Utils.size.width * 0.8 - 32
     
-//    @State var savedNewMessages = [Message]()
-    
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
     var openedPhotoNamespace: Namespace.ID?
     
@@ -18,9 +16,9 @@ struct MessageContentView: View {
     
     var body: some View {
         Group {
-            if customMessage.album != nil {
+            if !customMessage.album.isEmpty {
                 MediaAlbum {
-                    ForEach(customMessage.album ?? [], id: \.id) { albumMessage in
+                    ForEach(customMessage.album, id: \.id) { albumMessage in
                         if case let .messagePhoto(messagePhoto) = albumMessage.content {
                             makeMessagePhoto(from: messagePhoto, with: albumMessage)
                         }

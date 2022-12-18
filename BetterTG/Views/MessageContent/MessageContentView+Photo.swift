@@ -44,8 +44,6 @@ extension MessageContentView {
                     placeholder(with: size)
                 }
             }
-        } else {
-            let _ = logger.log("nosize", messagePhoto.photo.sizes)
         }
     }
     

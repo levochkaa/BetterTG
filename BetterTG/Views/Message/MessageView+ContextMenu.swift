@@ -23,7 +23,7 @@ extension MessageView {
             Label("Reply", systemImage: "arrowshape.turn.up.left")
         }
         
-        if customMessage.message.isOutgoing {
+        if customMessage.message.canBeEdited {
             Button {
                 if viewModel.editMessage != nil {
                     withAnimation {

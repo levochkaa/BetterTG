@@ -31,7 +31,6 @@ struct ChatView: View {
         if let openedPhotoInfo {
             self._openedPhotoInfo = Binding(projectedValue: openedPhotoInfo)
         } else {
-            // only possible in contextMenu, where it isn't needed
             self._openedPhotoInfo = Binding(get: { nil }, set: { _ in })
         }
         self.openedPhotoNamespace = openedPhotoNamespace
@@ -47,22 +46,29 @@ struct ChatView: View {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
-//                    .safeAreaInset(edge: .bottom) {
-//                        Group {
-//                            if !isPreview {
-//                                bottomArea
-////                                    .environmentObject(viewModel)
-//                            }
-//                        }
-//                    }
-            } else {
-                bodyView
-//                    .environmentObject(viewModel)
                     .safeAreaInset(edge: .bottom) {
                         Group {
                             if !isPreview {
-                                bottomArea
-//                                    .environmentObject(viewModel)
+                                ChatBottomArea(
+                                    focused: $focused,
+                                    openedPhotoInfo: $openedPhotoInfo,
+                                    openedPhotoNamespace: openedPhotoNamespace
+                                )
+                                .environmentObject(viewModel)
+                            }
+                        }
+                    }
+            } else {
+                bodyView
+                    .safeAreaInset(edge: .bottom) {
+                        Group {
+                            if !isPreview {
+                                ChatBottomArea(
+                                    focused: $focused,
+                                    openedPhotoInfo: $openedPhotoInfo,
+                                    openedPhotoNamespace: openedPhotoNamespace
+                                )
+                                .environmentObject(viewModel)
                             }
                         }
                     }

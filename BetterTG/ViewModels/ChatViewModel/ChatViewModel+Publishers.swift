@@ -32,11 +32,7 @@ extension ChatViewModel {
                                 $0.message.mediaAlbumId == message.mediaAlbumId
                             }) else { return }
                             
-                            if self.messages[index].album == nil {
-                                self.messages[index].album = [message]
-                            } else {
-                                self.messages[index].album?.append(message)
-                            }
+                            self.messages[index].album.append(message)
                         }
                     }
                 }

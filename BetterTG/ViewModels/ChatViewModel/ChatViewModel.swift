@@ -12,10 +12,32 @@ class ChatViewModel: ObservableObject {
     
     @Published var text = ""
     @Published var editMessageText = ""
-    @Published var caption = ""
+    
+    @Published var bottomAreaState: BottomAreaState = .message {
+        didSet {
+            switch bottomAreaState {
+                case .message:
+                    withAnimation {
+                        text = ""
+                        editMessageText = ""
+                        replyMessage = nil
+                        editMessage = nil
+                        displayedPhotos = []
+                    }
+                case .caption, .reply, .edit:
+                    break
+            }
+        }
+    }
     
     var loadedAlbums = [TdInt64]()
-    @Published var displayedPhotos = [SelectedImage]()
+    @Published var displayedPhotos = [SelectedImage]() {
+        didSet {
+            if !displayedPhotos.isEmpty {
+                bottomAreaState = .caption
+            }
+        }
+    }
     @Published var selectedPhotos = [PhotosPickerItem]() {
         didSet {
             Task {
@@ -40,9 +62,18 @@ class ChatViewModel: ObservableObject {
     var offset = 0
     var limit = 30
     
-    @Published var editMessage: CustomMessage?
+    @Published var editMessage: CustomMessage? {
+        didSet {
+            if editMessage != nil {
+                bottomAreaState = .edit
+            }
+        }
+    }
     @Published var replyMessage: CustomMessage? {
         didSet {
+            if displayedPhotos.isEmpty && replyMessage != nil {
+                bottomAreaState = .reply
+            }
             Task {
                 await updateDraft()
             }
@@ -117,7 +148,7 @@ class ChatViewModel: ObservableObject {
                     $0.message.mediaAlbumId == customMessage.message.mediaAlbumId
                 })
                 if let index {
-                    savedMessages[index].album?.append(customMessage.message)
+                    savedMessages[index].album.append(customMessage.message)
                 } else {
                     var newMessage = customMessage
                     newMessage.album = [customMessage.message]
@@ -168,11 +199,7 @@ class ChatViewModel: ObservableObject {
         }
         
         if message.mediaAlbumId != 0 {
-            if customMessage.album == nil {
-                customMessage.album = [message]
-            } else {
-                customMessage.album?.append(message)
-            }
+            customMessage.album.append(message)
         }
         
         return customMessage
@@ -190,42 +217,41 @@ class ChatViewModel: ObservableObject {
         await tdSendMessage()
         
         await MainActor.run {
-            withAnimation {
-                caption = ""
-                displayedPhotos = []
-                replyMessage = nil
-            }
+            bottomAreaState = .message
         }
     }
     
     func sendMessage() async {
-        if text.isEmpty { return }
+        if bottomAreaState == .message || bottomAreaState == .reply {
+            if text.isEmpty { return }
+        }
         
         await tdSendMessage()
         
         await MainActor.run {
-            withAnimation {
-                replyMessage = nil
-                text = ""
-            }
+            bottomAreaState = .message
         }
     }
     
     func editMessage() async {
         guard let editMessage = self.editMessage else { return }
         
-        await tdEditMessageText(editMessage, content: editMessage.message.content)
+        await tdEditMessageText(editMessage)
         
         await MainActor.run {
-            withAnimation {
-                self.editMessage = nil
-                editMessageText = ""
-            }
+            bottomAreaState = .message
         }
     }
     
     func deleteMessage(id: Int64, deleteForBoth: Bool) async {
-        await tdDeleteMessages(ids: [id], deleteForBoth: deleteForBoth)
+        guard let customMessage = messages.first(where: { $0.message.id == id }) else { return }
+        
+        if customMessage.album.isEmpty {
+            await tdDeleteMessages(ids: [id], deleteForBoth: deleteForBoth)
+        } else {
+            let ids = customMessage.album.map { $0.id }
+            await tdDeleteMessages(ids: ids, deleteForBoth: deleteForBoth)
+        }
     }
     
     // MARK: - Draft -

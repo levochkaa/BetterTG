@@ -11,6 +11,7 @@ struct ReplyMessageView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     
     let nc: NotificationCenter = .default
+    let logger = Logger(label: "ReplyMessage")
     
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
@@ -23,7 +24,8 @@ struct ReplyMessageView: View {
                 .frame(width: 2, height: 30)
             
             HStack(alignment: .center, spacing: 5) {
-                InlineMessageContentView(message: customMessage.message, type: type)
+                InlineMessageContentView(customMessage: customMessage, type: type)
+                    .environmentObject(viewModel)
                 
                 VStack(alignment: .leading, spacing: 0) {
                     switch type {
@@ -35,9 +37,12 @@ struct ReplyMessageView: View {
                             inlineMessageContentText(from: customMessage.message)
                         case .last:
                             EmptyView()
-                        case let .replied(replyUser, replyMessage):
-                            Text(replyUser.firstName)
-                            inlineMessageContentText(from: replyMessage)
+                        case .replied:
+                            if let replyUser = customMessage.replyUser,
+                                let replyMessage = customMessage.replyToMessage {
+                                Text(replyUser.firstName)
+                                inlineMessageContentText(from: replyMessage)
+                            }
                     }
                 }
                 .font(.subheadline)
@@ -57,8 +62,8 @@ struct ReplyMessageView: View {
                         viewModel.scrollTo(id: viewModel.replyMessage?.message.id)
                     case .last:
                         break
-                    case let .replied(_, replyMessage):
-                        viewModel.scrollTo(id: replyMessage.id)
+                    case .replied:
+                        viewModel.scrollTo(id: customMessage.replyToMessage?.id)
                 }
             }
         }

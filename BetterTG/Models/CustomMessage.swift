@@ -9,5 +9,5 @@ struct CustomMessage: Identifiable, Equatable {
     var senderUser: User?
     var replyUser: User?
     var replyToMessage: Message?
-    var album: [Message]?
+    var album = [Message]()
 }

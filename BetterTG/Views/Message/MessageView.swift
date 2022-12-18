@@ -34,8 +34,8 @@ struct MessageView: View {
     
     var body: some View {
         VStack(alignment: .leading) {
-            if let replyUser = customMessage.replyUser, let replyMessage = customMessage.replyToMessage {
-                ReplyMessageView(customMessage: customMessage, type: .replied(replyUser, replyMessage))
+            if customMessage.replyToMessage != nil && customMessage.replyUser != nil {
+                ReplyMessageView(customMessage: customMessage, type: .replied)
                     .environmentObject(viewModel)
                     .readSize { size in
                         replySize = size
