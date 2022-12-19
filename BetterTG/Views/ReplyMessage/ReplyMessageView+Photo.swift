@@ -1,9 +1,9 @@
-// InlineMessageContent+Photo.swift
+// ReplyMessageView+Photo.swift
 
-import SwiftUIX
+import SwiftUI
 import TDLibKit
 
-extension InlineMessageContentView {
+extension ReplyMessageView {
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto) -> some View {
         Group {
             if let size = messagePhoto.photo.sizes.getSize(.mBox) {
@@ -18,7 +18,7 @@ extension InlineMessageContentView {
                 photoPlaceholder(for: messagePhoto.photo)
             }
         }
-        .frame(width: type == .last ? 20 : 30, height: type == .last ? 20 : 30)
+        .frame(width: 30, height: 30)
     }
     
     @ViewBuilder func photoPlaceholder(for photo: Photo) -> some View {

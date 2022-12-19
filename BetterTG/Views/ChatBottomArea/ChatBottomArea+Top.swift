@@ -1,9 +1,9 @@
-// ChatBottomArea+TopSide.swift
+// ChatBottomArea+Top.swift
 
 import SwiftUI
 
 extension ChatBottomArea {
-    @ViewBuilder var topSide: some View {
+    @ViewBuilder var top: some View {
         switch viewModel.bottomAreaState {
             case .edit:
                 if let editMessage = viewModel.editMessage {
@@ -24,7 +24,7 @@ extension ChatBottomArea {
                 .environmentObject(viewModel)
                 .padding(5)
                 .background(Color.gray6)
-                .cornerRadius(10)
+                .cornerRadius(15)
             
             Image(systemName: "xmark")
                 .onTapGesture {

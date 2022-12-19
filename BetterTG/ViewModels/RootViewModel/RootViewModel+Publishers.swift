@@ -19,7 +19,9 @@ extension RootViewModel {
                 guard let chat = await self.tdGetChat(id: self.mainChats[index].id) else { return }
                 
                 await MainActor.run {
-                    self.mainChats[index] = chat
+                    withAnimation {
+                        self.mainChats[index] = chat
+                    }
                 }
             }
         }
@@ -33,7 +35,9 @@ extension RootViewModel {
                 guard let chat = await self.tdGetChat(id: self.mainChats[index].id) else { return }
                 
                 await MainActor.run {
-                    self.mainChats[index] = chat
+                    withAnimation {
+                        self.mainChats[index] = chat
+                    }
                 }
             }
         }

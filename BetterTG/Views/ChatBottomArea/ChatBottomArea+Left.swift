@@ -1,10 +1,10 @@
-// ChatBottomArea+LeftSide.swift
+// ChatBottomArea+Left.swift
 
 import SwiftUI
 import PhotosUI
 
 extension ChatBottomArea {
-    @ViewBuilder var leftSide: some View {
+    @ViewBuilder var left: some View {
         PhotosPicker(selection: $viewModel.selectedPhotos,
                      maxSelectionCount: 10,
                      selectionBehavior: .default,

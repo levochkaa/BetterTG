@@ -22,7 +22,7 @@ extension ChatView {
                         HStack {
                             if customMessage.message.isOutgoing { Spacer() }
                             
-                            NewMessageView(
+                            MessageView(
                                 customMessage: customMessage,
                                 openedPhotoInfo: $openedPhotoInfo,
                                 openedPhotoNamespace: openedPhotoNamespace

@@ -1,6 +1,6 @@
 // MessageView.swift
 
-import SwiftUI
+import SwiftUIX
 import TDLibKit
 
 struct MessageView: View {
@@ -12,91 +12,66 @@ struct MessageView: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     
-    @State var replySize: CGSize = .zero
-    @State var textSize: CGSize = .zero
-    @State var contentSize: CGSize = .zero
-    @State var bottomTextSize: CGSize = .zero
-    
-    var spacerMaxWidth: CGFloat {
-        if contentSize != .zero {
-            return contentSize.width - (bottomTextSize.width + textSize.width)
-        } else if replySize.width < (bottomTextSize.width + textSize.width) {
-            return 5
-        } else if replySize.width > (bottomTextSize.width + textSize.width) {
-            return replySize.width - (bottomTextSize.width + textSize.width)
-        } else {
-            return 5
-        }
-    }
+    @State var replyWidth: Double = 0
+    @State var textWidth: Double = 0
+    @State var contentWidth: Double = 0
+    @State var editWidth: Double = 0
     
     let logger = Logger(label: "MessageView")
     let nc: NotificationCenter = .default
     
     var body: some View {
-        VStack(alignment: .leading) {
-            if customMessage.replyToMessage != nil && customMessage.replyUser != nil {
-                ReplyMessageView(customMessage: customMessage, type: .replied)
-                    .environmentObject(viewModel)
-                    .readSize { size in
-                        replySize = size
-                    }
+        VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
+            if let replyUser = customMessage.replyUser, let replyToMessage = customMessage.replyToMessage {
+                ReplyMessageView(customMessage: customMessage, type: .replied(replyUser, replyToMessage))
+                    .padding(5)
+                    .background(.gray6)
+                    .cornerRadius(corners(for: .reply), 15)
+                    .readSize { replyWidth = $0.width }
             }
             
-            MessageContentView(
-                customMessage: customMessage,
-                openedPhotoInfo: $openedPhotoInfo,
-                openedPhotoNamespace: openedPhotoNamespace
-            )
-            .readSize { size in
-                contentSize = size
-            }
-                        
-            HStack(alignment: .bottom) {
-                messageContentText
-                    .readSize { size in
-                        textSize = size
-                    }
-                
-                if customMessage.message.editDate != 0 {
-                    Spacer()
-                        .frame(maxWidth: spacerMaxWidth)
-                    
-                    Text("edited")
-                        .font(.caption)
-                        .foregroundColor(.editedGray).opacity(0.5)
-                        .frame(alignment: .bottomTrailing)
-                        .readSize { size in
-                            bottomTextSize = size
-                        }
-                }
-            }
-        }
-        .multilineTextAlignment(.leading)
-        .foregroundColor(customMessage.message.isOutgoing ? .white : .black)
-        .padding(8)
-        .background {
-            RoundedRectangle(cornerRadius: 20)
-                .if(customMessage.message.isOutgoing) {
-                    $0.fill(viewModel.highlightedMessageId != customMessage.message.id ? .blue : .blue.opacity(0.5))
+            messageContent
+                .padding(1)
+                .if(viewModel.highlightedMessageId == customMessage.message.id) {
+                    $0.background(.white.opacity(0.5))
                 } else: {
-                    $0.fill(viewModel.highlightedMessageId != customMessage.message.id ? .white : .white.opacity(0.5))
+                    $0.background(.gray6)
                 }
+                .cornerRadius(corners(for: .content), 15)
+                .readSize { contentWidth = $0.width }
             
+            messageText
+                .multilineTextAlignment(.leading)
+                .padding(8)
+                .if(viewModel.highlightedMessageId == customMessage.message.id) {
+                    $0.background(.white.opacity(0.5))
+                } else: {
+                    $0.background(.gray6)
+                }
+                .cornerRadius(corners(for: .text), 15)
+                .readSize { textWidth = $0.width }
+            
+            if customMessage.message.editDate != 0 {
+                Text("edited")
+                    .font(.caption)
+                    .foregroundColor(.white).opacity(0.5)
+                    .padding(3)
+                    .background(.gray6)
+                    .cornerRadius(corners(for: .edit), 15)
+                    .readSize { editWidth = $0.width }
+            }
         }
-        .frame(
-            maxWidth: Utils.size.width * 0.8,
-            alignment: customMessage.message.isOutgoing ? .trailing : .leading
-        )
         .contextMenu {
             contextMenu
         }
         .onReceive(nc.publisher(for: .messageEdited)) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited else { return }
-
+            
             if messageEdited.messageId == customMessage.message.id {
                 Task {
                     guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
                     else { return }
+                    
                     await MainActor.run {
                         withAnimation {
                             self.customMessage = customMessage

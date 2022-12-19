@@ -15,7 +15,7 @@ struct ChatBottomArea: View {
     
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
-            topSide
+            top
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             
             if !viewModel.displayedPhotos.isEmpty {
@@ -24,17 +24,17 @@ struct ChatBottomArea: View {
             }
             
             HStack(alignment: .center, spacing: 10) {
-                leftSide
+                left
                 
                 textField
                 
-                rightSide
+                right
             }
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)
-        .cornerRadius(10)
+        .cornerRadius(15)
         .padding([.bottom, .horizontal], 5)
         .animation(.default, value: viewModel.bottomAreaState)
     }

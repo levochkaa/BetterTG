@@ -13,7 +13,7 @@ extension ChatBottomArea {
         .lineLimit(10)
         .padding(5)
         .background(Color.gray6)
-        .cornerRadius(10)
+        .cornerRadius(15)
         .onReceive(viewModel.$text.debounce(for: 2, scheduler: DispatchQueue.main)) { _ in
             Task {
                 await viewModel.updateDraft()

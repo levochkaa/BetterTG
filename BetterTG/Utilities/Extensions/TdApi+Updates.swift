@@ -36,8 +36,6 @@ extension TdApi {
                 var dir = url.path()
                 dir.replace("%20", with: " ")
                 
-                TdApi.logger.log("td directory: \(dir)")
-                
                 _ = try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
@@ -112,6 +110,7 @@ extension TdApi {
     }
     
     func updateChatAction(_ updateChatAction: UpdateChatAction) {
+        // TdApi.logger.log("ChatAction: \(updateChatAction)")
         switch updateChatAction.action {
             case .chatActionUploadingDocument:
                 TdApi.nc.post(name: .uploadingDocument, object: updateChatAction)
@@ -123,7 +122,7 @@ extension TdApi {
     }
     
     func updateAuthorizationState(_ authorizationState: AuthorizationState) {
-        TdApi.logger.log("Auth: \(authorizationState)")
+        // TdApi.logger.log("Auth: \(authorizationState)")
         switch authorizationState {
             case .authorizationStateWaitTdlibParameters:
                 TdApi.nc.post(name: .waitTdlibParameters, object: nil)

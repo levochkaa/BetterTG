@@ -40,9 +40,9 @@ extension ChatBottomArea {
             }
         }
         .frame(height: 120)
-        .cornerRadius(10)
+        .cornerRadius(15)
         .padding(5)
         .background(Color.gray6)
-        .cornerRadius(10)
+        .cornerRadius(15)
     }
 }

@@ -1,9 +1,9 @@
-// MessageContentView+Photo.swift
+// MessageView+Photo.swift
 
 import SwiftUI
 import TDLibKit
 
-extension MessageContentView {
+extension MessageView {
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto, with message: Message) -> some View {
         if let size = messagePhoto.photo.sizes.getSize(.wBox) {
             AsyncTdImage(id: size.photo.id) { image in
@@ -48,12 +48,13 @@ extension MessageContentView {
     }
     
     @ViewBuilder func placeholder(with size: PhotoSize) -> some View {
-        RoundedRectangle(cornerRadius: 20)
-            .fill(customMessage.message.isOutgoing ? .blue : .white)
-            .frame(width: width, height: placeholderHeight(from: size))
-    }
-    
-    func placeholderHeight(from size: PhotoSize) -> CGFloat {
-        width * (CGFloat(size.height) / CGFloat(size.width))
+        RoundedRectangle(cornerRadius: 15)
+            .fill(Color.gray6)
+            .frame(
+                width: Utils.maxMessageContentWidth,
+                height: Utils.maxMessageContentWidth * (
+                    CGFloat(size.height) / CGFloat(size.width)
+                )
+            )
     }
 }

@@ -1,9 +1,9 @@
-// ChatBottomArea+RightSide.swift
+// ChatBottomArea+Right.swift
 
 import SwiftUI
 
 extension ChatBottomArea {
-    @ViewBuilder var rightSide: some View {
+    @ViewBuilder var right: some View {
         Button {
             Task {
                 switch viewModel.bottomAreaState {

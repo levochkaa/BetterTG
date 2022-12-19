@@ -1,10 +1,9 @@
-// MessageView+MessageContentText.swift
+// MessageView+Text.swift
 
 import SwiftUI
-import TDLibKit
 
 extension MessageView {
-    @ViewBuilder var messageContentText: some View {
+    @ViewBuilder var messageText: some View {
         Group {
             switch customMessage.message.content {
                 case let .messageText(messageText):
