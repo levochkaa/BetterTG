@@ -22,7 +22,6 @@ extension ChatViewModel {
             
             Task {
                 var customMessage = await self.getCustomMessage(from: message)
-                customMessage.sendSucceded = false
                 await MainActor.run { [customMessage] in
                     withAnimation {
                         if message.mediaAlbumId == 0 {

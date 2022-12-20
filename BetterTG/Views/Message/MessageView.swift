@@ -83,8 +83,7 @@ struct MessageView: View {
                 }
                 fallthrough
             default:
-                if customMessage.sendFailed { return .red }
-                return customMessage.sendSucceded ? .gray6 : .black
+                return customMessage.sendFailed ? .red : .gray6
         }
     }
 }
