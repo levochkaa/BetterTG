@@ -26,30 +26,22 @@ extension MessageView {
                 }
                 if textWidth != 0 && textWidth < contentWidth {
                     corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
-                } else if textWidth == 0 {
-                    if editWidth == 0 {
-                        corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
-                    } else if editWidth != 0 && editWidth < contentWidth {
-                        corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
-                    }
+                } else if textWidth == 0 && editWidth == 0 {
+                    corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
+                } else if textWidth == 0 && editWidth != 0 && editWidth < contentWidth {
+                    corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
                 }
                 return corners
             case .text:
-                if contentWidth != 0 {
-                    if contentWidth < textWidth {
-                        corners.append(isOutgoing ? .topLeading : .topTrailing)
-                    }
-                } else if replyWidth != 0 {
-                    if replyWidth < textWidth {
-                        corners.append(isOutgoing ? .topLeading : .topTrailing)
-                    }
-                } else {
+                if contentWidth != 0 && contentWidth < textWidth {
+                    corners.append(isOutgoing ? .topLeading : .topTrailing)
+                } else if replyWidth != 0 && replyWidth < textWidth {
+                    corners.append(isOutgoing ? .topLeading : .topTrailing)
+                } else if replyWidth == 0 && contentWidth == 0 {
                     corners.append(contentsOf: [.topLeading, .topTrailing])
                 }
-                if editWidth != 0 {
-                    if editWidth < textWidth {
-                        corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
-                    }
+                if editWidth != 0 && editWidth < textWidth {
+                    corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
                 } else if editWidth == 0 {
                     corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
                 }
