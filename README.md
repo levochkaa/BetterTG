@@ -15,10 +15,11 @@
 
 - login
 - all chats with people from main folder
-- sending/reading text messages
+- sending/reading text/photo messages
 - replying to messages
 - chat draft
 - editing messages
+- unique UI
 
 # Installation
 
