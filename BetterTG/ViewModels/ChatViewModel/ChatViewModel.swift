@@ -66,6 +66,7 @@ class ChatViewModel: ObservableObject {
         didSet {
             if editMessage != nil {
                 bottomAreaState = .edit
+                setEditMessageText(from: editMessage?.message)
             }
         }
     }

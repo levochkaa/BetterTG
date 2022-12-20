@@ -5,6 +5,8 @@ import TDLibKit
 
 extension ChatViewModel {
     func setPublishers() {
+        setMessageSendPublishers()
+        
         nc.publisher(for: .messageEdited) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited,
                   messageEdited.chatId == self.chat.id
@@ -19,8 +21,9 @@ extension ChatViewModel {
             else { return }
             
             Task {
-                let customMessage = await self.getCustomMessage(from: message)
-                await MainActor.run {
+                var customMessage = await self.getCustomMessage(from: message)
+                customMessage.sendSucceded = false
+                await MainActor.run { [customMessage] in
                     withAnimation {
                         if message.mediaAlbumId == 0 {
                             self.messages.append(customMessage)
@@ -55,16 +58,43 @@ extension ChatViewModel {
         }
     }
     
+    func setMessageSendPublishers() {
+        nc.publisher(for: .messageSendFailed) { notification in
+            guard let messageSendFailed = notification.object as? UpdateMessageSendFailed,
+                  messageSendFailed.message.chatId == self.chat.id,
+                  let index = self.messages.firstIndex(where: { $0.message.id == messageSendFailed.oldMessageId })
+            else { return }
+            
+            Task { @MainActor in
+                withAnimation {
+                    self.messages[index].sendFailed = true
+                }
+            }
+        }
+        
+        nc.publisher(for: .messageSendSucceeded) { notification in
+            guard let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
+                  messageSendSucceeded.message.chatId == self.chat.id,
+                  let index = self.messages.firstIndex(where: { $0.message.id == messageSendSucceeded.oldMessageId })
+            else { return }
+            
+            Task {
+                let customMessage = await self.getCustomMessage(from: messageSendSucceeded.message)
+                await MainActor.run {
+                    withAnimation {
+                        self.messages[index] = customMessage
+                    }
+                }
+            }
+        }
+    }
+    
     func onMessageEdited(_ messageEdited: UpdateMessageEdited) {
         if messageEdited.messageId == self.editMessage?.message.id {
             Task {
                 let message = await self.tdGetMessage(id: messageEdited.messageId)
-                if case let .messageText(messageText) = message?.content {
-                    await MainActor.run {
-                        withAnimation {
-                            self.editMessageText = messageText.text.text
-                        }
-                    }
+                await MainActor.run {
+                    self.setEditMessageText(from: message)
                 }
             }
         }

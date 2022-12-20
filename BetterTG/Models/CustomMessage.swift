@@ -10,4 +10,6 @@ struct CustomMessage: Identifiable, Equatable {
     var replyUser: User?
     var replyToMessage: Message?
     var album = [Message]()
+    var sendFailed = false
+    var sendSucceded = true
 }

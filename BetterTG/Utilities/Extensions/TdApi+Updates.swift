@@ -104,6 +104,10 @@ extension TdApi {
                 Task { @MainActor in
                     TdApi.nc.post(name: .messageEdited, object: updateMessageEdited)
                 }
+            case let .updateMessageSendSucceeded(updateMessageSendSucceeded):
+                TdApi.nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
+            case let .updateMessageSendFailed(updateMessageSendFailed):
+                TdApi.nc.post(name: .messageSendFailed, object: updateMessageSendFailed)
             default:
                 break
         }

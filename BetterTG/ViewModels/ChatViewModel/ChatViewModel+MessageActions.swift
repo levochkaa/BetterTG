@@ -51,6 +51,19 @@ extension ChatViewModel {
         }
     }
     
+    func setEditMessageText(from message: Message?) {
+        withAnimation {
+            switch message?.content {
+                case let .messageText(messageText):
+                    editMessageText = messageText.text.text
+                case let .messagePhoto(messagePhoto):
+                    editMessageText = messagePhoto.caption.text
+                default:
+                    break
+            }
+        }
+    }
+    
     func deleteMessage(id: Int64, deleteForBoth: Bool) async {
         guard let customMessage = messages.first(where: { $0.message.id == id }) else { return }
         

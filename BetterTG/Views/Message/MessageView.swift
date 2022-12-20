@@ -25,29 +25,21 @@ struct MessageView: View {
             if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
                     .padding(5)
-                    .background(.gray6)
+                    .background(backgroundColor(for: .reply))
                     .cornerRadius(corners(for: .reply), 15)
                     .readSize { replyWidth = $0.width }
             }
             
             messageContent
                 .padding(1)
-                .if(viewModel.highlightedMessageId == customMessage.message.id) {
-                    $0.background(.white.opacity(0.5))
-                } else: {
-                    $0.background(.gray6)
-                }
+                .background(backgroundColor(for: .content))
                 .cornerRadius(corners(for: .content), 15)
                 .readSize { contentWidth = $0.width }
             
             messageText
                 .multilineTextAlignment(.leading)
                 .padding(8)
-                .if(viewModel.highlightedMessageId == customMessage.message.id) {
-                    $0.background(.white.opacity(0.5))
-                } else: {
-                    $0.background(.gray6)
-                }
+                .background(backgroundColor(for: .text))
                 .cornerRadius(corners(for: .text), 15)
                 .readSize { textWidth = $0.width }
             
@@ -56,7 +48,7 @@ struct MessageView: View {
                     .font(.caption)
                     .foregroundColor(.white).opacity(0.5)
                     .padding(3)
-                    .background(.gray6)
+                    .background(backgroundColor(for: .edit))
                     .cornerRadius(corners(for: .edit), 15)
                     .readSize { editWidth = $0.width }
             }
@@ -80,6 +72,19 @@ struct MessageView: View {
                     }
                 }
             }
+        }
+    }
+    
+    func backgroundColor(for type: MessagePart) -> Color {
+        switch type {
+            case .text, .content:
+                if viewModel.highlightedMessageId == customMessage.message.id {
+                    return .white.opacity(0.5)
+                }
+                fallthrough
+            default:
+                if customMessage.sendFailed { return .red }
+                return customMessage.sendSucceded ? .gray6 : .black
         }
     }
 }
