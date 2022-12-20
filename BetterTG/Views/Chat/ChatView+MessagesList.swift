@@ -27,7 +27,6 @@ extension ChatView {
                                 openedPhotoInfo: $openedPhotoInfo,
                                 openedPhotoNamespace: openedPhotoNamespace
                             )
-                            .environmentObject(viewModel)
                             .frame(
                                 maxWidth: Utils.size.width * 0.8,
                                 alignment: customMessage.message.isOutgoing ? .trailing : .leading

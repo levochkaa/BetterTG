@@ -54,7 +54,6 @@ struct ChatView: View {
                                     openedPhotoInfo: $openedPhotoInfo,
                                     openedPhotoNamespace: openedPhotoNamespace
                                 )
-                                .environmentObject(viewModel)
                             }
                         }
                     }
@@ -68,7 +67,6 @@ struct ChatView: View {
                                     openedPhotoInfo: $openedPhotoInfo,
                                     openedPhotoNamespace: openedPhotoNamespace
                                 )
-                                .environmentObject(viewModel)
                             }
                         }
                     }
@@ -76,6 +74,7 @@ struct ChatView: View {
         }
         .navigationTitle(viewModel.chat.title)
         .navigationBarTitleDisplayMode(.inline)
+        .environmentObject(viewModel)
     }
     
     var bodyView: some View {

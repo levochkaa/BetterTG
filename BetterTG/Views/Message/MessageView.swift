@@ -22,8 +22,8 @@ struct MessageView: View {
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
-            if let replyUser = customMessage.replyUser, let replyToMessage = customMessage.replyToMessage {
-                ReplyMessageView(customMessage: customMessage, type: .replied(replyUser, replyToMessage))
+            if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
+                ReplyMessageView(customMessage: customMessage, type: .replied)
                     .padding(5)
                     .background(.gray6)
                     .cornerRadius(corners(for: .reply), 15)
@@ -65,17 +65,18 @@ struct MessageView: View {
             contextMenu
         }
         .onReceive(nc.publisher(for: .messageEdited)) { notification in
-            guard let messageEdited = notification.object as? UpdateMessageEdited else { return }
+            guard let messageEdited = notification.object as? UpdateMessageEdited,
+                  messageEdited.chatId == customMessage.message.chatId,
+                  messageEdited.messageId == customMessage.message.id
+            else { return }
             
-            if messageEdited.messageId == customMessage.message.id {
-                Task {
-                    guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
-                    else { return }
-                    
-                    await MainActor.run {
-                        withAnimation {
-                            self.customMessage = customMessage
-                        }
+            Task {
+                guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
+                else { return }
+                
+                await MainActor.run {
+                    withAnimation {
+                        self.customMessage = customMessage
                     }
                 }
             }

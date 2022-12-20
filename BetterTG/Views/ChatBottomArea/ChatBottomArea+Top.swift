@@ -21,7 +21,6 @@ extension ChatBottomArea {
     @ViewBuilder func replyMessageView(_ customMessage: CustomMessage, type: ReplyMessageType) -> some View {
         HStack {
             ReplyMessageView(customMessage: customMessage, type: type)
-                .environmentObject(viewModel)
                 .padding(5)
                 .background(Color.gray6)
                 .cornerRadius(15)
