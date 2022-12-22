@@ -27,14 +27,13 @@ extension TdApi {
         TdApi.nc.publisher(for: .waitTdlibParameters) { _ in
             Task {
                 var url = try FileManager.default.url(
-                    for: .applicationSupportDirectory,
+                    for: .documentDirectory,
                     in: .userDomainMask,
                     appropriateFor: nil,
                     create: true
                 )
                 url.append(path: "td")
-                var dir = url.path()
-                dir.replace("%20", with: " ")
+                let dir = url.path()
                 
                 _ = try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,

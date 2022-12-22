@@ -21,7 +21,7 @@ extension ChatViewModel {
             else { return }
             
             Task {
-                var customMessage = await self.getCustomMessage(from: message)
+                let customMessage = await self.getCustomMessage(from: message)
                 await MainActor.run { [customMessage] in
                     withAnimation {
                         if message.mediaAlbumId == 0 {
