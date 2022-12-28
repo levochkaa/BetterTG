@@ -6,7 +6,7 @@ import TDLibKit
 extension ReplyMessageView {
     @ViewBuilder func inlineMessageContent(for message: Message) -> some View {
         switch message.content {
-            case let .messagePhoto(messagePhoto):
+            case .messagePhoto(let messagePhoto):
                 makeMessagePhoto(from: messagePhoto)
             default:
                 EmptyView()

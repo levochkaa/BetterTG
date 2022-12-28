@@ -125,4 +125,12 @@ extension ChatViewModel {
             return nil
         }
     }
+    
+    func tdRecognizeSpeech(for messageId: Int64) async {
+        do {
+            _ = try await tdApi.recognizeSpeech(chatId: chat.id, messageId: messageId)
+        } catch {
+            logger.log("Error recognizing speech: \(error)")
+        }
+    }
 }

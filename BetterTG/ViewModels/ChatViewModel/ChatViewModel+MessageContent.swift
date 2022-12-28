@@ -9,9 +9,7 @@ extension ChatViewModel {
         
         let image = UIImage(contentsOfFile: path)!
         
-        let input: InputFile = .inputFileLocal(
-            InputFileLocal(path: path)
-        )
+        let input: InputFile = .inputFileLocal(.init(path: path))
         
         return .inputMessagePhoto(
             InputMessagePhoto(

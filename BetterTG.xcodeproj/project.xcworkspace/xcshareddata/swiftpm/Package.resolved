@@ -10,6 +10,15 @@
       }
     },
     {
+      "identity" : "mobilevlckit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/levochkaa/MobileVLCKit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "3847399d282a7d5ee0acb083b32c78f651fe599b"
+      }
+    },
+    {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
@@ -33,7 +42,7 @@
       "location" : "https://github.com/SwiftUIX/SwiftUIX",
       "state" : {
         "branch" : "master",
-        "revision" : "0054a327e57cec5cdfc752d8cc0f22a2553a6f0e"
+        "revision" : "aa72fd74248852c4b1d74b2aff51926b362a0a3e"
       }
     },
     {
@@ -41,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "a43b483290ccb80cc303d6a786970622d726185c",
-        "version" : "1.8.8-2e6ac1f2"
+        "revision" : "dace94eb5c43d84984d87fc0d2411f56a7edd16b",
+        "version" : "1.8.9-86d5f12e"
       }
     },
     {
@@ -51,7 +60,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "2a83ca2da5647c4810165955920ac0125fd78a4b"
+        "revision" : "a302aa53a0896a9f9f4e5cdbd2a2ba3cbd2cfea7"
       }
     }
   ],

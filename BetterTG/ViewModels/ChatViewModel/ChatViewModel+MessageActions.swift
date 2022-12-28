@@ -4,34 +4,47 @@ import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {
-    func sendMessage() async {
-        if (bottomAreaState == .message || bottomAreaState == .reply) && text.isEmpty { return }
-        
-        if displayedPhotos.isEmpty {
-            await tdSendMessage(with:
-                    .inputMessageText(
-                        .init(
-                            clearDraft: true,
-                            disableWebPagePreview: true,
-                            text: FormattedText(
-                                entities: [],
-                                text: text
-                            )
-                        )
-                    )
-            )
-        } else if displayedPhotos.count == 1, let photo = displayedPhotos.first {
+    func sendMessagePhotos() async {
+        if displayedPhotos.count == 1, let photo = displayedPhotos.first {
             await tdSendMessage(with: makeInputMessageContent(for: photo.url))
         } else {
             let messageContents = displayedPhotos.map {
                 makeInputMessageContent(for: $0.url)
             }
+            toBeSentPhotosCount = displayedPhotos.count
             await tdSendMessageAlbum(with: messageContents)
         }
-        
-        await MainActor.run {
-            bottomAreaState = .message
-        }
+    }
+    
+    func sendMessageText() async {
+        await tdSendMessage(with:
+                .inputMessageText(
+                    .init(
+                        clearDraft: true,
+                        disableWebPagePreview: true,
+                        text: FormattedText(
+                            entities: [],
+                            text: text
+                        )
+                    )
+                )
+        )
+    }
+    
+    func sendMessageVoiceNote(duration: Int, waveform: Data) async {
+        await tdSendMessage(with:
+                .inputMessageVoiceNote(
+                    .init(
+                        caption: FormattedText(
+                            entities: [],
+                            text: text
+                        ),
+                        duration: duration,
+                        voiceNote: .inputFileLocal(.init(path: savedVoiceNoteUrl.path())),
+                        waveform: waveform
+                    )
+                )
+        )
     }
     
     func editMessage() async {
@@ -40,24 +53,22 @@ extension ChatViewModel {
         switch editMessage.content {
             case .messageText:
                 await tdEditMessageText(editMessage)
-            case .messagePhoto:
+            case .messagePhoto, .messageVoiceNote:
                 await tdEditMessageCaption(editMessage)
             default:
                 logger.log("Unsupported edit message type")
-        }
-        
-        await MainActor.run {
-            bottomAreaState = .message
         }
     }
     
     func setEditMessageText(from message: Message?) {
         withAnimation {
             switch message?.content {
-                case let .messageText(messageText):
+                case .messageText(let messageText):
                     editMessageText = messageText.text.text
-                case let .messagePhoto(messagePhoto):
+                case .messagePhoto(let messagePhoto):
                     editMessageText = messagePhoto.caption.text
+                case .messageVoiceNote(let messageVoiceNote):
+                    editMessageText = messageVoiceNote.caption.text
                 default:
                     break
             }

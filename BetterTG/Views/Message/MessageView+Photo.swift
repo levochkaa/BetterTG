@@ -39,7 +39,6 @@ extension MessageView {
                             Color.clear
                                 .background(.ultraThinMaterial)
                         }
-                    
                 } placeholder: {
                     placeholder(with: size)
                 }

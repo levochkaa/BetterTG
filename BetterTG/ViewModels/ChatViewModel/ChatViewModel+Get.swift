@@ -14,12 +14,12 @@ extension ChatViewModel {
         let replyToMessage = await getReplyToMessage(id: message.replyToMessageId)
         var customMessage = CustomMessage(message: message, replyToMessage: replyToMessage)
         
-        if case let .messageSenderUser(messageSenderUser) = message.senderId {
+        if case .messageSenderUser(let messageSenderUser) = message.senderId {
             let senderUser = await tdGetUser(id: messageSenderUser.userId)
             customMessage.senderUser = senderUser
         }
         
-        if case let .messageSenderUser(messageSenderUser) = replyToMessage?.senderId {
+        if case .messageSenderUser(let messageSenderUser) = replyToMessage?.senderId {
             let replyUser = await tdGetUser(id: messageSenderUser.userId)
             customMessage.replyUser = replyUser
             return customMessage

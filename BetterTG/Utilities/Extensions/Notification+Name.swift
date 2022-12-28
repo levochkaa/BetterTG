@@ -43,4 +43,8 @@ extension Notification.Name {
     
     // MARK: user
     static let user = Self("user")
+    
+    // MARK: custom
+    static let customIsListeningVoice = Self("customIsListeningVoice")
+    static let customRecognizeSpeech = Self("customRecognizeSpeech")
 }

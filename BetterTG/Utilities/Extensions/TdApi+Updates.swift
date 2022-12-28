@@ -1,13 +1,12 @@
 // TdApi+Updates.swift
 
 import Foundation
-import Combine
 import TDLibKit
 
 extension TdApi {
     static var shared = TdApi(client: TdClientImpl(completionQueue: .global(qos: .userInitiated)))
     
-    static let logger = Logger(label: "TdApi")
+    static let logger = Logger("TdApi")
     static let nc: NotificationCenter = .default
     
     func startTdLibUpdateHandler() {
@@ -65,47 +64,51 @@ extension TdApi {
     func update(_ update: Update) {
         // TdApi.logger.log("Update: \(update)")
         switch update {
-            case let .updateAuthorizationState(updateAuthorizationState):
-                self.updateAuthorizationState(updateAuthorizationState.authorizationState)
-            case let .updateFile(updateFile):
+            case .updateAuthorizationState(let updateAuthorizationState):
+                Task { @MainActor in
+                    self.updateAuthorizationState(updateAuthorizationState.authorizationState)
+                }
+            case .updateFile(let updateFile):
                 Task { @MainActor in
                     TdApi.nc.post(name: .file, object: updateFile)
                 }
-            case let .updateNewMessage(updateNewMessage):
+            case .updateNewMessage(let updateNewMessage):
                 Task { @MainActor in
                     TdApi.nc.post(name: .newMessage, object: updateNewMessage)
                 }
-            case let .updateChatLastMessage(updateChatLastMessage):
+            case .updateChatLastMessage(let updateChatLastMessage):
                 Task { @MainActor in
                     TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
                 }
-            case let .updateChatDraftMessage(updateChatDraftMessage):
+            case .updateChatDraftMessage(let updateChatDraftMessage):
                 TdApi.nc.post(name: .chatDraftMessage, object: updateChatDraftMessage)
-            case let .updateChatIsMarkedAsUnread(updateChatIsMarkedAsUnread):
+            case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
                 TdApi.nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
-            case let .updateChatFilters(updateChatFilters):
+            case .updateChatFilters(let updateChatFilters):
                 TdApi.nc.post(name: .chatFilters, object: updateChatFilters)
-            case let .updateNewChat(updateNewChat):
+            case .updateNewChat(let updateNewChat):
                 TdApi.nc.post(name: .newChat, object: updateNewChat)
-            case let .updateChatPhoto(updateChatPhoto):
+            case .updateChatPhoto(let updateChatPhoto):
                 TdApi.nc.post(name: .chatPhoto, object: updateChatPhoto)
-            case let .updateChatTheme(updateChatTheme):
+            case .updateChatTheme(let updateChatTheme):
                 TdApi.nc.post(name: .chatTheme, object: updateChatTheme)
-            case let .updateChatTitle(updateChatTitle):
+            case .updateChatTitle(let updateChatTitle):
                 TdApi.nc.post(name: .chatTitle, object: updateChatTitle)
-            case let .updateUser(updateUser):
+            case .updateUser(let updateUser):
                 TdApi.nc.post(name: .user, object: updateUser.user)
-            case let .updateDeleteMessages(updateDeleteMessages):
+            case .updateDeleteMessages(let updateDeleteMessages):
                 TdApi.nc.post(name: .deleteMessages, object: updateDeleteMessages)
-            case let .updateChatAction(updateChatAction):
+            case .updateChatAction(let updateChatAction):
                 self.updateChatAction(updateChatAction)
-            case let .updateMessageEdited(updateMessageEdited):
+            case .updateMessageEdited(let updateMessageEdited):
                 Task { @MainActor in
                     TdApi.nc.post(name: .messageEdited, object: updateMessageEdited)
                 }
-            case let .updateMessageSendSucceeded(updateMessageSendSucceeded):
-                TdApi.nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
-            case let .updateMessageSendFailed(updateMessageSendFailed):
+            case .updateMessageSendSucceeded(let updateMessageSendSucceeded):
+                Task { @MainActor in
+                    TdApi.nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
+                }
+            case .updateMessageSendFailed(let updateMessageSendFailed):
                 TdApi.nc.post(name: .messageSendFailed, object: updateMessageSendFailed)
             default:
                 break
@@ -139,17 +142,17 @@ extension TdApi {
                 TdApi.nc.post(name: .ready, object: nil)
             case .authorizationStateWaitPhoneNumber:
                 TdApi.nc.post(name: .waitPhoneNumber, object: nil)
-            case let .authorizationStateWaitCode(waitCode):
+            case .authorizationStateWaitCode(let waitCode):
                 TdApi.nc.post(name: .waitCode, object: waitCode)
-            case let .authorizationStateWaitPassword(waitPassword):
+            case .authorizationStateWaitPassword(let waitPassword):
                 TdApi.nc.post(name: .waitPassword, object: waitPassword)
-            case let .authorizationStateWaitEmailAddress(waitEmailAddress):
+            case .authorizationStateWaitEmailAddress(let waitEmailAddress):
                 TdApi.nc.post(name: .waitEmailAddress, object: waitEmailAddress)
-            case let .authorizationStateWaitEmailCode(waitEmailCode):
+            case .authorizationStateWaitEmailCode(let waitEmailCode):
                 TdApi.nc.post(name: .waitEmailCode, object: waitEmailCode)
-            case let .authorizationStateWaitOtherDeviceConfirmation(waitOtherDeviceConfirmation):
+            case .authorizationStateWaitOtherDeviceConfirmation(let waitOtherDeviceConfirmation):
                 TdApi.nc.post(name: .waitOtherDeviceConfirmation, object: waitOtherDeviceConfirmation)
-            case let .authorizationStateWaitRegistration(waitRegistration):
+            case .authorizationStateWaitRegistration(let waitRegistration):
                 TdApi.nc.post(name: .waitRegistration, object: waitRegistration)
         }
     }

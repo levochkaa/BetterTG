@@ -23,7 +23,7 @@ extension ChatBottomArea {
     
     func textFieldText() -> Binding<String> {
         switch viewModel.bottomAreaState {
-            case .message, .reply, .caption:
+            case .message, .reply, .caption, .voice:
                 return $viewModel.text
             case .edit:
                 return $viewModel.editMessageText
@@ -31,6 +31,11 @@ extension ChatBottomArea {
     }
     
     func textFieldPrompt() -> String {
-        return "\(viewModel.bottomAreaState)...".capitalized
+        switch viewModel.bottomAreaState {
+            case .voice:
+                return "Message..."
+            default:
+                return "\(viewModel.bottomAreaState)...".capitalized
+        }
     }
 }

@@ -1,7 +1,6 @@
 // AsyncTdFile.swift
 
 import SwiftUI
-import Combine
 import TDLibKit
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {
@@ -10,7 +9,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
     
     private let tdApi = TdApi.shared
-    private let logger = Logger(label: "AsyncTdFile")
+    private let logger = Logger("AsyncTdFile")
     private let nc: NotificationCenter = .default
     
     @State private var file: File?
@@ -19,12 +18,8 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     var body: some View {
         ZStack {
             Group {
-                if isDownloaded {
-                    if let file {
-                        content(file)
-                    } else {
-                        placeholder()
-                    }
+                if let file, isDownloaded {
+                    content(file)
                 } else {
                     placeholder()
                 }

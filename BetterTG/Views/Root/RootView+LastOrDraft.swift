@@ -26,7 +26,7 @@ extension RootView {
             }
             
             switch draftMessage.inputMessageText {
-                case let .inputMessageText(inputMessageText):
+                case .inputMessageText(let inputMessageText):
                     Text(inputMessageText.text.text)
                 default:
                     Text("BTG not supported")
@@ -36,13 +36,25 @@ extension RootView {
     
     @ViewBuilder func lastMessageView(for lastMessage: Message) -> some View {
         switch lastMessage.content {
-            case let .messagePhoto(messagePhoto):
+            case .messagePhoto(let messagePhoto):
                 HStack(alignment: .center, spacing: 5) {
                     makePhotoPreview(from: messagePhoto)
                     
                     Text(messagePhoto.caption.text.isEmpty ? "Photo" : messagePhoto.caption.text)
                 }
-            case let .messageText(messageText):
+            case .messageVoiceNote(let messageVoiceNote):
+                HStack(alignment: .bottom) {
+                    Text("Voice")
+                        .foregroundColor(.white)
+                    
+                    if !messageVoiceNote.caption.text.isEmpty {
+                        Text(": ")
+                            .foregroundColor(.white)
+                    }
+                    
+                    Text(messageVoiceNote.caption.text)
+                }
+            case .messageText(let messageText):
                 Text(messageText.text.text)
             case .messageUnsupported:
                 Text("TDLib not supported")

@@ -3,5 +3,5 @@
 import SwiftUI
 
 enum BottomAreaState {
-    case message, reply, edit, caption
+    case message, reply, edit, caption, voice
 }

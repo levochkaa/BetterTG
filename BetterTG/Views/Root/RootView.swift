@@ -21,7 +21,7 @@ struct RootView: View {
     
     let nc: NotificationCenter = .default
     let tdApi: TdApi = .shared
-    let logger = Logger(label: "RootView")
+    let logger = Logger("RootView")
     
     @Environment(\.scenePhase) var scenePhase
     
@@ -59,7 +59,7 @@ struct RootView: View {
     @ViewBuilder var bodyView: some View {
         ZStack {
             NavigationStack {
-                mainChatsList
+                mainChatsScroll
                     .navigationTitle("BetterTG")
                     .onChange(of: scenePhase) { newPhase in
                         Task {

@@ -9,9 +9,18 @@ struct ChatBottomArea: View {
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
     var openedPhotoNamespace: Namespace.ID?
     
+    @State var onLongPressVoice = false
+    @State var timerCount = 0.0
+    @State var timer: Timer?
+    @State var wave = [Float]()
+    
+    @Namespace var chatBottomAreaNamespace
+    
     @EnvironmentObject var viewModel: ChatViewModel
     
-    let logger = Logger(label: "ChatBottomArea")
+    let micId = "micId"
+    
+    let logger = Logger("ChatBottomArea")
     
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
@@ -23,12 +32,16 @@ struct ChatBottomArea: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
-            HStack(alignment: .center, spacing: 10) {
-                left
-                
-                textField
-                
-                right
+            if !viewModel.recordingVoiceNote {
+                HStack(alignment: .center, spacing: 10) {
+                    leftSide
+                    
+                    textField
+                    
+                    rightSide
+                }
+            } else {
+                voiceNoteRecording
             }
         }
         .padding(.vertical, 5)
@@ -36,6 +49,10 @@ struct ChatBottomArea: View {
         .background(.bar)
         .cornerRadius(15)
         .padding([.bottom, .horizontal], 5)
+        // swiftlint:disable multiple_closures_with_trailing_closure
+        .alert("Error", isPresented: $viewModel.errorShown, actions: {}) {
+            Text(viewModel.errorMessage)
+        }
         .animation(.default, value: viewModel.bottomAreaState)
     }
 }

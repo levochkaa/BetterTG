@@ -7,7 +7,7 @@ extension ChatViewModel {
     func setDraft(_ draftMessage: DraftMessage) async {
         if !text.isEmpty || replyMessage != nil { return }
         
-        if case let .inputMessageText(inputMessageText) = draftMessage.inputMessageText {
+        if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
             await MainActor.run {
                 text = inputMessageText.text.text
             }

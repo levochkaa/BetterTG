@@ -12,12 +12,27 @@ struct MessageView: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     
+    @State var recognized = false
+    @State var recognizedText = "..."
+    @State var isListeningVoiceNote = false
+    @State var recognizeSpeech = false
+    @Namespace var voiceNoteNamespace
+    
+    @State var isOutgoing = true
+    
     @State var replyWidth: Double = 0
     @State var textWidth: Double = 0
     @State var contentWidth: Double = 0
     @State var editWidth: Double = 0
     
-    let logger = Logger(label: "MessageView")
+    let recognizedTextId = "recognizedTextId"
+    let playId = "playId"
+    let currentTimeId = "currentTimeId"
+    let durationId = "durationId"
+    let chevronId = "chevronId"
+    let speechId = "speechId"
+    
+    let logger = Logger("MessageView")
     let nc: NotificationCenter = .default
     
     var body: some View {
@@ -55,6 +70,9 @@ struct MessageView: View {
         }
         .contextMenu {
             contextMenu
+        }
+        .onAppear {
+            isOutgoing = customMessage.message.isOutgoing
         }
         .onReceive(nc.publisher(for: .messageEdited)) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited,

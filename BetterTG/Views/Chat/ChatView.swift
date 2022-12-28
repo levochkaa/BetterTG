@@ -18,7 +18,8 @@ struct ChatView: View {
     @State private var scrollOnFocus = true
     
     let tdApi: TdApi = .shared
-    let logger = Logger(label: "ChatView")
+    let logger = Logger("ChatView")
+    let nc: NotificationCenter = .default
     
     init(chat: Chat,
          isPreview: Bool = false,
@@ -79,7 +80,7 @@ struct ChatView: View {
     
     var bodyView: some View {
         ScrollViewReader { scrollViewProxy in
-            messagesList
+            messagesScroll
                 .coordinateSpace(name: scroll)
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                     let maxY = Int(value.maxY)
@@ -99,33 +100,30 @@ struct ChatView: View {
                         }
                     }
                 }
-                .onChange(of: focused) { _ in
-                    if scrollOnFocus {
-                        viewModel.scrollToLast()
-                    }
-                }
-                .onChange(of: viewModel.messages) { _ in
-                    if scrollOnFocus {
-                        viewModel.scrollToLast()
-                    }
-                }
+                .onReceive(nc.publisher(for: .customIsListeningVoice)) { _ in scrollToLastOnFocus() }
+                .onReceive(nc.publisher(for: .customRecognizeSpeech)) { _ in scrollToLastOnFocus() }
+                .onChange(of: focused) { _ in scrollToLastOnFocus() }
+                .onChange(of: viewModel.messages) { _ in scrollToLastOnFocus() }
+                .onChange(of: viewModel.displayedPhotos) { _ in scrollToLastOnFocus() }
                 .onChange(of: viewModel.replyMessage) { reply in
-                    if reply == nil && scrollOnFocus {
-                        viewModel.scrollToLast()
+                    if reply == nil {
+                        scrollToLastOnFocus()
                     } else if reply != nil {
                         focused = true
                     }
                 }
                 .onChange(of: viewModel.editMessage) { edit in
-                    if edit == nil && scrollOnFocus {
-                        viewModel.scrollToLast()
+                    if edit == nil {
+                        scrollToLastOnFocus()
                     } else if edit != nil {
                         focused = true
                     }
                 }
-                .onChange(of: viewModel.displayedPhotos) { _ in
-                    if scrollOnFocus {
-                        viewModel.scrollToLast()
+                .onChange(of: viewModel.text) { text in
+                    if text.isEmpty {
+                        viewModel.bottomAreaState = .voice
+                    } else if viewModel.bottomAreaState == .voice {
+                        viewModel.bottomAreaState = .message
                     }
                 }
                 .onAppear {
@@ -138,7 +136,7 @@ struct ChatView: View {
         .background(.black)
         .overlay(alignment: .bottomTrailing) {
             if viewModel.isScrollToBottomButtonShown {
-                Image(systemName: "arrow.down")
+                Image(systemName: "chevron.down")
                     .padding(10)
                     .background(.black)
                     .clipShape(Circle())
@@ -154,9 +152,16 @@ struct ChatView: View {
             }
         }
         .onDisappear {
+            viewModel.mediaPlayer.stop()
             Task {
                 await viewModel.updateDraft()
             }
+        }
+    }
+    
+    func scrollToLastOnFocus() {
+        if scrollOnFocus {
+            viewModel.scrollToLast()
         }
     }
 }

@@ -11,7 +11,7 @@ struct PhotoViewer: View {
     @State var backgroundOpacity: Double = 1
     @State var position: CGSize = .zero
     
-    let logger = Logger(label: "PhotoPreviewer")
+    let logger = Logger("PhotoPreviewer")
     
     var gesture: some Gesture {
         DragGesture()

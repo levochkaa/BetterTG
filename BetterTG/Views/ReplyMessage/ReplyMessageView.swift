@@ -11,7 +11,7 @@ struct ReplyMessageView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     
     let nc: NotificationCenter = .default
-    let logger = Logger(label: "ReplyMessage")
+    let logger = Logger("ReplyMessage")
     
     var body: some View {
         HStack(alignment: .center, spacing: 5) {

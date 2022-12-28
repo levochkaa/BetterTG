@@ -9,15 +9,19 @@ extension MessageView {
             if !customMessage.album.isEmpty {
                 MediaAlbum {
                     ForEach(customMessage.album, id: \.id) { albumMessage in
-                        if case let .messagePhoto(messagePhoto) = albumMessage.content {
+                        if case .messagePhoto(let messagePhoto) = albumMessage.content {
                             makeMessagePhoto(from: messagePhoto, with: albumMessage)
                         }
                     }
                 }
             } else {
-                if case let .messagePhoto(messagePhoto) = customMessage.message.content {
-                    makeMessagePhoto(from: messagePhoto, with: customMessage.message)
-                        .aspectRatio(contentMode: .fit)
+                switch customMessage.message.content {
+                    case .messagePhoto(let messagePhoto):
+                        makeMessagePhoto(from: messagePhoto, with: customMessage.message)
+                    case .messageVoiceNote(let messageVoiceNote):
+                        makeMessageVoiceNote(from: messageVoiceNote.voiceNote, with: customMessage.message)
+                    default:
+                        EmptyView()
                 }
             }
         }

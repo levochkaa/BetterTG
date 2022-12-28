@@ -16,7 +16,7 @@ class RootViewModel: ObservableObject {
     var loadingUsers = false
     
     let tdApi: TdApi = .shared
-    let logger = Logger(label: "RootVM")
+    let logger = Logger("RootVM")
     let nc: NotificationCenter = .default
     
     init() {

@@ -9,7 +9,6 @@ extension MessageView {
     }
     
     func corners(for type: MessagePart) -> [RectangleCorner] {
-        let isOutgoing = customMessage.message.isOutgoing
         var corners = [RectangleCorner]()
         switch type {
             case .reply:
@@ -19,7 +18,6 @@ extension MessageView {
                     || (textWidth != 0 && textWidth - replyWidth < 15) {
                     corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
                 }
-                return corners
             case .content:
                 if replyWidth != 0 && replyWidth < contentWidth {
                     corners.append(isOutgoing ? .topLeading : .topTrailing)
@@ -32,7 +30,6 @@ extension MessageView {
                 } else if textWidth == 0 && editWidth == 0 {
                     corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
                 }
-                return corners
             case .text:
                 if (contentWidth != 0 && contentWidth < textWidth)
                     || (contentWidth != 0 && contentWidth - textWidth < 15)
@@ -47,7 +44,6 @@ extension MessageView {
                 } else if editWidth == 0 {
                     corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
                 }
-                return corners
             case .edit:
                 corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
                 if (textWidth != 0 && textWidth < editWidth) || (contentWidth != 0 && contentWidth < editWidth)
@@ -55,8 +51,8 @@ extension MessageView {
                     || (contentWidth != 0 && contentWidth - editWidth < 15) {
                     corners.append(isOutgoing ? .topLeading : .topTrailing)
                 }
-                return corners
         }
+        return corners
     }
 
 }

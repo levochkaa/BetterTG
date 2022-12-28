@@ -13,7 +13,7 @@ extension ChatBottomArea {
                 if let replyMessage = viewModel.replyMessage {
                     replyMessageView(replyMessage, type: .reply)
                 }
-            case .message:
+            case .message, .voice:
                 EmptyView()
         }
     }
@@ -27,7 +27,7 @@ extension ChatBottomArea {
             
             Image(systemName: "xmark")
                 .onTapGesture {
-                    viewModel.bottomAreaState = .message
+                    viewModel.bottomAreaState = .voice
                 }
         }
     }

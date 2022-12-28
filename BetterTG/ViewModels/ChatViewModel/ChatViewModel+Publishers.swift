@@ -5,90 +5,142 @@ import TDLibKit
 
 extension ChatViewModel {
     func setPublishers() {
-        setMessageSendPublishers()
+        setMediaPublishers()
         
         nc.publisher(for: .messageEdited) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited,
                   messageEdited.chatId == self.chat.id
             else { return }
-            
-            self.onMessageEdited(messageEdited)
+            self.messageEdited(messageEdited)
         }
         
         nc.publisher(for: .newMessage) { notification in
             guard let message = (notification.object as? UpdateNewMessage)?.message,
                   message.chatId == self.chat.id
             else { return }
-            
-            Task {
-                let customMessage = await self.getCustomMessage(from: message)
-                await MainActor.run { [customMessage] in
-                    withAnimation {
-                        if message.mediaAlbumId == 0 {
-                            self.messages.append(customMessage)
-                        } else if !self.loadedAlbums.contains(message.mediaAlbumId) {
-                            self.messages.append(customMessage)
-                            self.loadedAlbums.append(message.mediaAlbumId)
-                        } else if self.loadedAlbums.contains(message.mediaAlbumId) {
-                            guard let index = self.messages.firstIndex(where: {
-                                $0.message.mediaAlbumId == message.mediaAlbumId
-                            }) else { return }
-                            
-                            self.messages[index].album.append(message)
-                        }
-                    }
-                }
-            }
+            self.newMessage(message)
         }
         
         nc.publisher(for: .deleteMessages) { notification in
-            guard let deleteMessages = notification.object as? UpdateDeleteMessages else { return }
-            if deleteMessages.chatId != self.chat.id
-                || deleteMessages.fromCache
-                || !deleteMessages.isPermanent { return }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.15) {
-                withAnimation {
-                    self.messages.removeAll(where: { customMessage in
-                        deleteMessages.messageIds.contains(customMessage.message.id)
-                    })
-                }
-            }
+            guard let deleteMessages = notification.object as? UpdateDeleteMessages,
+                  deleteMessages.chatId == self.chat.id
+            else { return }
+            self.deleteMessages(deleteMessages)
         }
-    }
-    
-    func setMessageSendPublishers() {
+        
         nc.publisher(for: .messageSendFailed) { notification in
             guard let messageSendFailed = notification.object as? UpdateMessageSendFailed,
-                  messageSendFailed.message.chatId == self.chat.id,
-                  let index = self.messages.firstIndex(where: { $0.message.id == messageSendFailed.oldMessageId })
+                  messageSendFailed.message.chatId == self.chat.id
             else { return }
-            
-            Task { @MainActor in
-                withAnimation {
-                    self.messages[index].sendFailed = true
-                }
-            }
+            self.messageSendFailed(messageSendFailed)
         }
         
         nc.publisher(for: .messageSendSucceeded) { notification in
             guard let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
-                  messageSendSucceeded.message.chatId == self.chat.id,
-                  let index = self.messages.firstIndex(where: { $0.message.id == messageSendSucceeded.oldMessageId })
+                  messageSendSucceeded.message.chatId == self.chat.id
             else { return }
-            
+            self.messageSendSucceeded(messageSendSucceeded)
+        }
+    }
+    
+    func messageSendSucceeded(_ messageSendSucceeded: UpdateMessageSendSucceeded) {
+        let message = messageSendSucceeded.message
+        
+        if message.mediaAlbumId == 0 {
+            guard let index = self.messages.firstIndex(where: {
+                $0.message.id == messageSendSucceeded.oldMessageId
+            }) else { return }
             Task {
-                let customMessage = await self.getCustomMessage(from: messageSendSucceeded.message)
+                let customMessage = await self.getCustomMessage(from: message)
                 await MainActor.run {
-                    withAnimation {
+                    self.messages[index] = customMessage
+                }
+            }
+            return
+        }
+        
+        if self.sentPhotosCount == 0 {
+            self.savedAlbumMainMessageIdTemp = messageSendSucceeded.oldMessageId
+            self.savedAlbumMainMessageId = message.id
+            self.sentPhotosCount += 1
+        } else if self.sentPhotosCount != self.toBeSentPhotosCount {
+            self.sentPhotosCount += 1
+            self.savedPhotoMessages.append(message)
+            
+            if self.sentPhotosCount == self.toBeSentPhotosCount {
+                guard let index = self.messages.firstIndex(where: {
+                    $0.message.id == self.savedAlbumMainMessageIdTemp
+                })
+                else { return }
+                
+                Task {
+                    guard var customMessage = await self.getCustomMessage(fromId: self.savedAlbumMainMessageId)
+                    else { return }
+                    
+                    self.savedPhotoMessages.forEach {
+                        customMessage.album.append($0)
+                    }
+                    
+                    await MainActor.run { [customMessage] in
                         self.messages[index] = customMessage
+                    }
+                    
+                    self.sentPhotosCount = 0
+                    self.toBeSentPhotosCount = 0
+                    self.savedAlbumMainMessageId = 0
+                    self.savedAlbumMainMessageIdTemp = 0
+                    self.savedPhotoMessages = []
+                }
+            }
+        }
+    }
+    
+    func messageSendFailed(_ messageSendFailed: UpdateMessageSendFailed) {
+        guard let index = self.messages.firstIndex(where: { $0.message.id == messageSendFailed.oldMessageId })
+        else { return }
+        
+        Task { @MainActor in
+            withAnimation {
+                self.messages[index].sendFailed = true
+            }
+        }
+    }
+    
+    func newMessage(_ message: Message) {
+        Task {
+            let customMessage = await self.getCustomMessage(from: message)
+            await MainActor.run { [customMessage] in
+                withAnimation {
+                    if message.mediaAlbumId == 0 {
+                        self.messages.append(customMessage)
+                    } else if !self.loadedAlbums.contains(message.mediaAlbumId.rawValue) {
+                        self.messages.append(customMessage)
+                        self.loadedAlbums.insert(message.mediaAlbumId.rawValue)
+                    } else if self.loadedAlbums.contains(message.mediaAlbumId.rawValue) {
+                        guard let index = self.messages.firstIndex(where: {
+                            $0.message.mediaAlbumId == message.mediaAlbumId
+                        }) else { return }
+                        
+                        self.messages[index].album.append(message)
                     }
                 }
             }
         }
     }
     
-    func onMessageEdited(_ messageEdited: UpdateMessageEdited) {
+    func deleteMessages(_ deleteMessages: UpdateDeleteMessages) {
+        if deleteMessages.fromCache || !deleteMessages.isPermanent { return }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.15) {
+            withAnimation {
+                self.messages.removeAll(where: { customMessage in
+                    deleteMessages.messageIds.contains(customMessage.message.id)
+                })
+            }
+        }
+    }
+    
+    func messageEdited(_ messageEdited: UpdateMessageEdited) {
         if messageEdited.messageId == self.editMessage?.message.id {
             Task {
                 let message = await self.tdGetMessage(id: messageEdited.messageId)
