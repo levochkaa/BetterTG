@@ -52,6 +52,7 @@
 		DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF55E2D1295B783F00A30C76 /* MobileVLCKit */; };
 		DF55E2D5295B931B00A30C76 /* FormattedTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55E2D4295B931B00A30C76 /* FormattedTextView.swift */; };
 		DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5D2CA82951D02500A1498B /* VoiceNote.swift */; };
+		DF6480EA29635A8400AEF104 /* Character+IsEmoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */; };
 		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
@@ -184,6 +185,7 @@
 		DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatBottomArea+VoiceNote.swift"; sourceTree = "<group>"; };
 		DF55E2D4295B931B00A30C76 /* FormattedTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattedTextView.swift; sourceTree = "<group>"; };
 		DF5D2CA82951D02500A1498B /* VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNote.swift; sourceTree = "<group>"; };
+		DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Character+IsEmoji.swift"; sourceTree = "<group>"; };
 		DF7D868A2948ED040089B56C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
@@ -573,6 +575,7 @@
 				DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */,
 				DF2367462940F9810076B821 /* Task+Delayed.swift */,
 				DF9F4ACC2946810200B5076C /* Array+PhotoSize.swift */,
+				DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -741,6 +744,7 @@
 				DF1F7EA5293E0E740058D5FF /* AsyncButton.swift in Sources */,
 				DFE026642951146E004C8C83 /* ReplyMessageView+InlineContent.swift in Sources */,
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
+				DF6480EA29635A8400AEF104 /* Character+IsEmoji.swift in Sources */,
 				DFEB06C32959EB860099E2B2 /* VoiceNoteView.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi+Updates.swift in Sources */,
 				DFB5CC18294A512A00BE749C /* View+HideKeyboard.swift in Sources */,

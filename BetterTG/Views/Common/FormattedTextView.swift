@@ -31,10 +31,15 @@ struct FormattedTextView: View {
         
         for entity in formattedText.entities {
             let offset = entity.offset + (emojisProcessed * 3)
+            var range: Range<AttributedString.Index>
+            if case .textEntityTypeCustomEmoji = entity.type {
+                range = attributedStringRange(for: result, start: offset, length: entity.length - 1)
+            } else {
+                range = attributedStringRange(for: result, start: offset, length: entity.length)
+            }
+            
             let stringRange = stringRange(for: processedText, start: entity.offset, length: entity.length)
-            var range = attributedStringRange(for: result, start: offset, length: entity.length)
             let raw = String(processedText[stringRange])
-            let error = "Error, not implemented: \(entity.type); for: \(formattedText)"
             
             switch entity.type {
                 case .textEntityTypeBold:
@@ -47,43 +52,28 @@ struct FormattedTextView: View {
                     result[range].underlineStyle = .single
                 case .textEntityTypeStrikethrough:
                     result[range].strikethroughStyle = .single
+                case .textEntityTypePhoneNumber:
+                    result[range].link = URL(string: "tel:\(raw)")
+                case .textEntityTypeEmailAddress:
+                    result[range].link = URL(string: "mailto:\(raw)")
                 case .textEntityTypeUrl:
                     if hasWhitelistedPrefix(raw) {
                         result[range].link = URL(string: raw)
                     } else {
                         result[range].link = URL(string: "https://\(raw)")
                     }
-                case .textEntityTypePhoneNumber:
-                    result[range].link = URL(string: "tel:\(raw)")
-                case .textEntityTypeEmailAddress:
-                    result[range].link = URL(string: "mailto:\(raw)")
                 case .textEntityTypeTextUrl(let textEntityTypeTextUrl):
                     if hasWhitelistedPrefix(textEntityTypeTextUrl.url) {
                         result[range].link = URL(string: textEntityTypeTextUrl.url)
                     } else {
                         result[range].link = URL(string: "https://\(textEntityTypeTextUrl.url)")
                     }
-                case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
-                    range = attributedStringRange(for: result, start: offset, length: entity.length - 1)
+                case .textEntityTypeCustomEmoji:
                     let attrString = AttributedString("     ") // count = 5
                     result.replaceSubrange(range, with: attrString)
                     emojisProcessed += 1
-                case .textEntityTypeHashtag:
-                    logger.log(error)
-                case .textEntityTypeMention:
-                    logger.log(error)
-                case .textEntityTypeSpoiler:
-                    logger.log(error)
-                case .textEntityTypeMediaTimestamp: // (let textEntityTypeMediaTimestamp)
-                    logger.log(error)
-                case .textEntityTypeMentionName: // (let textEntityTypeMentionName)
-                    logger.log(error)
-                case .textEntityTypeBotCommand:
-                    logger.log(error)
-                case .textEntityTypeBankCardNumber:
-                    logger.log(error)
-                case .textEntityTypeCashtag:
-                    logger.log(error)
+                default:
+                    logger.log("Error, not implemented: \(entity.type); for: \(formattedText)")
             }
         }
         
@@ -98,16 +88,7 @@ struct FormattedTextView: View {
                     customEmojiAnimations: customMessage.customEmojiAnimations,
                     text: pointText
                 )
-//                ForEach(customMessage.customEmojiAnimations) { customEmojiAnimation in
-//                    LottieEmoji(
-//                        customEmojiAnimation: customEmojiAnimation,
-//                        pointText: $pointText
-//                    )
-//                    .onAppear {
-//                        logger.log("appeared \(customEmojiAnimation.realEmoji)")
-//                    }
-//                }
-                    .allowsHitTesting(false)
+                .allowsHitTesting(false)
             }
             .onAppear {
                 shownText = attributedString()
