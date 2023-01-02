@@ -10,24 +10,20 @@ struct PhotoViewer: View {
     
     @State var backgroundOpacity: Double = 1
     @State var position: CGSize = .zero
+    @State var scale: CGFloat = 1
     
-    let logger = Logger("PhotoPreviewer")
+    let logger = Logger("PhotoViewer")
     
-    var gesture: some Gesture {
+    var dismissGesture: some Gesture {
         DragGesture()
             .onChanged { value in
                 position = value.translation
                 let height = abs(Double(value.translation.height))
-                let width = abs(Double(value.translation.width))
-                if height > width {
-                    backgroundOpacity = 1 - (height / 200)
-                } else {
-                    backgroundOpacity = 1 - (width / 100)
-                }
+                backgroundOpacity = 1 - (height / 200)
             }
             .onEnded { value in
                 withAnimation {
-                    if abs(value.translation.height) > 200 || abs(value.translation.width) > 100 {
+                    if abs(value.translation.height) > 200 {
                         photoInfo = nil
                     } else {
                         position = .zero
@@ -35,6 +31,22 @@ struct PhotoViewer: View {
                     }
                 }
             }
+            .simultaneously(with: MagnificationGesture()
+                .onChanged { value in
+                    scale = value
+                }
+                .onEnded { value in
+                    withAnimation {
+                        if value > 1.5 {
+                            scale = 1.5
+                        } else if value < 1 {
+                            scale = 1
+                        } else {
+                            scale = value
+                        }
+                    }
+                }
+            )
     }
     
     var body: some View {
@@ -46,15 +58,18 @@ struct PhotoViewer: View {
                     .ignoresSafeArea()
                     .opacity(backgroundOpacity)
                     .onTapGesture {
-                        self.photoInfo = nil
+                        withAnimation {
+                            self.photoInfo = nil
+                        }
                     }
                 
                 photo
                     .resizable()
                     .scaledToFit()
                     .matchedGeometryEffect(id: "\(photoMessageId)", in: namespace, properties: .frame)
-                    .offset(x: position.width, y: position.height)
-                    .gesture(gesture)
+                    .offset(y: position.height)
+                    .scaleEffect(scale)
+                    .gesture(dismissGesture)
             }
         }
     }

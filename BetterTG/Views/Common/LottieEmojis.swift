@@ -12,7 +12,6 @@ struct LottieEmojis: UIViewRepresentable {
     
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
-        
         var text = self.text
         for customEmojiAnimation in customEmojiAnimations {
             let textView = UITextView()
@@ -35,15 +34,13 @@ struct LottieEmojis: UIViewRepresentable {
                 let location = effectiveRange.location
                 var length = effectiveRange.length
                 
-                if location + length <= text.count,
-                   Array(text)[location..<(location + length)].contains("\n") {
+                if location + length <= text.count, Array(text)[location..<(location + length)].contains("\n") {
                     length -= 1
                 }
                 
-                if !lines.contains(where: {
-                    $0.location == location && $0.length == length
-                }) {
-                    lines.append(NSRange(location: location, length: length))
+                let range = NSRange(location: location, length: length)
+                if !lines.contains(range) {
+                    lines.append(range)
                 }
             }
             
@@ -73,7 +70,6 @@ struct LottieEmojis: UIViewRepresentable {
             text.replaceSubrange(characterRange, with: "     ") // count = 5
             view.addSubview(animationView)
         }
-        
         return view
     }
     
