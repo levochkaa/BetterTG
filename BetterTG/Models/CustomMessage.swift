@@ -2,6 +2,7 @@
 
 import Foundation
 import TDLibKit
+import Lottie
 
 struct CustomMessage: Identifiable, Equatable {
     var id = UUID()
@@ -11,4 +12,5 @@ struct CustomMessage: Identifiable, Equatable {
     var replyToMessage: Message?
     var album = [Message]()
     var sendFailed = false
+    var customEmojiAnimations = [CustomEmojiAnimation]()
 }

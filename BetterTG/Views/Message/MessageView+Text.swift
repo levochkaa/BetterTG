@@ -7,7 +7,7 @@ extension MessageView {
         Group {
             switch customMessage.message.content {
                 case .messageText(let messageText):
-                    FormattedTextView(messageText.text)
+                    FormattedTextView(messageText.text, from: customMessage)
                 case .messagePhoto(let messagePhoto):
                     if !messagePhoto.caption.text.isEmpty {
                         Text(messagePhoto.caption.text)

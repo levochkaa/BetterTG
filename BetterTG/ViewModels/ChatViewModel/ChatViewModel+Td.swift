@@ -53,6 +53,28 @@ extension ChatViewModel {
         }
     }
     
+    func tdGetCustomEmojiSticker(id: TdInt64) async -> Sticker? {
+        return await tdGetCustomEmojiStickers(ids: [id])?.first
+    }
+    
+    func tdGetCustomEmojiStickers(ids: [TdInt64]) async -> [Sticker]? {
+        do {
+            return try await tdApi.getCustomEmojiStickers(customEmojiIds: ids).stickers
+        } catch {
+            logger.log("Error getting customEmojiStickers: \(error)")
+            return nil
+        }
+    }
+    
+    func tdDownloadFile(id: Int) async -> File? {
+        do {
+            return try await tdApi.downloadFile(fileId: id, limit: 0, offset: 0, priority: 4, synchronous: false)
+        } catch {
+            logger.log("Error downloading file: \(error)")
+            return nil
+        }
+    }
+    
     func tdEditMessageCaption(_ editMessage: Message) async {
         do {
             _ = try await tdApi.editMessageCaption(
