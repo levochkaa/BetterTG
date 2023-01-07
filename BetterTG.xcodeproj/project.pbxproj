@@ -51,6 +51,7 @@
 		DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */; };
 		DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF55E2D1295B783F00A30C76 /* MobileVLCKit */; };
 		DF55E2D5295B931B00A30C76 /* FormattedTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55E2D4295B931B00A30C76 /* FormattedTextView.swift */; };
+		DF5BD3B3296A2F0B00300BD9 /* NSRange+Index.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */; };
 		DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5D2CA82951D02500A1498B /* VoiceNote.swift */; };
 		DF6480EA29635A8400AEF104 /* Character+IsEmoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */; };
 		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
@@ -184,6 +185,7 @@
 		DF5261DE294F602600FB7C73 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
 		DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatBottomArea+VoiceNote.swift"; sourceTree = "<group>"; };
 		DF55E2D4295B931B00A30C76 /* FormattedTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattedTextView.swift; sourceTree = "<group>"; };
+		DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSRange+Index.swift"; sourceTree = "<group>"; };
 		DF5D2CA82951D02500A1498B /* VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNote.swift; sourceTree = "<group>"; };
 		DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Character+IsEmoji.swift"; sourceTree = "<group>"; };
 		DF7D868A2948ED040089B56C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -576,6 +578,7 @@
 				DF2367462940F9810076B821 /* Task+Delayed.swift */,
 				DF9F4ACC2946810200B5076C /* Array+PhotoSize.swift */,
 				DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */,
+				DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -771,6 +774,7 @@
 				DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
 				DFEB06C02959DD490099E2B2 /* RootView+MainChatsList.swift in Sources */,
+				DF5BD3B3296A2F0B00300BD9 /* NSRange+Index.swift in Sources */,
 				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
 				DF2367472940F9810076B821 /* Task+Delayed.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* View+if.swift in Sources */,

@@ -42,14 +42,13 @@ struct LottieEmojis: UIViewRepresentable {
                 }
             }
             
-            var emojiLine: CGFloat = 0.0
-            for (index, line) in lines.enumerated() {
-                if line.location + line.length <= text.count,
-                   Array(text)[line.location..<(line.location + line.length)].contains(character) {
-                    emojiLine = CGFloat(index)
-                    break
-                }
-            }
+            let textArray = Array(text)
+            var emojiLine: CGFloat = CGFloat(lines.enumerated().first(where: { _, line in
+                (line.index() < textArray.count
+                && textArray[line.location...line.index()].contains(character))
+                || (line.index() - 1 <= textArray.count
+                && textArray[line.location...line.index() - 1].contains(character))
+            })?.offset ?? 0)
             
             let point = textView.layoutManager.location(forGlyphAt: index)
             let resultPoint = CGPoint(x: point.x - 5, y: -1.3 + emojiLine * 22) // just random numbers
