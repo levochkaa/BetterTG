@@ -25,7 +25,7 @@ extension MessageView {
                                         recognizedText = speechRecognitionResultText.text
                                         recognized = true
                                     case .speechRecognitionResultError(let speechRecognitionResultError):
-                                        logger.log("Error recognizing words: \(speechRecognitionResultError.error)")
+                                        log("Error recognizing words: \(speechRecognitionResultError.error)")
                                         recognizedText = "No words recognized"
                                         recognized = true
                                 }

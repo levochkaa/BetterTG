@@ -103,7 +103,6 @@ class ChatViewModel: ObservableObject {
     @Published var errorShown = false
     
     let tdApi: TdApi = .shared
-    let logger = Logger("ChatVM")
     let nc: NotificationCenter = .default
     var cancellable = Set<AnyCancellable>()
     

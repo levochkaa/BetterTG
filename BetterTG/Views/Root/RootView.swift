@@ -21,7 +21,6 @@ struct RootView: View {
     
     let nc: NotificationCenter = .default
     let tdApi: TdApi = .shared
-    let logger = Logger("RootView")
     
     @Environment(\.scenePhase) var scenePhase
     
@@ -65,14 +64,14 @@ struct RootView: View {
                         Task {
                             switch newPhase {
                                 case .active:
-                                    logger.log("App is Active")
+                                    log("App is Active")
                                     await viewModel.fetchChatsHistory()
                                 case .inactive:
-                                    logger.log("App is Inactive")
+                                    log("App is Inactive")
                                 case .background:
-                                    logger.log("App is in a Background")
+                                    log("App is in a Background")
                                 @unknown default:
-                                    logger.log("Unknown state of an App")
+                                    log("Unknown state of an App")
                             }
                         }
                     }

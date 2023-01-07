@@ -72,7 +72,7 @@ extension ChatViewModel {
                     )
                     customEmojiAnimations.append(customEmojiAnimation)
                 } catch {
-                    logger.log("Error loading custom emoji animation: \(error)")
+                    log("Error loading custom emoji animation: \(error)")
                 }
             }
         }

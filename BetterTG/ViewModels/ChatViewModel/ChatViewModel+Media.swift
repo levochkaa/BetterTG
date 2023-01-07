@@ -39,9 +39,9 @@ extension ChatViewModel {
         
         audioSession.requestRecordPermission { granted in
             if granted {
-                self.logger.log("Access to Microphone for Voice messages is granted")
+                log("Access to Microphone for Voice messages is granted")
             } else {
-                self.logger.log("Access to Microphone for Voice messages is not granted")
+                log("Access to Microphone for Voice messages is not granted")
                 self.errorMessage = """
                 Access to Microphone isn't granted.
                 Go to Settings -> BetterTG -> Microphone
@@ -69,7 +69,7 @@ extension ChatViewModel {
             audioRecorder.record()
             recordingVoiceNote = true
         } catch {
-            logger.log("Error creating AudioRecorder: \(error)")
+            log("Error creating AudioRecorder: \(error)")
         }
     }
     
@@ -211,7 +211,7 @@ extension ChatViewModel {
             ])
             try audioSession.setActive(true)
         } catch {
-            logger.log("Error setting audioSessionRecord: \(error)")
+            log("Error setting audioSessionRecord: \(error)")
         }
     }
     
@@ -227,7 +227,7 @@ extension ChatViewModel {
             ])
             try audioSession.setActive(true)
         } catch {
-            logger.log("Error setting audioSessionPlay: \(error)")
+            log("Error setting audioSessionPlay: \(error)")
         }
     }
 }

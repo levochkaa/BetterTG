@@ -18,7 +18,6 @@ struct ChatView: View {
     @State private var scrollOnFocus = true
     
     let tdApi: TdApi = .shared
-    let logger = Logger("ChatView")
     let nc: NotificationCenter = .default
     
     init(chat: Chat,

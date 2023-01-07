@@ -8,7 +8,7 @@ extension RootViewModel {
         do {
             return try await tdApi.getChat(chatId: id)
         } catch {
-            logger.log("Error getting chat: \(error)")
+            log("Error getting chat: \(error)")
             return nil
         }
     }
@@ -17,7 +17,7 @@ extension RootViewModel {
         do {
             return try await tdApi.getMessage(chatId: chatId, messageId: messageId)
         } catch {
-            logger.log("Error getting message: \(error)")
+            log("Error getting message: \(error)")
             return nil
         }
     }
@@ -32,7 +32,7 @@ extension RootViewModel {
                 onlyLocal: false
             )
         } catch {
-            logger.log("Error getting historyOfChat: \(error)")
+            log("Error getting historyOfChat: \(error)")
         }
     }
     
@@ -40,7 +40,7 @@ extension RootViewModel {
         do {
             _ = try await tdApi.deleteChat(chatId: id)
         } catch {
-            logger.log("Error deleting chat: \(error)")
+            log("Error deleting chat: \(error)")
         }
     }
     
@@ -48,7 +48,7 @@ extension RootViewModel {
         do {
             _ = try await tdApi.loadChats(chatList: .chatListMain, limit: limit)
         } catch {
-            logger.log("Error loading chats: \(error)")
+            log("Error loading chats: \(error)")
         }
     }
     
@@ -56,7 +56,7 @@ extension RootViewModel {
         do {
             return try await tdApi.getChats(chatList: .chatListMain, limit: limit)
         } catch {
-            logger.log("Error getting chats: \(error)")
+            log("Error getting chats: \(error)")
             return nil
         }
     }
@@ -65,7 +65,7 @@ extension RootViewModel {
         do {
             return try await tdApi.getUser(userId: id)
         } catch {
-            logger.log("Error getting user: \(error)")
+            log("Error getting user: \(error)")
             return nil
         }
     }

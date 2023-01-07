@@ -8,7 +8,7 @@ extension ChatViewModel {
         do {
             _ = try await tdApi.deleteMessages(chatId: self.chat.id, messageIds: ids, revoke: deleteForBoth)
         } catch {
-            logger.log("Error deleting messages: \(error)")
+            log("Error deleting messages: \(error)")
         }
     }
     
@@ -16,7 +16,7 @@ extension ChatViewModel {
         do {
             return try await tdApi.getMessage(chatId: chat.id, messageId: id)
         } catch {
-            logger.log("Error getting message: \(error)")
+            log("Error getting message: \(error)")
             return nil
         }
     }
@@ -25,7 +25,7 @@ extension ChatViewModel {
         do {
             return try await tdApi.getUser(userId: id)
         } catch {
-            logger.log("Error getting user: \(error)")
+            log("Error getting user: \(error)")
             return nil
         }
     }
@@ -49,7 +49,7 @@ extension ChatViewModel {
                 replyMarkup: nil
             )
         } catch {
-            logger.log("Error editing messageText: \(error)")
+            log("Error editing messageText: \(error)")
         }
     }
     
@@ -61,7 +61,7 @@ extension ChatViewModel {
         do {
             return try await tdApi.getCustomEmojiStickers(customEmojiIds: ids).stickers
         } catch {
-            logger.log("Error getting customEmojiStickers: \(error)")
+            log("Error getting customEmojiStickers: \(error)")
             return nil
         }
     }
@@ -70,7 +70,7 @@ extension ChatViewModel {
         do {
             return try await tdApi.downloadFile(fileId: id, limit: 0, offset: 0, priority: 4, synchronous: false)
         } catch {
-            logger.log("Error downloading file: \(error)")
+            log("Error downloading file: \(error)")
             return nil
         }
     }
@@ -87,7 +87,7 @@ extension ChatViewModel {
                 replyMarkup: nil
             )
         } catch {
-            logger.log("Error editing messageCaption: \(error)")
+            log("Error editing messageCaption: \(error)")
         }
     }
     
@@ -99,7 +99,7 @@ extension ChatViewModel {
                 messageThreadId: 0
             )
         } catch {
-            logger.log("Error setting draftMessage: \(error)")
+            log("Error setting draftMessage: \(error)")
         }
     }
     
@@ -114,7 +114,7 @@ extension ChatViewModel {
                 replyToMessageId: replyMessage?.message.id ?? 0
             )
         } catch {
-            logger.log("Error sending message: \(error)")
+            log("Error sending message: \(error)")
         }
     }
     
@@ -129,7 +129,7 @@ extension ChatViewModel {
                 replyToMessageId: replyMessage?.message.id ?? 0
             )
         } catch {
-            logger.log("Error sending messageAlbum: \(error)")
+            log("Error sending messageAlbum: \(error)")
         }
     }
     
@@ -143,7 +143,7 @@ extension ChatViewModel {
                 onlyLocal: false
             )
         } catch {
-            logger.log("Error getting chatHistory: \(error)")
+            log("Error getting chatHistory: \(error)")
             return nil
         }
     }
@@ -152,7 +152,7 @@ extension ChatViewModel {
         do {
             _ = try await tdApi.recognizeSpeech(chatId: chat.id, messageId: messageId)
         } catch {
-            logger.log("Error recognizing speech: \(error)")
+            log("Error recognizing speech: \(error)")
         }
     }
 }

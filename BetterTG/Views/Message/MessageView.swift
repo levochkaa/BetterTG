@@ -32,7 +32,6 @@ struct MessageView: View {
     let chevronId = "chevronId"
     let speechId = "speechId"
     
-    let logger = Logger("MessageView")
     let nc: NotificationCenter = .default
     
     var body: some View {

@@ -3,26 +3,31 @@
 import Foundation
 import os.log
 
-struct Logger {
-    private let logger: os.Logger
-    private let label: String
-    
-    init(_ label: String) {
-        logger = os.Logger(subsystem: "BetterTG", category: label)
-        self.label = label
+// swiftlint:disable line_length
+func log(_ messages: Any..., file: String = #fileID, function: String = #function, line: Int = #line) {
+    // actually impossible cases
+    guard let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String else {
+        return print("Unable to get App Name")
+    }
+    guard let projectName = Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String else {
+        return print("Unable to get Project Name")
+    }
+    guard let fileName = file.split(separator: "/").last?.split(separator: ".").first else {
+        return print("Unable to get fileName info for \(file), with \(messages)")
     }
     
-    func log(_ messages: Any...) {
-        let date = Date.now.formatted(date: .omitted, time: .standard)
-        var output = ""
-        for message in messages {
-            output += "\(message) "
-        }
-        #if DEBUG
-        // privacy: .public - to see logs in Console.app, when running on a real device
-        logger.log("[\(date, privacy: .public)] [\(label, privacy: .public)] \(output, privacy: .public)")
-        #else
-        logger.log("[\(date)] [\(label)] \(output)")
-        #endif
-    }
+    let logger = os.Logger(subsystem: appName, category: projectName)
+    
+    let dateFormatter = DateFormatter()
+    dateFormatter.dateFormat = "HH:mm:ss"
+    let date = dateFormatter.string(from: Date.now)
+    
+    var output = messages.map { "\($0)" }.joined(separator: ";\n")
+    
+    #if DEBUG
+    // privacy: .public - to see logs in Console.app, when running on a real device
+    logger.log("[\(date, privacy: .public)] [\(fileName, privacy: .public)] [\(function, privacy: .public)] [\(line, privacy: .public)]\n\(output, privacy: .public)")
+    #else
+    logger.log("[\(date)] [\(fileName)] [\(function)] [\(line)]\n\(output)")
+    #endif
 }

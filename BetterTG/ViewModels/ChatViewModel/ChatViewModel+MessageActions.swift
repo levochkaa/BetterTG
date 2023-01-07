@@ -56,7 +56,7 @@ extension ChatViewModel {
             case .messagePhoto, .messageVoiceNote:
                 await tdEditMessageCaption(editMessage)
             default:
-                logger.log("Unsupported edit message type")
+                log("Unsupported edit message type")
         }
     }
     

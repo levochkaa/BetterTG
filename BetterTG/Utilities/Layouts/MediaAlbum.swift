@@ -16,7 +16,6 @@ import SwiftUI
 // swiftlint:disable type_body_length file_length
 struct MediaAlbum: Layout {
     typealias AlbumLayout = ([(CGRect, ItemPosition)], CGSize)
-    private let logger = Logger("MediaAlbum")
     
     // swiftlint:enable line_length
     func sizeThatFits(

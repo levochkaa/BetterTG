@@ -15,7 +15,6 @@ struct FormattedTextView: View {
     @State var pointText = ""
     
     let tdApi: TdApi = .shared
-    let logger = Logger("FormattedTextView")
     let nc: NotificationCenter = .default
     
     init(_ formattedText: FormattedText, from customMessage: CustomMessage) {
@@ -73,7 +72,7 @@ struct FormattedTextView: View {
                     result.replaceSubrange(range, with: attrString)
                     emojisProcessed += 1
                 default:
-                    logger.log("Error, not implemented: \(entity.type); for: \(formattedText)")
+                    log("Error, not implemented: \(entity.type); for: \(formattedText)")
             }
         }
         

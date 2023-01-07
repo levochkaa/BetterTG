@@ -6,7 +6,6 @@ import TDLibKit
 extension TdApi {
     static var shared = TdApi(client: TdClientImpl(completionQueue: .global(qos: .userInitiated)))
     
-    static let logger = Logger("TdApi")
     static let nc: NotificationCenter = .default
     
     func startTdLibUpdateHandler() {
@@ -17,7 +16,7 @@ extension TdApi {
                 let update = try TdApi.shared.decoder.decode(Update.self, from: data)
                 self.update(update)
             } catch {
-                TdApi.logger.log("Error TdLibUpdateHandler: \(error)")
+                log("Error TdLibUpdateHandler: \(error)")
             }
         }
     }

@@ -17,7 +17,7 @@ extension MessageView {
                     if let recognition = voiceNote.speechRecognitionResult {
                         switch recognition {
                             case .speechRecognitionResultError(let speechRecognitionResultError):
-                                logger.log("Error recognizing words: \(speechRecognitionResultError)")
+                                log("Error recognizing words: \(speechRecognitionResultError)")
                                 recognizedText = "No words recognized"
                                 recognized = true
                             case .speechRecognitionResultText(let speechRecognitionResultText):

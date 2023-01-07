@@ -20,8 +20,6 @@ struct ChatBottomArea: View {
     
     let micId = "micId"
     
-    let logger = Logger("ChatBottomArea")
-    
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
             top

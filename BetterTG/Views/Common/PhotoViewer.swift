@@ -12,8 +12,6 @@ struct PhotoViewer: View {
     @State var position: CGSize = .zero
     @State var scale: CGFloat = 1
     
-    let logger = Logger("PhotoViewer")
-    
     var dismissGesture: some Gesture {
         DragGesture()
             .onChanged { value in

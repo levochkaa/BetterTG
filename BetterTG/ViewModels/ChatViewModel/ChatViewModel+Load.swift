@@ -18,7 +18,7 @@ extension ChatViewModel {
                 }
                 return nil
             } catch {
-                logger.log("Error transfering image data: \(error)")
+                log("Error transfering image data: \(error)")
                 return nil
             }
         }

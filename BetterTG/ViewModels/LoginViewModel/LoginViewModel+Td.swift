@@ -8,7 +8,7 @@ extension LoginViewModel {
         do {
             return try await tdApi.getAuthorizationState()
         } catch {
-            logger.log("Error getting authState: \(error)")
+            log("Error getting authState: \(error)")
             return nil
         }
     }
@@ -17,7 +17,7 @@ extension LoginViewModel {
         do {
             _ = try await tdApi.resendAuthenticationCode()
         } catch {
-            logger.log("Error resending authCode: \(error)")
+            log("Error resending authCode: \(error)")
         }
     }
     
@@ -28,7 +28,7 @@ extension LoginViewModel {
                 settings: nil
             )
         } catch {
-            logger.log("Error checking authPhoneNumber: \(error)")
+            log("Error checking authPhoneNumber: \(error)")
         }
     }
     
@@ -36,7 +36,7 @@ extension LoginViewModel {
         do {
             _ = try await tdApi.checkAuthenticationCode(code: code)
         } catch {
-            logger.log("Error checking authCode: \(error)")
+            log("Error checking authCode: \(error)")
         }
     }
     
@@ -44,7 +44,7 @@ extension LoginViewModel {
         do {
             _ = try await tdApi.checkAuthenticationPassword(password: password)
         } catch {
-            logger.log("Error checking authPassword: \(error)")
+            log("Error checking authPassword: \(error)")
         }
     }
     
@@ -52,7 +52,7 @@ extension LoginViewModel {
         do {
             return try await tdApi.getCountries().countries
         } catch {
-            logger.log("Error getting countries: \(error)")
+            log("Error getting countries: \(error)")
             return nil
         }
     }
@@ -61,7 +61,7 @@ extension LoginViewModel {
         do {
             return try await tdApi.getCountryCode().text
         } catch {
-            logger.log("Error getting countryCode: \(error)")
+            log("Error getting countryCode: \(error)")
             return nil
         }
     }

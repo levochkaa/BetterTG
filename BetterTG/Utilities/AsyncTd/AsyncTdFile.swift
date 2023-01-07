@@ -9,7 +9,6 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
     
     private let tdApi = TdApi.shared
-    private let logger = Logger("AsyncTdFile")
     private let nc: NotificationCenter = .default
     
     @State private var file: File?
@@ -54,7 +53,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                     synchronous: false
                 )
             } catch {
-                logger.log("Error downloading file: \(error)")
+                log("Error downloading file: \(error)")
             }
         }
     }

@@ -20,7 +20,6 @@ class LoginViewModel: ObservableObject {
     @Published var twoFactor = ""
     
     let tdApi: TdApi = .shared
-    let logger = Logger("LoginVM")
     let nc: NotificationCenter = .default
     
     init() {

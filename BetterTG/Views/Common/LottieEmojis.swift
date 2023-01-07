@@ -8,8 +8,6 @@ struct LottieEmojis: UIViewRepresentable {
     let customEmojiAnimations: [CustomEmojiAnimation]
     let text: String
     
-    let logger = Logger("LottieEmoji")
-    
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         var text = self.text
@@ -19,7 +17,7 @@ struct LottieEmojis: UIViewRepresentable {
             textView.font = Font.body.toUIFont()
             
             guard let (index, character) = text.enumerated().first(where: { $1.isEmoji }) else {
-                logger.log("Error getting index and character from text: \(text)")
+                log("Error getting index and character from text: \(text)")
                 break
             }
             
@@ -63,7 +61,7 @@ struct LottieEmojis: UIViewRepresentable {
             animationView.play()
             
             guard let characterRange = text.range(of: String(character)) else {
-                logger.log("Error getting characterRange: \(character); \(text)")
+                log("Error getting characterRange: \(character); \(text)")
                 break
             }
             
