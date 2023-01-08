@@ -56,7 +56,9 @@ class RootViewModel: ObservableObject {
     func loadMainChats() async {
         await tdLoadChats()
         
-        loadingUsers = true
+        await MainActor.run {
+            loadingUsers = true
+        }
         
         guard let chats = await tdGetChats() else { return }
         let mainChats = await getMainChats(from: chats)

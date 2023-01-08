@@ -7,14 +7,14 @@ extension MessageView {
         Group {
             switch customMessage.message.content {
                 case .messageText(let messageText):
-                    FormattedTextView(messageText.text, from: customMessage)
+                    formattedTextView(messageText.text)
                 case .messagePhoto(let messagePhoto):
                     if !messagePhoto.caption.text.isEmpty {
-                        Text(messagePhoto.caption.text)
+                        formattedTextView(messagePhoto.caption)
                     }
                 case .messageVoiceNote(let messageVoiceNote):
                     if !messageVoiceNote.caption.text.isEmpty {
-                        Text(messageVoiceNote.caption.text)
+                        formattedTextView(messageVoiceNote.caption)
                     }
                 case .messageUnsupported:
                     Text("TDLib not supported")
