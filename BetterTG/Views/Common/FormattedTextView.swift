@@ -10,22 +10,16 @@ struct FormattedTextView: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     
-    @State var shownText: AttributedString = ""
-    @State var processedText = ""
-    @State var pointText = ""
-    
     let tdApi: TdApi = .shared
     let nc: NotificationCenter = .default
     
     init(_ formattedText: FormattedText, from customMessage: CustomMessage) {
         self._formattedText = State(initialValue: formattedText)
         self._customMessage = State(initialValue: customMessage)
-        self._processedText = State(initialValue: formattedText.text)
-        self._pointText = State(initialValue: formattedText.text)
     }
     
     func attributedString() -> AttributedString {
-        var result = AttributedString(processedText)
+        var result = AttributedString(formattedText.text)
         var emojisProcessed = 0
         
         for entity in formattedText.entities {
@@ -37,8 +31,8 @@ struct FormattedTextView: View {
                 range = attributedStringRange(for: result, start: offset, length: entity.length)
             }
             
-            let stringRange = stringRange(for: processedText, start: entity.offset, length: entity.length)
-            let raw = String(processedText[stringRange])
+            let stringRange = stringRange(for: formattedText.text, start: entity.offset, length: entity.length)
+            let raw = String(formattedText.text[stringRange])
             
             switch entity.type {
                 case .textEntityTypeBold:
@@ -76,21 +70,17 @@ struct FormattedTextView: View {
             }
         }
         
-        processedText = NSMutableAttributedString(result).string
         return result
     }
     
     var body: some View {
-        Text(shownText)
+        Text(attributedString())
             .overlay {
                 LottieEmojis(
                     customEmojiAnimations: customMessage.customEmojiAnimations,
-                    text: pointText
+                    text: formattedText.text
                 )
                 .allowsHitTesting(false)
-            }
-            .onAppear {
-                shownText = attributedString()
             }
     }
     
