@@ -28,6 +28,7 @@
 		DF2AE7112951198400FF7850 /* ChatViewModel+Draft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE7102951198400FF7850 /* ChatViewModel+Draft.swift */; };
 		DF2AE713295119AA00FF7850 /* ChatViewModel+MessageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE712295119AA00FF7850 /* ChatViewModel+MessageContent.swift */; };
 		DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */; };
+		DF34644A296B787D001BE888 /* MainActor+Run.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor+Run.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
@@ -161,6 +162,7 @@
 		DF2AE7102951198400FF7850 /* ChatViewModel+Draft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Draft.swift"; sourceTree = "<group>"; };
 		DF2AE712295119AA00FF7850 /* ChatViewModel+MessageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+MessageContent.swift"; sourceTree = "<group>"; };
 		DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+MessageActions.swift"; sourceTree = "<group>"; };
+		DF346449296B787D001BE888 /* MainActor+Run.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MainActor+Run.swift"; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
@@ -579,6 +581,7 @@
 				DF9F4ACC2946810200B5076C /* Array+PhotoSize.swift */,
 				DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */,
 				DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */,
+				DF346449296B787D001BE888 /* MainActor+Run.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -757,6 +760,7 @@
 				DFCC2A412950EF2800281EF8 /* MessageView+Content.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFB85D05290EE87A00F66E20 /* Image+File.swift in Sources */,
+				DF34644A296B787D001BE888 /* MainActor+Run.swift in Sources */,
 				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter+Publishers.swift in Sources */,
 				DFEB06BA2959B0CF0099E2B2 /* ChatView+MessagesList.swift in Sources */,
