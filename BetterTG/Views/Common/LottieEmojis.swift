@@ -46,7 +46,7 @@ struct LottieEmojis: UIViewRepresentable {
             let emojiLine: CGFloat = CGFloat(lines.enumerated().first(where: { _, line in
                 (line.index() < textArray.count
                 && textArray[line.location...line.index()].contains(character))
-                || (line.index() - 1 <= textArray.count
+                || (line.index() - 1 < textArray.count
                 && textArray[line.location...line.index() - 1].contains(character))
             })?.offset ?? 0)
             
