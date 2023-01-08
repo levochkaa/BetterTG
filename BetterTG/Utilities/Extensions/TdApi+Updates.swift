@@ -64,9 +64,9 @@ extension TdApi {
         // TdApi.logger.log("Update: \(update)")
         switch update {
             case .updateAuthorizationState(let updateAuthorizationState):
-                Task { @MainActor in
-                    self.updateAuthorizationState(updateAuthorizationState.authorizationState)
-                }
+                self.updateAuthorizationState(updateAuthorizationState.authorizationState)
+            case .updateChatAction(let updateChatAction):
+                self.updateChatAction(updateChatAction)
             case .updateFile(let updateFile):
                 Task { @MainActor in
                     TdApi.nc.post(name: .file, object: updateFile)
@@ -75,10 +75,12 @@ extension TdApi {
                 Task { @MainActor in
                     TdApi.nc.post(name: .newMessage, object: updateNewMessage)
                 }
-            case .updateChatLastMessage(let updateChatLastMessage):
+            case .updateMessageEdited(let updateMessageEdited):
                 Task { @MainActor in
-                    TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
+                    TdApi.nc.post(name: .messageEdited, object: updateMessageEdited)
                 }
+            case .updateChatLastMessage(let updateChatLastMessage):
+                TdApi.nc.post(name: .chatLastMessage, object: updateChatLastMessage)
             case .updateChatDraftMessage(let updateChatDraftMessage):
                 TdApi.nc.post(name: .chatDraftMessage, object: updateChatDraftMessage)
             case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
@@ -97,16 +99,8 @@ extension TdApi {
                 TdApi.nc.post(name: .user, object: updateUser.user)
             case .updateDeleteMessages(let updateDeleteMessages):
                 TdApi.nc.post(name: .deleteMessages, object: updateDeleteMessages)
-            case .updateChatAction(let updateChatAction):
-                self.updateChatAction(updateChatAction)
-            case .updateMessageEdited(let updateMessageEdited):
-                Task { @MainActor in
-                    TdApi.nc.post(name: .messageEdited, object: updateMessageEdited)
-                }
             case .updateMessageSendSucceeded(let updateMessageSendSucceeded):
-                Task { @MainActor in
-                    TdApi.nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
-                }
+                TdApi.nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
             case .updateMessageSendFailed(let updateMessageSendFailed):
                 TdApi.nc.post(name: .messageSendFailed, object: updateMessageSendFailed)
             default:
@@ -117,12 +111,36 @@ extension TdApi {
     func updateChatAction(_ updateChatAction: UpdateChatAction) {
         // TdApi.logger.log("ChatAction: \(updateChatAction)")
         switch updateChatAction.action {
-            case .chatActionUploadingDocument:
-                TdApi.nc.post(name: .uploadingDocument, object: updateChatAction)
+            case .chatActionTyping:
+                TdApi.nc.post(name: .typing, object: updateChatAction)
+            case .chatActionRecordingVideo:
+                TdApi.nc.post(name: .recordingVideo, object: updateChatAction)
+            case .chatActionUploadingVideo:
+                TdApi.nc.post(name: .uploadingVideo, object: updateChatAction)
             case .chatActionChoosingContact:
                 TdApi.nc.post(name: .choosingContact, object: updateChatAction)
-            default:
-                break
+            case .chatActionUploadingDocument:
+                TdApi.nc.post(name: .uploadingDocument, object: updateChatAction)
+            case .chatActionRecordingVoiceNote:
+                TdApi.nc.post(name: .recordingVoiceNote, object: updateChatAction)
+            case .chatActionUploadingVoiceNote:
+                TdApi.nc.post(name: .uploadingVoiceNote, object: updateChatAction)
+            case .chatActionUploadingPhoto:
+                TdApi.nc.post(name: .uploadingPhoto, object: updateChatAction)
+            case .chatActionChoosingSticker:
+                TdApi.nc.post(name: .choosingSticker, object: updateChatAction)
+            case .chatActionChoosingLocation:
+                TdApi.nc.post(name: .choosingLocation, object: updateChatAction)
+            case .chatActionStartPlayingGame:
+                TdApi.nc.post(name: .startPlayingGame, object: updateChatAction)
+            case .chatActionRecordingVideoNote:
+                TdApi.nc.post(name: .recordingVideoNote, object: updateChatAction)
+            case .chatActionUploadingVideoNote:
+                TdApi.nc.post(name: .uploadingVideoNote, object: updateChatAction)
+            case .chatActionWatchingAnimations:
+                TdApi.nc.post(name: .watchingAnimations, object: updateChatAction)
+            case .chatActionCancel:
+                TdApi.nc.post(name: .cancel, object: updateChatAction)
         }
     }
     

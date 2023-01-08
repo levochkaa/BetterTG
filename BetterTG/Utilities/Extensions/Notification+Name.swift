@@ -40,6 +40,19 @@ extension Notification.Name {
     // MARK: chatAction
     static let uploadingDocument = Self("uploadingDocument")
     static let choosingContact = Self("choosingContact")
+    static let typing = Self("typing")
+    static let recordingVideo = Self("recordingVideo")
+    static let uploadingVideo = Self("uploadingVideo")
+    static let recordingVoiceNote = Self("recordingVoiceNote")
+    static let uploadingVoiceNote = Self("uploadingVoiceNote")
+    static let uploadingPhoto = Self("uploadingPhoto")
+    static let choosingSticker = Self("choosingSticker")
+    static let choosingLocation = Self("choosingLocation")
+    static let startPlayingGame = Self("startPlayingGame")
+    static let recordingVideoNote = Self("recordingVideoNote")
+    static let uploadingVideoNote = Self("uploadingVideoNote")
+    static let watchingAnimations = Self("watchingAnimations")
+    static let cancel = Self("cancel")
     
     // MARK: user
     static let user = Self("user")
