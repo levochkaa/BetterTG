@@ -18,6 +18,7 @@ extension MessageView {
                 switch customMessage.message.content {
                     case .messagePhoto(let messagePhoto):
                         makeMessagePhoto(from: messagePhoto, with: customMessage.message)
+                            .scaledToFit()
                     case .messageVoiceNote(let messageVoiceNote):
                         makeMessageVoiceNote(from: messageVoiceNote.voiceNote, with: customMessage.message)
                     default:
