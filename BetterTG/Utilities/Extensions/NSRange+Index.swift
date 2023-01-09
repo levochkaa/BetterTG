@@ -4,6 +4,6 @@ import Foundation
 
 extension NSRange {
     func index() -> Int {
-        location + length - 2
+        location + length - 1
     }
 }

@@ -5,18 +5,24 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        Text(attributedString(for: formattedText))
-            .readSize { textSize = $0 }
-            .overlay {
-                if textSize != .zero {
-                    LottieEmojis(
-                        customEmojiAnimations: customMessage.customEmojiAnimations,
-                        text: formattedText.text,
-                        textSize: textSize
-                    )
-                    .allowsHitTesting(false)
+        ZStack {
+            Text(formattedText.text)
+                .readSize { textSize = $0 }
+                .opacity(0)
+            
+            Text(attributedString(for: formattedText))
+                .frame(width: textSize.width, height: textSize.height, alignment: .top)
+                .overlay {
+                    if textSize != .zero {
+                        LottieEmojis(
+                            customEmojiAnimations: customMessage.customEmojiAnimations,
+                            text: formattedText.text,
+                            textSize: textSize
+                        )
+                        .allowsHitTesting(false)
+                    }
                 }
-            }
+        }
     }
     
     func attributedString(for formattedText: FormattedText) -> AttributedString {

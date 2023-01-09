@@ -9,15 +9,12 @@ struct LottieEmojis: UIViewRepresentable {
     let text: String
     let textSize: CGSize
     
-    // swiftlint:disable function_body_length
     func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
+        var frame = CGRect(x: 0, y: 0, width: textSize.width + 20, height: textSize.height)
+        let view = UIView(frame: frame)
         var text = self.text
-        var newSize = textSize
-        newSize.width += 20
         for customEmojiAnimation in customEmojiAnimations {
-            let textView = UITextView()
-            textView.frame = CGRect(origin: CGPoint(x: 0, y: 0), size: newSize)
+            let textView = UITextView(frame: frame)
             textView.text = text
             textView.font = Font.body.toUIFont()
             
@@ -26,36 +23,21 @@ struct LottieEmojis: UIViewRepresentable {
                 continue
             }
             
-            var lines = [NSRange]()
-            for glyphIndex in 0..<textView.layoutManager.numberOfGlyphs {
-                var effectiveRange = NSRange()
-                textView.layoutManager.lineFragmentUsedRect(
-                    forGlyphAt: glyphIndex,
-                    effectiveRange: &effectiveRange
-                )
-                
-                let location = effectiveRange.location
-                var length = effectiveRange.length
-                
-                if location + length <= text.count, Array(text)[location..<(location + length)].contains("\n") {
-                    length -= 1
-                }
-                
-                let range = NSRange(location: location, length: length)
-                if !lines.contains(range) { lines.append(range) }
-            }
-            
             let textArray = Array(text)
             var emojiLine: CGFloat = 0
-            for (index, line) in lines.enumerated() {
-                for i in 0...(line.index() - line.location) {
-                    if line.index() - i < textArray.count && textArray[line.location...line.index() - i]
+            var indexLine = 0
+            textView.layoutManager.enumerateLineFragments(
+                forGlyphRange: NSRange(location: 0, length: textView.layoutManager.numberOfGlyphs)
+            ) { _, _, _, range, _ in
+                for i in 0...(range.index() - range.location) {
+                    if range.index() - i < textArray.count && textArray[range.location...range.index() - i]
                         .contains(character) {
-                        emojiLine = CGFloat(index)
+                        emojiLine = CGFloat(indexLine)
+                        return
                     }
                 }
+                indexLine += 1
             }
-            
             let point = textView.layoutManager.location(forGlyphAt: index)
             let resultPoint = CGPoint(x: point.x - 5, y: -1.3 + emojiLine * 22) // just random numbers
             
