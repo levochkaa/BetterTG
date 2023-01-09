@@ -6,12 +6,16 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         Text(attributedString(for: formattedText))
+            .readSize { textSize = $0 }
             .overlay {
-                LottieEmojis(
-                    customEmojiAnimations: customMessage.customEmojiAnimations,
-                    text: formattedText.text
-                )
-                .allowsHitTesting(false)
+                if textSize != .zero {
+                    LottieEmojis(
+                        customEmojiAnimations: customMessage.customEmojiAnimations,
+                        text: formattedText.text,
+                        textSize: textSize
+                    )
+                    .allowsHitTesting(false)
+                }
             }
     }
     

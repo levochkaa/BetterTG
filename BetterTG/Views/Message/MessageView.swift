@@ -25,6 +25,8 @@ struct MessageView: View {
     @State var contentWidth: Double = 0
     @State var editWidth: Double = 0
     
+    @State var textSize: CGSize = .zero
+    
     let recognizedTextId = "recognizedTextId"
     let playId = "playId"
     let currentTimeId = "currentTimeId"
@@ -45,6 +47,7 @@ struct MessageView: View {
             }
             
             messageContent
+                .clipShape(RoundedRectangle(cornerRadius: 15))
                 .padding(1)
                 .background(backgroundColor(for: .content))
                 .cornerRadius(corners(for: .content), 15)

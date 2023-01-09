@@ -11,12 +11,11 @@ extension MessageView {
                     .resizable()
                     .scaledToFill()
                     .if(openedPhotoNamespace != nil) {
-                        $0
-                            .matchedGeometryEffect(
-                                id: "\(message.id)",
-                                in: openedPhotoNamespace!,
-                                properties: .frame
-                            )
+                        $0.matchedGeometryEffect(
+                            id: "\(message.id)",
+                            in: openedPhotoNamespace!,
+                            properties: .frame
+                        )
                     }
                     .onTapGesture {
                         withAnimation {
@@ -29,19 +28,6 @@ extension MessageView {
                     }
             } placeholder: {
                 placeholder(with: size)
-            }
-            .background {
-                AsyncTdImage(id: size.photo.id) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .overlay {
-                            Color.clear
-                                .background(.ultraThinMaterial)
-                        }
-                } placeholder: {
-                    placeholder(with: size)
-                }
             }
         }
     }
