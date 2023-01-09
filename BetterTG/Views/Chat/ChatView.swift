@@ -1,6 +1,6 @@
 // ChatView.swift
 
-import SwiftUIX
+import SwiftUI
 import TDLibKit
 
 struct ChatView: View {
@@ -20,12 +20,12 @@ struct ChatView: View {
     let tdApi: TdApi = .shared
     let nc: NotificationCenter = .default
     
-    init(chat: Chat,
+    init(customChat: CustomChat,
          isPreview: Bool = false,
          openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,
          openedPhotoNamespace: Namespace.ID? = nil
     ) {
-        self._viewModel = StateObject(wrappedValue: ChatViewModel(chat: chat))
+        self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
         self._isPreview = State(initialValue: isPreview)
         
         if let openedPhotoInfo {
@@ -72,7 +72,29 @@ struct ChatView: View {
                     }
             }
         }
-        .navigationTitle(viewModel.chat.title)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 0) {
+                    Text(viewModel.customChat.chat.title)
+                    
+                    // make group with different texts and transition
+                    Group {
+                        if viewModel.actionStatus.isEmpty {
+                            Text(viewModel.onlineStatus)
+                        } else {
+                            Text(viewModel.actionStatus)
+                        }
+                    }
+                    .transition(.slide)
+                    .font(.caption)
+                    .foregroundColor(
+                        !viewModel.actionStatus.isEmpty || viewModel.onlineStatus == "online" ? .blue : .gray
+                    )
+                    .animation(.default, value: viewModel.actionStatus)
+                    .animation(.default, value: viewModel.onlineStatus)
+                }
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .environmentObject(viewModel)
     }

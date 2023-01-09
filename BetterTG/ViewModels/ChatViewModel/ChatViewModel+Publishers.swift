@@ -9,37 +9,126 @@ extension ChatViewModel {
         
         nc.publisher(for: .messageEdited) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited,
-                  messageEdited.chatId == self.chat.id
+                  messageEdited.chatId == self.customChat.chat.id
             else { return }
             self.messageEdited(messageEdited)
         }
         
         nc.publisher(for: .newMessage) { notification in
             guard let message = (notification.object as? UpdateNewMessage)?.message,
-                  message.chatId == self.chat.id
+                  message.chatId == self.customChat.chat.id
             else { return }
             self.newMessage(message)
         }
         
         nc.publisher(for: .deleteMessages) { notification in
             guard let deleteMessages = notification.object as? UpdateDeleteMessages,
-                  deleteMessages.chatId == self.chat.id
+                  deleteMessages.chatId == self.customChat.chat.id
             else { return }
             self.deleteMessages(deleteMessages)
         }
         
         nc.publisher(for: .messageSendFailed) { notification in
             guard let messageSendFailed = notification.object as? UpdateMessageSendFailed,
-                  messageSendFailed.message.chatId == self.chat.id
+                  messageSendFailed.message.chatId == self.customChat.chat.id
             else { return }
             self.messageSendFailed(messageSendFailed)
         }
         
         nc.publisher(for: .messageSendSucceeded) { notification in
             guard let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
-                  messageSendSucceeded.message.chatId == self.chat.id
+                  messageSendSucceeded.message.chatId == self.customChat.chat.id
             else { return }
             self.messageSendSucceeded(messageSendSucceeded)
+        }
+        
+        nc.publisher(for: .chatAction) { notification in
+            guard let chatAction = notification.object as? UpdateChatAction,
+                  chatAction.chatId == self.customChat.chat.id
+            else { return }
+            self.chatAction(chatAction)
+        }
+        
+        nc.publisher(for: .userStatus) { notification in
+            guard let userStatus = notification.object as? UpdateUserStatus,
+                  userStatus.userId == self.customChat.chat.id
+            else { return }
+            self.userStatus(userStatus.status)
+        }
+    }
+    
+    func userStatus(_ status: UserStatus) {
+        switch status {
+            case .userStatusEmpty:
+                onlineStatus = "empty"
+            case .userStatusOnline: // (let userStatusOnline)
+                onlineStatus = "online"
+            case .userStatusOffline(let userStatusOffline):
+                onlineStatus = "last seen \(getLastSeenTime(from: userStatusOffline.wasOnline))"
+            case .userStatusRecently:
+                onlineStatus = "last seen recently"
+            case .userStatusLastWeek:
+                onlineStatus = "last seen last week"
+            case .userStatusLastMonth:
+                onlineStatus = "last seen last month"
+        }
+    }
+    
+    func getLastSeenTime(from time: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(time))
+        let dateFormatter = DateFormatter()
+        
+        let difference = Date().timeIntervalSince1970 - TimeInterval(time)
+        
+        if difference < 60 * 60 {
+            return "\(Int(difference / 60)) minutes ago"
+        } else if difference < 60 * 60 * 24 {
+            return "\(Int(difference / 60 / 60)) hours ago"
+        } else if difference < 60 * 60 * 24 * 2 {
+            dateFormatter.dateFormat = "HH:mm"
+            return "yesterday at \(dateFormatter.string(from: date))"
+        } else {
+            dateFormatter.dateFormat = "dd.MM.yy"
+            return dateFormatter.string(from: date)
+        }
+    }
+    
+    func chatAction(_ chatAction: UpdateChatAction) {
+        guard case .messageSenderUser(let messageSenderUser) = chatAction.senderId,
+              messageSenderUser.userId == customChat.chat.id
+        else { return }
+        
+        switch chatAction.action {
+            case .chatActionTyping:
+                actionStatus = "typing..."
+            case .chatActionRecordingVideo:
+                actionStatus = "recording video..."
+            case .chatActionUploadingVideo: // (let chatActionUploadingVideo)
+                actionStatus = "uploading video..."
+            case .chatActionRecordingVoiceNote:
+                actionStatus = "recording voice note..."
+            case .chatActionUploadingVoiceNote: // (let chatActionUploadingVoiceNote)
+                actionStatus = "uploading voice note..."
+            case .chatActionUploadingPhoto: // (let chatActionUploadingPhoto)
+                actionStatus = "uploading photo..."
+            case .chatActionUploadingDocument: // (let chatActionUploadingDocument)
+                actionStatus = "uploading voice document..."
+            case .chatActionChoosingSticker:
+                actionStatus = "choosing sticker..."
+            case .chatActionChoosingLocation:
+                actionStatus = "choosing location..."
+            case .chatActionChoosingContact:
+                actionStatus = "choosing contact..."
+            case .chatActionStartPlayingGame:
+                actionStatus = "playing game..."
+            case .chatActionRecordingVideoNote:
+                actionStatus = "recording video note..."
+            case .chatActionUploadingVideoNote: // (let chatActionUploadingVideoNote)
+                actionStatus = "uploading video note..."
+            case .chatActionWatchingAnimations(let chatActionWatchingAnimations):
+                actionStatus = "watching animations...\(chatActionWatchingAnimations.emoji)"
+            case .chatActionCancel:
+                actionStatus = ""
         }
     }
     

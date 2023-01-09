@@ -39,6 +39,7 @@ extension Notification.Name {
     static let chatPosition = Self("chatPosition")
     
     // MARK: chatAction
+    static let chatAction = Self("chatAction")
     static let uploadingDocument = Self("uploadingDocument")
     static let choosingContact = Self("choosingContact")
     static let typing = Self("typing")
@@ -57,6 +58,7 @@ extension Notification.Name {
     
     // MARK: user
     static let user = Self("user")
+    static let userStatus = Self("userStatus")
     
     // MARK: custom
     static let customIsListeningVoice = Self("customIsListeningVoice")

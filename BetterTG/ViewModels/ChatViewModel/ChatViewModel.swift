@@ -9,7 +9,10 @@ import MobileVLCKit
 
 class ChatViewModel: ObservableObject {
 
-    let chat: Chat
+    let customChat: CustomChat
+    
+    @Published var onlineStatus = ""
+    @Published var actionStatus = ""
     
     @Published var text = ""
     @Published var editMessageText = ""
@@ -106,15 +109,17 @@ class ChatViewModel: ObservableObject {
     let nc: NotificationCenter = .default
     var cancellable = Set<AnyCancellable>()
     
-    init(chat: Chat) {
-        self.chat = chat
+    init(customChat: CustomChat) {
+        self.customChat = customChat
+        
+        self.userStatus(customChat.user.status)
         
         setPublishers()
         
         Task {
             await self.loadMessages(isInit: true)
             
-            guard let draftMessage = chat.draftMessage else { return }
+            guard let draftMessage = customChat.chat.draftMessage else { return }
             await self.setDraft(draftMessage)
         }
     }

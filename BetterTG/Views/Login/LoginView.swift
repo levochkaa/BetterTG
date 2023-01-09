@@ -14,25 +14,23 @@ struct LoginView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                Group {
-                    switch viewModel.loginState {
-                        case .phoneNumber:
-                            phoneNumberView
-                        case .code:
-                            codeView
-                        case .twoFactor:
-                            twoFactorView
-                    }
+            Group {
+                switch viewModel.loginState {
+                    case .phoneNumber:
+                        phoneNumberView
+                    case .code:
+                        codeView
+                    case .twoFactor:
+                        twoFactorView
                 }
-                .transition(
-                    .asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .leading)
-                    )
-                    .combined(with: .opacity)
-                )
             }
+            .transition(
+                .asymmetric(
+                    insertion: .move(edge: .trailing),
+                    removal: .move(edge: .leading)
+                )
+                .combined(with: .opacity)
+            )
             .animation(.default, value: viewModel.loginState)
             .navigationTitle("Login")
         }

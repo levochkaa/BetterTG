@@ -6,7 +6,7 @@ import TDLibKit
 extension ChatViewModel {
     func tdDeleteMessages(ids: [Int64], deleteForBoth: Bool) async {
         do {
-            _ = try await tdApi.deleteMessages(chatId: self.chat.id, messageIds: ids, revoke: deleteForBoth)
+            _ = try await tdApi.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
         } catch {
             log("Error deleting messages: \(error)")
         }
@@ -14,7 +14,7 @@ extension ChatViewModel {
     
     func tdGetMessage(id: Int64) async -> Message? {
         do {
-            return try await tdApi.getMessage(chatId: chat.id, messageId: id)
+            return try await tdApi.getMessage(chatId: customChat.chat.id, messageId: id)
         } catch {
             log("Error getting message: \(error)")
             return nil
@@ -33,7 +33,7 @@ extension ChatViewModel {
     func tdEditMessageText(_ editMessage: Message) async {
         do {
             _ = try await tdApi.editMessageText(
-                chatId: chat.id,
+                chatId: customChat.chat.id,
                 inputMessageContent:
                         .inputMessageText(
                             .init(
@@ -82,7 +82,7 @@ extension ChatViewModel {
                     entities: [],
                     text: editMessageText
                 ),
-                chatId: chat.id,
+                chatId: customChat.chat.id,
                 messageId: editMessage.id,
                 replyMarkup: nil
             )
@@ -94,7 +94,7 @@ extension ChatViewModel {
     func tdSetChatDraftMessage(_ draftMessage: DraftMessage) async {
         do {
             _ = try await tdApi.setChatDraftMessage(
-                chatId: chat.id,
+                chatId: customChat.chat.id,
                 draftMessage: draftMessage,
                 messageThreadId: 0
             )
@@ -106,7 +106,7 @@ extension ChatViewModel {
     func tdSendMessage(with inputMessageContent: InputMessageContent) async {
         do {
             _ = try await tdApi.sendMessage(
-                chatId: chat.id,
+                chatId: customChat.chat.id,
                 inputMessageContent: inputMessageContent,
                 messageThreadId: 0,
                 options: nil,
@@ -121,7 +121,7 @@ extension ChatViewModel {
     func tdSendMessageAlbum(with inputMessageContents: [InputMessageContent]) async {
         do {
             _ = try await tdApi.sendMessageAlbum(
-                chatId: chat.id,
+                chatId: customChat.chat.id,
                 inputMessageContents: inputMessageContents,
                 messageThreadId: nil,
                 onlyPreview: nil,
@@ -136,7 +136,7 @@ extension ChatViewModel {
     func tdGetChatHistory() async -> Messages? {
         do {
             return try await self.tdApi.getChatHistory(
-                chatId: chat.id,
+                chatId: customChat.chat.id,
                 fromMessageId: self.messages.first?.message.id ?? 0,
                 limit: limit,
                 offset: messages.first == nil ? -offset : 0,
@@ -150,7 +150,7 @@ extension ChatViewModel {
     
     func tdRecognizeSpeech(for messageId: Int64) async {
         do {
-            _ = try await tdApi.recognizeSpeech(chatId: chat.id, messageId: messageId)
+            _ = try await tdApi.recognizeSpeech(chatId: customChat.chat.id, messageId: messageId)
         } catch {
             log("Error recognizing speech: \(error)")
         }

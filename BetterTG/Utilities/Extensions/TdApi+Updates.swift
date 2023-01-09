@@ -67,6 +67,7 @@ extension TdApi {
                 self.updateAuthorizationState(updateAuthorizationState.authorizationState)
             case .updateChatAction(let updateChatAction):
                 self.updateChatAction(updateChatAction)
+                TdApi.nc.post(name: .chatAction, object: updateChatAction)
             case .updateFile(let updateFile):
                 Task { @MainActor in
                     TdApi.nc.post(name: .file, object: updateFile)
@@ -105,6 +106,8 @@ extension TdApi {
                 TdApi.nc.post(name: .messageSendFailed, object: updateMessageSendFailed)
             case .updateChatPosition(let updateChatPosition):
                 TdApi.nc.post(name: .chatPosition, object: updateChatPosition)
+            case .updateUserStatus(let updateUserStatus):
+                TdApi.nc.post(name: .userStatus, object: updateUserStatus)
             default:
                 break
         }

@@ -45,18 +45,23 @@ extension RootViewModel {
     }
     
     func chatPosition(_ chatPosition: UpdateChatPosition) {
-        sortMainChats()
+        Task { @MainActor in
+            withAnimation {
+                sortMainChats()
+            }
+        }
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
-        guard let index = self.mainChats.firstIndex(where: { $0.id == chatLastMessage.chatId }) else { return }
+        guard let index = self.mainChats.firstIndex(where: { $0.chat.id == chatLastMessage.chatId })
+        else { return }
         
         Task {
-            guard let chat = await self.tdGetChat(id: self.mainChats[index].id) else { return }
+            guard let customChat = await self.getCustomChat(from: self.mainChats[index].chat.id) else { return }
             
             await MainActor.run {
                 withAnimation {
-                    self.mainChats[index] = chat
+                    self.mainChats[index] = customChat
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -69,14 +74,15 @@ extension RootViewModel {
     }
     
     func chatDraftMessage(_ chatDraftMessage: UpdateChatDraftMessage) {
-        guard let index = self.mainChats.firstIndex(where: { $0.id == chatDraftMessage.chatId }) else { return }
+        guard let index = self.mainChats.firstIndex(where: { $0.chat.id == chatDraftMessage.chatId })
+        else { return }
         
         Task {
-            guard let chat = await self.tdGetChat(id: self.mainChats[index].id) else { return }
+            guard let customChat = await self.getCustomChat(from: self.mainChats[index].chat.id) else { return }
             
             await MainActor.run {
                 withAnimation {
-                    self.mainChats[index] = chat
+                    self.mainChats[index] = customChat
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

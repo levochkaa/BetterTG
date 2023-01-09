@@ -4,28 +4,28 @@ import SwiftUI
 
 extension RootView {
     @ViewBuilder var mainChatsList: some View {
-        ForEach(viewModel.mainChats, id: \.id) { chat in
+        ForEach(viewModel.mainChats) { customChat in
             NavigationLink {
                 ChatView(
-                    chat: chat,
+                    customChat: customChat,
                     openedPhotoInfo: $openedPhotoInfo,
                     openedPhotoNamespace: openedPhotoNamespace
                 )
             } label: {
-                chatsListItem(for: chat)
-                    .matchedGeometryEffect(id: chat.id, in: chatNamespace)
+                chatsListItem(for: customChat.chat)
+                    .matchedGeometryEffect(id: customChat.chat.id, in: chatNamespace)
                     .contextMenu {
-                        chatsListContextMenu(for: chat)
+                        chatsListContextMenu(for: customChat.chat)
                     } preview: {
                         NavigationStack {
-                            ChatView(chat: chat, isPreview: true)
+                            ChatView(customChat: customChat, isPreview: true)
                         }
                     }
             }
             .onAppear {
                 Task {
                     // preloading chatHistory
-                    await viewModel.tdGetChatHistory(id: chat.id)
+                    await viewModel.tdGetChatHistory(id: customChat.chat.id)
                 }
             }
         }
