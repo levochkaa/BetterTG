@@ -16,14 +16,6 @@ extension RootView {
                 lastOrDraftMessage(for: chat)
             }
             .lineLimit(1)
-            
-            Spacer()
-            
-            if viewModel.pinnedChatIds.contains(chat.id) {
-                Image(systemName: "pin.fill")
-                    .foregroundColor(.white)
-                    .padding(.trailing)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(5)

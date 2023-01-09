@@ -9,7 +9,6 @@ class RootViewModel: ObservableObject {
     
     @Published var loggedIn: Bool?
     @Published var mainChats = [Chat]()
-    @Published var pinnedChatIds = Set<Int64>()
     
     var loadedUsers = 0
     var limit = 10
@@ -36,15 +35,6 @@ class RootViewModel: ObservableObject {
                 guard let user = await tdGetUser(id: chat.id) else { return nil }
                 
                 if case .userTypeRegular = user.type {
-                    guard let chatPosition = chat.positions.first(where: { $0.list == .chatListMain })
-                    else { return chat }
-                    
-                    if chatPosition.isPinned {
-                        await MainActor.run {
-                            _ = pinnedChatIds.insert(chat.id)
-                        }
-                    }
-                    
                     return chat
                 }
             }
@@ -70,5 +60,31 @@ class RootViewModel: ObservableObject {
             self.mainChats += mainChats[self.mainChats.count...]
             self.loadingUsers = false
         }
+    }
+    
+    func sortMainChats() {
+        self.mainChats.sort(by: {
+            let firstMessageDate = $0.draftMessage?.date ?? $0.lastMessage?.date ?? 1
+            let secondMessageDate = $1.draftMessage?.date ?? $1.lastMessage?.date ?? 0
+            
+            let firstPosition = $0.positions.first(where: { $0.list == .chatListMain })
+            let firstMessagePinned = firstPosition?.isPinned ?? false
+            
+            let secondPosition = $1.positions.first(where: { $0.list == .chatListMain })
+            let secondMessagePinned = firstPosition?.isPinned ?? false
+            
+            let firstOrder = firstPosition?.order ?? -1
+            let secondOrder = secondPosition?.order ?? -1
+            
+            if firstMessagePinned && !secondMessagePinned {
+                return true
+            } else if !firstMessagePinned && secondMessagePinned {
+                return false
+            } else if !firstMessagePinned && !secondMessagePinned {
+                return firstMessageDate > secondMessageDate
+            } else {
+                return firstOrder > secondOrder
+            }
+        })
     }
 }

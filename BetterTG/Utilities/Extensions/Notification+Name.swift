@@ -36,6 +36,7 @@ extension Notification.Name {
     static let chatPhoto = Self("chatPhoto")
     static let chatTheme = Self("chatTheme")
     static let chatTitle = Self("chatTitle")
+    static let chatPosition = Self("chatPosition")
     
     // MARK: chatAction
     static let uploadingDocument = Self("uploadingDocument")

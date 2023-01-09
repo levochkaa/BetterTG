@@ -9,6 +9,7 @@ struct LottieEmojis: UIViewRepresentable {
     let text: String
     let textSize: CGSize
     
+    // swiftlint:disable function_body_length
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         var text = self.text

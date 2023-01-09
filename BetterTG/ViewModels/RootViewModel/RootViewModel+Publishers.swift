@@ -37,6 +37,15 @@ extension RootViewModel {
             guard let chatDraftMessage = notification.object as? UpdateChatDraftMessage else { return }
             self.chatDraftMessage(chatDraftMessage)
         }
+        
+        nc.publisher(for: .chatPosition) { notification in
+            guard let chatPosition = notification.object as? UpdateChatPosition else { return }
+            self.chatPosition(chatPosition)
+        }
+    }
+    
+    func chatPosition(_ chatPosition: UpdateChatPosition) {
+        sortMainChats()
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
@@ -48,6 +57,12 @@ extension RootViewModel {
             await MainActor.run {
                 withAnimation {
                     self.mainChats[index] = chat
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        self.sortMainChats()
+                    }
                 }
             }
         }
@@ -62,6 +77,12 @@ extension RootViewModel {
             await MainActor.run {
                 withAnimation {
                     self.mainChats[index] = chat
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        self.sortMainChats()
+                    }
                 }
             }
         }

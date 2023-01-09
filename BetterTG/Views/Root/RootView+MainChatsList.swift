@@ -13,6 +13,7 @@ extension RootView {
                 )
             } label: {
                 chatsListItem(for: chat)
+                    .matchedGeometryEffect(id: chat.id, in: chatNamespace)
                     .contextMenu {
                         chatsListContextMenu(for: chat)
                     } preview: {

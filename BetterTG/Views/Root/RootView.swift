@@ -13,6 +13,9 @@ struct RootView: View {
     @State var openedPhotoInfo: OpenedPhotoInfo?
     @Namespace var openedPhotoNamespace
     
+    let chatId = "chatId"
+    @Namespace var chatNamespace
+    
     let scroll = "rootScroll"
     
     static let spacing: CGFloat = 8

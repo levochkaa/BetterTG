@@ -103,6 +103,8 @@ extension TdApi {
                 TdApi.nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
             case .updateMessageSendFailed(let updateMessageSendFailed):
                 TdApi.nc.post(name: .messageSendFailed, object: updateMessageSendFailed)
+            case .updateChatPosition(let updateChatPosition):
+                TdApi.nc.post(name: .chatPosition, object: updateChatPosition)
             default:
                 break
         }
