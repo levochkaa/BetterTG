@@ -1,6 +1,7 @@
 // LottieEmojis.swift
 
 import SwiftUI
+import TDLibKit
 import Lottie
 
 struct LottieEmojis: UIViewRepresentable {
@@ -10,43 +11,46 @@ struct LottieEmojis: UIViewRepresentable {
     let textSize: CGSize
     
     func makeUIView(context: Context) -> UIView {
-        let frame = CGRect(x: 0, y: 0, width: textSize.width + 20, height: textSize.height)
+        let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
         let view = UIView(frame: frame)
         var text = self.text
+        
         for customEmojiAnimation in customEmojiAnimations {
             let textView = UITextView(frame: frame)
             textView.text = text
             textView.font = Font.body.toUIFont()
+            textView.isScrollEnabled = false
+            textView.dataDetectorTypes = .all
+            textView.isEditable = false
+            textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            textView.textContainer.lineFragmentPadding = 0
+            textView.textContainerInset = .zero
             
             guard let (index, character) = text.enumerated().first(where: { $1.isEmoji }) else {
                 log("Error getting index and character from text: \(text)")
                 continue
             }
             
-            let textArray = Array(text)
-            var emojiLine: CGFloat = 0
-            var indexLine = 0
-            textView.layoutManager.enumerateLineFragments(
-                forGlyphRange: NSRange(location: 0, length: textView.layoutManager.numberOfGlyphs)
-            ) { _, _, _, range, _ in
-                for i in 0...(range.index() - range.location) {
-                    if range.index() - i < textArray.count && textArray[range.location...range.index() - i]
-                        .contains(character) {
-                        emojiLine = CGFloat(indexLine)
-                        return
-                    }
-                }
-                indexLine += 1
-            }
+            let glyphIndex = textView.layoutManager.glyphIndexForCharacter(
+                at: index // entity.offset + entity.length - 1
+            )
             
-            let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: index)
-            let point = textView.layoutManager.location(forGlyphAt: glyphIndex)
-            let resultPoint = CGPoint(x: point.x - 5, y: -1.3 + emojiLine * 22) // just random numbers
+            var rangeOfCharacter = NSRange()
+            textView.layoutManager.characterRange(
+                forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                actualGlyphRange: &rangeOfCharacter
+            )
+            
+            var point = textView.layoutManager.boundingRect(
+                forGlyphRange: rangeOfCharacter,
+                in: textView.textContainer
+            ).origin
+            point.y -= 1.5
             
             let animationView = LottieAnimationView(animation: customEmojiAnimation.lottieAnimation)
             animationView.loopMode = .loop
             animationView.contentMode = .scaleAspectFit
-            animationView.frame = CGRect(origin: resultPoint, size: CGSize(width: 24, height: 24))
+            animationView.frame = CGRect(origin: point, size: CGSize(width: 24, height: 24))
             animationView.play()
             
             guard let characterRange = text.range(of: String(character)) else {
@@ -57,6 +61,7 @@ struct LottieEmojis: UIViewRepresentable {
             text.replaceSubrange(characterRange, with: "     ") // count = 5
             view.addSubview(animationView)
         }
+        
         return view
     }
     

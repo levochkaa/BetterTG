@@ -10,6 +10,7 @@ struct TextView: UIViewRepresentable {
     let customEmojiAnimations: [CustomEmojiAnimation]
     let textSize: CGSize
     
+    // swiftlint:disable function_body_length
     func makeUIView(context: Context) -> UITextView {
         let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
         let textView = UITextView(frame: frame)
@@ -93,8 +94,7 @@ struct TextView: UIViewRepresentable {
                     
                     emojiIndex += 1
                     
-                    attributedText.replaceCharacters(in: range,
-                                                     with: NSAttributedString(string: "  ", attributes: [.kern: 8]))
+                    attributedText.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
                     
                     textView.addSubview(animationView)
                 default:
@@ -107,9 +107,7 @@ struct TextView: UIViewRepresentable {
         return textView
     }
     
-    func updateUIView(_ uiView: UITextView, context: Context) {
-        //
-    }
+    func updateUIView(_ uiView: UITextView, context: Context) {}
     
     func whitelisted(_ url: String) -> Bool {
         url.hasPrefix("https://") || url.hasPrefix("http://") || url.hasPrefix("tg://")
