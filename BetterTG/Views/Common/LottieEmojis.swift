@@ -7,13 +7,20 @@ import Lottie
 struct LottieEmojis: UIViewRepresentable {
     
     let customEmojiAnimations: [CustomEmojiAnimation]
+    let entities: [TextEntity]
     let text: String
     let textSize: CGSize
     
     func makeUIView(context: Context) -> UIView {
         let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
         let view = UIView(frame: frame)
-        var text = self.text
+        var emojiIndex = 0
+        let filteredEntities = entities.filter {
+            if case .textEntityTypeCustomEmoji = $0.type {
+                return true
+            }
+            return false
+        }
         
         for customEmojiAnimation in customEmojiAnimations {
             let textView = UITextView(frame: frame)
@@ -26,13 +33,10 @@ struct LottieEmojis: UIViewRepresentable {
             textView.textContainer.lineFragmentPadding = 0
             textView.textContainerInset = .zero
             
-            guard let (index, character) = text.enumerated().first(where: { $1.isEmoji }) else {
-                log("Error getting index and character from text: \(text)")
-                continue
-            }
+            let entity = filteredEntities[emojiIndex]
             
             let glyphIndex = textView.layoutManager.glyphIndexForCharacter(
-                at: index // entity.offset + entity.length - 1
+                at: entity.offset + entity.length - 1
             )
             
             var rangeOfCharacter = NSRange()
@@ -53,12 +57,8 @@ struct LottieEmojis: UIViewRepresentable {
             animationView.frame = CGRect(origin: point, size: CGSize(width: 24, height: 24))
             animationView.play()
             
-            guard let characterRange = text.range(of: String(character)) else {
-                log("Error getting characterRange: \(character); \(text)")
-                continue
-            }
+            emojiIndex += 1
             
-            text.replaceSubrange(characterRange, with: "     ") // count = 5
             view.addSubview(animationView)
         }
         

@@ -5,46 +5,39 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-//        Text(attributedString(for: formattedText))
-//            .readSize { textSize = $0 }
-//            .overlay {
-//                if textSize != .zero {
-//                    LottieEmojis(
-//                        customEmojiAnimations: customMessage.customEmojiAnimations,
-//                        text: formattedText.text,
-//                        textSize: textSize
-//                    )
-//                }
-//            }
-        ZStack {
-            Text(formattedText.text)
-                .readSize { textSize = $0 }
-                .opacity(0)
-
-            if textSize != .zero {
-                TextView(formattedText: formattedText,
-                         customEmojiAnimations: customMessage.customEmojiAnimations,
-                         textSize: textSize
-                )
-                .frame(width: textSize.width, height: textSize.height, alignment: .top)
+        Text(attributedString(for: formattedText))
+            .readSize { textSize = $0 }
+            .overlay {
+                if textSize != .zero {
+                    LottieEmojis(
+                        customEmojiAnimations: customMessage.customEmojiAnimations,
+                        entities: formattedText.entities,
+                        text: formattedText.text,
+                        textSize: textSize
+                    )
+                }
             }
-        }
+//        ZStack {
+//            Text(formattedText.text)
+//                .readSize { textSize = $0 }
+//                .opacity(0)
+//
+//            if textSize != .zero {
+//                TextView(formattedText: formattedText,
+//                         customEmojiAnimations: customMessage.customEmojiAnimations,
+//                         textSize: textSize
+//                )
+//                .frame(width: textSize.width, height: textSize.height, alignment: .top)
+//            }
+//        }
     }
     
     func attributedString(for formattedText: FormattedText) -> AttributedString {
         var result = AttributedString(formattedText.text)
-        var emojisProcessed = 0
         
         for entity in formattedText.entities {
-            let offset = entity.offset + (emojisProcessed * 3)
-            var range: Range<AttributedString.Index>
-            if case .textEntityTypeCustomEmoji = entity.type {
-                range = attributedStringRange(for: result, start: offset, length: entity.length - 1)
-            } else {
-                range = attributedStringRange(for: result, start: offset, length: entity.length)
-            }
-            
             let stringRange = stringRange(for: formattedText.text, start: entity.offset, length: entity.length)
+            let range = attributedStringRange(for: result, from: stringRange)
             let raw = String(formattedText.text[stringRange])
             
             switch entity.type {
@@ -75,9 +68,7 @@ extension MessageView {
                         result[range].link = URL(string: "https://\(textEntityTypeTextUrl.url)")
                     }
                 case .textEntityTypeCustomEmoji:
-                    let attrString = AttributedString("     ") // count = 5
-                    result.replaceSubrange(range, with: attrString)
-                    emojisProcessed += 1
+                    result[range].foregroundColor = .clear
                 default:
                     log("Error, not implemented: \(entity.type); for: \(formattedText)")
             }
@@ -102,11 +93,10 @@ extension MessageView {
     
     func attributedStringRange(
         for attrString: AttributedString,
-        start: Int,
-        length: Int
+        from stringRange: Range<String.Index>
     ) -> Range<AttributedString.Index> {
-        let startIndex = attrString.index(attrString.startIndex, offsetByCharacters: start)
-        let endIndex = attrString.index(startIndex, offsetByCharacters: length)
-        return startIndex..<endIndex
+        let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attrString)!
+        let upperBound = AttributedString.Index(stringRange.upperBound, within: attrString)!
+        return lowerBound..<upperBound
     }
 }
