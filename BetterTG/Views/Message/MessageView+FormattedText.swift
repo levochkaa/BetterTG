@@ -10,18 +10,13 @@ extension MessageView {
                 .readSize { textSize = $0 }
                 .opacity(0)
             
-            Text(attributedString(for: formattedText))
+            if textSize != .zero {
+                TextView(formattedText: formattedText,
+                         customEmojiAnimations: customMessage.customEmojiAnimations,
+                         textSize: textSize
+                )
                 .frame(width: textSize.width, height: textSize.height, alignment: .top)
-                .overlay {
-                    if textSize != .zero {
-                        LottieEmojis(
-                            customEmojiAnimations: customMessage.customEmojiAnimations,
-                            text: formattedText.text,
-                            textSize: textSize
-                        )
-                        .allowsHitTesting(false)
-                    }
-                }
+            }
         }
     }
     

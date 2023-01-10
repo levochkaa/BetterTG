@@ -10,7 +10,7 @@ struct LottieEmojis: UIViewRepresentable {
     let textSize: CGSize
     
     func makeUIView(context: Context) -> UIView {
-        var frame = CGRect(x: 0, y: 0, width: textSize.width + 20, height: textSize.height)
+        let frame = CGRect(x: 0, y: 0, width: textSize.width + 20, height: textSize.height)
         let view = UIView(frame: frame)
         var text = self.text
         for customEmojiAnimation in customEmojiAnimations {
@@ -38,7 +38,9 @@ struct LottieEmojis: UIViewRepresentable {
                 }
                 indexLine += 1
             }
-            let point = textView.layoutManager.location(forGlyphAt: index)
+            
+            let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: index)
+            let point = textView.layoutManager.location(forGlyphAt: glyphIndex)
             let resultPoint = CGPoint(x: point.x - 5, y: -1.3 + emojiLine * 22) // just random numbers
             
             let animationView = LottieAnimationView(animation: customEmojiAnimation.lottieAnimation)
