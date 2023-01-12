@@ -68,6 +68,9 @@ extension ChatViewModel {
             audioRecorder.prepareToRecord()
             audioRecorder.record()
             recordingVoiceNote = true
+            Task {
+                await tdSendChatAction(.chatActionRecordingVoiceNote)
+            }
         } catch {
             log("Error creating AudioRecorder: \(error)")
         }
@@ -76,6 +79,9 @@ extension ChatViewModel {
     func mediaStopRecordingVoice(duration: Int, wave: [Float]) {
         audioRecorder.stop()
         recordingVoiceNote = false
+        Task {
+            await tdSendChatAction(.chatActionCancel)
+        }
         
         let intWave: [Int] = wave.compactMap { wave in
             let intWave = abs(Int(wave))
@@ -95,6 +101,7 @@ extension ChatViewModel {
         let waveform = Data(bytesWave).prefix(63)
         
         Task {
+            await tdSendChatAction(.chatActionUploadingVoiceNote(.init(progress: 0)))
             await sendMessageVoiceNote(duration: duration, waveform: waveform)
         }
     }

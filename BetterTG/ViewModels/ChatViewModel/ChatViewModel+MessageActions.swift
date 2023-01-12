@@ -5,6 +5,8 @@ import TDLibKit
 
 extension ChatViewModel {
     func sendMessagePhotos() async {
+        await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
+        
         if displayedPhotos.count == 1, let photo = displayedPhotos.first {
             await tdSendMessage(with: makeInputMessageContent(for: photo.url))
         } else {

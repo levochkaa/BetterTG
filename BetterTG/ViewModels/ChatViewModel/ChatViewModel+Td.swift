@@ -114,6 +114,7 @@ extension ChatViewModel {
                 replyToMessageId: replyMessage?.message.id ?? 0
             )
         } catch {
+            await tdSendChatAction(.chatActionCancel)
             log("Error sending message: \(error)")
         }
     }
@@ -129,6 +130,7 @@ extension ChatViewModel {
                 replyToMessageId: replyMessage?.message.id ?? 0
             )
         } catch {
+            await tdSendChatAction(.chatActionCancel)
             log("Error sending messageAlbum: \(error)")
         }
     }
@@ -145,6 +147,14 @@ extension ChatViewModel {
         } catch {
             log("Error getting chatHistory: \(error)")
             return nil
+        }
+    }
+    
+    func tdSendChatAction(_ chatAction: ChatAction) async {
+        do {
+            _ = try await tdApi.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
+        } catch {
+            log("Error ")
         }
     }
     

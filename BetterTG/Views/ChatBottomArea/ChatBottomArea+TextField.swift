@@ -17,6 +17,12 @@ extension ChatBottomArea {
         .onReceive(viewModel.$text.debounce(for: 2, scheduler: DispatchQueue.main)) { _ in
             Task {
                 await viewModel.updateDraft()
+                
+                if !viewModel.text.isEmpty {
+                    await viewModel.tdSendChatAction(.chatActionTyping)
+                } else {
+                    await viewModel.tdSendChatAction(.chatActionCancel)
+                }
             }
         }
     }
