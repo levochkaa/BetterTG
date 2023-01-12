@@ -14,6 +14,8 @@ struct ChatView: View {
     @FocusState var focused
     @State var showPicker = false
     
+    @State var isScrollToBottomButtonShown = false
+    
     let scroll = "chatScroll"
     @State private var scrollOnFocus = true
     
@@ -104,16 +106,16 @@ struct ChatView: View {
                     let maxY = Int(value.maxY)
                     if maxY > 800 {
                         scrollOnFocus = false
-                        if viewModel.isScrollToBottomButtonShown == false {
+                        if isScrollToBottomButtonShown == false {
                             withAnimation {
-                                viewModel.isScrollToBottomButtonShown = true
+                                isScrollToBottomButtonShown = true
                             }
                         }
                     } else {
                         scrollOnFocus = true
-                        if viewModel.isScrollToBottomButtonShown == true {
+                        if isScrollToBottomButtonShown == true {
                             withAnimation {
-                                viewModel.isScrollToBottomButtonShown = false
+                                isScrollToBottomButtonShown = false
                             }
                         }
                     }
@@ -153,15 +155,15 @@ struct ChatView: View {
         }
         .background(.black)
         .overlay(alignment: .bottomTrailing) {
-            if viewModel.isScrollToBottomButtonShown {
+            if isScrollToBottomButtonShown {
                 Image(systemName: "chevron.down")
                     .padding(10)
                     .background(.black)
                     .clipShape(Circle())
-                    .overlay(
+                    .overlay {
                         Circle()
                             .stroke(.blue, lineWidth: 1)
-                    )
+                    }
                     .padding(.trailing)
                     .onTapGesture {
                         viewModel.scrollToLast()

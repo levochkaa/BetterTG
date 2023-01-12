@@ -586,6 +586,7 @@
 				DFD7D48429423C480006CF85 /* Color */,
 				DFD7D48329423C360006CF85 /* View */,
 				DF0F9D5028CCADB300BCA763 /* TdApi+Updates.swift */,
+				DF7AC2742970A26800D77ACB /* Sequence+Async.swift */,
 				DFECD756292A938B002A4BAD /* Notification+Name.swift */,
 				DFB85D04290EE87A00F66E20 /* Image+File.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter+Publishers.swift */,
@@ -594,7 +595,6 @@
 				DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */,
 				DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */,
 				DF346449296B787D001BE888 /* MainActor+Run.swift */,
-				DF7AC2742970A26800D77ACB /* Sequence+Async.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";

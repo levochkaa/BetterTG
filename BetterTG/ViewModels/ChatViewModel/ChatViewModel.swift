@@ -56,7 +56,6 @@ class ChatViewModel: ObservableObject {
     }
     
     @Published var scrollViewProxy: ScrollViewProxy?
-    @Published var isScrollToBottomButtonShown = false
     
     var initSavedFirstMessage: CustomMessage?
     @Published var savedFirstMessage: CustomMessage?
