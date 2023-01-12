@@ -3,7 +3,6 @@
 import SwiftUI
 import Combine
 import TDLibKit
-import CollectionConcurrencyKit
 
 class RootViewModel: ObservableObject {
     

@@ -3,7 +3,6 @@
 import SwiftUI
 import Combine
 import TDLibKit
-import CollectionConcurrencyKit
 import PhotosUI
 import MobileVLCKit
 
@@ -69,6 +68,9 @@ class ChatViewModel: ObservableObject {
     @Published var loadingMessages = false
     @Published var initLoadingMessages = false
     
+    var offset = 0
+    var limit = 30
+    
     var savedVoiceNoteUrl = URL(filePath: "")
     var audioRecorder = AVAudioRecorder()
     let audioSession = AVAudioSession.sharedInstance()
@@ -79,9 +81,6 @@ class ChatViewModel: ObservableObject {
     @Published var currentTime: Int32 = 0
     @Published var timeSliderValue = 0.0
     @Published var isSeeking = false
-    
-    var offset = 0
-    var limit = 30
     
     @Published var editMessage: CustomMessage? {
         didSet {

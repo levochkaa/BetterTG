@@ -58,7 +58,7 @@
 		DF6480EA29635A8400AEF104 /* Character+IsEmoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */; };
 		DF7AC26F29709BDC00D77ACB /* RootViewModel+Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC26E29709BDC00D77ACB /* RootViewModel+Load.swift */; };
 		DF7AC27129709C0000D77ACB /* RootViewModel+Get.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC27029709C0000D77ACB /* RootViewModel+Get.swift */; };
-		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
+		DF7AC2752970A26800D77ACB /* Sequence+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2742970A26800D77ACB /* Sequence+Async.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
@@ -197,6 +197,7 @@
 		DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Character+IsEmoji.swift"; sourceTree = "<group>"; };
 		DF7AC26E29709BDC00D77ACB /* RootViewModel+Load.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Load.swift"; sourceTree = "<group>"; };
 		DF7AC27029709C0000D77ACB /* RootViewModel+Get.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Get.swift"; sourceTree = "<group>"; };
+		DF7AC2742970A26800D77ACB /* Sequence+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sequence+Async.swift"; sourceTree = "<group>"; };
 		DF7D868A2948ED040089B56C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
@@ -270,7 +271,6 @@
 				DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */,
 				DFDFC6E1293905C600A5919E /* Introspect in Frameworks */,
 				DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */,
-				DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -594,6 +594,7 @@
 				DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */,
 				DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */,
 				DF346449296B787D001BE888 /* MainActor+Run.swift */,
+				DF7AC2742970A26800D77ACB /* Sequence+Async.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -618,7 +619,6 @@
 			);
 			name = BetterTG;
 			packageProductDependencies = (
-				DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */,
 				DF820B6F28D787AD007DD293 /* ArgumentParser */,
 				DF9C5CC0292698BC00ED1CA8 /* TDLibKit */,
 				DFDFC6E0293905C600A5919E /* Introspect */,
@@ -656,7 +656,6 @@
 			);
 			mainGroup = DF4B997528C3F3F50087C1B9;
 			packageReferences = (
-				DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */,
 				DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 				DF9C5CBF292698BC00ED1CA8 /* XCRemoteSwiftPackageReference "TDLibKit" */,
 				DFDFC6DF293905C600A5919E /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */,
@@ -745,6 +744,7 @@
 				DF8ACA1B295F64F70007D5FF /* LottieEmojis.swift in Sources */,
 				DFE026622951144B004C8C83 /* ReplyMessageView+Photo.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
+				DF7AC2752970A26800D77ACB /* Sequence+Async.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* RootView+LastOrDraft.swift in Sources */,
 				DFD9F891292FE54A00D1E03B /* Color+UserId.swift in Sources */,
 				DF236749294148290076B821 /* View+Center.swift in Sources */,
@@ -1041,14 +1041,6 @@
 				kind = branch;
 			};
 		};
-		DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/JohnSundell/CollectionConcurrencyKit";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.2.0;
-			};
-		};
 		DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-argument-parser.git";
@@ -1104,11 +1096,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DF55E2D0295B783F00A30C76 /* XCRemoteSwiftPackageReference "MobileVLCKit" */;
 			productName = MobileVLCKit;
-		};
-		DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF820B5E28D76219007DD293 /* XCRemoteSwiftPackageReference "CollectionConcurrencyKit" */;
-			productName = CollectionConcurrencyKit;
 		};
 		DF820B6F28D787AD007DD293 /* ArgumentParser */ = {
 			isa = XCSwiftPackageProductDependency;
