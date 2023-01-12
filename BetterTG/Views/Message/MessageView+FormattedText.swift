@@ -17,19 +17,6 @@ extension MessageView {
                     )
                 }
             }
-//        ZStack {
-//            Text(formattedText.text)
-//                .readSize { textSize = $0 }
-//                .opacity(0)
-//
-//            if textSize != .zero {
-//                TextView(formattedText: formattedText,
-//                         customEmojiAnimations: customMessage.customEmojiAnimations,
-//                         textSize: textSize
-//                )
-//                .frame(width: textSize.width, height: textSize.height, alignment: .top)
-//            }
-//        }
     }
     
     func attributedString(for formattedText: FormattedText) -> AttributedString {

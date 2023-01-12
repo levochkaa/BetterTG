@@ -3,6 +3,8 @@
 import Foundation
 import Combine
 
+let nc: NotificationCenter = .default
+
 extension NotificationCenter {
     
     static var cancellable = Set<AnyCancellable>()

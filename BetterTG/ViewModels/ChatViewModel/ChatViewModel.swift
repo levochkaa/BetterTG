@@ -105,8 +105,6 @@ class ChatViewModel: ObservableObject {
     @Published var errorMessage = ""
     @Published var errorShown = false
     
-    let tdApi: TdApi = .shared
-    let nc: NotificationCenter = .default
     var cancellable = Set<AnyCancellable>()
     
     init(customChat: CustomChat) {

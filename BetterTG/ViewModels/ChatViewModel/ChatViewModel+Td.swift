@@ -133,15 +133,15 @@ extension ChatViewModel {
         }
     }
     
-    func tdGetChatHistory() async -> Messages? {
+    func tdGetChatHistory() async -> [Message]? {
         do {
-            return try await self.tdApi.getChatHistory(
+            return try await tdApi.getChatHistory(
                 chatId: customChat.chat.id,
                 fromMessageId: self.messages.first?.message.id ?? 0,
                 limit: limit,
                 offset: messages.first == nil ? -offset : 0,
                 onlyLocal: false
-            )
+            ).messages
         } catch {
             log("Error getting chatHistory: \(error)")
             return nil

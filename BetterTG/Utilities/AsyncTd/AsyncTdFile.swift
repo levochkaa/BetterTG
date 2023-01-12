@@ -8,9 +8,6 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @ViewBuilder let content: (File) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
     
-    private let tdApi = TdApi.shared
-    private let nc: NotificationCenter = .default
-    
     @State private var file: File?
     @State private var isDownloaded = true
     

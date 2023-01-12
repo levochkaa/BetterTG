@@ -34,8 +34,6 @@ struct MessageView: View {
     let chevronId = "chevronId"
     let speechId = "speechId"
     
-    let nc: NotificationCenter = .default
-    
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
             if customMessage.replyUser != nil, customMessage.replyToMessage != nil {

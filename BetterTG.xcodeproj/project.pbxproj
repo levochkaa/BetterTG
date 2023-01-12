@@ -56,6 +56,8 @@
 		DF5BD3B3296A2F0B00300BD9 /* NSRange+Index.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */; };
 		DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5D2CA82951D02500A1498B /* VoiceNote.swift */; };
 		DF6480EA29635A8400AEF104 /* Character+IsEmoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */; };
+		DF7AC26F29709BDC00D77ACB /* RootViewModel+Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC26E29709BDC00D77ACB /* RootViewModel+Load.swift */; };
+		DF7AC27129709C0000D77ACB /* RootViewModel+Get.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC27029709C0000D77ACB /* RootViewModel+Get.swift */; };
 		DF820B6028D76219007DD293 /* CollectionConcurrencyKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B5F28D76219007DD293 /* CollectionConcurrencyKit */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
@@ -193,6 +195,8 @@
 		DF5BD3B2296A2F0B00300BD9 /* NSRange+Index.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSRange+Index.swift"; sourceTree = "<group>"; };
 		DF5D2CA82951D02500A1498B /* VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNote.swift; sourceTree = "<group>"; };
 		DF6480E929635A8400AEF104 /* Character+IsEmoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Character+IsEmoji.swift"; sourceTree = "<group>"; };
+		DF7AC26E29709BDC00D77ACB /* RootViewModel+Load.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Load.swift"; sourceTree = "<group>"; };
+		DF7AC27029709C0000D77ACB /* RootViewModel+Get.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Get.swift"; sourceTree = "<group>"; };
 		DF7D868A2948ED040089B56C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
@@ -358,8 +362,8 @@
 				DF0F9D4C28CCAACE00BCA763 /* ViewModels */,
 				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
 				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
-				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
 				DF4B999728C3F6950087C1B9 /* Info.plist */,
+				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
 			);
 			path = BetterTG;
 			sourceTree = "<group>";
@@ -505,6 +509,8 @@
 				DF0F9D4D28CCACE500BCA763 /* RootViewModel.swift */,
 				DFD7D48E294246230006CF85 /* RootViewModel+Td.swift */,
 				DFD7D48C2942443D0006CF85 /* RootViewModel+Publishers.swift */,
+				DF7AC26E29709BDC00D77ACB /* RootViewModel+Load.swift */,
+				DF7AC27029709C0000D77ACB /* RootViewModel+Get.swift */,
 			);
 			path = RootViewModel;
 			sourceTree = "<group>";
@@ -722,6 +728,7 @@
 				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF2AE70D2951192800FF7850 /* ChatViewModel+Get.swift in Sources */,
 				DFD7D499294276BD0006CF85 /* RootView+MainChatsScroll.swift in Sources */,
+				DF7AC26F29709BDC00D77ACB /* RootViewModel+Load.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF2AE7112951198400FF7850 /* ChatViewModel+Draft.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewModel.swift in Sources */,
@@ -788,6 +795,7 @@
 				DFEB06C02959DD490099E2B2 /* RootView+MainChatsList.swift in Sources */,
 				DF5BD3B3296A2F0B00300BD9 /* NSRange+Index.swift in Sources */,
 				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
+				DF7AC27129709C0000D77ACB /* RootViewModel+Get.swift in Sources */,
 				DF2367472940F9810076B821 /* Task+Delayed.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* View+if.swift in Sources */,
 				DFEB06CD295A00C10099E2B2 /* VoiceNote+SpeechResult.swift in Sources */,

@@ -22,9 +22,6 @@ struct RootView: View {
     static let chatListViewHeight = Int(74 + RootView.spacing) // 64 for avatar + (5 * 2) padding around
     static let maxChatsOnScreen = Int(Utils.size.height / CGFloat(RootView.chatListViewHeight))
     
-    let nc: NotificationCenter = .default
-    let tdApi: TdApi = .shared
-    
     @Environment(\.scenePhase) var scenePhase
     
     init() {

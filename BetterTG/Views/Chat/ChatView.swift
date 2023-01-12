@@ -17,9 +17,6 @@ struct ChatView: View {
     let scroll = "chatScroll"
     @State private var scrollOnFocus = true
     
-    let tdApi: TdApi = .shared
-    let nc: NotificationCenter = .default
-    
     init(customChat: CustomChat,
          isPreview: Bool = false,
          openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,

@@ -19,9 +19,6 @@ class LoginViewModel: ObservableObject {
     @Published var hint = ""
     @Published var twoFactor = ""
     
-    let tdApi: TdApi = .shared
-    let nc: NotificationCenter = .default
-    
     init() {
         setPublishers()
         

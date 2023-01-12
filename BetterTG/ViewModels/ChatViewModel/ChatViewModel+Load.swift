@@ -41,7 +41,7 @@ extension ChatViewModel {
         
         guard let chatHistory = await tdGetChatHistory() else { return }
         
-        let chatMessages = chatHistory.messages?.reversed() ?? []
+        let chatMessages = chatHistory.reversed()
         let customMessages = await chatMessages.asyncMap { chatMessage in
             await self.getCustomMessage(from: chatMessage)
         }

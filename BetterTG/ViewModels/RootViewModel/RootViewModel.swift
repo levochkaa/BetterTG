@@ -14,9 +14,6 @@ class RootViewModel: ObservableObject {
     var limit = 10
     var loadingUsers = false
     
-    let tdApi: TdApi = .shared
-    let nc: NotificationCenter = .default
-    
     init() {
         setPublishers()
     }
@@ -24,46 +21,6 @@ class RootViewModel: ObservableObject {
     func fetchChatsHistory() async {
         await mainChats.asyncForEach { customChat in
             await tdGetChatHistory(id: customChat.chat.id)
-        }
-    }
-    
-    func getCustomChat(from id: Int64) async -> CustomChat? {
-        guard let chat = await tdGetChat(id: id) else { return nil }
-        
-        if case .chatTypePrivate = chat.type {
-            guard let user = await tdGetUser(id: id) else { return nil }
-            
-            if case .userTypeRegular = user.type {
-                return CustomChat(chat: chat, user: user)
-            }
-        }
-        
-        return nil
-    }
-    
-    func loadMainChats() async {
-        await tdLoadChats()
-        
-        await MainActor.run {
-            loadingUsers = true
-        }
-        
-        guard let chats = await tdGetChats() else { return }
-        let mainChats = await chats.chatIds.asyncCompactMap { await getCustomChat(from: $0) }
-        let filteredMainChats = mainChats.filter { mainChat in
-            !self.mainChats.contains(where: { mainChat.chat.id == $0.chat.id })
-        }
-        
-        loadedUsers = mainChats.count
-        limit += 10
-        
-        await MainActor.run {
-            self.mainChats.append(contentsOf: filteredMainChats)
-            self.loadingUsers = false
-            
-            withAnimation {
-                self.sortMainChats()
-            }
         }
     }
     

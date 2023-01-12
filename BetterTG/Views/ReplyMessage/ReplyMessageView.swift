@@ -10,8 +10,6 @@ struct ReplyMessageView: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     
-    let nc: NotificationCenter = .default
-    
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
             Capsule()
