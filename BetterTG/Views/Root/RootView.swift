@@ -11,7 +11,6 @@ struct RootView: View {
     @State var showConfirmChatDelete = false
     @State var confirmedChat: Chat?
 
-    @State var openedMessageContextMenu: CustomMessage?
     @State var openedPhotoInfo: OpenedPhotoInfo?
     @Namespace var rootNamespace
     
