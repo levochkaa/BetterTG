@@ -10,7 +10,7 @@ struct GestureButton<Label: View>: View {
     
     init(
         doubleTapTimeout: TimeInterval = 0.5,
-        longPressTime: TimeInterval = 1,
+        longPressTime: TimeInterval = 0.5,
         pressAction: @escaping () -> Void = {},
         releaseAction: @escaping () -> Void = {},
         endAction: @escaping () -> Void = {},
