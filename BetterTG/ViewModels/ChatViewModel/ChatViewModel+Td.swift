@@ -139,9 +139,9 @@ extension ChatViewModel {
         do {
             return try await tdApi.getChatHistory(
                 chatId: customChat.chat.id,
-                fromMessageId: self.messages.first?.message.id ?? 0,
+                fromMessageId: self.messages.last?.message.id ?? 0,
                 limit: limit,
-                offset: messages.first == nil ? -offset : 0,
+                offset: messages.last == nil ? -offset : 0,
                 onlyLocal: false
             ).messages
         } catch {

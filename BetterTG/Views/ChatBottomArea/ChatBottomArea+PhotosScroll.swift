@@ -14,7 +14,7 @@ extension ChatBottomArea {
                         .transition(.scale.combined(with: .opacity))
                         .matchedGeometryEffect(
                             id: "\(photo.id)",
-                            in: openedPhotoNamespace!,
+                            in: rootNamespace!,
                             properties: .frame
                         )
                         .onTapGesture {

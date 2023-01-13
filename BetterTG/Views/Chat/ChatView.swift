@@ -8,8 +8,9 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewModel
     @State var isPreview: Bool
     
+    @Binding var openedMessageContextMenu: CustomMessage?
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
-    var openedPhotoNamespace: Namespace.ID?
+    var rootNamespace: Namespace.ID?
     
     @FocusState var focused
     @State var showPicker = false
@@ -21,18 +22,25 @@ struct ChatView: View {
     
     init(customChat: CustomChat,
          isPreview: Bool = false,
+         openedMessageContextMenu: Binding<CustomMessage?>? = nil,
          openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,
-         openedPhotoNamespace: Namespace.ID? = nil
+         rootNamespace: Namespace.ID? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
         self._isPreview = State(initialValue: isPreview)
+        self.rootNamespace = rootNamespace
+        
+        if let openedMessageContextMenu {
+            self._openedMessageContextMenu = Binding(projectedValue: openedMessageContextMenu)
+        } else {
+            self._openedMessageContextMenu = Binding(get: { nil }, set: { _ in })
+        }
         
         if let openedPhotoInfo {
             self._openedPhotoInfo = Binding(projectedValue: openedPhotoInfo)
         } else {
             self._openedPhotoInfo = Binding(get: { nil }, set: { _ in })
         }
-        self.openedPhotoNamespace = openedPhotoNamespace
     }
     
     var body: some View {
@@ -51,7 +59,7 @@ struct ChatView: View {
                                 ChatBottomArea(
                                     focused: $focused,
                                     openedPhotoInfo: $openedPhotoInfo,
-                                    openedPhotoNamespace: openedPhotoNamespace
+                                    rootNamespace: rootNamespace
                                 )
                             }
                         }
@@ -64,7 +72,7 @@ struct ChatView: View {
                                 ChatBottomArea(
                                     focused: $focused,
                                     openedPhotoInfo: $openedPhotoInfo,
-                                    openedPhotoNamespace: openedPhotoNamespace
+                                    rootNamespace: rootNamespace
                                 )
                             }
                         }
@@ -76,7 +84,6 @@ struct ChatView: View {
                 VStack(spacing: 0) {
                     Text(viewModel.customChat.chat.title)
                     
-                    // make group with different texts and transition
                     Group {
                         if viewModel.actionStatus.isEmpty {
                             Text(viewModel.onlineStatus)
@@ -104,7 +111,7 @@ struct ChatView: View {
                 .coordinateSpace(name: scroll)
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                     let maxY = Int(value.maxY)
-                    if maxY > 800 {
+                    if maxY > 700 {
                         scrollOnFocus = false
                         if isScrollToBottomButtonShown == false {
                             withAnimation {
@@ -117,6 +124,15 @@ struct ChatView: View {
                             withAnimation {
                                 isScrollToBottomButtonShown = false
                             }
+                        }
+                    }
+                    
+                    if viewModel.loadingMessages { return }
+                    
+                    let minY = Int(value.minY)
+                    if minY > -1000 {
+                        Task {
+                            await viewModel.loadMessages()
                         }
                     }
                 }
@@ -165,6 +181,7 @@ struct ChatView: View {
                             .stroke(.blue, lineWidth: 1)
                     }
                     .padding(.trailing)
+                    .padding(.bottom, 5)
                     .onTapGesture {
                         viewModel.scrollToLast()
                     }

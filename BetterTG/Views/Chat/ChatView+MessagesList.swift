@@ -10,13 +10,16 @@ extension ChatView {
                 
                 MessageView(
                     customMessage: customMessage,
+                    focused: $focused,
+                    openedMessageContextMenu: $openedMessageContextMenu,
                     openedPhotoInfo: $openedPhotoInfo,
-                    openedPhotoNamespace: openedPhotoNamespace
+                    rootNamespace: rootNamespace
                 )
                 .frame(
                     maxWidth: Utils.size.width * 0.8,
                     alignment: customMessage.message.isOutgoing ? .trailing : .leading
                 )
+                .flippedUpsideDown()
                 
                 if !customMessage.message.isOutgoing { Spacer() }
             }
@@ -29,24 +32,6 @@ extension ChatView {
                 )
                 .combined(with: .opacity)
             )
-            .onAppear {
-                guard let scrollViewProxy = viewModel.scrollViewProxy else { return }
-                
-                // for init scrollTo bottom
-                if let initSavedFirstMessage = viewModel.initSavedFirstMessage,
-                   customMessage.message.id == initSavedFirstMessage.message.id {
-                    viewModel.scrollToLast()
-                    viewModel.initSavedFirstMessage = nil
-                }
-                
-                // for scrollTo top, when loading messages
-                if let savedFirstMessage = viewModel.savedFirstMessage,
-                   let firstId = viewModel.messages.first?.message.id,
-                   customMessage.message.id == firstId {
-                    scrollViewProxy.scrollTo(savedFirstMessage.message.id, anchor: .top)
-                    viewModel.savedFirstMessage = nil
-                }
-            }
         }
     }
 }

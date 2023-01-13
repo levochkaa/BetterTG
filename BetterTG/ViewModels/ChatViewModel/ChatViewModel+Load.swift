@@ -41,8 +41,7 @@ extension ChatViewModel {
         
         guard let chatHistory = await tdGetChatHistory() else { return }
         
-        let chatMessages = chatHistory.reversed()
-        let customMessages = await chatMessages.asyncMap { chatMessage in
+        let customMessages = await chatHistory.asyncMap { chatMessage in
             await self.getCustomMessage(from: chatMessage)
         }
         
@@ -64,13 +63,8 @@ extension ChatViewModel {
             }
         }
         
-        if isInit {
-            initSavedFirstMessage = savedMessages.first
-        }
-        
         await MainActor.run { [savedMessages] in
-            self.savedFirstMessage = self.messages.first
-            self.messages = savedMessages + self.messages
+            self.messages += savedMessages
             self.offset = self.messages.count
             self.loadingMessages = false
             

@@ -7,7 +7,7 @@ struct ChatBottomArea: View {
     var focused: FocusState<Bool>.Binding
     
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
-    var openedPhotoNamespace: Namespace.ID?
+    var rootNamespace: Namespace.ID?
     
     @State var onLongPressVoice = false
     @State var timerCount = 0.0

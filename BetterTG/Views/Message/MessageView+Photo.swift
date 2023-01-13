@@ -10,10 +10,10 @@ extension MessageView {
                 image
                     .resizable()
                     .scaledToFill()
-                    .if(openedPhotoNamespace != nil) {
+                    .if(rootNamespace != nil) {
                         $0.matchedGeometryEffect(
                             id: "\(message.id)",
-                            in: openedPhotoNamespace!,
+                            in: rootNamespace!,
                             properties: .frame
                         )
                     }

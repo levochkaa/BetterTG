@@ -1,6 +1,7 @@
 // RootView.swift
 
 import SwiftUI
+import SwiftUIX
 import TDLibKit
 
 struct RootView: View {
@@ -10,8 +11,9 @@ struct RootView: View {
     @State var showConfirmChatDelete = false
     @State var confirmedChat: Chat?
 
+    @State var openedMessageContextMenu: CustomMessage?
     @State var openedPhotoInfo: OpenedPhotoInfo?
-    @Namespace var openedPhotoNamespace
+    @Namespace var rootNamespace
     
     let chatId = "chatId"
     @Namespace var chatNamespace
@@ -81,11 +83,53 @@ struct RootView: View {
                         }
                     }
             }
+            .overlay {
+                if openedMessageContextMenu != nil {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation {
+                                openedMessageContextMenu = nil
+                            }
+                        }
+                }
+            }
+            .overlayPreferenceValue(BoundsViewModelPreferenceKey.self) { values in
+                if let openedMessageContextMenu,
+                   let preference = values.first(where: { $0.key == openedMessageContextMenu.message.id }) {
+                    GeometryReader { geometryProxy in
+                        let rect = geometryProxy[preference.value.anchor]
+                        
+                        MessageView(
+                            customMessage: openedMessageContextMenu,
+                            isContextMenu: true,
+                            openedMessageContextMenu: $openedMessageContextMenu
+                        )
+                        .environmentObject(preference.value.chatViewModel)
+                        .transition(.identity)
+                        .if(rect.width > 200) {
+                            $0
+                                .frame(width: rect.width, height: rect.height)
+                                .offset(x: rect.minX, y: rect.minY)
+                        } else: {
+                            $0
+                                .frame(width: rect.width, height: rect.height)
+                                .if(!openedMessageContextMenu.message.isOutgoing) {
+                                    $0.offset(x: rect.minX + (200 - rect.width), y: rect.minY)
+                                } else: {
+                                    $0.offset(x: rect.minX - (200 - rect.width), y: rect.minY)
+                                }
+                        }
+                    }
+                }
+            }
             
             if openedPhotoInfo != nil {
                 PhotoViewer(
                     photoInfo: $openedPhotoInfo,
-                    namespace: openedPhotoNamespace
+                    namespace: rootNamespace
                 )
                 .zIndex(1)
             }

@@ -8,8 +8,9 @@ extension RootView {
             NavigationLink {
                 ChatView(
                     customChat: customChat,
+                    openedMessageContextMenu: $openedMessageContextMenu,
                     openedPhotoInfo: $openedPhotoInfo,
-                    openedPhotoNamespace: openedPhotoNamespace
+                    rootNamespace: rootNamespace
                 )
             } label: {
                 chatsListItem(for: customChat.chat)

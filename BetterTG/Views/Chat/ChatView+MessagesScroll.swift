@@ -7,17 +7,6 @@ extension ChatView {
         ScrollView {
             ZStack {
                 LazyVStack {
-                    Group {
-                        if viewModel.loadingMessages {
-                            ProgressView()
-                        } else {
-                            AsyncButton("Load messages") {
-                                await viewModel.loadMessages()
-                            }
-                        }
-                    }
-                    .padding(.vertical, 10)
-                    
                     messagesList
                 }
                 
@@ -30,6 +19,7 @@ extension ChatView {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        .scrollDisabled(viewModel.loadingMessages)
+        .scrollDisabled(openedMessageContextMenu != nil)
+        .flippedUpsideDown()
     }
 }

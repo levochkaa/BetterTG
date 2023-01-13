@@ -57,9 +57,6 @@ class ChatViewModel: ObservableObject {
     
     @Published var scrollViewProxy: ScrollViewProxy?
     
-    var initSavedFirstMessage: CustomMessage?
-    @Published var savedFirstMessage: CustomMessage?
-    
     @Published var savedNewMessages = [Message]()
     @Published var messages = [CustomMessage]()
     @Published var highlightedMessageId: Int64?
