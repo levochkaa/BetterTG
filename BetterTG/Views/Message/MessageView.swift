@@ -7,9 +7,7 @@ import TDLibKit
 struct MessageView: View {
     
     @State var customMessage: CustomMessage
-    @State var isContextMenu: Bool
-    var focused: FocusState<Bool>.Binding?
-    @Binding var openedMessageContextMenu: CustomMessage?
+    
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
     var rootNamespace: Namespace.ID?
     
@@ -37,84 +35,7 @@ struct MessageView: View {
     let chevronId = "chevronId"
     let speechId = "speechId"
     
-    init(
-        customMessage: CustomMessage,
-        isContextMenu: Bool = false,
-        focused: FocusState<Bool>.Binding? = nil,
-        openedMessageContextMenu: Binding<CustomMessage?>? = nil,
-        openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,
-        rootNamespace: Namespace.ID? = nil
-    ) {
-        self._customMessage = State(initialValue: customMessage)
-        self._isContextMenu = State(initialValue: isContextMenu)
-        self.focused = focused
-        self.rootNamespace = rootNamespace
-        
-        if let openedMessageContextMenu {
-            self._openedMessageContextMenu = Binding(projectedValue: openedMessageContextMenu)
-        } else {
-            self._openedMessageContextMenu = Binding(get: { nil }, set: { _ in })
-        }
-        
-        if let openedPhotoInfo {
-            self._openedPhotoInfo = Binding(projectedValue: openedPhotoInfo)
-        } else {
-            self._openedPhotoInfo = Binding(get: { nil }, set: { _ in })
-        }
-    }
-    
     var body: some View {
-        GestureButton {
-            focused?.wrappedValue = false
-        } longPressAction: {
-            withAnimation {
-                openedMessageContextMenu = customMessage
-            }
-        } doubleTapAction: {
-            log("Double tap on message detected, reactions aren't implemented")
-        } label: {
-            ZStack(alignment: isOutgoing ? .bottomTrailing : .bottomLeading) {
-                bodyView
-                    .if(openedMessageContextMenu?.message.id == customMessage.message.id && !isContextMenu) {
-                        $0.opacity(0)
-                    }
-                    // com.apple.SwiftUI.AsyncRenderer (23): EXC_BAD_ACCESS (code=2, address=0x16e2fb418)
-                    // .if(rootNamespace != nil) {
-                    //     $0.matchedGeometryEffect(id: customMessage.message.id, in: rootNamespace!)
-                    // }
-                    .anchorPreference(key: BoundsViewModelPreferenceKey.self, value: .bounds) {
-                        [customMessage.message.id: BoundsAnchorWithChatViewModel(anchor: $0, chatViewModel: viewModel)]
-                    }
-                    .onAppear {
-                        isOutgoing = customMessage.message.isOutgoing
-                    }
-                    .onReceive(nc.publisher(for: .messageEdited)) { notification in
-                        guard let messageEdited = notification.object as? UpdateMessageEdited,
-                              messageEdited.chatId == customMessage.message.chatId,
-                              messageEdited.messageId == customMessage.message.id
-                        else { return }
-                        
-                        Task {
-                            guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
-                            else { return }
-                            
-                            await MainActor.run {
-                                withAnimation {
-                                    self.customMessage = customMessage
-                                }
-                            }
-                        }
-                    }
-                
-                if isContextMenu {
-                    customContextMenu
-                        .offset(x: 0, y: contextMenuOffset(for: customMessage.message))
-                }
-            }
-        }
-    }
-    
-    @ViewBuilder var bodyView: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
             if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
@@ -148,6 +69,26 @@ struct MessageView: View {
                     .readSize { editWidth = $0.width }
             }
         }
+        .onAppear {
+            isOutgoing = customMessage.message.isOutgoing
+        }
+        .onReceive(nc.publisher(for: .messageEdited)) { notification in
+            guard let messageEdited = notification.object as? UpdateMessageEdited,
+                  messageEdited.chatId == customMessage.message.chatId,
+                  messageEdited.messageId == customMessage.message.id
+            else { return }
+            
+            Task {
+                guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
+                else { return }
+                
+                await MainActor.run {
+                    withAnimation {
+                        self.customMessage = customMessage
+                    }
+                }
+            }
+        }
     }
     
     func backgroundColor(for type: MessagePart) -> Color {
@@ -160,14 +101,5 @@ struct MessageView: View {
             default:
                 return customMessage.sendFailed ? .red : .gray6
         }
-    }
-    
-    func contextMenuOffset(for msg: Message) -> CGFloat {
-        var count: CGFloat = 0
-        if msg.canBeEdited { count += 1 }
-        if msg.canBeDeletedForAllUsers { count += 1 }
-        if msg.canBeDeletedOnlyForSelf { count += 1 }
-        if !msg.isChannelPost { count += 1 }
-        return count * 40 + 10
     }
 }

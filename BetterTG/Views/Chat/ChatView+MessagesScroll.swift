@@ -19,7 +19,6 @@ extension ChatView {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        .scrollDisabled(openedMessageContextMenu != nil)
         .flippedUpsideDown()
     }
 }

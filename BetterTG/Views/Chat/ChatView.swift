@@ -8,7 +8,6 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewModel
     @State var isPreview: Bool
     
-    @Binding var openedMessageContextMenu: CustomMessage?
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
     var rootNamespace: Namespace.ID?
     
@@ -22,19 +21,12 @@ struct ChatView: View {
     
     init(customChat: CustomChat,
          isPreview: Bool = false,
-         openedMessageContextMenu: Binding<CustomMessage?>? = nil,
          openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,
          rootNamespace: Namespace.ID? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
         self._isPreview = State(initialValue: isPreview)
         self.rootNamespace = rootNamespace
-        
-        if let openedMessageContextMenu {
-            self._openedMessageContextMenu = Binding(projectedValue: openedMessageContextMenu)
-        } else {
-            self._openedMessageContextMenu = Binding(get: { nil }, set: { _ in })
-        }
         
         if let openedPhotoInfo {
             self._openedPhotoInfo = Binding(projectedValue: openedPhotoInfo)
