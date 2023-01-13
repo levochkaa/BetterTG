@@ -6,11 +6,10 @@ extension ChatBottomArea {
     @ViewBuilder var voiceNoteRecording: some View {
         HStack(alignment: .center, spacing: 0) {
             Button {
-                // make it optional in custom settings
                 withAnimation {
-                    // viewModel.mediaPlayer.stopRecording()
-                    // try? FileManager.default.removeItem(at: viewModel.savedVoiceNoteUrl)
-                    // recordingVoice = false
+                    viewModel.mediaPlayer.stopRecording()
+                    try? FileManager.default.removeItem(at: viewModel.savedVoiceNoteUrl)
+                    viewModel.recordingVoiceNote = false
                 }
             } label: {
                 Image(systemName: "xmark")
