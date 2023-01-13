@@ -8,7 +8,6 @@ extension RootView {
             NavigationLink {
                 ChatView(
                     customChat: customChat,
-                    openedMessageContextMenu: $openedMessageContextMenu,
                     openedPhotoInfo: $openedPhotoInfo,
                     rootNamespace: rootNamespace
                 )

@@ -10,8 +10,6 @@ extension ChatView {
                 
                 MessageView(
                     customMessage: customMessage,
-                    focused: $focused,
-                    openedMessageContextMenu: $openedMessageContextMenu,
                     openedPhotoInfo: $openedPhotoInfo,
                     rootNamespace: rootNamespace
                 )
