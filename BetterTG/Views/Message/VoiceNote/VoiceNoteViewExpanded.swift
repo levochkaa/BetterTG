@@ -1,5 +1,6 @@
 // VoiceNoteViewExpanded.swift
 
+import SwiftUI
 import SwiftUIX
 import TDLibKit
 

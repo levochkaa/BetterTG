@@ -19,7 +19,7 @@ extension ChatViewModel {
             highlightedMessageId = id
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task.async(after: 0.5) {
             withAnimation {
                 self.highlightedMessageId = nil
             }

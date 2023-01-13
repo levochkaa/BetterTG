@@ -69,15 +69,15 @@ extension TdApi {
                 self.updateChatAction(updateChatAction)
                 nc.post(name: .chatAction, object: updateChatAction)
             case .updateFile(let updateFile):
-                Task { @MainActor in
+                Task.main {
                     nc.post(name: .file, object: updateFile)
                 }
             case .updateNewMessage(let updateNewMessage):
-                Task { @MainActor in
+                Task.main {
                     nc.post(name: .newMessage, object: updateNewMessage)
                 }
             case .updateMessageEdited(let updateMessageEdited):
-                Task { @MainActor in
+                Task.main {
                     nc.post(name: .messageEdited, object: updateMessageEdited)
                 }
             case .updateChatLastMessage(let updateChatLastMessage):

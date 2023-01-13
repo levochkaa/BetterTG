@@ -1,5 +1,6 @@
 // MessageView+Corners.swift
 
+import SwiftUI
 import SwiftUIX
 
 extension MessageView {

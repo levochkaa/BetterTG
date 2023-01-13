@@ -188,7 +188,7 @@ extension ChatViewModel {
         guard let index = self.messages.firstIndex(where: { $0.message.id == messageSendFailed.oldMessageId })
         else { return }
         
-        Task { @MainActor in
+        Task.main {
             withAnimation {
                 self.messages[index].sendFailed = true
             }
@@ -220,7 +220,7 @@ extension ChatViewModel {
     func deleteMessages(_ deleteMessages: UpdateDeleteMessages) {
         if deleteMessages.fromCache || !deleteMessages.isPermanent { return }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.15) {
+        Task.async(after: Utils.defaultAnimationDuration + 0.15) {
             withAnimation {
                 self.messages.removeAll(where: { customMessage in
                     deleteMessages.messageIds.contains(customMessage.message.id)

@@ -46,12 +46,7 @@ struct RootView: View {
             }
         }
         .onAppear {
-            let window = UIApplication
-                .shared
-                .connectedScenes
-                .compactMap { ($0 as? UIWindowScene)?.keyWindow }
-                .first
-            window?.overrideUserInterfaceStyle = .dark
+            UIApplication.window?.overrideUserInterfaceStyle = .dark
         }
     }
     

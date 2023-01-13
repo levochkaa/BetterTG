@@ -10,7 +10,7 @@ extension MessageView {
                     withAnimation {
                         viewModel.replyMessage = nil
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.05) {
+                    Task.async(after: Utils.defaultAnimationDuration + 0.05) {
                         withAnimation {
                             viewModel.replyMessage = customMessage
                         }
@@ -31,7 +31,7 @@ extension MessageView {
                     withAnimation {
                         viewModel.editMessage = nil
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Utils.defaultAnimationDuration + 0.05) {
+                    Task.async(after: Utils.defaultAnimationDuration + 0.05) {
                         withAnimation {
                             viewModel.editMessage = customMessage
                         }
@@ -40,7 +40,6 @@ extension MessageView {
                     withAnimation {
                         viewModel.editMessage = customMessage
                     }
-                    
                 }
             } label: {
                 Label("Edit", systemImage: "square.and.pencil")

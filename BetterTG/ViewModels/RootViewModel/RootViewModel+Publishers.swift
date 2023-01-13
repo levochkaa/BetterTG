@@ -13,7 +13,7 @@ extension RootViewModel {
             nc.publisher(for: .waitCode),
             nc.publisher(for: .waitPassword)
         ]) { _ in
-            Task { @MainActor in
+            Task.main {
                 self.loggedIn = false
             }
         }
@@ -45,7 +45,7 @@ extension RootViewModel {
     }
     
     func chatPosition(_ chatPosition: UpdateChatPosition) {
-        Task { @MainActor in
+        Task.main {
             withAnimation {
                 sortMainChats()
             }
@@ -64,7 +64,7 @@ extension RootViewModel {
                     self.mainChats[index] = customChat
                 }
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                Task.async(after: 0.1) {
                     withAnimation {
                         self.sortMainChats()
                     }
@@ -85,7 +85,7 @@ extension RootViewModel {
                     self.mainChats[index] = customChat
                 }
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                Task.async(after: 0.1) {
                     withAnimation {
                         self.sortMainChats()
                     }
