@@ -63,8 +63,14 @@ extension ChatViewModel {
             }
         }
         
-        await MainActor.run { [savedMessages] in
-            self.messages += savedMessages
+        let filteredSavedMessages = savedMessages.filter { savedMessage in
+            !messages.contains(where: {
+                $0.message.id == savedMessage.message.id
+            })
+        }
+        
+        await MainActor.run {
+            self.messages += filteredSavedMessages
             self.offset = self.messages.count
             self.loadingMessages = false
             

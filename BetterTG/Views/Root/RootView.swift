@@ -76,9 +76,11 @@ struct RootView: View {
                         isPresented: $showConfirmChatDelete,
                         titleVisibility: .visible
                     ) {
-                        AsyncButton("Delete", role: .destructive) {
-                            guard let id = await confirmedChat?.id else { return }
-                            await viewModel.tdDeleteChat(id: id)
+                        Button("Delete", role: .destructive) {
+                            guard let id = confirmedChat?.id else { return }
+                            Task {
+                                await viewModel.tdDeleteChat(id: id)
+                            }
                         }
                     }
             }

@@ -45,19 +45,33 @@ struct MessageView: View {
                     .readSize { replyWidth = $0.width }
             }
             
-            messageContent
-                .clipShape(RoundedRectangle(cornerRadius: 15))
-                .padding(1)
-                .background(backgroundColor(for: .content))
-                .cornerRadius(corners(for: .content), 15)
-                .readSize { contentWidth = $0.width }
+            HStack(alignment: .center, spacing: 5) {
+                if textWidth == .zero && isOutgoing {
+                    menuButton
+                }
+                
+                messageContent
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
+                    .padding(1)
+                    .background(backgroundColor(for: .content))
+                    .cornerRadius(corners(for: .content), 15)
+                    .readSize { contentWidth = $0.width }
+                
+                if textWidth == .zero && !isOutgoing {
+                    menuButton
+                }
+            }
             
             messageText
                 .multilineTextAlignment(.leading)
                 .padding(8)
+                .foregroundColor(.white)
                 .background(backgroundColor(for: .text))
                 .cornerRadius(corners(for: .text), 15)
                 .readSize { textWidth = $0.width }
+                .menuOnPress {
+                    menu
+                }
             
             if customMessage.message.editDate != 0 {
                 Text("edited")

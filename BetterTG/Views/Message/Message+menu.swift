@@ -1,11 +1,12 @@
 // MessageView+ContextMenu.swift
 
 import SwiftUI
+import SwiftUIX
 
 extension MessageView {
-    @ViewBuilder var contextMenu: some View {
+    @ViewBuilder var menu: some View {
         if !customMessage.message.isChannelPost {
-            Button {
+            Button("Reply", systemImage: .arrowshapeTurnUpLeft) {
                 if viewModel.replyMessage != nil {
                     withAnimation {
                         viewModel.replyMessage = nil
@@ -20,13 +21,11 @@ extension MessageView {
                         viewModel.replyMessage = customMessage
                     }
                 }
-            } label: {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
             }
         }
         
         if customMessage.message.canBeEdited {
-            Button {
+            Button("Edit", systemImage: .squareAndPencil) {
                 if viewModel.editMessage != nil {
                     withAnimation {
                         viewModel.editMessage = nil
@@ -41,32 +40,36 @@ extension MessageView {
                         viewModel.editMessage = customMessage
                     }
                 }
-            } label: {
-                Label("Edit", systemImage: "square.and.pencil")
             }
         }
         
         Divider()
         
-        if customMessage.message.canBeDeletedOnlyForSelf {
-            AsyncButton(role: .destructive) {
-                await viewModel.deleteMessage(
-                    id: customMessage.message.id,
-                    deleteForBoth: false
-                )
-            } label: {
-                Label("Delete for me", systemImage: "trash")
+        Menu("Delete") {
+            if customMessage.message.canBeDeletedOnlyForSelf {
+                Button(role: .destructive) {
+                    Task {
+                        await viewModel.deleteMessage(
+                            id: customMessage.message.id,
+                            deleteForBoth: false
+                        )
+                    }
+                } label: {
+                    Label("Delete only for me", systemImage: "trash")
+                }
             }
-        }
-        
-        if customMessage.message.canBeDeletedForAllUsers {
-            AsyncButton(role: .destructive) {
-                await viewModel.deleteMessage(
-                    id: customMessage.message.id,
-                    deleteForBoth: true
-                )
-            } label: {
-                Label("Delete for both", systemImage: "trash.fill")
+            
+            if customMessage.message.canBeDeletedForAllUsers {
+                Button(role: .destructive) {
+                    Task {
+                        await viewModel.deleteMessage(
+                            id: customMessage.message.id,
+                            deleteForBoth: true
+                        )
+                    }
+                } label: {
+                    Label("Delete for both", systemImage: "trash.fill")
+                }
             }
         }
     }

@@ -6,7 +6,7 @@ extension ChatView {
     @ViewBuilder var messagesScroll: some View {
         ScrollView {
             ZStack {
-                LazyVStack {
+                LazyVStack(spacing: 5) {
                     messagesList
                 }
                 

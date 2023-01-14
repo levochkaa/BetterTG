@@ -92,6 +92,18 @@ struct ChatView: View {
                     .animation(.default, value: viewModel.onlineStatus)
                 }
             }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let profilePhoto = viewModel.customChat.user.profilePhoto {
+                    Image(file: profilePhoto.small)
+                        .resizable()
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+                        .equatable(by: viewModel.customChat.user.profilePhoto)
+                } else {
+                    PlaceholderView(userId: viewModel.customChat.user.id, title: viewModel.customChat.user.firstName)
+                }
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .environmentObject(viewModel)
@@ -103,7 +115,7 @@ struct ChatView: View {
                 .coordinateSpace(name: scroll)
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                     let maxY = Int(value.maxY)
-                    if maxY > 700 {
+                    if maxY > 800 {
                         scrollOnFocus = false
                         if isScrollToBottomButtonShown == false {
                             withAnimation {
