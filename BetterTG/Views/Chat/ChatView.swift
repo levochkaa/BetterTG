@@ -94,15 +94,22 @@ struct ChatView: View {
             }
             
             ToolbarItem(placement: .navigationBarTrailing) {
-                if let profilePhoto = viewModel.customChat.user.profilePhoto {
-                    Image(file: profilePhoto.small)
-                        .resizable()
-                        .frame(width: 32, height: 32)
-                        .clipShape(Circle())
-                        .equatable(by: viewModel.customChat.user.profilePhoto)
-                } else {
-                    PlaceholderView(userId: viewModel.customChat.user.id, title: viewModel.customChat.user.firstName)
+                Group {
+                    if let chatPhoto = viewModel.customChat.chat.photo {
+                        Image(file: chatPhoto.small)
+                            .resizable()
+                            .scaledToFit()
+                            .equatable(by: viewModel.customChat.chat.photo)
+                    } else {
+                        PlaceholderView(
+                            userId: viewModel.customChat.user.id,
+                            title: viewModel.customChat.user.firstName,
+                            fontSize: 20
+                        )
+                    }
                 }
+                .frame(width: 32, height: 32)
+                .clipShape(Circle())
             }
         }
         .navigationBarTitleDisplayMode(.inline)
