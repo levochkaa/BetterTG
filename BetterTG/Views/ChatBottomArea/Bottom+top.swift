@@ -3,7 +3,7 @@
 import SwiftUI
 
 extension ChatBottomArea {
-    @ViewBuilder var top: some View {
+    @ViewBuilder var topSide: some View {
         switch viewModel.bottomAreaState {
             case .edit:
                 if let editMessage = viewModel.editMessage {

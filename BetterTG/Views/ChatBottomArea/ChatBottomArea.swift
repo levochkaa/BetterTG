@@ -22,7 +22,7 @@ struct ChatBottomArea: View {
     
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
-            top
+            topSide
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             
             if !viewModel.displayedPhotos.isEmpty {
