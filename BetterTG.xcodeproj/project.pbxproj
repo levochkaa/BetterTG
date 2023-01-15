@@ -36,6 +36,7 @@
 		DF346448296B72D4001BE888 /* Message+formattedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346447296B72D4001BE888 /* Message+formattedText.swift */; };
 		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
+		DF3BC41829740BB7002F207B /* Message+bottomText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC41729740BB7002F207B /* Message+bottomText.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
@@ -79,7 +80,6 @@
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
 		DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */; };
 		DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */; };
-		DFA94884297368CB006658D9 /* Message+menuButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA94883297368CB006658D9 /* Message+menuButton.swift */; };
 		DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC15294A44F200BE749C /* MediaAlbum.swift */; };
 		DFB5CC18294A512A00BE749C /* hideKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC17294A512A00BE749C /* hideKeyboard.swift */; };
 		DFB85D05290EE87A00F66E20 /* Image.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D04290EE87A00F66E20 /* Image.swift */; };
@@ -182,6 +182,7 @@
 		DF346447296B72D4001BE888 /* Message+formattedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+formattedText.swift"; sourceTree = "<group>"; };
 		DF346449296B787D001BE888 /* MainActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActor.swift; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
+		DF3BC41729740BB7002F207B /* Message+bottomText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+bottomText.swift"; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
 		DF4B998328C3F3F50087C1B9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -223,7 +224,6 @@
 		DF8DE3912956158B001D5163 /* Chat+media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chat+media.swift"; sourceTree = "<group>"; };
 		DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewer.swift; sourceTree = "<group>"; };
 		DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedPhotoInfo.swift; sourceTree = "<group>"; };
-		DFA94883297368CB006658D9 /* Message+menuButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+menuButton.swift"; sourceTree = "<group>"; };
 		DFB5CC15294A44F200BE749C /* MediaAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAlbum.swift; sourceTree = "<group>"; };
 		DFB5CC17294A512A00BE749C /* hideKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = hideKeyboard.swift; sourceTree = "<group>"; };
 		DFB85D04290EE87A00F66E20 /* Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Image.swift; sourceTree = "<group>"; };
@@ -598,7 +598,7 @@
 				DFCC2A442950F02C00281EF8 /* Message+menu.swift */,
 				DFE02665295114AB004C8C83 /* Message+photo.swift */,
 				DF346447296B72D4001BE888 /* Message+formattedText.swift */,
-				DFA94883297368CB006658D9 /* Message+menuButton.swift */,
+				DF3BC41729740BB7002F207B /* Message+bottomText.swift */,
 			);
 			path = Message;
 			sourceTree = "<group>";
@@ -785,6 +785,7 @@
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
 				DF5261D5294F4EC700FB7C73 /* Bottom+left.swift in Sources */,
 				DF1717C02971F6410085E698 /* getSize.swift in Sources */,
+				DF3BC41829740BB7002F207B /* Message+bottomText.swift in Sources */,
 				DFD7D491294248DB0006CF85 /* Chat+td.swift in Sources */,
 				DFECD74C292A2286002A4BAD /* Login+code.swift in Sources */,
 				DF2AE70F2951195C00FF7850 /* Chat+scroll.swift in Sources */,
@@ -841,7 +842,6 @@
 				DFD7D48F294246230006CF85 /* Root+td.swift in Sources */,
 				DF5261D9294F505300FB7C73 /* Bottom+photosScroll.swift in Sources */,
 				DF7AC27E2970BC3300D77ACB /* UIApplication.swift in Sources */,
-				DFA94884297368CB006658D9 /* Message+menuButton.swift in Sources */,
 				DF8A42ED296E146C004774F6 /* TextView.swift in Sources */,
 				DF7AC27A2970ADA900D77ACB /* add.swift in Sources */,
 				DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */,

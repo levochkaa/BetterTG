@@ -26,9 +26,9 @@ extension MessageView {
                     corners.append(contentsOf: [.topLeading, .topTrailing])
                 }
                 if (textWidth != 0 && textWidth < contentWidth)
-                    || (textWidth == 0 && editWidth != 0 && editWidth < contentWidth) {
+                    || (textWidth == 0 && bottomTextWidth != 0 && bottomTextWidth < contentWidth) {
                     corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
-                } else if textWidth == 0 && editWidth == 0 {
+                } else if textWidth == 0 && bottomTextWidth == 0 {
                     corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
                 }
             case .text:
@@ -40,16 +40,17 @@ extension MessageView {
                 } else if replyWidth == 0 && contentWidth == 0 {
                     corners.append(contentsOf: [.topLeading, .topTrailing])
                 }
-                if editWidth != 0 && editWidth < textWidth {
+                if bottomTextWidth != 0 && bottomTextWidth < textWidth {
                     corners.append(isOutgoing ? .bottomLeading : .bottomTrailing)
-                } else if editWidth == 0 {
+                } else if bottomTextWidth == 0 {
                     corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
                 }
             case .edit:
                 corners.append(contentsOf: [.bottomLeading, .bottomTrailing])
-                if (textWidth != 0 && textWidth < editWidth) || (contentWidth != 0 && contentWidth < editWidth)
-                    || (textWidth != 0 && textWidth - editWidth < 15)
-                    || (contentWidth != 0 && contentWidth - editWidth < 15) {
+                if (textWidth != 0 && textWidth < bottomTextWidth)
+                    || (contentWidth != 0 && contentWidth < bottomTextWidth)
+                    || (textWidth != 0 && textWidth - bottomTextWidth < 15)
+                    || (contentWidth != 0 && contentWidth - bottomTextWidth < 15) {
                     corners.append(isOutgoing ? .topLeading : .topTrailing)
                 }
         }

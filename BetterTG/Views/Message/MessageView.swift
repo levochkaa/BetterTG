@@ -24,7 +24,7 @@ struct MessageView: View {
     @State var replyWidth: Double = 0
     @State var textWidth: Double = 0
     @State var contentWidth: Double = 0
-    @State var editWidth: Double = 0
+    @State var bottomTextWidth: Double = 0
     
     @State var textSize: CGSize = .zero
     
@@ -45,22 +45,12 @@ struct MessageView: View {
                     .readSize { replyWidth = $0.width }
             }
             
-            HStack(alignment: .center, spacing: 5) {
-                if textWidth == .zero && isOutgoing {
-                    menuButton
-                }
-                
-                messageContent
-                    .clipShape(RoundedRectangle(cornerRadius: 15))
-                    .padding(1)
-                    .background(backgroundColor(for: .content))
-                    .cornerRadius(corners(for: .content), 15)
-                    .readSize { contentWidth = $0.width }
-                
-                if textWidth == .zero && !isOutgoing {
-                    menuButton
-                }
-            }
+            messageContent
+                .clipShape(RoundedRectangle(cornerRadius: 15))
+                .padding(1)
+                .background(backgroundColor(for: .content))
+                .cornerRadius(corners(for: .content), 15)
+                .readSize { contentWidth = $0.width }
             
             messageText
                 .multilineTextAlignment(.leading)
@@ -69,19 +59,17 @@ struct MessageView: View {
                 .background(backgroundColor(for: .text))
                 .cornerRadius(corners(for: .text), 15)
                 .readSize { textWidth = $0.width }
+            
+            bottomText
+                .font(.caption)
+                .foregroundColor(.white).opacity(0.5)
+                .padding(3)
+                .background(backgroundColor(for: .edit))
+                .cornerRadius(corners(for: .edit), 15)
+                .readSize { bottomTextWidth = $0.width }
                 .menuOnPress {
                     menu
                 }
-            
-            if customMessage.message.editDate != 0 {
-                Text("edited")
-                    .font(.caption)
-                    .foregroundColor(.white).opacity(0.5)
-                    .padding(3)
-                    .background(backgroundColor(for: .edit))
-                    .cornerRadius(corners(for: .edit), 15)
-                    .readSize { editWidth = $0.width }
-            }
         }
         .onAppear {
             isOutgoing = customMessage.message.isOutgoing
