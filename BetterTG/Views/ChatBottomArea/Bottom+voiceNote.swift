@@ -7,8 +7,8 @@ extension ChatBottomArea {
         HStack(alignment: .center, spacing: 0) {
             Button {
                 withAnimation {
-                    viewModel.mediaPlayer.stopRecording()
                     try? FileManager.default.removeItem(at: viewModel.savedVoiceNoteUrl)
+                    viewModel.audioRecorder.stop()
                     viewModel.recordingVoiceNote = false
                 }
             } label: {

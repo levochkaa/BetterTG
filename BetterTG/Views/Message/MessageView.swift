@@ -46,6 +46,10 @@ struct MessageView: View {
             }
             
             HStack(alignment: .bottom, spacing: 0) {
+                if case .messageVoiceNote = customMessage.message.content, isOutgoing {
+                    messageOverlayDate
+                }
+                
                 messageContent
                     .clipShape(RoundedRectangle(cornerRadius: 15))
                     .padding(1)
@@ -53,7 +57,7 @@ struct MessageView: View {
                     .cornerRadius(corners(for: .content), 15)
                     .readSize { contentWidth = $0.width }
                 
-                if case .messageVoiceNote = customMessage.message.content {
+                if case .messageVoiceNote = customMessage.message.content, !isOutgoing {
                     messageOverlayDate
                 }
             }

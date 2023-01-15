@@ -35,7 +35,6 @@ extension ChatViewModel {
     func mediaStartRecordingVoice() {
         savedMediaPath = ""
         mediaStop()
-        setAudioSessionRecord()
         
         audioSession.requestRecordPermission { granted in
             if granted {
@@ -188,7 +187,6 @@ extension ChatViewModel {
     }
     
     func mediaPlay() {
-        setAudioSessionPlay()
         mediaPlayer.play()
         isPlaying = true
     }
@@ -203,38 +201,6 @@ extension ChatViewModel {
             savedMediaPath = ""
             mediaPlayer.media = nil
             mediaPlayer.stop()
-        }
-    }
-    
-    func setAudioSessionRecord() {
-        do {
-            try audioSession.setCategory(.record, mode: .default, options: [
-                .allowAirPlay,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .interruptSpokenAudioAndMixWithOthers,
-                .overrideMutedMicrophoneInterruption
-            ])
-            try audioSession.setActive(true)
-        } catch {
-            log("Error setting audioSessionRecord: \(error)")
-        }
-    }
-    
-    func setAudioSessionPlay() {
-        do {
-            try audioSession.setCategory(.playback, mode: .spokenAudio, options: [
-                .allowAirPlay,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .interruptSpokenAudioAndMixWithOthers,
-                .overrideMutedMicrophoneInterruption
-            ])
-            try audioSession.setActive(true)
-        } catch {
-            log("Error setting audioSessionPlay: \(error)")
         }
     }
 }
