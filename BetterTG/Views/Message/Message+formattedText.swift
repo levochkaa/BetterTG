@@ -8,6 +8,7 @@ extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         HStack(alignment: .bottom, spacing: 3) {
             Text(attributedString(for: formattedText))
+                .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
                 .overlay {
                     if textSize != .zero {
