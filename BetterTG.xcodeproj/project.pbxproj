@@ -36,7 +36,7 @@
 		DF346448296B72D4001BE888 /* Message+formattedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346447296B72D4001BE888 /* Message+formattedText.swift */; };
 		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
-		DF3BC41829740BB7002F207B /* Message+bottomText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC41729740BB7002F207B /* Message+bottomText.swift */; };
+		DF3BC41A2974142F002F207B /* Message+date.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC4192974142F002F207B /* Message+date.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
@@ -182,7 +182,7 @@
 		DF346447296B72D4001BE888 /* Message+formattedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+formattedText.swift"; sourceTree = "<group>"; };
 		DF346449296B787D001BE888 /* MainActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActor.swift; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
-		DF3BC41729740BB7002F207B /* Message+bottomText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+bottomText.swift"; sourceTree = "<group>"; };
+		DF3BC4192974142F002F207B /* Message+date.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+date.swift"; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
 		DF4B998328C3F3F50087C1B9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -598,7 +598,7 @@
 				DFCC2A442950F02C00281EF8 /* Message+menu.swift */,
 				DFE02665295114AB004C8C83 /* Message+photo.swift */,
 				DF346447296B72D4001BE888 /* Message+formattedText.swift */,
-				DF3BC41729740BB7002F207B /* Message+bottomText.swift */,
+				DF3BC4192974142F002F207B /* Message+date.swift */,
 			);
 			path = Message;
 			sourceTree = "<group>";
@@ -785,7 +785,6 @@
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
 				DF5261D5294F4EC700FB7C73 /* Bottom+left.swift in Sources */,
 				DF1717C02971F6410085E698 /* getSize.swift in Sources */,
-				DF3BC41829740BB7002F207B /* Message+bottomText.swift in Sources */,
 				DFD7D491294248DB0006CF85 /* Chat+td.swift in Sources */,
 				DFECD74C292A2286002A4BAD /* Login+code.swift in Sources */,
 				DF2AE70F2951195C00FF7850 /* Chat+scroll.swift in Sources */,
@@ -805,6 +804,7 @@
 				DFECD74829293FEE002A4BAD /* Login+phoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* Bottom+voiceNote.swift in Sources */,
 				DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */,
+				DF3BC41A2974142F002F207B /* Message+date.swift in Sources */,
 				DF8ACA1D295F67D30007D5FF /* CustomEmojiAnimation.swift in Sources */,
 				DF2AE715295119F700FF7850 /* Chat+messageActions.swift in Sources */,
 				DFD7D49D294280E20006CF85 /* fullScreenBackground.swift in Sources */,

@@ -1,22 +1,29 @@
 // MessageView+FormattedText.swift
 
 import SwiftUI
+import SwiftUIX
 import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        Text(attributedString(for: formattedText))
-            .readSize { textSize = $0 }
-            .overlay {
-                if textSize != .zero {
-                    LottieEmojis(
-                        customEmojiAnimations: customMessage.customEmojiAnimations,
-                        entities: formattedText.entities,
-                        text: formattedText.text,
-                        textSize: textSize
-                    )
+        HStack(alignment: .bottom, spacing: 3) {
+            Text(attributedString(for: formattedText))
+                .readSize { textSize = $0 }
+                .overlay {
+                    if textSize != .zero {
+                        LottieEmojis(
+                            customEmojiAnimations: customMessage.customEmojiAnimations,
+                            entities: formattedText.entities,
+                            text: formattedText.text,
+                            textSize: textSize
+                        )
+                    }
                 }
-            }
+            
+            messageDate
+                .menuOnPress { menu }
+                .offset(x: 0, y: 3)
+        }
     }
     
     func attributedString(for formattedText: FormattedText) -> AttributedString {
