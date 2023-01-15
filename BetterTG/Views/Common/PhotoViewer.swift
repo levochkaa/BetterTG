@@ -67,8 +67,8 @@ struct PhotoViewer: View {
                     .matchedGeometryEffect(id: "\(photoMessageId)", in: namespace, properties: .frame)
                     .offset(y: position.height)
                     .scaleEffect(scale)
-                    .gesture(dismissGesture)
             }
+            .gesture(dismissGesture)
         }
     }
 }
