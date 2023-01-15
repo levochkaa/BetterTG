@@ -25,7 +25,7 @@ extension ChatView {
             .padding(customMessage.message.isOutgoing ? .trailing : .leading)
             .transition(
                 .asymmetric(
-                    insertion: .move(edge: .bottom),
+                    insertion: .move(edge: .top),
                     removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading)
                 )
                 .combined(with: .opacity)
