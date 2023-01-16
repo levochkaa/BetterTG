@@ -1,4 +1,4 @@
-// TdApi+Updates.swift
+// TdApi.swift
 
 import Foundation
 import TDLibKit

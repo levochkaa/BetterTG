@@ -1,4 +1,4 @@
-// ChatViewModel+MessageActions.swift
+// Chat+messageActions.swift
 
 import SwiftUI
 import TDLibKit

@@ -1,4 +1,4 @@
-// VoiceNote+SpeechResult.swift
+// speechResult.swift
 
 import SwiftUI
 import TDLibKit

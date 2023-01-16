@@ -1,7 +1,6 @@
 // SelectedImage.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
 
 struct SelectedImage: Identifiable {

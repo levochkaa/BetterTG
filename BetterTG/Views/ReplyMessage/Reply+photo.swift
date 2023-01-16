@@ -1,4 +1,4 @@
-// ReplyMessageView+Photo.swift
+// Reply+photo.swift
 
 import SwiftUI
 import TDLibKit

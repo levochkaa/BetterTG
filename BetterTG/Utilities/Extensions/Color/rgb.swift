@@ -1,4 +1,4 @@
-// Color+RGB.swift
+// rgb.swift
 
 import SwiftUI
 

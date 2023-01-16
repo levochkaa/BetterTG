@@ -1,4 +1,4 @@
-// Notification+Name.swift
+// NotificationName.swift
 
 import Foundation
 

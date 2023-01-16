@@ -1,4 +1,4 @@
-// RootViewModel+Publishers.swift
+// Root+publishers.swift
 
 import SwiftUI
 import TDLibKit

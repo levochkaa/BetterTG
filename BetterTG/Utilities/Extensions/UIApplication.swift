@@ -1,4 +1,4 @@
-// UIApplication+Window.swift
+// UIApplication.swift
 
 import SwiftUI
 

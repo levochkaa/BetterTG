@@ -1,4 +1,4 @@
-// ChatBottomArea+Left.swift
+// leftSide.swift
 
 import SwiftUI
 import PhotosUI

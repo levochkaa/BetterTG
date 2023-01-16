@@ -1,7 +1,6 @@
-// RootView+ChatsListItem.swift
+// Root+chatsListItem.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
 
 extension RootView {

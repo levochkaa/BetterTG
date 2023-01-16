@@ -1,4 +1,4 @@
-// RootView+MainChatsList.swift
+// Root+mainChatsList.swift
 
 import SwiftUI
 

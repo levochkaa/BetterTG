@@ -1,4 +1,4 @@
-// NotificationCenter+Publishers.swift
+// NotificationCenter.swift
 
 import Foundation
 import Combine

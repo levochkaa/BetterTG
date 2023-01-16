@@ -1,4 +1,4 @@
-// ChatViewModel+Scroll.swift
+// Chat+scroll.swift
 
 import SwiftUI
 

@@ -4,10 +4,11 @@ import SwiftUI
 import TDLibKit
 import Lottie
 
+/// before using it, check AnimojiView.swift, because not everything is implemented here
 struct TextView: UIViewRepresentable {
     
     let formattedText: FormattedText
-    let customEmojiAnimations: [CustomEmojiAnimation]
+    let customEmojiAnimations: [Animoji]
     let textSize: CGSize
     
     // swiftlint:disable function_body_length
@@ -84,19 +85,19 @@ struct TextView: UIViewRepresentable {
                     ).origin
                     point.y -= 1.5
                     
-                    let animationView = LottieAnimationView(
-                        animation: customEmojiAnimations[emojiIndex].lottieAnimation
-                    )
-                    animationView.loopMode = .loop
-                    animationView.contentMode = .scaleAspectFit
-                    animationView.frame = CGRect(origin: point, size: CGSize(width: 24, height: 24))
-                    animationView.play()
+//                    let animationView = LottieAnimationView(
+//                        animation: animojis[emojiIndex].lottieAnimation
+//                    )
+//                    animationView.loopMode = .loop
+//                    animationView.contentMode = .scaleAspectFit
+//                    animationView.frame = CGRect(origin: point, size: CGSize(width: 24, height: 24))
+//                    animationView.play()
                     
                     emojiIndex += 1
                     
                     attributedText.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
                     
-                    textView.addSubview(animationView)
+//                    textView.addSubview(animationView)
                 default:
                     break
             }

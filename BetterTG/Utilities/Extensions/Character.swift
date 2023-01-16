@@ -1,4 +1,4 @@
-// Character+IsEmoji.swift
+// Character.swift
 
 import Foundation
 

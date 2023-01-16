@@ -1,4 +1,4 @@
-// RootViewModel+Td.swift
+// Root+td.swift
 
 import SwiftUI
 import TDLibKit

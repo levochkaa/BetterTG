@@ -1,4 +1,4 @@
-// Image+File.swift
+// Image.swift
 
 import SwiftUI
 import TDLibKit

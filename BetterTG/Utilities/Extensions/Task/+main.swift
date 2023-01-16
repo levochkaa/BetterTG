@@ -1,4 +1,4 @@
-// Task+MainActor.swift
+// +main.swift
 
 import Foundation
 

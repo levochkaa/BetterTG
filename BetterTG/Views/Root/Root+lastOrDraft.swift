@@ -1,4 +1,4 @@
-// RootView+LastOrDraft.swift
+// Root+lastOrDraft.swift
 
 import SwiftUI
 import TDLibKit

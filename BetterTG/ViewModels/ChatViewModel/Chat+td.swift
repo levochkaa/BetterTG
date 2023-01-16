@@ -1,4 +1,4 @@
-// ChatViewModel+Td.swift
+// Chat+td.swift
 
 import SwiftUI
 import TDLibKit
@@ -66,9 +66,9 @@ extension ChatViewModel {
         }
     }
     
-    func tdDownloadFile(id: Int) async -> File? {
+    func tdDownloadFile(id: Int, synchronous: Bool) async -> File? {
         do {
-            return try await tdApi.downloadFile(fileId: id, limit: 0, offset: 0, priority: 4, synchronous: false)
+            return try await tdApi.downloadFile(fileId: id, limit: 0, offset: 0, priority: 4, synchronous: synchronous)
         } catch {
             log("Error downloading file: \(error)")
             return nil

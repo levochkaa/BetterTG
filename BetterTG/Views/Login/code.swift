@@ -1,21 +1,20 @@
-// LoginView+TwoFactor.swift
+// code.swift
 
 import SwiftUI
 
 extension LoginView {
-    @ViewBuilder var twoFactorView: some View {
+    @ViewBuilder var codeView: some View {
         VStack {
             Spacer()
             
-            Text("2FA Password")
+            Text("Code from Telegram")
                 .font(.largeTitle)
             
             Spacer()
             
-            SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
-                .focused($focusedTwoFactor)
-                .textContentType(.password)
-                .keyboardType(.alphabet)
+            TextField("Code", text: $viewModel.code)
+                .focused($focusedCode)
+                .keyboardType(.numberPad)
                 .padding()
                 .background(Color.gray6)
                 .cornerRadius(10)
@@ -23,7 +22,7 @@ extension LoginView {
             Spacer()
             
             Button {
-                focusedTwoFactor = false
+                focusedCode = false
                 Task {
                     await viewModel.handleAuthorizationState()
                 }
@@ -37,7 +36,7 @@ extension LoginView {
         }
         .padding()
         .onAppear {
-            focusedTwoFactor = true
+            focusedCode = true
         }
     }
 }

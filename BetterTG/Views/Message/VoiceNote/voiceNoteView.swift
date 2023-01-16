@@ -1,4 +1,4 @@
-// VoiceNoteView.swift
+// voiceNoteView.swift
 
 import SwiftUI
 import TDLibKit

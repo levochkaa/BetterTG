@@ -1,4 +1,4 @@
-// MessageView+Text.swift
+// Message+text.swift
 
 import SwiftUI
 

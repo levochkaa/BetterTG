@@ -12,5 +12,5 @@ struct CustomMessage: Identifiable, Equatable {
     var replyToMessage: Message?
     var album = [Message]()
     var sendFailed = false
-    var customEmojiAnimations = [CustomEmojiAnimation]()
+    var animojis = [Animoji]()
 }

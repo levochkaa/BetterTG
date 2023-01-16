@@ -1,7 +1,6 @@
-// MessageView+Content.swift
+// Message+content.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
 
 extension MessageView {

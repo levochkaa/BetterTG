@@ -1,4 +1,4 @@
-// ChatBottomArea+VoiceNote.swift
+// voiceNote.swift
 
 import SwiftUI
 

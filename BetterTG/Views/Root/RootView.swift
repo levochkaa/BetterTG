@@ -1,9 +1,7 @@
 // RootView.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
-import AVKit
 
 struct RootView: View {
     
@@ -25,29 +23,6 @@ struct RootView: View {
     static let maxChatsOnScreen = Int(Utils.size.height / CGFloat(RootView.chatListViewHeight))
     
     @Environment(\.scenePhase) var scenePhase
-    
-    init() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-//        UINavigationBar.appearance().compactAppearance = appearance
-//        UINavigationBar.appearance().standardAppearance = appearance
-//        UINavigationBar.appearance().compactScrollEdgeAppearance = appearance
-        
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .spokenAudio, options: [
-                .allowAirPlay,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .interruptSpokenAudioAndMixWithOthers,
-                .overrideMutedMicrophoneInterruption
-            ])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            log("Error setting audioSessionPlay: \(error)")
-        }
-    }
     
     var body: some View {
         Group {

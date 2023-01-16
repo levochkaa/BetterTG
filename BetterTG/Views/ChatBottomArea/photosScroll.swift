@@ -1,4 +1,4 @@
-// ChatBottomArea+PhotosScroll.swift
+// photosScroll.swift
 
 import SwiftUI
 

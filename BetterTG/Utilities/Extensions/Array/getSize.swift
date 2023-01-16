@@ -1,4 +1,4 @@
-// Array+PhotoSize.swift
+// getSize.swift
 
 import Foundation
 import TDLibKit

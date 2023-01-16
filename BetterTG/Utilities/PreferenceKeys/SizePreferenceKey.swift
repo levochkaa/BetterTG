@@ -3,9 +3,7 @@
 import SwiftUI
 
 struct SizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-         // value = nextValue()
-    }
+    typealias Value = CGSize
+    static var defaultValue: Value = .zero
+    static func reduce(value: inout Value, nextValue: () -> Value) {}
 }

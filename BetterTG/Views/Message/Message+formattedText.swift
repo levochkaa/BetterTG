@@ -1,4 +1,4 @@
-// MessageView+FormattedText.swift
+// Message+formattedText.swift
 
 import SwiftUI
 import SwiftUIX
@@ -6,16 +6,15 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        HStack(alignment: .bottom, spacing: 3) {
+        HStack(alignment: .bottom, spacing: 4) {
             Text(attributedString(for: formattedText))
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
                 .overlay {
                     if textSize != .zero {
-                        LottieEmojis(
-                            customEmojiAnimations: customMessage.customEmojiAnimations,
-                            entities: formattedText.entities,
-                            text: formattedText.text,
+                        AnimojiView(
+                            animojis: customMessage.animojis,
+                            formattedText: formattedText,
                             textSize: textSize
                         )
                     }
@@ -65,7 +64,8 @@ extension MessageView {
                 case .textEntityTypeCustomEmoji:
                     result[range].foregroundColor = .clear
                 default:
-                    log("Error, not implemented: \(entity.type); for: \(formattedText)")
+//                    log("Error, not implemented: \(entity.type); for: \(formattedText)")
+                    continue
             }
         }
         

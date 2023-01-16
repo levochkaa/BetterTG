@@ -1,4 +1,4 @@
-// MessageView+Photo.swift
+// Message+photo.swift
 
 import SwiftUI
 import TDLibKit

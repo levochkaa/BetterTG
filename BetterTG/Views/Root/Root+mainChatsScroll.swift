@@ -1,4 +1,4 @@
-// RootView+MainChatsScroll.swift
+// Root+mainChatsScroll.swift
 
 import SwiftUI
 import TDLibKit

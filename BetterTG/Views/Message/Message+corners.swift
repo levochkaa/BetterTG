@@ -1,4 +1,4 @@
-// MessageView+Corners.swift
+// Message+corners.swift
 
 import SwiftUI
 import SwiftUIX
