@@ -71,6 +71,7 @@ class ChatViewModel: ObservableObject {
     var audioRecorder = AVAudioRecorder()
     let audioSession = AVAudioSession.sharedInstance()
     var mediaPlayer = VLCMediaPlayer()
+    @Published var duration = 0
     @Published var recordingVoiceNote = false
     @Published var isPlaying = false
     @Published var savedMediaPath = ""

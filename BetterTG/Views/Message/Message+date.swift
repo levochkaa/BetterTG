@@ -10,15 +10,6 @@ extension MessageView {
             .foregroundColor(.white).opacity(0.5)
     }
     
-    @ViewBuilder var messageOverlayDate: some View {
-        messageDate
-            .padding(3)
-            .background(.gray6)
-            .cornerRadius(15)
-            .padding(5)
-            .menuOnPress { menu }
-    }
-    
     func formatted(_ time: Int) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(time))
         let dateFormatter = DateFormatter()

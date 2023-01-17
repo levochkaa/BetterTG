@@ -25,6 +25,7 @@ extension MessageView {
                     EmptyView()
                 } else {
                     messageOverlayDate
+                        .padding(5)
                 }
             }
         }

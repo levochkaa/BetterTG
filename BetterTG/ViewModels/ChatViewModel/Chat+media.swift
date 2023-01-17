@@ -8,10 +8,13 @@ import TDLibKit
 
 extension ChatViewModel {
     func setMediaPublishers() {
+        setCommandCenterControls()
+        
         mediaPlayer
             .publisher(for: \.time, options: [.new])
             .sink { time in
                 self.currentTime = time.intValue / 1000
+                self.changeCurrentTime()
                 
                 if !self.isSeeking {
                     self.timeSliderValue = Double(time.intValue) / 1000
@@ -51,14 +54,13 @@ extension ChatViewModel {
         }
         
         let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM, // kAudioFormatOpus
+            AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 16000.0,
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.min.rawValue
-//            AVEncoderBitRateKey: 16
         ]
         
-        let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).wav") // oga, ogg, opus
+        let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).wav")
         savedVoiceNoteUrl = url
         
         do {
@@ -139,7 +141,8 @@ extension ChatViewModel {
         return bytesWave
     }
     
-    func mediaToggle(with path: String) {
+    func mediaToggle(with path: String, duration: Int) {
+        self.duration = duration
         withAnimation {
             if savedMediaPath.isEmpty || savedMediaPath != path {
                 savedMediaPath = path
@@ -164,6 +167,7 @@ extension ChatViewModel {
     }
     
     // swiftlint:disable compiler_protocol_init
+    /// seeking to `(timeSliderValue * 1000)`
     func mediaSeekTo() {
         let number = NSNumber(floatLiteral: timeSliderValue * 1000)
         let time = VLCTime(number: number)
@@ -189,6 +193,7 @@ extension ChatViewModel {
     func mediaPlay() {
         mediaPlayer.play()
         isPlaying = true
+        setNowPlaying()
     }
     
     func mediaStop() {

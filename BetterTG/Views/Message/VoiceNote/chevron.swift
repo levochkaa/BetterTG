@@ -3,7 +3,7 @@
 import SwiftUI
 
 extension MessageView {
-    @ViewBuilder func voiceNoteChevron(expanded: Bool, path: String? = nil) -> some View {
+    @ViewBuilder func voiceNoteChevron(expanded: Bool, path: String? = nil, duration: Int) -> some View {
         Image(systemName: (isOutgoing && expanded) || (!isOutgoing && !expanded) ? "chevron.right" : "chevron.left")
             .font(.title)
             .matchedGeometryEffect(id: chevronId, in: voiceNoteNamespace)
@@ -14,7 +14,7 @@ extension MessageView {
                     }
                 } else if let path {
                     if path != viewModel.savedMediaPath {
-                        viewModel.mediaToggle(with: path)
+                        viewModel.mediaToggle(with: path, duration: duration)
                     }
                     withAnimation {
                         isListeningVoiceNote = true

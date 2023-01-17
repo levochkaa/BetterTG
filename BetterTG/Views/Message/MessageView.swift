@@ -20,6 +20,7 @@ struct MessageView: View {
     @Namespace var voiceNoteNamespace
     
     @State var isOutgoing = true
+    @State var text = ""
     
     @State var replyWidth: Double = 0
     @State var textWidth: Double = 0
@@ -46,8 +47,8 @@ struct MessageView: View {
             }
             
             HStack(alignment: .bottom, spacing: 0) {
-                if case .messageVoiceNote = customMessage.message.content, isOutgoing {
-                    messageOverlayDate
+                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content, isOutgoing {
+                    voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
                 
                 messageContent
@@ -57,8 +58,8 @@ struct MessageView: View {
                     .cornerRadius(corners(for: .content), 15)
                     .readSize { contentWidth = $0.width }
                 
-                if case .messageVoiceNote = customMessage.message.content, !isOutgoing {
-                    messageOverlayDate
+                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content, !isOutgoing {
+                    voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
             }
             

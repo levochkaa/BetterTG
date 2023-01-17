@@ -21,7 +21,7 @@ extension MessageView {
             Spacer()
             
             if isOutgoing {
-                voiceNoteChevron(expanded: true)
+                voiceNoteChevron(expanded: true, duration: voiceNote.duration)
             } else {
                 voiceNoteSpeech(for: voiceNote)
             }
@@ -45,7 +45,7 @@ extension MessageView {
             .transition(.scale)
             .matchedGeometryEffect(id: playId, in: voiceNoteNamespace)
             .onTapGesture {
-                viewModel.mediaToggle(with: path)
+                viewModel.mediaToggle(with: path, duration: voiceNote.duration)
             }
             
             SpacingAround {
@@ -59,7 +59,7 @@ extension MessageView {
             if isOutgoing {
                 voiceNoteSpeech(for: voiceNote)
             } else {
-                voiceNoteChevron(expanded: true)
+                voiceNoteChevron(expanded: true, duration: voiceNote.duration)
             }
             
             Spacer()

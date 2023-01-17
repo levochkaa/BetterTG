@@ -43,10 +43,42 @@ extension MessageView {
             }
         }
         
+        Button {
+            UIPasteboard.general.string = text
+        } label: {
+            Label("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait")
+        }
+        
         Divider()
         
-        Menu("Delete") {
-            if customMessage.message.canBeDeletedOnlyForSelf {
+        if customMessage.message.canBeDeletedOnlyForSelf, !customMessage.message.canBeDeletedForAllUsers {
+            Button(role: .destructive) {
+                Task {
+                    await viewModel.deleteMessage(
+                        id: customMessage.message.id,
+                        deleteForBoth: false
+                    )
+                }
+            } label: {
+                Label("Delete only for me", systemImage: "trash")
+            }
+        }
+        
+        if !customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
+            Button(role: .destructive) {
+                Task {
+                    await viewModel.deleteMessage(
+                        id: customMessage.message.id,
+                        deleteForBoth: true
+                    )
+                }
+            } label: {
+                Label("Delete for both", systemImage: "trash.fill")
+            }
+        }
+        
+        if customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
+            Menu("Delete") {
                 Button(role: .destructive) {
                     Task {
                         await viewModel.deleteMessage(
@@ -57,9 +89,7 @@ extension MessageView {
                 } label: {
                     Label("Delete only for me", systemImage: "trash")
                 }
-            }
-            
-            if customMessage.message.canBeDeletedForAllUsers {
+                
                 Button(role: .destructive) {
                     Task {
                         await viewModel.deleteMessage(
