@@ -63,7 +63,9 @@ struct AnimojiView: UIViewRepresentable {
             if isInit {
                 renderAnimoji(animoji, for: view, with: frame)
             } else {
-                view.subviews[emojiIndex].frame = frame
+                UIView.animate(withDuration: Utils.defaultAnimationDuration) {
+                    view.subviews[emojiIndex].frame = frame
+                }
             }
             
             emojiIndex += 1
