@@ -14,8 +14,15 @@ struct AnimojiView: UIViewRepresentable {
     let textSize: CGSize
     
     func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        loadEmojis(for: view, isInit: true)
+        return view
+    }
+    
+    func loadEmojis(for view: UIView, isInit: Bool = false) {
         let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
-        let view = UIView(frame: frame)
+        view.frame = frame
+        
         var emojiIndex = 0
         let filteredEntities = formattedText.entities.filter {
             if case .textEntityTypeCustomEmoji = $0.type { return true }
@@ -53,12 +60,14 @@ struct AnimojiView: UIViewRepresentable {
             
             let frame = CGRect(origin: point, size: CGSize(width: 24, height: 24))
             
-            renderAnimoji(animoji, for: view, with: frame)
+            if isInit {
+                renderAnimoji(animoji, for: view, with: frame)
+            } else {
+                view.subviews[emojiIndex].frame = frame
+            }
             
             emojiIndex += 1
         }
-        
-        return view
     }
     
     func renderAnimoji(_ animoji: Animoji, for view: UIView, with frame: CGRect) {
@@ -98,5 +107,7 @@ struct AnimojiView: UIViewRepresentable {
         }
     }
     
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {
+        loadEmojis(for: uiView)
+    }
 }

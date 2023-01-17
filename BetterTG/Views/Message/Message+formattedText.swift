@@ -17,6 +17,7 @@ extension MessageView {
                             formattedText: formattedText,
                             textSize: textSize
                         )
+                        .equatable(by: textSize)
                     }
                 }
             
