@@ -44,11 +44,12 @@ extension RootViewModel {
         }
     }
     
-    func tdLoadChats(for chatList: ChatList = .chatListMain) async {
+    func tdLoadChats(for chatList: ChatList = .chatListMain) async -> Ok {
         do {
-            _ = try await tdApi.loadChats(chatList: chatList, limit: 200)
+            return try await tdApi.loadChats(chatList: chatList, limit: 200)
         } catch {
             log("Error loading chats: \(error)")
+            return Ok()
         }
     }
     

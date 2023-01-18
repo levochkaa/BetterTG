@@ -20,9 +20,10 @@ extension RootViewModel {
         
         nc.publisher(for: .ready) { _ in
             Task {
-                await tdLoadChats()
+                let ok = await tdLoadChats()
                 
                 await MainActor.run {
+                    mainChatsLoaded = ok
                     loggedIn = true
                 }
             }
@@ -86,7 +87,7 @@ extension RootViewModel {
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
-        if loggedIn != nil, !self.mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
+        if mainChatsLoaded != nil, !self.mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
             Task {
                 guard let customChat = await getCustomChat(from: chatLastMessage.chatId) else { return }
                 

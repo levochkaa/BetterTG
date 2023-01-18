@@ -8,6 +8,7 @@ class RootViewModel: ObservableObject {
     
     @Published var loggedIn: Bool?
     @Published var mainChats = [CustomChat]()
+    @Published var mainChatsLoaded: Ok?
     
     init() {
         setPublishers()
