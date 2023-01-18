@@ -51,13 +51,15 @@ extension RootViewModel {
     
     func newChat(_ newChat: UpdateNewChat) {
         Task {
-            guard let customChat = await getCustomChat(from: newChat.chat.id) else { return }
+            guard let customChat = await getCustomChat(from: newChat.chat.id),
+                  !mainChats.contains(where: { $0.chat.id == customChat.chat.id })
+            else { return }
             
             await MainActor.run {
-                self.mainChats.append(customChat)
+                mainChats.append(customChat)
                 
                 withAnimation {
-                    self.sortMainChats()
+                    sortMainChats()
                 }
             }
         }
