@@ -187,6 +187,10 @@ struct ChatView: View {
                 }
         }
         .background(.black)
+        .dropDestination(for: SelectedImage.self) { items, _ in
+            viewModel.displayedPhotos = Array(items.prefix(10))
+            return true
+        }
         .overlay(alignment: .bottomTrailing) {
             if isScrollToBottomButtonShown {
                 Image(systemName: "chevron.down")
