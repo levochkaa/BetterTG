@@ -7,12 +7,12 @@ extension LoginViewModel {
     func setPublishers() {
         nc.publisher(for: .waitPassword) { notification in
             guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
-            self.loginState = .twoFactor
-            self.hint = waitPassword.passwordHint
+            loginState = .twoFactor
+            hint = waitPassword.passwordHint
         }
         
         nc.publisher(for: .waitCode) { _ in
-            self.loginState = .code
+            loginState = .code
         }
         
         nc.mergeMany([

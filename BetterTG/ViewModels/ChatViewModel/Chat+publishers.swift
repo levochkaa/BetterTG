@@ -9,49 +9,49 @@ extension ChatViewModel {
         
         nc.publisher(for: .messageEdited) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited,
-                  messageEdited.chatId == self.customChat.chat.id
+                  messageEdited.chatId == customChat.chat.id
             else { return }
             self.messageEdited(messageEdited)
         }
         
         nc.publisher(for: .newMessage) { notification in
             guard let message = (notification.object as? UpdateNewMessage)?.message,
-                  message.chatId == self.customChat.chat.id
+                  message.chatId == customChat.chat.id
             else { return }
             self.newMessage(message)
         }
         
         nc.publisher(for: .deleteMessages) { notification in
             guard let deleteMessages = notification.object as? UpdateDeleteMessages,
-                  deleteMessages.chatId == self.customChat.chat.id
+                  deleteMessages.chatId == customChat.chat.id
             else { return }
             self.deleteMessages(deleteMessages)
         }
         
         nc.publisher(for: .messageSendFailed) { notification in
             guard let messageSendFailed = notification.object as? UpdateMessageSendFailed,
-                  messageSendFailed.message.chatId == self.customChat.chat.id
+                  messageSendFailed.message.chatId == customChat.chat.id
             else { return }
             self.messageSendFailed(messageSendFailed)
         }
         
         nc.publisher(for: .messageSendSucceeded) { notification in
             guard let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
-                  messageSendSucceeded.message.chatId == self.customChat.chat.id
+                  messageSendSucceeded.message.chatId == customChat.chat.id
             else { return }
             self.messageSendSucceeded(messageSendSucceeded)
         }
         
         nc.publisher(for: .chatAction) { notification in
             guard let chatAction = notification.object as? UpdateChatAction,
-                  chatAction.chatId == self.customChat.chat.id
+                  chatAction.chatId == customChat.chat.id
             else { return }
             self.chatAction(chatAction)
         }
         
         nc.publisher(for: .userStatus) { notification in
             guard let userStatus = notification.object as? UpdateUserStatus,
-                  userStatus.userId == self.customChat.chat.id
+                  userStatus.userId == customChat.chat.id
             else { return }
             self.userStatus(userStatus.status)
         }
