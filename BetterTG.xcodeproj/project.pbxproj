@@ -312,6 +312,7 @@
 				1A21DB0D4D4C7776F005DB90 /* Chat */,
 				DF5261D1294F477700FB7C73 /* ChatBottomArea */,
 				DFDFC6D92938DFDD00A5919E /* Message */,
+				DFEB06C12959EB750099E2B2 /* VoiceNote */,
 				DFE0265E29511407004C8C83 /* ReplyMessage */,
 			);
 			path = Views;
@@ -589,7 +590,6 @@
 		DFDFC6D92938DFDD00A5919E /* Message */ = {
 			isa = PBXGroup;
 			children = (
-				DFEB06C12959EB750099E2B2 /* VoiceNote */,
 				DF5261DE294F602600FB7C73 /* MessageView.swift */,
 				DFCC2A3A2950EEA300281EF8 /* Message+corners.swift */,
 				DFCC2A402950EF2800281EF8 /* Message+content.swift */,
