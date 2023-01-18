@@ -8,19 +8,13 @@ struct RootView: View {
     @StateObject var viewModel = RootViewModel()
     
     @State var showConfirmChatDelete = false
+    @State var deleteChatForAllUsers = false
     @State var confirmedChat: Chat?
 
     @State var openedPhotoInfo: OpenedPhotoInfo?
     @Namespace var rootNamespace
     
     let chatId = "chatId"
-    @Namespace var chatNamespace
-    
-    let scroll = "rootScroll"
-    
-    static let spacing: CGFloat = 8
-    static let chatListViewHeight = Int(74 + RootView.spacing) // 64 for avatar + (5 * 2) padding around
-    static let maxChatsOnScreen = Int(Utils.size.height / CGFloat(RootView.chatListViewHeight))
     
     @Environment(\.scenePhase) var scenePhase
     
@@ -44,35 +38,28 @@ struct RootView: View {
     @ViewBuilder var bodyView: some View {
         ZStack {
             NavigationStack {
-                mainChatsScroll
-                    .navigationTitle("BetterTG")
-                    .onChange(of: scenePhase) { newPhase in
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        mainChatsList
+                    }
+                    .padding(.top, 8)
+                }
+                .navigationTitle("BetterTG")
+                .onChange(of: scenePhase) { newPhase in
+                    viewModel.handleScenePhase(newPhase)
+                }
+                .confirmationDialog(
+                    "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
+                    isPresented: $showConfirmChatDelete,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        guard let id = confirmedChat?.id else { return }
                         Task {
-                            switch newPhase {
-                                case .active:
-                                    log("App is Active")
-                                    await viewModel.fetchChatsHistory()
-                                case .inactive:
-                                    log("App is Inactive")
-                                case .background:
-                                    log("App is in a Background")
-                                @unknown default:
-                                    log("Unknown state of an App")
-                            }
+                            await viewModel.tdDeleteChatHystory(id: id, forAll: deleteChatForAllUsers)
                         }
                     }
-                    .confirmationDialog(
-                        "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
-                        isPresented: $showConfirmChatDelete,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Delete", role: .destructive) {
-                            guard let id = confirmedChat?.id else { return }
-                            Task {
-                                await viewModel.tdDeleteChat(id: id)
-                            }
-                        }
-                    }
+                }
             }
             
             if openedPhotoInfo != nil {

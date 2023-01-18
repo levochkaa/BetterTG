@@ -22,11 +22,11 @@ struct MessageView: View {
     @State var isOutgoing = true
     @State var text = ""
     
-    @State var forwardedWidth: Double = 0
-    @State var replyWidth: Double = 0
-    @State var contentWidth: Double = 0
-    @State var textWidth: Double = 0
-    @State var editWidth: Double = 0
+    @State var forwardedWidth: Int = 0
+    @State var replyWidth: Int = 0
+    @State var contentWidth: Int = 0
+    @State var textWidth: Int = 0
+    @State var editWidth: Int = 0
     
     @State var textSize: CGSize = .zero
     
@@ -50,7 +50,7 @@ struct MessageView: View {
                 .padding(5)
                 .background(backgroundColor(for: .forwarded))
                 .cornerRadius(corners(for: .forwarded), 15)
-                .readSize { forwardedWidth = $0.width }
+                .readSize { forwardedWidth = Int($0.width) }
             }
             
             if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
@@ -58,7 +58,7 @@ struct MessageView: View {
                     .padding(5)
                     .background(backgroundColor(for: .reply))
                     .cornerRadius(corners(for: .reply), 15)
-                    .readSize { replyWidth = $0.width }
+                    .readSize { replyWidth = Int($0.width) }
             }
             
             HStack(alignment: .bottom, spacing: 0) {
@@ -71,7 +71,7 @@ struct MessageView: View {
                     .padding(1)
                     .background(backgroundColor(for: .content))
                     .cornerRadius(corners(for: .content), 15)
-                    .readSize { contentWidth = $0.width }
+                    .readSize { contentWidth = Int($0.width) }
                 
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content, !isOutgoing {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
@@ -84,7 +84,7 @@ struct MessageView: View {
                 .foregroundColor(.white)
                 .background(backgroundColor(for: .text))
                 .cornerRadius(corners(for: .text), 15)
-                .readSize { textWidth = $0.width }
+                .readSize { textWidth = Int($0.width) }
             
             if customMessage.message.editDate != 0 {
                 Text("edited")
@@ -93,7 +93,7 @@ struct MessageView: View {
                     .padding(3)
                     .background(backgroundColor(for: .edit))
                     .cornerRadius(corners(for: .edit), 15)
-                    .readSize { editWidth = $0.width }
+                    .readSize { editWidth = Int($0.width) }
             }
         }
         .onAppear {

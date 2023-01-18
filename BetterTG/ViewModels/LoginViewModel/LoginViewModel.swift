@@ -19,17 +19,24 @@ class LoginViewModel: ObservableObject {
     @Published var hint = ""
     @Published var twoFactor = ""
     
+    @Published var errorShown = false
+    
     init() {
         setPublishers()
         
         Task {
-            switch await self.tdGetAuthorizationState() {
-                case .authorizationStateWaitPassword:
-                    self.loginState = .twoFactor
-                case .authorizationStateWaitCode:
-                    self.loginState = .code
-                default:
-                    break
+            let authState = await tdGetAuthorizationState()
+            await MainActor.run {
+                switch authState {
+                    case .authorizationStateWaitPassword:
+                        loginState = .twoFactor
+                    case .authorizationStateWaitCode:
+                        loginState = .code
+                    case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
+                        errorShown = true
+                    default:
+                        break
+                }
             }
         }
     }

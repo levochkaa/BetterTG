@@ -1,6 +1,7 @@
 // Root+mainChatsList.swift
 
 import SwiftUI
+import TDLibKit
 
 extension RootView {
     @ViewBuilder var mainChatsList: some View {
@@ -13,20 +14,17 @@ extension RootView {
                 )
             } label: {
                 chatsListItem(for: customChat.chat)
-                    .matchedGeometryEffect(id: customChat.chat.id, in: chatNamespace)
+                    .matchedGeometryEffect(id: customChat.chat.id, in: rootNamespace)
                     .contextMenu {
-                        chatsListContextMenu(for: customChat.chat)
+                        contextMenu(for: customChat.chat)
                     } preview: {
                         NavigationStack {
                             ChatView(customChat: customChat, isPreview: true)
                         }
                     }
             }
-            .onAppear {
-                Task {
-                    // preloading chatHistory
-                    await viewModel.tdGetChatHistory(id: customChat.chat.id)
-                }
+            .task {
+                await viewModel.tdGetChatHistory(id: customChat.chat.id)
             }
         }
     }

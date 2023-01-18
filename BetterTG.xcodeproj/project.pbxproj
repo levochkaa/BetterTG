@@ -64,8 +64,6 @@
 		DF6480EA29635A8400AEF104 /* Character.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6480E929635A8400AEF104 /* Character.swift */; };
 		DF763B062971BCA600334615 /* async.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B052971BCA600334615 /* async.swift */; };
 		DF763B082971BE5B00334615 /* +main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* +main.swift */; };
-		DF7AC26F29709BDC00D77ACB /* Root+load.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC26E29709BDC00D77ACB /* Root+load.swift */; };
-		DF7AC27129709C0000D77ACB /* Root+get.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC27029709C0000D77ACB /* Root+get.swift */; };
 		DF7AC27A2970ADA900D77ACB /* add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* add.swift */; };
 		DF7AC27E2970BC3300D77ACB /* UIApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC27D2970BC3300D77ACB /* UIApplication.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
@@ -100,7 +98,6 @@
 		DFD7D491294248DB0006CF85 /* Chat+td.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D490294248DB0006CF85 /* Chat+td.swift */; };
 		DFD7D493294256B90006CF85 /* Chat+publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D492294256B90006CF85 /* Chat+publishers.swift */; };
 		DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */; };
-		DFD7D499294276BD0006CF85 /* Root+mainChatsScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D498294276BD0006CF85 /* Root+mainChatsScroll.swift */; };
 		DFD7D49B29427B450006CF85 /* Root+chatsListItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49A29427B450006CF85 /* Root+chatsListItem.swift */; };
 		DFD7D49D294280E20006CF85 /* fullScreenBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49C294280E20006CF85 /* fullScreenBackground.swift */; };
 		DFD7D4A229428C6B0006CF85 /* SwiftUIX in Frameworks */ = {isa = PBXBuildFile; productRef = DFD7D4A129428C6B0006CF85 /* SwiftUIX */; };
@@ -129,6 +126,7 @@
 		DFECD753292A7318002A4BAD /* uiColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD752292A7318002A4BAD /* uiColor.swift */; };
 		DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NotificationName.swift */; };
 		DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter.swift */; };
+		DFF44E672978711300B0E74C /* Root+contextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF44E662978711200B0E74C /* Root+contextMenu.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -213,8 +211,6 @@
 		DF6480E929635A8400AEF104 /* Character.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Character.swift; sourceTree = "<group>"; };
 		DF763B052971BCA600334615 /* async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = async.swift; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* +main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+main.swift"; sourceTree = "<group>"; };
-		DF7AC26E29709BDC00D77ACB /* Root+load.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+load.swift"; sourceTree = "<group>"; };
-		DF7AC27029709C0000D77ACB /* Root+get.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+get.swift"; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = add.swift; sourceTree = "<group>"; };
 		DF7AC27D2970BC3300D77ACB /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
 		DF7D868A2948ED040089B56C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -245,7 +241,6 @@
 		DFD7D490294248DB0006CF85 /* Chat+td.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chat+td.swift"; sourceTree = "<group>"; };
 		DFD7D492294256B90006CF85 /* Chat+publishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chat+publishers.swift"; sourceTree = "<group>"; };
 		DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyMessageType.swift; sourceTree = "<group>"; };
-		DFD7D498294276BD0006CF85 /* Root+mainChatsScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+mainChatsScroll.swift"; sourceTree = "<group>"; };
 		DFD7D49A29427B450006CF85 /* Root+chatsListItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+chatsListItem.swift"; sourceTree = "<group>"; };
 		DFD7D49C294280E20006CF85 /* fullScreenBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fullScreenBackground.swift; sourceTree = "<group>"; };
 		DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
@@ -272,6 +267,7 @@
 		DFECD752292A7318002A4BAD /* uiColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = uiColor.swift; sourceTree = "<group>"; };
 		DFECD756292A938B002A4BAD /* NotificationName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationName.swift; sourceTree = "<group>"; };
 		DFECD759292A99FE002A4BAD /* NotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenter.swift; sourceTree = "<group>"; };
+		DFF44E662978711200B0E74C /* Root+contextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+contextMenu.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -511,11 +507,11 @@
 			isa = PBXGroup;
 			children = (
 				DF4B998328C3F3F50087C1B9 /* RootView.swift */,
-				DFD7D498294276BD0006CF85 /* Root+mainChatsScroll.swift */,
 				DFEB06BF2959DD490099E2B2 /* Root+mainChatsList.swift */,
 				DFD7D49A29427B450006CF85 /* Root+chatsListItem.swift */,
 				DFE0265A295112F4004C8C83 /* Root+photo.swift */,
 				DFE0265C2951133A004C8C83 /* Root+lastOrDraft.swift */,
+				DFF44E662978711200B0E74C /* Root+contextMenu.swift */,
 			);
 			path = Root;
 			sourceTree = "<group>";
@@ -559,8 +555,6 @@
 				DF0F9D4D28CCACE500BCA763 /* RootViewModel.swift */,
 				DFD7D48E294246230006CF85 /* Root+td.swift */,
 				DFD7D48C2942443D0006CF85 /* Root+publishers.swift */,
-				DF7AC26E29709BDC00D77ACB /* Root+load.swift */,
-				DF7AC27029709C0000D77ACB /* Root+get.swift */,
 			);
 			path = RootViewModel;
 			sourceTree = "<group>";
@@ -782,8 +776,6 @@
 				DFEB06C92959EE740099E2B2 /* speech.swift in Sources */,
 				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF2AE70D2951192800FF7850 /* Chat+get.swift in Sources */,
-				DFD7D499294276BD0006CF85 /* Root+mainChatsScroll.swift in Sources */,
-				DF7AC26F29709BDC00D77ACB /* Root+load.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF2AE7112951198400FF7850 /* Chat+draft.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewModel.swift in Sources */,
@@ -824,6 +816,7 @@
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF6480EA29635A8400AEF104 /* Character.swift in Sources */,
 				DFEB06C32959EB860099E2B2 /* voiceNoteView.swift in Sources */,
+				DFF44E672978711300B0E74C /* Root+contextMenu.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */,
 				DFB5CC18294A512A00BE749C /* hideKeyboard.swift in Sources */,
 				DF346448296B72D4001BE888 /* Message+formattedText.swift in Sources */,
@@ -858,7 +851,6 @@
 				DFEB06C02959DD490099E2B2 /* Root+mainChatsList.swift in Sources */,
 				DF1717C52971F76F0085E698 /* flatMap.swift in Sources */,
 				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
-				DF7AC27129709C0000D77ACB /* Root+get.swift in Sources */,
 				DF2367472940F9810076B821 /* delayed.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* if.swift in Sources */,
 				DFEB06CD295A00C10099E2B2 /* speechResult.swift in Sources */,

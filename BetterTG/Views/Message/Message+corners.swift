@@ -11,8 +11,8 @@ extension MessageView {
     
     // swiftlint:disable function_body_length
     func corners(for type: MessagePart) -> [RectangleCorner] {
-        func shouldRoundCorners(for comparingWidth: Double) -> Bool {
-            var value: Double = 0
+        func shouldRoundCorners(for comparingWidth: Int) -> Bool {
+            var value = 0
             switch type {
                 case .forwarded: value = forwardedWidth
                 case .reply: value = replyWidth

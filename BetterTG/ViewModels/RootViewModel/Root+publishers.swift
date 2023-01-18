@@ -14,16 +14,16 @@ extension RootViewModel {
             nc.publisher(for: .waitPassword)
         ]) { _ in
             Task.main {
-                self.loggedIn = false
+                loggedIn = false
             }
         }
         
         nc.publisher(for: .ready) { _ in
             Task {
-                await self.loadMainChats()
+                await tdLoadChats()
                 
                 await MainActor.run {
-                    self.loggedIn = true
+                    loggedIn = true
                 }
             }
         }
@@ -42,17 +42,61 @@ extension RootViewModel {
             guard let chatPosition = notification.object as? UpdateChatPosition else { return }
             self.chatPosition(chatPosition)
         }
+        
+        nc.publisher(for: .newChat) { notification in
+            guard let newChat = notification.object as? UpdateNewChat else { return }
+            self.newChat(newChat)
+        }
+    }
+    
+    func newChat(_ newChat: UpdateNewChat) {
+        Task {
+            guard let customChat = await getCustomChat(from: newChat.chat.id) else { return }
+            
+            await MainActor.run {
+                self.mainChats.append(customChat)
+                
+                withAnimation {
+                    self.sortMainChats()
+                }
+            }
+        }
     }
     
     func chatPosition(_ chatPosition: UpdateChatPosition) {
-        Task.main {
-            withAnimation {
-                sortMainChats()
+        guard let index = mainChats.firstIndex(where: { $0.chat.id == chatPosition.chatId }) else { return }
+        guard chatPosition.position.order != 0 else {
+            return withAnimation {
+                _ = mainChats.remove(at: index)
+            }
+        }
+        
+        Task {
+            guard let customChat = await getCustomChat(from: chatPosition.chatId) else { return }
+            
+            await MainActor.run {
+                withAnimation {
+                    mainChats[index] = customChat
+                    sortMainChats()
+                }
             }
         }
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
+        if loggedIn != nil, !self.mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
+            Task {
+                guard let customChat = await getCustomChat(from: chatLastMessage.chatId) else { return }
+                
+                await MainActor.run {
+                    withAnimation {
+                        mainChats.append(customChat)
+                        sortMainChats()
+                    }
+                }
+            }
+        }
+        
         guard let index = self.mainChats.firstIndex(where: { $0.chat.id == chatLastMessage.chatId })
         else { return }
         
@@ -61,13 +105,8 @@ extension RootViewModel {
             
             await MainActor.run {
                 withAnimation {
-                    self.mainChats[index] = customChat
-                }
-                
-                Task.async(after: 0.1) {
-                    withAnimation {
-                        self.sortMainChats()
-                    }
+                    mainChats[index] = customChat
+                    sortMainChats()
                 }
             }
         }
@@ -82,13 +121,8 @@ extension RootViewModel {
             
             await MainActor.run {
                 withAnimation {
-                    self.mainChats[index] = customChat
-                }
-                
-                Task.async(after: 0.1) {
-                    withAnimation {
-                        self.sortMainChats()
-                    }
+                    mainChats[index] = customChat
+                    sortMainChats()
                 }
             }
         }

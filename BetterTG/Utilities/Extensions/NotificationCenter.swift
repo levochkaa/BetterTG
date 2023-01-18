@@ -11,7 +11,7 @@ extension NotificationCenter {
     
     func publisher(
         for name: Notification.Name,
-        perform: @escaping (Publisher.Output) -> Void
+        @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
     ) {
         self.publisher(for: name)
             .receive(on: RunLoop.main)
@@ -27,7 +27,7 @@ extension NotificationCenter {
     
     func mergeMany(
         _ publishers: [Publisher],
-        perform: @escaping (Publisher.Output) -> Void
+        @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
     ) {
         Publishers.MergeMany(publishers)
             .receive(on: RunLoop.main)

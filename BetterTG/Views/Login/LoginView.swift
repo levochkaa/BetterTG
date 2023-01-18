@@ -33,6 +33,10 @@ struct LoginView: View {
             )
             .animation(.default, value: viewModel.loginState)
             .navigationTitle("Login")
+            // swiftlint:disable multiple_closures_with_trailing_closure
+            .alert("Error", isPresented: $viewModel.errorShown, actions: {}) {
+                Text("There was an error with Authorization state. Please, restart the app.")
+            }
         }
     }
 }
