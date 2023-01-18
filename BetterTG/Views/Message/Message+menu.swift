@@ -43,10 +43,12 @@ extension MessageView {
             }
         }
         
-        Button {
-            UIPasteboard.general.string = text
-        } label: {
-            Label("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait")
+        if !text.isEmpty {
+            Button {
+                UIPasteboard.general.string = text
+            } label: {
+                Label("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait")
+            }
         }
         
         Divider()

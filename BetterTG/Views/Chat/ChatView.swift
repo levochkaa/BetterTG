@@ -102,10 +102,30 @@ struct ChatView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Group {
                     if let chatPhoto = viewModel.customChat.chat.photo {
-                        Image(file: chatPhoto.small)
-                            .resizable()
-                            .scaledToFit()
-                            .equatable(by: viewModel.customChat.chat.photo)
+                        AsyncTdImage(id: chatPhoto.big.id) { image in
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .contextMenu {
+                                    Button {
+                                        guard let uiImage = UIImage(contentsOfFile: chatPhoto.big.local.path)
+                                        else { return }
+                                        UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
+                                    } label: {
+                                        Label("Save", systemImage: "square.and.arrow.down")
+                                    }
+                                } preview: {
+                                    image
+                                        .resizable()
+                                        .scaledToFit()
+                                }
+                        } placeholder: {
+                            PlaceholderView(
+                                userId: viewModel.customChat.user.id,
+                                title: viewModel.customChat.user.firstName,
+                                fontSize: 20
+                            )
+                        }
                     } else {
                         PlaceholderView(
                             userId: viewModel.customChat.user.id,
