@@ -22,9 +22,10 @@ struct MessageView: View {
     @State var isOutgoing = true
     @State var text = ""
     
+    @State var forwardedWidth: Double = 0
     @State var replyWidth: Double = 0
-    @State var textWidth: Double = 0
     @State var contentWidth: Double = 0
+    @State var textWidth: Double = 0
     @State var editWidth: Double = 0
     
     @State var textSize: CGSize = .zero
@@ -38,6 +39,20 @@ struct MessageView: View {
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
+            if let forwardedFrom = customMessage.forwardedFrom {
+                HStack(alignment: .center, spacing: 0) {
+                    Text("FF: ")
+                        .foregroundColor(.white).opacity(0.5)
+                    
+                    Text(forwardedFrom)
+                        .bold()
+                }
+                .padding(5)
+                .background(backgroundColor(for: .forwarded))
+                .cornerRadius(corners(for: .forwarded), 15)
+                .readSize { forwardedWidth = $0.width }
+            }
+            
             if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
                     .padding(5)

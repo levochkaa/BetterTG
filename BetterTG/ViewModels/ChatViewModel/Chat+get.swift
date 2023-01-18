@@ -17,8 +17,9 @@ extension ChatViewModel {
     func getCustomMessage(from message: Message) async -> CustomMessage {
         let replyToMessage = await getReplyToMessage(id: message.replyToMessageId)
         var customMessage = CustomMessage(message: message, replyToMessage: replyToMessage)
-        customMessage.animojis = await getAnimojis(from: customMessage.message.content)
         if message.mediaAlbumId != 0 { customMessage.album.append(message) }
+        customMessage.animojis = await getAnimojis(from: customMessage.message.content)
+        customMessage.forwardedFrom = await getForwardedFrom(message.forwardInfo?.origin)
         
         if case .messageSenderUser(let messageSenderUser) = message.senderId {
             customMessage.senderUser = await tdGetUser(id: messageSenderUser.userId)
@@ -29,6 +30,31 @@ extension ChatViewModel {
         }
         
         return customMessage
+    }
+    
+    func getForwardedFrom(_ origin: MessageForwardOrigin?) async -> String? {
+        guard let origin else { return nil }
+        
+        switch origin {
+            case .messageForwardOriginChat(let chat):
+                if let title = await tdGetChat(id: chat.senderChatId)?.title {
+                    return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
+                } else {
+                    return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
+                }
+            case .messageForwardOriginChannel(let channel):
+                if let title = await tdGetChat(id: channel.chatId)?.title {
+                    return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
+                } else {
+                    return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
+                }
+            case .messageForwardOriginHiddenUser(let messageForwardOriginHiddenUser):
+                return messageForwardOriginHiddenUser.senderName
+            case .messageForwardOriginMessageImport(let messageForwardOriginMessageImport):
+                return messageForwardOriginMessageImport.senderName
+            case .messageForwardOriginUser(let messageForwardOriginUser):
+                return await tdGetUser(id: messageForwardOriginUser.senderUserId)?.firstName
+        }
     }
     
     func getAnimojis(from content: MessageContent) async -> [Animoji] {

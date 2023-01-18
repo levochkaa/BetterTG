@@ -4,6 +4,15 @@ import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {
+    func tdGetChat(id: Int64) async -> Chat? {
+        do {
+            return try await tdApi.getChat(chatId: id)
+        } catch {
+            log("Error getting chat: \(error)")
+            return nil
+        }
+    }
+    
     func tdDeleteMessages(ids: [Int64], deleteForBoth: Bool) async {
         do {
             _ = try await tdApi.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)

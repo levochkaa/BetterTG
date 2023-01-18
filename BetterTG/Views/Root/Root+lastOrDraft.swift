@@ -43,7 +43,7 @@ extension RootView {
                     Text(messagePhoto.caption.text.isEmpty ? "Photo" : messagePhoto.caption.text)
                 }
             case .messageVoiceNote(let messageVoiceNote):
-                HStack(alignment: .bottom) {
+                HStack(alignment: .bottom, spacing: 0) {
                     Text("Voice")
                         .foregroundColor(.white)
                     

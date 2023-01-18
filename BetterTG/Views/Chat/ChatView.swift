@@ -83,7 +83,13 @@ struct ChatView: View {
                             Text(viewModel.actionStatus)
                         }
                     }
-                    .transition(.slide)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .top),
+                            removal: .move(edge: .bottom)
+                        )
+                        .combined(with: .opacity)
+                    )
                     .font(.caption)
                     .foregroundColor(
                         !viewModel.actionStatus.isEmpty || viewModel.onlineStatus == "online" ? .blue : .gray
