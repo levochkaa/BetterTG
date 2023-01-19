@@ -29,6 +29,9 @@ extension ChatBottomArea {
                             Button {
                                 withAnimation {
                                     viewModel.displayedPhotos.removeAll(where: { photo.id == $0.id })
+                                    if viewModel.displayedPhotos.isEmpty {
+                                        viewModel.bottomAreaState = .voice
+                                    }
                                 }
                             } label: {
                                 Image(systemName: "xmark")

@@ -26,6 +26,9 @@ extension ChatViewModel {
         await MainActor.run {
             withAnimation {
                 self.displayedPhotos = processedImages
+                if processedImages.isEmpty {
+                    self.bottomAreaState = .voice
+                }
             }
         }
     }
