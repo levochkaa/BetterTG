@@ -79,6 +79,7 @@
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
 		DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */; };
 		DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */; };
+		DFA214B1297D9BEF00758617 /* uniqued.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA214B0297D9BEF00758617 /* uniqued.swift */; };
 		DFA4E5B029759BAA003B43EF /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = DFA4E5AF29759BAA003B43EF /* SDWebImageWebPCoder */; };
 		DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC15294A44F200BE749C /* MediaAlbum.swift */; };
 		DFB5CC18294A512A00BE749C /* hideKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC17294A512A00BE749C /* hideKeyboard.swift */; };
@@ -223,6 +224,7 @@
 		DF99C02B2976B97F00D7C1DE /* Message+voiceNoteSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+voiceNoteSide.swift"; sourceTree = "<group>"; };
 		DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewer.swift; sourceTree = "<group>"; };
 		DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedPhotoInfo.swift; sourceTree = "<group>"; };
+		DFA214B0297D9BEF00758617 /* uniqued.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = uniqued.swift; sourceTree = "<group>"; };
 		DFB5CC15294A44F200BE749C /* MediaAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAlbum.swift; sourceTree = "<group>"; };
 		DFB5CC17294A512A00BE749C /* hideKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = hideKeyboard.swift; sourceTree = "<group>"; };
 		DFB85D04290EE87A00F66E20 /* Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Image.swift; sourceTree = "<group>"; };
@@ -349,6 +351,7 @@
 			children = (
 				DF7AC2792970ADA900D77ACB /* add.swift */,
 				DF1717BF2971F6410085E698 /* getSize.swift */,
+				DFA214B0297D9BEF00758617 /* uniqued.swift */,
 			);
 			path = Array;
 			sourceTree = "<group>";
@@ -801,6 +804,7 @@
 				DFD7D493294256B90006CF85 /* Chat+publishers.swift in Sources */,
 				DF5261D7294F4FAD00FB7C73 /* rightSide.swift in Sources */,
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
+				DFA214B1297D9BEF00758617 /* uniqued.swift in Sources */,
 				DFECD74829293FEE002A4BAD /* phoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* voiceNote.swift in Sources */,
 				DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */,

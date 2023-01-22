@@ -33,7 +33,7 @@ class RootViewModel: ObservableObject {
     }
     
     @MainActor func sortMainChats() {
-        self.mainChats.sort(by: {
+        mainChats = mainChats.uniqued().sorted {
             let firstPosition = $0.chat.positions.first(where: { $0.list == .chatListMain })
             let secondPosition = $1.chat.positions.first(where: { $0.list == .chatListMain })
             
@@ -42,7 +42,7 @@ class RootViewModel: ObservableObject {
             } else {
                 return $0.chat.id < $1.chat.id
             }
-        })
+        }
     }
     
     func getCustomChat(from id: Int64) async -> CustomChat? {

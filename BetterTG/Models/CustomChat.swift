@@ -3,7 +3,7 @@
 import Foundation
 import TDLibKit
 
-struct CustomChat: Identifiable {
+struct CustomChat: Identifiable, Equatable {
     var id = UUID()
     var chat: Chat
     var user: User
