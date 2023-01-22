@@ -24,7 +24,6 @@ struct BetterTGApp: App {
                 .allowBluetooth,
                 .allowBluetoothA2DP,
                 .defaultToSpeaker,
-                .interruptSpokenAudioAndMixWithOthers,
                 .overrideMutedMicrophoneInterruption
             ])
             try AVAudioSession.sharedInstance().setActive(true)
