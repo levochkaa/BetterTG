@@ -70,7 +70,9 @@ extension RootViewModel {
         guard chatPosition.position.order != 0 else {
             return Task.main {
                 withAnimation {
-                    _ = mainChats.remove(at: index)
+                    if mainChats.count >= index {
+                        _ = mainChats.remove(at: index)
+                    }
                     sortMainChats()
                 }
             }

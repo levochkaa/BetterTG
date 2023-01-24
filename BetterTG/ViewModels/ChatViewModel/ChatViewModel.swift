@@ -49,8 +49,10 @@ class ChatViewModel: ObservableObject {
     }
     @Published var selectedPhotos = [PhotosPickerItem]() {
         didSet {
-            Task {
-                await loadPhotos()
+            if !selectedPhotos.isEmpty {
+                Task {
+                    await loadPhotos()
+                }
             }
         }
     }
