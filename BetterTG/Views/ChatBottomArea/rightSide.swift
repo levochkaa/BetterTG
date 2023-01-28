@@ -18,13 +18,15 @@ extension ChatBottomArea {
                 case .caption:
                     Image(systemName: "arrow.up.circle.fill")
                 case .voice:
-                    Image(systemName: "mic.fill")
-                        .scaleEffect(onLongPressVoice ? 1.8 : 1)
-                        .foregroundColor(viewModel.recordingVoiceNote ? .blue : .white)
-                        .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
+                    if !onLongPressVoice {
+                        Image(systemName: "mic.fill")
+                            .foregroundColor(viewModel.recordingVoiceNote ? .blue : .white)
+                            .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
+                    }
             }
         }
         .font(.title2)
+        .contentShape(Rectangle())
         .transition(.scale)
         .onTapGesture {
             Task {
@@ -45,7 +47,7 @@ extension ChatBottomArea {
             }
         }
         .if(viewModel.bottomAreaState == .voice) {
-            $0.onLongPressGesture(minimumDuration: 1) {
+            $0.onLongPressGesture(minimumDuration: 1, maximumDistance: 1000) {
                 withAnimation {
                     viewModel.mediaStartRecordingVoice()
                 }

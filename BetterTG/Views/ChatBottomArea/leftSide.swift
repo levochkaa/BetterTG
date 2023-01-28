@@ -15,6 +15,7 @@ extension ChatBottomArea {
             Image(systemName: "paperclip")
                 .font(.title3)
                 .foregroundColor(.white)
+                .contentShape(Rectangle())
         }
     }
 }

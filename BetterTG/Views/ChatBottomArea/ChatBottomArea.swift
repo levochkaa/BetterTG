@@ -52,5 +52,19 @@ struct ChatBottomArea: View {
             Text(viewModel.errorMessage)
         }
         .animation(.default, value: viewModel.bottomAreaState)
+        .overlay(alignment: .bottomTrailing) {
+            if onLongPressVoice {
+                Circle()
+                    .fill(.blue)
+                    .frame(width: 96, height: 96)
+                    .overlay {
+                        Image(systemName: "mic.fill")
+                            .foregroundColor(.white)
+                            .font(.title2)
+                            .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
     }
 }

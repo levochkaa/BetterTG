@@ -15,6 +15,7 @@ extension ChatBottomArea {
                 Image(systemName: "xmark")
                     .font(.title2)
             }
+            .contentShape(Rectangle())
             
             SpacingAround {
                 Text(formattedTimerCount())
