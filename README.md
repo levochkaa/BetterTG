@@ -48,7 +48,7 @@ You can contribute **any** change you want to!
 ## Step 1 - Clone the repo
 
 ```shell
-git clone --recurse-submodules https://github.com/levochkaa/BetterTG.git
+git clone https://github.com/levochkaa/BetterTG.git
 ```
 
 ## Step 2 - Download XCode
