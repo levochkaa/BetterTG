@@ -8,10 +8,19 @@ class RootViewModel: ObservableObject {
     
     @Published var loggedIn: Bool?
     @Published var mainChats = [CustomChat]()
-    @Published var mainChatsLoaded: Ok?
     
     init() {
         setPublishers()
+    }
+    
+    func loadMainChats() {
+        Task {
+            let chatIds = await tdGetChats()
+            let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
+            await MainActor.run {
+                mainChats = customChats
+            }
+        }
     }
     
     func handleScenePhase(_ scenePhase: ScenePhase) {
@@ -32,12 +41,12 @@ class RootViewModel: ObservableObject {
         }
     }
     
-    @MainActor func sortMainChats() {
-        mainChats = mainChats.uniqued().sorted {
-            let firstPosition = $0.chat.positions.first(where: { $0.list == .chatListMain })
-            let secondPosition = $1.chat.positions.first(where: { $0.list == .chatListMain })
+    func sortedMainChats() -> [CustomChat] {
+        mainChats.sorted {
+            let firstOrder = $0.positions.first(where: { $0.list == .chatListMain })?.order
+            let secondOrder = $1.positions.first(where: { $0.list == .chatListMain })?.order
             
-            if let firstOrder = firstPosition?.order, let secondOrder = secondPosition?.order {
+            if let firstOrder, let secondOrder {
                 return firstOrder > secondOrder
             } else {
                 return $0.chat.id < $1.chat.id
@@ -48,11 +57,17 @@ class RootViewModel: ObservableObject {
     func getCustomChat(from id: Int64) async -> CustomChat? {
         guard let chat = await tdGetChat(id: id) else { return nil }
         
-        if case .chatTypePrivate = chat.type {
-            guard let user = await tdGetUser(id: id) else { return nil }
+        if case .chatTypePrivate(let chatTypePrivate) = chat.type {
+            guard let user = await tdGetUser(id: chatTypePrivate.userId) else { return nil }
             
             if case .userTypeRegular = user.type {
-                return CustomChat(chat: chat, user: user)
+                return CustomChat(
+                    chat: chat,
+                    user: user,
+                    positions: chat.positions,
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage
+                )
             }
         }
         

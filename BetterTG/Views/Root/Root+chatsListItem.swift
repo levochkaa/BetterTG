@@ -4,16 +4,16 @@ import SwiftUI
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder func chatsListItem(for chat: Chat) -> some View {
+    @ViewBuilder func chatsListItem(for customChat: CustomChat) -> some View {
         HStack {
-            chatsListPhoto(for: chat)
+            chatsListPhoto(for: customChat.chat)
             
             VStack(alignment: .leading, spacing: 0) {
-                Text(chat.title)
+                Text(customChat.chat.title)
                     .font(.title2)
                     .foregroundColor(.white)
                 
-                lastOrDraftMessage(for: chat)
+                lastOrDraftMessage(for: customChat)
             }
             .lineLimit(1)
         }

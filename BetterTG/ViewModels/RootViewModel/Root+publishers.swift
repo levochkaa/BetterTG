@@ -19,13 +19,9 @@ extension RootViewModel {
         }
         
         nc.publisher(for: .ready) { _ in
-            Task {
-                let ok = await tdLoadChats()
-                
-                await MainActor.run {
-                    mainChatsLoaded = ok
-                    loggedIn = true
-                }
+            Task.main {
+                loggedIn = true
+                loadMainChats()
             }
         }
         
@@ -52,86 +48,56 @@ extension RootViewModel {
     
     func newChat(_ newChat: UpdateNewChat) {
         Task {
-            guard let customChat = await getCustomChat(from: newChat.chat.id),
-                  !mainChats.contains(where: { $0.chat.id == customChat.chat.id })
-            else { return }
+            guard let customChat = await getCustomChat(from: newChat.chat.id) else { return }
             
             await MainActor.run {
-                withAnimation {
-                    mainChats.append(customChat)
-                    sortMainChats()
-                }
+                mainChats.append(customChat)
             }
         }
     }
     
     func chatPosition(_ chatPosition: UpdateChatPosition) {
-        guard let index = mainChats.firstIndex(where: { $0.chat.id == chatPosition.chatId }) else { return }
         guard chatPosition.position.order != 0 else {
             return Task.main {
-                withAnimation {
-                    if mainChats.count >= index {
-                        _ = mainChats.remove(at: index)
-                    }
-                    sortMainChats()
-                }
+                mainChats.removeAll(where: { $0.chat.id == chatPosition.chatId })
             }
         }
         
-        Task {
-            guard let customChat = await getCustomChat(from: chatPosition.chatId) else { return }
+        Task.main {
+            guard let index = mainChats.firstIndex(where: { $0.chat.id == chatPosition.chatId }),
+                  let positionIndex = mainChats[index].positions.firstIndex(where: {
+                      $0.list == chatPosition.position.list
+                  })
+            else { return }
             
-            await MainActor.run {
-                withAnimation {
-                    mainChats[index] = customChat
-                    sortMainChats()
-                }
-            }
+            mainChats[index].positions[positionIndex] = chatPosition.position
         }
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
-        if mainChatsLoaded != nil, !self.mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
+        if !mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
             Task {
                 guard let customChat = await getCustomChat(from: chatLastMessage.chatId) else { return }
-                
+
                 await MainActor.run {
-                    withAnimation {
-                        mainChats.append(customChat)
-                        sortMainChats()
-                    }
+                    mainChats.append(customChat)
                 }
             }
+            return
         }
         
-        guard let index = self.mainChats.firstIndex(where: { $0.chat.id == chatLastMessage.chatId })
-        else { return }
-        
-        Task {
-            guard let customChat = await self.getCustomChat(from: mainChats[index].chat.id) else { return }
-            
-            await MainActor.run {
-                withAnimation {
-                    mainChats[index] = customChat
-                    sortMainChats()
-                }
-            }
+        Task.main {
+            guard let index = mainChats.firstIndex(where: { $0.chat.id == chatLastMessage.chatId }) else { return }
+            mainChats[index].lastMessage = chatLastMessage.lastMessage
+            mainChats[index].positions = chatLastMessage.positions
         }
     }
     
     func chatDraftMessage(_ chatDraftMessage: UpdateChatDraftMessage) {
-        guard let index = mainChats.firstIndex(where: { $0.chat.id == chatDraftMessage.chatId })
-        else { return }
-        
-        Task {
-            guard let customChat = await self.getCustomChat(from: mainChats[index].chat.id) else { return }
-            
-            await MainActor.run {
-                withAnimation {
-                    mainChats[index] = customChat
-                    sortMainChats()
-                }
-            }
+        Task.main {
+            guard let index = mainChats.firstIndex(where: { $0.chat.id == chatDraftMessage.chatId }) else { return }
+            mainChats[index].draftMessage = chatDraftMessage.draftMessage
+            mainChats[index].positions = chatDraftMessage.positions
         }
     }
 }

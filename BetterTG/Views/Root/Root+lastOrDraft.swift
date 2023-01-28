@@ -4,11 +4,11 @@ import SwiftUI
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder func lastOrDraftMessage(for chat: Chat) -> some View {
+    @ViewBuilder func lastOrDraftMessage(for customChat: CustomChat) -> some View {
         Group {
-            if let draftMessage = chat.draftMessage {
+            if let draftMessage = customChat.draftMessage {
                 draftMessageView(for: draftMessage)
-            } else if let lastMessage = chat.lastMessage {
+            } else if let lastMessage = customChat.lastMessage {
                 lastMessageView(for: lastMessage)
             }
         }

@@ -40,6 +40,7 @@ struct RootView: View {
                         mainChatsList
                     }
                     .padding(.top, 8)
+                    .animation(.default, value: viewModel.mainChats)
                 }
                 .navigationTitle("BetterTG")
                 .onChange(of: scenePhase) { newPhase in
@@ -53,7 +54,7 @@ struct RootView: View {
                     Button("Delete", role: .destructive) {
                         guard let id = confirmedChat?.id else { return }
                         Task {
-                            await viewModel.tdDeleteChatHystory(id: id, forAll: deleteChatForAllUsers)
+                            await viewModel.tdDeleteChatHistory(id: id, forAll: deleteChatForAllUsers)
                         }
                     }
                 }

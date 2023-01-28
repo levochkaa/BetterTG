@@ -36,7 +36,7 @@ extension RootViewModel {
         }
     }
     
-    func tdDeleteChatHystory(id: Int64, forAll: Bool) async {
+    func tdDeleteChatHistory(id: Int64, forAll: Bool) async {
         do {
             _ = try await tdApi.deleteChatHistory(chatId: id, removeFromChatList: true, revoke: forAll)
         } catch {
@@ -44,12 +44,20 @@ extension RootViewModel {
         }
     }
     
-    func tdLoadChats(for chatList: ChatList = .chatListMain) async -> Ok {
+    func tdLoadChats(for chatList: ChatList = .chatListMain) async {
         do {
-            return try await tdApi.loadChats(chatList: chatList, limit: 200)
+            _ = try await tdApi.loadChats(chatList: chatList, limit: 200)
         } catch {
             log("Error loading chats: \(error)")
-            return Ok()
+        }
+    }
+    
+    func tdGetChats(for chatList: ChatList = .chatListMain) async -> [Int64] {
+        do {
+            return try await tdApi.getChats(chatList: chatList, limit: 200).chatIds
+        } catch {
+            log("Error getting chats: \(error)")
+            return []
         }
     }
     

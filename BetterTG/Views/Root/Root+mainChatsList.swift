@@ -5,7 +5,7 @@ import TDLibKit
 
 extension RootView {
     @ViewBuilder var mainChatsList: some View {
-        ForEach(viewModel.mainChats) { customChat in
+        ForEach(viewModel.sortedMainChats()) { customChat in
             NavigationLink {
                 ChatView(
                     customChat: customChat,
@@ -13,7 +13,7 @@ extension RootView {
                     rootNamespace: rootNamespace
                 )
             } label: {
-                chatsListItem(for: customChat.chat)
+                chatsListItem(for: customChat)
                     .matchedGeometryEffect(id: customChat.chat.id, in: rootNamespace)
                     .contextMenu {
                         contextMenu(for: customChat.chat)
