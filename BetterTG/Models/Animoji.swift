@@ -3,7 +3,7 @@
 import Foundation
 
 struct Animoji: Identifiable {
-    var id = UUID()
+    let id = UUID()
     var type: AnimojiType
     var realEmoji: String
     

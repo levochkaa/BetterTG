@@ -36,6 +36,7 @@ extension ChatViewModel {
     }
     
     func mediaStartRecordingVoice() {
+        setAudioSessionRecord()
         savedMediaPath = ""
         mediaStop()
         
@@ -191,6 +192,7 @@ extension ChatViewModel {
     }
     
     func mediaPlay() {
+        setAudioSessionPlayback()
         mediaPlayer.play()
         isPlaying = true
         setNowPlaying()
@@ -206,6 +208,30 @@ extension ChatViewModel {
             savedMediaPath = ""
             mediaPlayer.media = nil
             mediaPlayer.stop()
+        }
+    }
+    
+    func setAudioSessionRecord() {
+        do {
+            try audioSession.setCategory(.record, mode: .default, policy: .default, options: [
+                .allowBluetooth,
+                .overrideMutedMicrophoneInterruption
+            ])
+            try audioSession.setActive(true)
+        } catch {
+            log("Error setting audioSessionRecord: \(error)")
+        }
+    }
+    
+    func setAudioSessionPlayback() {
+        do {
+            try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [
+                .allowBluetooth,
+                .allowBluetoothA2DP
+            ])
+            try audioSession.setActive(true)
+        } catch {
+            log("Error setting audioSessionPlayback: \(error)")
         }
     }
 }

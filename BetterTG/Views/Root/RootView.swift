@@ -30,9 +30,6 @@ struct RootView: View {
                 Text("Loading...")
             }
         }
-        .onAppear {
-            UIApplication.window?.overrideUserInterfaceStyle = .dark
-        }
     }
     
     @ViewBuilder var bodyView: some View {

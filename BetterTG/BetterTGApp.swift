@@ -18,26 +18,16 @@ struct BetterTGApp: App {
 //        UINavigationBar.appearance().standardAppearance = appearance
 //        UINavigationBar.appearance().compactScrollEdgeAppearance = appearance
         
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .spokenAudio, options: [
-                .allowAirPlay,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .overrideMutedMicrophoneInterruption
-            ])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            log("Error setting audioSessionPlay: \(error)")
-        }
-        
         SDImageCodersManager.shared.addCoder(SDImageWebPCoder.shared)
+        
+        UIApplication.window?.overrideUserInterfaceStyle = .dark
     }
     
     var body: some Scene {
         WindowGroup {
             RootView()
                 .preferredColorScheme(.dark)
+                .environment(\.colorScheme, .dark)
         }
     }
 }

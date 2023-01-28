@@ -5,7 +5,7 @@ import TDLibKit
 import Lottie
 
 struct CustomMessage: Identifiable, Equatable {
-    var id = UUID()
+    let id = UUID()
     var message: Message
     var senderUser: User?
     var replyUser: User?

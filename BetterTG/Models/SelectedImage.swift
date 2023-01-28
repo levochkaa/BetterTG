@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct SelectedImage: Identifiable {
-    var id = UUID()
+    let id = UUID()
     var image: Image
     var url: URL
 }

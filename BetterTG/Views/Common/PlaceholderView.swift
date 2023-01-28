@@ -3,6 +3,7 @@
 import SwiftUI
 
 struct PlaceholderView: View {
+    
     @State var userId: Int64
     @State var title: String
     @State var fontSize: CGFloat = 40
