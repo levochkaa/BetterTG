@@ -4,6 +4,7 @@ import SwiftUI
 import MobileVLCKit
 import AVKit
 import AVFoundation
+import MediaPlayer
 import TDLibKit
 
 extension ChatViewModel {
@@ -208,6 +209,7 @@ extension ChatViewModel {
             savedMediaPath = ""
             mediaPlayer.media = nil
             mediaPlayer.stop()
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         }
     }
     

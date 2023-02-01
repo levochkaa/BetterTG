@@ -6,6 +6,8 @@ import MediaPlayer
 extension ChatViewModel {
     func setCommandCenterControls() {
         let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.skipBackwardCommand.preferredIntervals = [5.0]
+        commandCenter.skipForwardCommand.preferredIntervals = [5.0]
         
         commandCenter.playCommand.addTarget { [unowned self] _ in
             if !savedMediaPath.isEmpty, mediaPlayer.media != nil, !isPlaying {
