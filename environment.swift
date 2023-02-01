@@ -37,7 +37,6 @@ struct EnvironmentScript: ParsableCommand {
             try install(command: "swiftlint", from: "swiftlint", as: "SwiftLint")
             try install(command: "gyb", from: "ggoraa/apps/gyb", as: "GYB")
             try install(command: "swiftgen", from: "swiftgen", as: "SwiftGen")
-//            try install(command: "sourcery", from: "sourcery", as: "Sourcery")
 
             log("Running GYB...")
 
