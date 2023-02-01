@@ -213,8 +213,12 @@ extension ChatViewModel {
     
     func setAudioSessionRecord() {
         do {
-            try audioSession.setCategory(.record, mode: .default, policy: .default, options: [
+            try audioSession.setActive(false)
+            try audioSession.setCategory(.playAndRecord, mode: .default, policy: .default, options: [
+                .allowAirPlay,
                 .allowBluetooth,
+                .allowBluetoothA2DP,
+                .defaultToSpeaker,
                 .overrideMutedMicrophoneInterruption
             ])
             try audioSession.setActive(true)
@@ -225,6 +229,7 @@ extension ChatViewModel {
     
     func setAudioSessionPlayback() {
         do {
+            try audioSession.setActive(false)
             try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [
                 .allowBluetooth,
                 .allowBluetoothA2DP
