@@ -1,15 +1,30 @@
 // Message+formattedText.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            Text(attributedString(for: formattedText))
+        ZStack {
+            let attributedString = attributedString(for: formattedText)
+            
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+                .readSize { draggableTextSize = $0 }
+                .hidden()
+            
+            Text(attributedString)
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
+                .draggable(getDraggableString(from: attributedString)) {
+                    Text(attributedString)
+                        .frame(width: draggableTextSize.width, height: draggableTextSize.height)
+                        .multilineTextAlignment(.leading)
+                        .padding(8)
+                        .foregroundColor(.white)
+                        .background(.gray6)
+                        .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
+                }
                 .overlay {
                     if textSize != .zero {
                         AnimojiView(
@@ -17,13 +32,15 @@ extension MessageView {
                             formattedText: formattedText,
                             textSize: textSize
                         )
-                        .equatable(by: textSize)
+                        .equatable()
+                        .allowsHitTesting(false)
                     }
                 }
-            
-            messageDate
-                .menuOnPress { menu }
-                .offset(x: 0, y: 3)
+                .overlay(alignment: .bottomTrailing) {
+                    messageDate
+                        .menuOnPress { menu }
+                        .offset(y: 3)
+                }
         }
     }
     
@@ -37,11 +54,11 @@ extension MessageView {
             
             switch entity.type {
                 case .textEntityTypeBold:
-                    result[range].font = .system(.body).bold()
+                    result[range].font = .body.bold()
                 case .textEntityTypeItalic:
-                    result[range].font = .system(.body).italic()
+                    result[range].font = .body.italic()
                 case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
-                    result[range].font = .system(.body).monospaced()
+                    result[range].font = .body.monospaced()
                 case .textEntityTypeUnderline:
                     result[range].underlineStyle = .single
                 case .textEntityTypeStrikethrough:
@@ -51,17 +68,9 @@ extension MessageView {
                 case .textEntityTypeEmailAddress:
                     result[range].link = URL(string: "mailto:\(raw)")
                 case .textEntityTypeUrl:
-                    if hasWhitelistedPrefix(raw) {
-                        result[range].link = URL(string: raw)
-                    } else {
-                        result[range].link = URL(string: "https://\(raw)")
-                    }
+                    result[range].link = getUrl(from: raw)
                 case .textEntityTypeTextUrl(let textEntityTypeTextUrl):
-                    if hasWhitelistedPrefix(textEntityTypeTextUrl.url) {
-                        result[range].link = URL(string: textEntityTypeTextUrl.url)
-                    } else {
-                        result[range].link = URL(string: "https://\(textEntityTypeTextUrl.url)")
-                    }
+                    result[range].link = getUrl(from: textEntityTypeTextUrl.url)
                 case .textEntityTypeCustomEmoji:
                     result[range].foregroundColor = .clear
                 default:
@@ -70,11 +79,27 @@ extension MessageView {
             }
         }
         
+        var dateAttributedString = AttributedString("000:00")
+        let range = dateAttributedString.startIndex..<dateAttributedString.endIndex
+        dateAttributedString[range].font = .caption
+        dateAttributedString[range].foregroundColor = .gray6
+        result.append(dateAttributedString)
+        
         return result
     }
     
-    func hasWhitelistedPrefix(_ url: String) -> Bool {
-        url.hasPrefix("https://") || url.hasPrefix("http://") || url.hasPrefix("tg://")
+    func getUrl(from string: String) -> URL? {
+        URL(string: string.contains("://") ? string : "https://\(string)")
+    }
+    
+    @available(iOS 16.1, *)
+    func getDraggableString(from attributedString: AttributedString) -> AttributedString {
+        return attributedString
+    }
+    
+    @available(iOS 16, *)
+    func getDraggableString(from attributedString: AttributedString) -> String {
+        return NSAttributedString(attributedString).string
     }
     
     func stringRange(

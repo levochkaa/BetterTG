@@ -57,6 +57,7 @@ struct ChatBottomArea: View {
                 Circle()
                     .fill(.blue)
                     .frame(width: 96, height: 96)
+                    .offset(x: 20, y: 20)
                     .overlay {
                         Image(systemName: "mic.fill")
                             .foregroundColor(.white)

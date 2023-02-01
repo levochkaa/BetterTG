@@ -28,6 +28,7 @@ struct MessageView: View {
     @State var editWidth: Int = 0
     
     @State var textSize: CGSize = .zero
+    @State var draggableTextSize: CGSize = .zero
     
     let recognizedTextId = "recognizedTextId"
     let playId = "playId"
@@ -84,14 +85,6 @@ struct MessageView: View {
                 .background(backgroundColor(for: .text))
                 .cornerRadius(corners(for: .text))
                 .readSize { textWidth = Int($0.width) }
-                .draggable(text) {
-                    messageText
-                        .multilineTextAlignment(.leading)
-                        .padding(8)
-                        .foregroundColor(.white)
-                        .background(backgroundColor(for: .text))
-                        .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight], 15)
-                }
             
             if customMessage.message.editDate != 0 {
                 Text("edited")
