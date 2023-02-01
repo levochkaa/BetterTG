@@ -1,7 +1,6 @@
 // Message+date.swift
 
 import SwiftUI
-import SwiftUIX
 
 extension MessageView {
     @ViewBuilder var messageDate: some View {

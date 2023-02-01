@@ -1,7 +1,6 @@
 // Message+voiceNoteSide.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
 
 extension MessageView {
@@ -20,7 +19,7 @@ extension MessageView {
     }
     
     @ViewBuilder var cancelVoiceNote: some View {
-        Image(systemName: .xmark)
+        Image(systemName: "xmark")
             .padding(3)
             .background(.gray6)
             .cornerRadius(15)

@@ -1,7 +1,6 @@
 // MessageView.swift
 
 import SwiftUI
-import SwiftUIX
 import TDLibKit
 
 struct MessageView: View {
@@ -49,7 +48,7 @@ struct MessageView: View {
                 }
                 .padding(5)
                 .background(backgroundColor(for: .forwarded))
-                .cornerRadius(corners(for: .forwarded), 15)
+                .cornerRadius(corners(for: .forwarded))
                 .readSize { forwardedWidth = Int($0.width) }
             }
             
@@ -57,7 +56,7 @@ struct MessageView: View {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
                     .padding(5)
                     .background(backgroundColor(for: .reply))
-                    .cornerRadius(corners(for: .reply), 15)
+                    .cornerRadius(corners(for: .reply))
                     .readSize { replyWidth = Int($0.width) }
             }
             
@@ -70,7 +69,7 @@ struct MessageView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 15))
                     .padding(1)
                     .background(backgroundColor(for: .content))
-                    .cornerRadius(corners(for: .content), 15)
+                    .cornerRadius(corners(for: .content))
                     .readSize { contentWidth = Int($0.width) }
                 
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content, !isOutgoing {
@@ -83,7 +82,7 @@ struct MessageView: View {
                 .padding(8)
                 .foregroundColor(.white)
                 .background(backgroundColor(for: .text))
-                .cornerRadius(corners(for: .text), 15)
+                .cornerRadius(corners(for: .text))
                 .readSize { textWidth = Int($0.width) }
                 .draggable(text) {
                     messageText
@@ -100,7 +99,7 @@ struct MessageView: View {
                     .foregroundColor(.white).opacity(0.5)
                     .padding(3)
                     .background(backgroundColor(for: .edit))
-                    .cornerRadius(corners(for: .edit), 15)
+                    .cornerRadius(corners(for: .edit))
                     .readSize { editWidth = Int($0.width) }
             }
         }

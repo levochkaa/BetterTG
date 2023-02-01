@@ -83,7 +83,6 @@
 		DFA4E5B029759BAA003B43EF /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = DFA4E5AF29759BAA003B43EF /* SDWebImageWebPCoder */; };
 		DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC15294A44F200BE749C /* MediaAlbum.swift */; };
 		DFB5CC18294A512A00BE749C /* hideKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC17294A512A00BE749C /* hideKeyboard.swift */; };
-		DFB85D05290EE87A00F66E20 /* Image.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D04290EE87A00F66E20 /* Image.swift */; };
 		DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */; };
 		DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
 		DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewModel.swift */; };
@@ -101,7 +100,6 @@
 		DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */; };
 		DFD7D49B29427B450006CF85 /* Root+chatsListItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49A29427B450006CF85 /* Root+chatsListItem.swift */; };
 		DFD7D49D294280E20006CF85 /* fullScreenBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49C294280E20006CF85 /* fullScreenBackground.swift */; };
-		DFD7D4A229428C6B0006CF85 /* SwiftUIX in Frameworks */ = {isa = PBXBuildFile; productRef = DFD7D4A129428C6B0006CF85 /* SwiftUIX */; };
 		DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */; };
 		DFD9F891292FE54A00D1E03B /* userId.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F890292FE54A00D1E03B /* userId.swift */; };
 		DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6DA2938E01900A5919E /* ReplyMessageView.swift */; };
@@ -112,6 +110,13 @@
 		DFE026622951144B004C8C83 /* Reply+photo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE026612951144B004C8C83 /* Reply+photo.swift */; };
 		DFE026642951146E004C8C83 /* Reply+inlineContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE026632951146E004C8C83 /* Reply+inlineContent.swift */; };
 		DFE02666295114AB004C8C83 /* Message+photo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE02665295114AB004C8C83 /* Message+photo.swift */; };
+		DFE84078298AF0E300C3A7F8 /* background.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84077298AF0E300C3A7F8 /* background.swift */; };
+		DFE8407A298AFA7400C3A7F8 /* UIRectCorner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84079298AFA7400C3A7F8 /* UIRectCorner.swift */; };
+		DFE8407C298AFA9100C3A7F8 /* cornerRadius.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE8407B298AFA9100C3A7F8 /* cornerRadius.swift */; };
+		DFE8407E298AFAA400C3A7F8 /* menuOnPress.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE8407D298AFAA400C3A7F8 /* menuOnPress.swift */; };
+		DFE84081298AFB1F00C3A7F8 /* file.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84080298AFB1F00C3A7F8 /* file.swift */; };
+		DFE84083298AFB3200C3A7F8 /* data.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84082298AFB3200C3A7F8 /* data.swift */; };
+		DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84084298AFB9400C3A7F8 /* Button.swift */; };
 		DFEB06BA2959B0CF0099E2B2 /* messagesList.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06B92959B0CF0099E2B2 /* messagesList.swift */; };
 		DFEB06C02959DD490099E2B2 /* Root+mainChatsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06BF2959DD490099E2B2 /* Root+mainChatsList.swift */; };
 		DFEB06C32959EB860099E2B2 /* voiceNoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06C22959EB860099E2B2 /* voiceNoteView.swift */; };
@@ -227,7 +232,6 @@
 		DFA214B0297D9BEF00758617 /* uniqued.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = uniqued.swift; sourceTree = "<group>"; };
 		DFB5CC15294A44F200BE749C /* MediaAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAlbum.swift; sourceTree = "<group>"; };
 		DFB5CC17294A512A00BE749C /* hideKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = hideKeyboard.swift; sourceTree = "<group>"; };
-		DFB85D04290EE87A00F66E20 /* Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Image.swift; sourceTree = "<group>"; };
 		DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdFile.swift; sourceTree = "<group>"; };
 		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
 		DFB85D10290EF92300F66E20 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
@@ -254,6 +258,13 @@
 		DFE026612951144B004C8C83 /* Reply+photo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Reply+photo.swift"; sourceTree = "<group>"; };
 		DFE026632951146E004C8C83 /* Reply+inlineContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Reply+inlineContent.swift"; sourceTree = "<group>"; };
 		DFE02665295114AB004C8C83 /* Message+photo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+photo.swift"; sourceTree = "<group>"; };
+		DFE84077298AF0E300C3A7F8 /* background.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = background.swift; sourceTree = "<group>"; };
+		DFE84079298AFA7400C3A7F8 /* UIRectCorner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIRectCorner.swift; sourceTree = "<group>"; };
+		DFE8407B298AFA9100C3A7F8 /* cornerRadius.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cornerRadius.swift; sourceTree = "<group>"; };
+		DFE8407D298AFAA400C3A7F8 /* menuOnPress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = menuOnPress.swift; sourceTree = "<group>"; };
+		DFE84080298AFB1F00C3A7F8 /* file.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = file.swift; sourceTree = "<group>"; };
+		DFE84082298AFB3200C3A7F8 /* data.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = data.swift; sourceTree = "<group>"; };
+		DFE84084298AFB9400C3A7F8 /* Button.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Button.swift; sourceTree = "<group>"; };
 		DFEB06B92959B0CF0099E2B2 /* messagesList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messagesList.swift; sourceTree = "<group>"; };
 		DFEB06BF2959DD490099E2B2 /* Root+mainChatsList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+mainChatsList.swift"; sourceTree = "<group>"; };
 		DFEB06C22959EB860099E2B2 /* voiceNoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = voiceNoteView.swift; sourceTree = "<group>"; };
@@ -277,7 +288,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DFD7D4A229428C6B0006CF85 /* SwiftUIX in Frameworks */,
 				DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */,
 				DFA4E5B029759BAA003B43EF /* SDWebImageWebPCoder in Frameworks */,
 				DF990442295CA63F00BD6FFE /* Gzip in Frameworks */,
@@ -529,6 +539,9 @@
 				DFD7D49C294280E20006CF85 /* fullScreenBackground.swift */,
 				DFB5CC17294A512A00BE749C /* hideKeyboard.swift */,
 				DF1717BC2971F3B60085E698 /* flippedUpsideDown.swift */,
+				DFE84077298AF0E300C3A7F8 /* background.swift */,
+				DFE8407B298AFA9100C3A7F8 /* cornerRadius.swift */,
+				DFE8407D298AFAA400C3A7F8 /* menuOnPress.swift */,
 			);
 			path = View;
 			sourceTree = "<group>";
@@ -617,6 +630,15 @@
 			path = ReplyMessage;
 			sourceTree = "<group>";
 		};
+		DFE8407F298AFB1600C3A7F8 /* Image */ = {
+			isa = PBXGroup;
+			children = (
+				DFE84080298AFB1F00C3A7F8 /* file.swift */,
+				DFE84082298AFB3200C3A7F8 /* data.swift */,
+			);
+			path = Image;
+			sourceTree = "<group>";
+		};
 		DFEB06C12959EB750099E2B2 /* VoiceNote */ = {
 			isa = PBXGroup;
 			children = (
@@ -633,6 +655,7 @@
 		DFECD755292A92F7002A4BAD /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
+				DFE8407F298AFB1600C3A7F8 /* Image */,
 				DF1717C12971F6980085E698 /* Sequence */,
 				DF1717BE2971F6330085E698 /* Array */,
 				DF763B042971BC9400334615 /* Task */,
@@ -640,11 +663,12 @@
 				DFD7D48329423C360006CF85 /* View */,
 				DF0F9D5028CCADB300BCA763 /* TdApi.swift */,
 				DFECD756292A938B002A4BAD /* NotificationName.swift */,
-				DFB85D04290EE87A00F66E20 /* Image.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter.swift */,
 				DF6480E929635A8400AEF104 /* Character.swift */,
 				DF346449296B787D001BE888 /* MainActor.swift */,
 				DF7AC27D2970BC3300D77ACB /* UIApplication.swift */,
+				DFE84079298AFA7400C3A7F8 /* UIRectCorner.swift */,
+				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -672,7 +696,6 @@
 				DF820B6F28D787AD007DD293 /* ArgumentParser */,
 				DF9C5CC0292698BC00ED1CA8 /* TDLibKit */,
 				DFDFC6E0293905C600A5919E /* Introspect */,
-				DFD7D4A129428C6B0006CF85 /* SwiftUIX */,
 				DF55E2D1295B783F00A30C76 /* MobileVLCKit */,
 				DF99043E295CA4B100BD6FFE /* Lottie */,
 				DF990441295CA63F00BD6FFE /* Gzip */,
@@ -710,7 +733,6 @@
 				DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 				DF9C5CBF292698BC00ED1CA8 /* XCRemoteSwiftPackageReference "TDLibKit" */,
 				DFDFC6DF293905C600A5919E /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */,
-				DFD7D4A029428C6B0006CF85 /* XCRemoteSwiftPackageReference "SwiftUIX" */,
 				DF55E2D0295B783F00A30C76 /* XCRemoteSwiftPackageReference "MobileVLCKit" */,
 				DF99043D295CA4B100BD6FFE /* XCRemoteSwiftPackageReference "lottie-ios" */,
 				DF990440295CA63F00BD6FFE /* XCRemoteSwiftPackageReference "GzipSwift" */,
@@ -772,6 +794,7 @@
 				DF5261CA294E61BB00FB7C73 /* SelectedImage.swift in Sources */,
 				DFD7D48B294243620006CF85 /* Login+publishers.swift in Sources */,
 				DF2AE713295119AA00FF7850 /* Chat+messageContent.swift in Sources */,
+				DFE84078298AF0E300C3A7F8 /* background.swift in Sources */,
 				DF820B6228D76563007DD293 /* Logger.swift in Sources */,
 				DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */,
 				DF2367452940ECFC0076B821 /* rgb.swift in Sources */,
@@ -779,9 +802,11 @@
 				DFEB06C92959EE740099E2B2 /* speech.swift in Sources */,
 				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF2AE70D2951192800FF7850 /* Chat+get.swift in Sources */,
+				DFE8407E298AFAA400C3A7F8 /* menuOnPress.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF2AE7112951198400FF7850 /* Chat+draft.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewModel.swift in Sources */,
+				DFE84081298AFB1F00C3A7F8 /* file.swift in Sources */,
 				DFECD753292A7318002A4BAD /* uiColor.swift in Sources */,
 				DFD7D48D2942443D0006CF85 /* Root+publishers.swift in Sources */,
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
@@ -797,6 +822,7 @@
 				DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */,
 				DFE026622951144B004C8C83 /* Reply+photo.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
+				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* Root+lastOrDraft.swift in Sources */,
 				DFD9F891292FE54A00D1E03B /* userId.swift in Sources */,
 				DF236749294148290076B821 /* center.swift in Sources */,
@@ -809,11 +835,13 @@
 				DF55E2CF295B1E0A00A30C76 /* voiceNote.swift in Sources */,
 				DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */,
 				DF3BC41A2974142F002F207B /* Message+date.swift in Sources */,
+				DFE84083298AFB3200C3A7F8 /* data.swift in Sources */,
 				DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */,
 				DF2AE715295119F700FF7850 /* Chat+messageActions.swift in Sources */,
 				DFD7D49D294280E20006CF85 /* fullScreenBackground.swift in Sources */,
 				DF1717C72971F7770085E698 /* compactMap.swift in Sources */,
 				DF8DE3922956158B001D5163 /* Chat+media.swift in Sources */,
+				DFE8407A298AFA7400C3A7F8 /* UIRectCorner.swift in Sources */,
 				DF5261D3294F47B200FB7C73 /* ChatBottomArea.swift in Sources */,
 				DFE026642951146E004C8C83 /* Reply+inlineContent.swift in Sources */,
 				DF1717C32971F6AB0085E698 /* map.swift in Sources */,
@@ -826,11 +854,11 @@
 				DF346448296B72D4001BE888 /* Message+formattedText.swift in Sources */,
 				DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */,
 				DF1717BD2971F3B60085E698 /* flippedUpsideDown.swift in Sources */,
+				DFE8407C298AFA9100C3A7F8 /* cornerRadius.swift in Sources */,
 				DFD7D4892942426D0006CF85 /* Login+td.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DFCC2A412950EF2800281EF8 /* Message+content.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
-				DFB85D05290EE87A00F66E20 /* Image.swift in Sources */,
 				DF34644A296B787D001BE888 /* MainActor.swift in Sources */,
 				DFECD74E292A3328002A4BAD /* selectCountry.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
@@ -1145,14 +1173,6 @@
 				minimumVersion = 0.9.1;
 			};
 		};
-		DFD7D4A029428C6B0006CF85 /* XCRemoteSwiftPackageReference "SwiftUIX" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SwiftUIX/SwiftUIX";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
-		};
 		DFDFC6DF293905C600A5919E /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/siteline/SwiftUI-Introspect.git";
@@ -1193,11 +1213,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DFA4E5AE29759BAA003B43EF /* XCRemoteSwiftPackageReference "SDWebImageWebPCoder" */;
 			productName = SDWebImageWebPCoder;
-		};
-		DFD7D4A129428C6B0006CF85 /* SwiftUIX */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DFD7D4A029428C6B0006CF85 /* XCRemoteSwiftPackageReference "SwiftUIX" */;
-			productName = SwiftUIX;
 		};
 		DFDFC6E0293905C600A5919E /* Introspect */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -15,7 +15,7 @@ struct TextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
         let textView = UITextView(frame: frame)
-        textView.font = Font.body.toUIFont()
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.backgroundColor = UIColor.systemGray6
         textView.isScrollEnabled = false
         textView.dataDetectorTypes = .all
@@ -25,7 +25,7 @@ struct TextView: UIViewRepresentable {
         textView.textContainerInset = .zero
         
         let attributedText = NSMutableAttributedString(string: formattedText.text, attributes: [
-            .font: Font.body.toUIFont() as Any,
+            .font: UIFont.preferredFont(forTextStyle: .body) as Any,
             .foregroundColor: UIColor.white
         ])
         
@@ -38,11 +38,15 @@ struct TextView: UIViewRepresentable {
             
             switch entity.type {
                 case .textEntityTypeBold:
-                    attributedText.addAttribute(.font, value: Font.body.bold().toUIFont() as Any, range: range)
+                    attributedText.addAttribute(.font, value: UIFont.boldSystemFont(ofSize: 17) as Any, range: range)
                 case .textEntityTypeItalic:
-                    attributedText.addAttribute(.font, value: Font.body.italic().toUIFont() as Any, range: range)
+                    attributedText.addAttribute(.font, value: UIFont.italicSystemFont(ofSize: 17) as Any, range: range)
                 case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
-                    attributedText.addAttribute(.font, value: Font.body.monospaced().toUIFont() as Any, range: range)
+                    attributedText.addAttribute(
+                        .font,
+                        value: UIFont.monospacedSystemFont(ofSize: 17, weight: .regular) as Any,
+                        range: range
+                    )
                 case .textEntityTypeUnderline:
                     attributedText.addAttribute(.underlineStyle, value: 1, range: range)
                 case .textEntityTypeStrikethrough:

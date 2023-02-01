@@ -73,15 +73,6 @@
       }
     },
     {
-      "identity" : "swiftuix",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/SwiftUIX/SwiftUIX",
-      "state" : {
-        "branch" : "master",
-        "revision" : "aa72fd74248852c4b1d74b2aff51926b362a0a3e"
-      }
-    },
-    {
       "identity" : "tdlibframework",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",

@@ -1,12 +1,11 @@
 // Message+menu.swift
 
 import SwiftUI
-import SwiftUIX
 
 extension MessageView {
     @ViewBuilder var menu: some View {
         if !customMessage.message.isChannelPost {
-            Button("Reply", systemImage: .arrowshapeTurnUpLeft) {
+            Button("Reply", systemImage: "arrowshape.turn.up.left") {
                 if viewModel.replyMessage != nil {
                     withAnimation {
                         viewModel.replyMessage = nil
@@ -25,7 +24,7 @@ extension MessageView {
         }
         
         if customMessage.message.canBeEdited {
-            Button("Edit", systemImage: .squareAndPencil) {
+            Button("Edit", systemImage: "square.and.pencil") {
                 if viewModel.editMessage != nil {
                     withAnimation {
                         viewModel.editMessage = nil

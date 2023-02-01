@@ -16,6 +16,6 @@ struct AsyncTdImage<Content: View, Placeholder: View>: View {
         } placeholder: {
             placeholder()
         }
-        .equatable(by: id)
+        .equatable()
     }
 }

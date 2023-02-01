@@ -30,7 +30,7 @@ struct AnimojiView: UIViewRepresentable {
         }
         
         let textView = UITextView(frame: frame)
-        textView.font = Font.body.toUIFont()
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.text = formattedText.text
         textView.isScrollEnabled = false
         textView.dataDetectorTypes = .all
@@ -111,5 +111,11 @@ struct AnimojiView: UIViewRepresentable {
     
     func updateUIView(_ uiView: UIView, context: Context) {
         loadEmojis(for: uiView)
+    }
+}
+
+extension AnimojiView: Equatable {
+    static func == (lhs: AnimojiView, rhs: AnimojiView) -> Bool {
+        lhs.textSize == rhs.textSize
     }
 }
