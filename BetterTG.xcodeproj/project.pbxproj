@@ -73,6 +73,7 @@
 		DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */; };
 		DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8ACA1C295F67D30007D5FF /* Animoji.swift */; };
 		DF8DE3922956158B001D5163 /* Chat+media.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8DE3912956158B001D5163 /* Chat+media.swift */; };
+		DF96BAE2298BE120003936AC /* equatable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF96BAE1298BE120003936AC /* equatable.swift */; };
 		DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = DF99043E295CA4B100BD6FFE /* Lottie */; };
 		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
 		DF99C02C2976B97F00D7C1DE /* Message+voiceNoteSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF99C02B2976B97F00D7C1DE /* Message+voiceNoteSide.swift */; };
@@ -226,6 +227,7 @@
 		DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimojiView.swift; sourceTree = "<group>"; };
 		DF8ACA1C295F67D30007D5FF /* Animoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Animoji.swift; sourceTree = "<group>"; };
 		DF8DE3912956158B001D5163 /* Chat+media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chat+media.swift"; sourceTree = "<group>"; };
+		DF96BAE1298BE120003936AC /* equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = equatable.swift; sourceTree = "<group>"; };
 		DF99C02B2976B97F00D7C1DE /* Message+voiceNoteSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+voiceNoteSide.swift"; sourceTree = "<group>"; };
 		DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewer.swift; sourceTree = "<group>"; };
 		DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedPhotoInfo.swift; sourceTree = "<group>"; };
@@ -542,6 +544,7 @@
 				DFE84077298AF0E300C3A7F8 /* background.swift */,
 				DFE8407B298AFA9100C3A7F8 /* cornerRadius.swift */,
 				DFE8407D298AFAA400C3A7F8 /* menuOnPress.swift */,
+				DF96BAE1298BE120003936AC /* equatable.swift */,
 			);
 			path = View;
 			sourceTree = "<group>";
@@ -821,6 +824,7 @@
 				DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */,
 				DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */,
 				DFE026622951144B004C8C83 /* Reply+photo.swift in Sources */,
+				DF96BAE2298BE120003936AC /* equatable.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* Root+lastOrDraft.swift in Sources */,

@@ -55,9 +55,3 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         }
     }
 }
-
-extension AsyncTdFile: Equatable {
-    static func == (lhs: AsyncTdFile<Content, Placeholder>, rhs: AsyncTdFile<Content, Placeholder>) -> Bool {
-        lhs.id == rhs.id
-    }
-}
