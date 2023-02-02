@@ -9,7 +9,6 @@ struct ChatBottomArea: View {
     @Binding var openedPhotoInfo: OpenedPhotoInfo?
     var rootNamespace: Namespace.ID?
     
-    @State var onLongPressVoice = false
     @State var timerCount = 0.0
     @State var timer: Timer?
     @State var wave = [Float]()
@@ -53,19 +52,22 @@ struct ChatBottomArea: View {
         }
         .animation(.default, value: viewModel.bottomAreaState)
         .overlay(alignment: .bottomTrailing) {
-            if onLongPressVoice {
-                Circle()
-                    .fill(.blue)
-                    .frame(width: 96, height: 96)
-                    .offset(x: 20, y: 20)
-                    .overlay {
-                        Image(systemName: "mic.fill")
-                            .foregroundColor(.white)
-                            .font(.title2)
-                            .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
-                    }
-                    .transition(.scale.combined(with: .opacity))
-            }
+            Circle()
+                .fill(.blue)
+                .frame(width: 96, height: 96)
+                .overlay(alignment: .center) {
+                    Image(systemName: "mic.fill")
+                        .foregroundColor(.white)
+                        .font(.title2)
+                        .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
+                }
+                .disabled(!viewModel.recordingVoiceNote)
+                .opacity(viewModel.recordingVoiceNote ? 1 : 0)
+                .scaleEffect(viewModel.recordingVoiceNote ? 1 : 0)
+                .offset(x: 20, y: 20)
+                .onTapGesture {
+                    viewModel.mediaStopRecordingVoice(duration: Int(timerCount), wave: wave)
+                }
         }
     }
 }

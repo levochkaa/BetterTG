@@ -18,11 +18,9 @@ extension ChatBottomArea {
                 case .caption:
                     Image(systemName: "arrow.up.circle.fill")
                 case .voice:
-                    if !onLongPressVoice {
-                        Image(systemName: "mic.fill")
-                            .foregroundColor(viewModel.recordingVoiceNote ? .blue : .white)
-                            .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
-                    }
+                    Image(systemName: "mic.fill")
+                        .foregroundColor(.white)
+                        .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
             }
         }
         .font(.title2)
@@ -47,13 +45,9 @@ extension ChatBottomArea {
             }
         }
         .if(viewModel.bottomAreaState == .voice) {
-            $0.onLongPressGesture(minimumDuration: 1, maximumDistance: 1000) {
+            $0.onLongPressGesture(minimumDuration: 0.1, maximumDistance: 1000) {
                 withAnimation {
                     viewModel.mediaStartRecordingVoice()
-                }
-            } onPressingChanged: { value in
-                withAnimation(.linear(duration: 1)) {
-                    onLongPressVoice = value
                 }
             }
         }

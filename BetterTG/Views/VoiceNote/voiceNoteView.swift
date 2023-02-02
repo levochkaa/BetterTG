@@ -40,6 +40,7 @@ extension MessageView {
                 }
             }
             .font(.largeTitle)
+            .transition(.scale)
             .matchedGeometryEffect(id: playId, in: voiceNoteNamespace)
             .onTapGesture {
                 if let path {

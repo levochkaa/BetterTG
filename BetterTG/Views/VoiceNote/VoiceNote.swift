@@ -8,7 +8,7 @@ extension MessageView {
     @ViewBuilder func makeMessageVoiceNote(from voiceNote: VoiceNote, with message: Message) -> some View {
         AsyncTdFile(id: voiceNote.voice.id) { voice in
             Group {
-                if isListeningVoiceNote && viewModel.savedMediaPath == voice.local.path {
+                if isListeningVoiceNote, viewModel.savedMediaPath == voice.local.path {
                     voiceNoteViewExpanded(voice.local.path, from: voiceNote)
                 } else {
                     voiceNoteView(voice.local.path, from: voiceNote)
