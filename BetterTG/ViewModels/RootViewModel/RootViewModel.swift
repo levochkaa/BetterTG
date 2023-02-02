@@ -8,6 +8,8 @@ class RootViewModel: ObservableObject {
     
     @Published var loggedIn: Bool?
     @Published var mainChats = [CustomChat]()
+    @Published var searchedGlobalChats = [CustomChat]()
+    @Published var searchScope: SearchScope = .chats
     
     init() {
         setPublishers()
@@ -41,17 +43,36 @@ class RootViewModel: ObservableObject {
         }
     }
     
-    func sortedMainChats() -> [CustomChat] {
-        mainChats.sorted {
-            let firstOrder = $0.positions.first(where: { $0.list == .chatListMain })?.order
-            let secondOrder = $1.positions.first(where: { $0.list == .chatListMain })?.order
-            
-            if let firstOrder, let secondOrder {
-                return firstOrder > secondOrder
-            } else {
-                return $0.chat.id < $1.chat.id
+    func searchGlobalChats(_ query: String) {
+        Task {
+            let chatIds = await tdSearchPublicChats(query: query)
+            let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
+            await MainActor.run {
+                searchedGlobalChats = customChats
             }
         }
+    }
+    
+    func filteredSortedMainChats(_ query: String) -> [CustomChat] {
+        guard searchScope == .chats else { return [] }
+        
+        return mainChats
+            .sorted {
+                let firstOrder = $0.positions.first(where: { $0.list == .chatListMain })?.order
+                let secondOrder = $1.positions.first(where: { $0.list == .chatListMain })?.order
+                
+                if let firstOrder, let secondOrder {
+                    return firstOrder > secondOrder
+                } else {
+                    return $0.chat.id < $1.chat.id
+                }
+            }
+            .filter {
+                query.isEmpty
+                || $0.user.firstName.lowercased().contains(query)
+                || $0.user.lastName.lowercased().contains(query)
+                || $0.chat.title.lowercased().contains(query)
+            }
     }
     
     func getCustomChat(from id: Int64) async -> CustomChat? {

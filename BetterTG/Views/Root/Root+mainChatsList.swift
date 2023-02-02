@@ -1,11 +1,11 @@
-// Root+mainChatsList.swift
+// Root+chatsList.swift
 
 import SwiftUI
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder var mainChatsList: some View {
-        ForEach(viewModel.sortedMainChats()) { customChat in
+    @ViewBuilder func chatsList(_ customChats: [CustomChat]) -> some View {
+        ForEach(customChats) { customChat in
             NavigationLink {
                 ChatView(
                     customChat: customChat,

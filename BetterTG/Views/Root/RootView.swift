@@ -14,6 +14,8 @@ struct RootView: View {
     @State var openedPhotoInfo: OpenedPhotoInfo?
     @Namespace var rootNamespace
     
+    @State var query = ""
+    
     let chatId = "chatId"
     
     @Environment(\.scenePhase) var scenePhase
@@ -37,12 +39,42 @@ struct RootView: View {
             NavigationStack {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        mainChatsList
+                        switch viewModel.searchScope {
+                            case .chats:
+                                chatsList(viewModel.filteredSortedMainChats(query.lowercased()))
+                            case .global:
+                                chatsList(viewModel.searchedGlobalChats)
+                        }
+                        
                     }
                     .padding(.top, 8)
                     .animation(.default, value: viewModel.mainChats)
+                    .animation(.default, value: viewModel.searchedGlobalChats)
                 }
                 .navigationTitle("BetterTG")
+                .searchable(text: $query, prompt: "Search chats...")
+                .searchScopes($viewModel.searchScope) {
+                    ForEach(SearchScope.allCases, id: \.self) { scope in
+                        Text(scope.rawValue)
+                    }
+                }
+                .onSubmit(of: .search) {
+                    viewModel.searchGlobalChats(query.lowercased())
+                }
+                .onChange(of: viewModel.searchScope) { scope in
+                    guard scope == .global else { return }
+                    
+                    if query.isEmpty {
+                        viewModel.searchScope = .chats
+                    } else {
+                        viewModel.searchGlobalChats(query)
+                    }
+                }
+                .onChange(of: query) { _ in
+                    if query.isEmpty {
+                        viewModel.searchScope = .chats
+                    }
+                }
                 .onChange(of: scenePhase) { newPhase in
                     viewModel.handleScenePhase(newPhase)
                 }
