@@ -230,15 +230,6 @@ extension ChatViewModel {
     }
     
     func messageEdited(_ messageEdited: UpdateMessageEdited) {
-        if messageEdited.messageId == self.editMessage?.message.id {
-            Task {
-                let message = await self.tdGetMessage(id: messageEdited.messageId)
-                await MainActor.run {
-                    self.setEditMessageText(from: message)
-                }
-            }
-        }
-        
         if let index = self.messages.firstIndex(where: { $0.message.id == messageEdited.messageId }) {
             Task {
                 guard let customMessage = await self.getCustomMessage(fromId: messageEdited.messageId)

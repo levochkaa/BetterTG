@@ -185,18 +185,11 @@ struct ChatView: View {
                         focused = true
                     }
                 }
-                .onChange(of: viewModel.editMessage) { edit in
+                .onChange(of: viewModel.editCustomMessage) { edit in
                     if edit == nil {
                         scrollToLastOnFocus()
                     } else if edit != nil {
                         focused = true
-                    }
-                }
-                .onChange(of: viewModel.text) { text in
-                    if text.isEmpty {
-                        viewModel.bottomAreaState = .voice
-                    } else if viewModel.bottomAreaState == .voice {
-                        viewModel.bottomAreaState = .message
                     }
                 }
                 .onAppear {

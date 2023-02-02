@@ -16,7 +16,7 @@ extension LoginView {
                 .focused($focusedCode)
                 .keyboardType(.numberPad)
                 .padding()
-                .background(Color.gray6)
+                .background(.gray6)
                 .cornerRadius(10)
             
             Spacer()

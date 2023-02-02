@@ -4,6 +4,26 @@ import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {
+    func sendMessage() async {
+        if !displayedPhotos.isEmpty {
+            await sendMessagePhotos()
+        } else if !editMessageText.isEmpty {
+            await editMessage()
+        } else if !text.isEmpty {
+            await sendMessageText()
+        } else {
+            return
+        }
+        
+        await MainActor.run {
+            displayedPhotos.removeAll()
+            editMessageText.removeAll()
+            text.removeAll()
+            replyMessage = nil
+            editCustomMessage = nil
+        }
+    }
+    
     func sendMessagePhotos() async {
         await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
         
@@ -50,13 +70,13 @@ extension ChatViewModel {
     }
     
     func editMessage() async {
-        guard let editMessage = self.editMessage?.message else { return }
+        guard let message = self.editCustomMessage?.message else { return }
         
-        switch editMessage.content {
+        switch message.content {
             case .messageText:
-                await tdEditMessageText(editMessage)
+                await tdEditMessageText(message)
             case .messagePhoto, .messageVoiceNote:
-                await tdEditMessageCaption(editMessage)
+                await tdEditMessageCaption(message)
             default:
                 log("Unsupported edit message type")
         }

@@ -17,7 +17,7 @@ extension LoginView {
                 .textContentType(.password)
                 .keyboardType(.alphabet)
                 .padding()
-                .background(Color.gray6)
+                .background(.gray6)
                 .cornerRadius(10)
             
             Spacer()

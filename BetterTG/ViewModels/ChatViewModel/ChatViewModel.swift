@@ -16,43 +16,17 @@ class ChatViewModel: ObservableObject {
     @Published var text = ""
     @Published var editMessageText = ""
     
-    @Published var bottomAreaState: BottomAreaState = .voice {
-        didSet {
-            switch bottomAreaState {
-                case .voice:
-                    withAnimation {
-                        text = ""
-                        editMessageText = ""
-                        replyMessage = nil
-                        editMessage = nil
-                        displayedPhotos = []
-                        selectedPhotos = []
-                    }
-                case .caption, .reply, .edit, .message:
-                    break
-            }
-        }
-    }
-    
     var loadedAlbums = Set<Int64>()
     var sentPhotosCount = 0
     var toBeSentPhotosCount = 0
     var savedAlbumMainMessageId: Int64 = 0
     var savedAlbumMainMessageIdTemp: Int64 = 0
     var savedPhotoMessages = [Message]()
-    @Published var displayedPhotos = [SelectedImage]() {
-        didSet {
-            if !displayedPhotos.isEmpty {
-                bottomAreaState = .caption
-            }
-        }
-    }
+    @Published var displayedPhotos = [SelectedImage]()
     @Published var selectedPhotos = [PhotosPickerItem]() {
         didSet {
-            if !selectedPhotos.isEmpty {
-                Task {
-                    await loadPhotos()
-                }
+            Task {
+                await loadPhotos()
             }
         }
     }
@@ -81,19 +55,15 @@ class ChatViewModel: ObservableObject {
     @Published var timeSliderValue = 0.0
     @Published var isSeeking = false
     
-    @Published var editMessage: CustomMessage? {
+    @Published var editCustomMessage: CustomMessage? {
         didSet {
-            if editMessage != nil {
-                bottomAreaState = .edit
-                setEditMessageText(from: editMessage?.message)
+            if editCustomMessage != nil {
+                setEditMessageText(from: editCustomMessage?.message)
             }
         }
     }
     @Published var replyMessage: CustomMessage? {
         didSet {
-            if displayedPhotos.isEmpty && replyMessage != nil {
-                bottomAreaState = .reply
-            }
             Task {
                 await updateDraft()
             }

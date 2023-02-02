@@ -25,18 +25,18 @@ extension MessageView {
         
         if customMessage.message.canBeEdited {
             Button("Edit", systemImage: "square.and.pencil") {
-                if viewModel.editMessage != nil {
+                if viewModel.editCustomMessage != nil {
                     withAnimation {
-                        viewModel.editMessage = nil
+                        viewModel.editCustomMessage = nil
                     }
                     Task.async(after: Utils.defaultAnimationDuration + 0.05) {
                         withAnimation {
-                            viewModel.editMessage = customMessage
+                            viewModel.editCustomMessage = customMessage
                         }
                     }
                 } else {
                     withAnimation {
-                        viewModel.editMessage = customMessage
+                        viewModel.editCustomMessage = customMessage
                     }
                 }
             }

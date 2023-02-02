@@ -62,7 +62,8 @@ struct MessageView: View {
             }
             
             HStack(alignment: .bottom, spacing: 0) {
-                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content, isOutgoing {
+                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
+                    isOutgoing, textWidth == 0 {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
                 
@@ -73,7 +74,8 @@ struct MessageView: View {
                     .cornerRadius(corners(for: .content))
                     .readSize { contentWidth = Int($0.width) }
                 
-                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content, !isOutgoing {
+                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
+                    !isOutgoing, textWidth == 0 {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
             }

@@ -13,6 +13,8 @@ struct ChatBottomArea: View {
     @State var timer: Timer?
     @State var wave = [Float]()
     
+    @State var showSendButton = false
+    
     @Namespace var chatBottomAreaNamespace
     
     @EnvironmentObject var viewModel: ChatViewModel
@@ -41,6 +43,9 @@ struct ChatBottomArea: View {
                 voiceNoteRecording
             }
         }
+        .animation(.default, value: viewModel.editCustomMessage)
+        .animation(.default, value: viewModel.replyMessage)
+        .animation(.default, value: showSendButton)
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)
@@ -50,7 +55,6 @@ struct ChatBottomArea: View {
         .alert("Error", isPresented: $viewModel.errorShown, actions: {}) {
             Text(viewModel.errorMessage)
         }
-        .animation(.default, value: viewModel.bottomAreaState)
         .overlay(alignment: .bottomTrailing) {
             Circle()
                 .fill(.blue)
@@ -66,8 +70,24 @@ struct ChatBottomArea: View {
                 .scaleEffect(viewModel.recordingVoiceNote ? 1 : 0)
                 .offset(x: 20, y: 20)
                 .onTapGesture {
+                    viewModel.text = ""
                     viewModel.mediaStopRecordingVoice(duration: Int(timerCount), wave: wave)
                 }
+        }
+        .onChange(of: viewModel.text) { _ in
+            showSendButton = !viewModel.text.isEmpty
+            || !viewModel.editMessageText.isEmpty
+            || !viewModel.displayedPhotos.isEmpty
+        }
+        .onChange(of: viewModel.editMessageText) { _ in
+            showSendButton = !viewModel.text.isEmpty
+            || !viewModel.editMessageText.isEmpty
+            || !viewModel.displayedPhotos.isEmpty
+        }
+        .onChange(of: viewModel.displayedPhotos) { _ in
+            showSendButton = !viewModel.text.isEmpty
+            || !viewModel.editMessageText.isEmpty
+            || !viewModel.displayedPhotos.isEmpty
         }
     }
 }

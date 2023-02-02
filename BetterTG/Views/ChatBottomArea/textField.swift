@@ -5,14 +5,14 @@ import SwiftUI
 extension ChatBottomArea {
     @ViewBuilder var textField: some View {
         TextField(
-            textFieldPrompt(),
-            text: textFieldText(),
+            "Message...",
+            text: viewModel.editCustomMessage == nil ? $viewModel.text : $viewModel.editMessageText,
             axis: .vertical
         )
         .focused(focused)
         .lineLimit(10)
         .padding(5)
-        .background(Color.gray6)
+        .background(.gray6)
         .cornerRadius(15)
         .onReceive(viewModel.$text.debounce(for: 2, scheduler: DispatchQueue.main)) { _ in
             Task {
@@ -24,24 +24,6 @@ extension ChatBottomArea {
                     await viewModel.tdSendChatAction(.chatActionCancel)
                 }
             }
-        }
-    }
-    
-    func textFieldText() -> Binding<String> {
-        switch viewModel.bottomAreaState {
-            case .message, .reply, .caption, .voice:
-                return $viewModel.text
-            case .edit:
-                return $viewModel.editMessageText
-        }
-    }
-    
-    func textFieldPrompt() -> String {
-        switch viewModel.bottomAreaState {
-            case .voice:
-                return "Message..."
-            default:
-                return "\(viewModel.bottomAreaState)...".capitalized
         }
     }
 }

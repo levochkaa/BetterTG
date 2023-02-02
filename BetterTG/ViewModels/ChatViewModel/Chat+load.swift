@@ -5,9 +5,11 @@ import TDLibKit
 
 extension ChatViewModel {
     func loadPhotos() async {
+        guard !selectedPhotos.isEmpty else { return }
+        
         await MainActor.run {
             withAnimation {
-                self.displayedPhotos.removeAll()
+                displayedPhotos.removeAll()
             }
         }
         
@@ -25,10 +27,8 @@ extension ChatViewModel {
         
         await MainActor.run {
             withAnimation {
-                self.displayedPhotos = processedImages
-                if processedImages.isEmpty {
-                    self.bottomAreaState = .voice
-                }
+                displayedPhotos = processedImages
+                selectedPhotos.removeAll()
             }
         }
     }
