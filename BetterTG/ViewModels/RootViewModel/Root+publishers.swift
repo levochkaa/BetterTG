@@ -22,6 +22,7 @@ extension RootViewModel {
             Task.main {
                 loggedIn = true
                 loadMainChats()
+                loadArchivedChats()
             }
         }
         
@@ -72,6 +73,16 @@ extension RootViewModel {
             
             mainChats[index].positions[positionIndex] = chatPosition.position
         }
+        
+        Task.main {
+            guard let index = archivedChats.firstIndex(where: { $0.chat.id == chatPosition.chatId }),
+                  let positionIndex = archivedChats[index].positions.firstIndex(where: {
+                      $0.list == chatPosition.position.list
+                  })
+            else { return }
+            
+            archivedChats[index].positions[positionIndex] = chatPosition.position
+        }
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
@@ -91,6 +102,12 @@ extension RootViewModel {
             mainChats[index].lastMessage = chatLastMessage.lastMessage
             mainChats[index].positions = chatLastMessage.positions
         }
+        
+        Task.main {
+            guard let index = archivedChats.firstIndex(where: { $0.chat.id == chatLastMessage.chatId }) else { return }
+            archivedChats[index].lastMessage = chatLastMessage.lastMessage
+            archivedChats[index].positions = chatLastMessage.positions
+        }
     }
     
     func chatDraftMessage(_ chatDraftMessage: UpdateChatDraftMessage) {
@@ -98,6 +115,12 @@ extension RootViewModel {
             guard let index = mainChats.firstIndex(where: { $0.chat.id == chatDraftMessage.chatId }) else { return }
             mainChats[index].draftMessage = chatDraftMessage.draftMessage
             mainChats[index].positions = chatDraftMessage.positions
+        }
+        
+        Task.main {
+            guard let index = archivedChats.firstIndex(where: { $0.chat.id == chatDraftMessage.chatId }) else { return }
+            archivedChats[index].draftMessage = chatDraftMessage.draftMessage
+            archivedChats[index].positions = chatDraftMessage.positions
         }
     }
 }

@@ -15,6 +15,9 @@ struct RootView: View {
     @Namespace var rootNamespace
     
     @State var query = ""
+    @State var queryArchived = ""
+    
+    @State var showArchivedChats = false
     
     let chatId = "chatId"
     
@@ -41,7 +44,7 @@ struct RootView: View {
                     LazyVStack(spacing: 8) {
                         switch viewModel.searchScope {
                             case .chats:
-                                chatsList(viewModel.filteredSortedMainChats(query.lowercased()))
+                                chatsList(viewModel.filteredSortedChats(query.lowercased()))
                             case .global:
                                 chatsList(viewModel.searchedGlobalChats)
                         }
@@ -77,6 +80,16 @@ struct RootView: View {
                 }
                 .onChange(of: scenePhase) { newPhase in
                     viewModel.handleScenePhase(newPhase)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button(systemImage: "square.stack") {
+                            showArchivedChats = true
+                        }
+                    }
+                }
+                .navigationDestination(isPresented: $showArchivedChats) {
+                    archivedChatsView
                 }
                 .confirmationDialog(
                     "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",

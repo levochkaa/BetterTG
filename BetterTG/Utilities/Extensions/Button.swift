@@ -4,7 +4,7 @@ import SwiftUI
 
 extension Button where Label == SwiftUI.Label<Text, Image> {
     public init(
-        _ title: String,
+        _ title: String = "",
         systemImage: String,
         action: @escaping () -> Void
     ) {

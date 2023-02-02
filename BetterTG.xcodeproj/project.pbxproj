@@ -92,6 +92,8 @@
 		DFCC2A432950EFA600281EF8 /* Message+text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A422950EFA600281EF8 /* Message+text.swift */; };
 		DFCC2A452950F02C00281EF8 /* Message+menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A442950F02C00281EF8 /* Message+menu.swift */; };
 		DFD3304B298C0AED004622B0 /* SearchScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD3304A298C0AED004622B0 /* SearchScope.swift */; };
+		DFD3304D298C1F83004622B0 /* Root+archived.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD3304C298C1F83004622B0 /* Root+archived.swift */; };
+		DFD3304F298C20F2004622B0 /* Root+load.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD3304E298C20F2004622B0 /* Root+load.swift */; };
 		DFD7D4892942426D0006CF85 /* Login+td.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D4882942426D0006CF85 /* Login+td.swift */; };
 		DFD7D48B294243620006CF85 /* Login+publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D48A294243620006CF85 /* Login+publishers.swift */; };
 		DFD7D48D2942443D0006CF85 /* Root+publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D48C2942443D0006CF85 /* Root+publishers.swift */; };
@@ -242,6 +244,8 @@
 		DFCC2A422950EFA600281EF8 /* Message+text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+text.swift"; sourceTree = "<group>"; };
 		DFCC2A442950F02C00281EF8 /* Message+menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+menu.swift"; sourceTree = "<group>"; };
 		DFD3304A298C0AED004622B0 /* SearchScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchScope.swift; sourceTree = "<group>"; };
+		DFD3304C298C1F83004622B0 /* Root+archived.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+archived.swift"; sourceTree = "<group>"; };
+		DFD3304E298C20F2004622B0 /* Root+load.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+load.swift"; sourceTree = "<group>"; };
 		DFD7D4882942426D0006CF85 /* Login+td.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Login+td.swift"; sourceTree = "<group>"; };
 		DFD7D48A294243620006CF85 /* Login+publishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Login+publishers.swift"; sourceTree = "<group>"; };
 		DFD7D48C2942443D0006CF85 /* Root+publishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Root+publishers.swift"; sourceTree = "<group>"; };
@@ -528,6 +532,7 @@
 				DFE0265A295112F4004C8C83 /* Root+photo.swift */,
 				DFE0265C2951133A004C8C83 /* Root+lastOrDraft.swift */,
 				DFF44E662978711200B0E74C /* Root+contextMenu.swift */,
+				DFD3304C298C1F83004622B0 /* Root+archived.swift */,
 			);
 			path = Root;
 			sourceTree = "<group>";
@@ -575,6 +580,7 @@
 				DF0F9D4D28CCACE500BCA763 /* RootViewModel.swift */,
 				DFD7D48E294246230006CF85 /* Root+td.swift */,
 				DFD7D48C2942443D0006CF85 /* Root+publishers.swift */,
+				DFD3304E298C20F2004622B0 /* Root+load.swift */,
 			);
 			path = RootViewModel;
 			sourceTree = "<group>";
@@ -830,6 +836,7 @@
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* Root+lastOrDraft.swift in Sources */,
 				DFD9F891292FE54A00D1E03B /* userId.swift in Sources */,
+				DFD3304F298C20F2004622B0 /* Root+load.swift in Sources */,
 				DF236749294148290076B821 /* center.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
 				DFD7D493294256B90006CF85 /* Chat+publishers.swift in Sources */,
@@ -887,6 +894,7 @@
 				DFEB06C02959DD490099E2B2 /* Root+mainChatsList.swift in Sources */,
 				DF1717C52971F76F0085E698 /* flatMap.swift in Sources */,
 				1A21DCD21051708FC9321717 /* ScrollOffsetPreferenceKey.swift in Sources */,
+				DFD3304D298C1F83004622B0 /* Root+archived.swift in Sources */,
 				DF2367472940F9810076B821 /* delayed.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* if.swift in Sources */,
 				DFEB06CD295A00C10099E2B2 /* speechResult.swift in Sources */,

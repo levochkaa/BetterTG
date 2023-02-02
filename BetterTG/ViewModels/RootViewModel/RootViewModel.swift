@@ -9,20 +9,11 @@ class RootViewModel: ObservableObject {
     @Published var loggedIn: Bool?
     @Published var mainChats = [CustomChat]()
     @Published var searchedGlobalChats = [CustomChat]()
+    @Published var archivedChats = [CustomChat]()
     @Published var searchScope: SearchScope = .chats
     
     init() {
         setPublishers()
-    }
-    
-    func loadMainChats() {
-        Task {
-            let chatIds = await tdGetChats()
-            let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
-            await MainActor.run {
-                mainChats = customChats
-            }
-        }
     }
     
     func handleScenePhase(_ scenePhase: ScenePhase) {
@@ -53,13 +44,22 @@ class RootViewModel: ObservableObject {
         }
     }
     
-    func filteredSortedMainChats(_ query: String) -> [CustomChat] {
-        guard searchScope == .chats else { return [] }
+    func filteredSortedChats(_ query: String, for list: ChatList = .chatListMain) -> [CustomChat] {
+        var customChats = [CustomChat]()
+        switch list {
+            case .chatListMain:
+                if searchScope != .chats { return [] }
+                customChats = mainChats
+            case .chatListArchive:
+                customChats = archivedChats
+            default:
+                return []
+        }
         
-        return mainChats
+        return customChats
             .sorted {
-                let firstOrder = $0.positions.first(where: { $0.list == .chatListMain })?.order
-                let secondOrder = $1.positions.first(where: { $0.list == .chatListMain })?.order
+                let firstOrder = $0.positions.first(where: { $0.list == list })?.order
+                let secondOrder = $1.positions.first(where: { $0.list == list })?.order
                 
                 if let firstOrder, let secondOrder {
                     return firstOrder > secondOrder
