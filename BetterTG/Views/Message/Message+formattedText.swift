@@ -16,8 +16,8 @@ extension MessageView {
             Text(attributedString)
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
-                .draggable(getDraggableString(from: attributedString)) {
-                    Text(attributedString)
+                .draggable(text) {
+                    Text(text)
                         .frame(width: draggableTextSize.width, height: draggableTextSize.height)
                         .multilineTextAlignment(.leading)
                         .padding(8)
@@ -90,16 +90,6 @@ extension MessageView {
     
     func getUrl(from string: String) -> URL? {
         URL(string: string.contains("://") ? string : "https://\(string)")
-    }
-    
-    @available(iOS 16.1, *)
-    func getDraggableString(from attributedString: AttributedString) -> AttributedString {
-        return attributedString
-    }
-    
-    @available(iOS 16, *)
-    func getDraggableString(from attributedString: AttributedString) -> String {
-        return NSAttributedString(attributedString).string
     }
     
     func stringRange(
