@@ -4,9 +4,19 @@ import SwiftUI
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder func chatsListItem(for customChat: CustomChat) -> some View {
+    @ViewBuilder func chatsListItem(for customChat: CustomChat, redacted: Bool = false) -> some View {
         HStack {
-            chatsListPhoto(for: customChat.chat)
+            if !redacted {
+                chatsListPhoto(for: customChat.chat)
+            } else {
+                Circle()
+                    .frame(width: 64)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.largeTitle)
+                            .unredacted()
+                    }
+            }
             
             VStack(alignment: .leading, spacing: 0) {
                 Text(customChat.chat.title)

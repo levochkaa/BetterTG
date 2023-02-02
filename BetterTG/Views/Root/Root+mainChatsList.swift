@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder func chatsList(_ customChats: [CustomChat]) -> some View {
+    @ViewBuilder func chatsList(_ customChats: [CustomChat], redacted: Bool = false) -> some View {
         ForEach(customChats) { customChat in
             NavigationLink {
                 ChatView(
@@ -13,8 +13,10 @@ extension RootView {
                     rootNamespace: rootNamespace
                 )
             } label: {
-                chatsListItem(for: customChat)
-                    .matchedGeometryEffect(id: customChat.chat.id, in: rootNamespace)
+                chatsListItem(for: customChat, redacted: redacted)
+                    .if(!redacted) {
+                        $0.matchedGeometryEffect(id: customChat.chat.id, in: rootNamespace)
+                    }
                     .contextMenu {
                         contextMenu(for: customChat.chat)
                     } preview: {
@@ -23,8 +25,11 @@ extension RootView {
                         }
                     }
             }
+            .disabled(redacted)
             .task {
-                await viewModel.tdGetChatHistory(id: customChat.chat.id)
+                if !redacted {
+                    await viewModel.tdGetChatHistory(id: customChat.chat.id)
+                }
             }
         }
     }

@@ -32,7 +32,17 @@ struct RootView: View {
                     LoginView()
                 }
             } else {
-                Text("Loading...")
+                NavigationStack {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            chatsList(CustomChat.placeholder, redacted: true)
+                                .redacted(reason: .placeholder)
+                        }
+                        .padding(.top, 8)
+                    }
+                    .navigationTitle("BetterTG")
+                    .scrollDisabled(true)
+                }
             }
         }
     }

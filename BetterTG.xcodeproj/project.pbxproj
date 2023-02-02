@@ -38,6 +38,13 @@
 		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF3BC41A2974142F002F207B /* Message+date.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC4192974142F002F207B /* Message+date.swift */; };
+		DF42BFCC298C70BF00039ACD /* +CustomChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCB298C70BF00039ACD /* +CustomChat.swift */; };
+		DF42BFCE298C70D500039ACD /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCD298C70D500039ACD /* Message.swift */; };
+		DF42BFD0298C70E600039ACD /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCF298C70E600039ACD /* User.swift */; };
+		DF42BFD2298C70F500039ACD /* Chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD1298C70F500039ACD /* Chat.swift */; };
+		DF42BFD4298C710300039ACD /* ChatPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD3298C710300039ACD /* ChatPermission.swift */; };
+		DF42BFD6298C710F00039ACD /* ChatNotificationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD5298C710F00039ACD /* ChatNotificationSettings.swift */; };
+		DF42BFD8298C711F00039ACD /* VideoChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD7298C711F00039ACD /* VideoChat.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
@@ -193,6 +200,13 @@
 		DF346449296B787D001BE888 /* MainActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActor.swift; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
 		DF3BC4192974142F002F207B /* Message+date.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+date.swift"; sourceTree = "<group>"; };
+		DF42BFCB298C70BF00039ACD /* +CustomChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+CustomChat.swift"; sourceTree = "<group>"; };
+		DF42BFCD298C70D500039ACD /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		DF42BFCF298C70E600039ACD /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		DF42BFD1298C70F500039ACD /* Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chat.swift; sourceTree = "<group>"; };
+		DF42BFD3298C710300039ACD /* ChatPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPermission.swift; sourceTree = "<group>"; };
+		DF42BFD5298C710F00039ACD /* ChatNotificationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNotificationSettings.swift; sourceTree = "<group>"; };
+		DF42BFD7298C711F00039ACD /* VideoChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoChat.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
 		DF4B998328C3F3F50087C1B9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -339,6 +353,7 @@
 		DF0F9D4B28CCAAC000BCA763 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				DF42BFCA298C70B100039ACD /* Moc */,
 				DF51DA36290D96A400AB9E60 /* LoginState.swift */,
 				DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */,
 				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
@@ -389,6 +404,20 @@
 				DF3A159428D838C500789C32 /* Secret.swift */,
 			);
 			path = Generated;
+			sourceTree = "<group>";
+		};
+		DF42BFCA298C70B100039ACD /* Moc */ = {
+			isa = PBXGroup;
+			children = (
+				DF42BFCB298C70BF00039ACD /* +CustomChat.swift */,
+				DF42BFCD298C70D500039ACD /* Message.swift */,
+				DF42BFCF298C70E600039ACD /* User.swift */,
+				DF42BFD1298C70F500039ACD /* Chat.swift */,
+				DF42BFD3298C710300039ACD /* ChatPermission.swift */,
+				DF42BFD5298C710F00039ACD /* ChatNotificationSettings.swift */,
+				DF42BFD7298C711F00039ACD /* VideoChat.swift */,
+			);
+			path = Moc;
 			sourceTree = "<group>";
 		};
 		DF4B997528C3F3F50087C1B9 = {
@@ -801,6 +830,7 @@
 				DF1717C92971F77F0085E698 /* forEach.swift in Sources */,
 				DF3A159528D838C500789C32 /* Secret.swift in Sources */,
 				DF5261CA294E61BB00FB7C73 /* SelectedImage.swift in Sources */,
+				DF42BFD6298C710F00039ACD /* ChatNotificationSettings.swift in Sources */,
 				DFD7D48B294243620006CF85 /* Login+publishers.swift in Sources */,
 				DF2AE713295119AA00FF7850 /* Chat+messageContent.swift in Sources */,
 				DFE84078298AF0E300C3A7F8 /* background.swift in Sources */,
@@ -809,6 +839,7 @@
 				DF2367452940ECFC0076B821 /* rgb.swift in Sources */,
 				DF763B082971BE5B00334615 /* +main.swift in Sources */,
 				DFD3304B298C0AED004622B0 /* SearchScope.swift in Sources */,
+				DF42BFD2298C70F500039ACD /* Chat.swift in Sources */,
 				DFEB06C92959EE740099E2B2 /* speech.swift in Sources */,
 				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF2AE70D2951192800FF7850 /* Chat+get.swift in Sources */,
@@ -832,10 +863,13 @@
 				DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */,
 				DFE026622951144B004C8C83 /* Reply+photo.swift in Sources */,
 				DF96BAE2298BE120003936AC /* equatable.swift in Sources */,
+				DF42BFD4298C710300039ACD /* ChatPermission.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* Root+lastOrDraft.swift in Sources */,
+				DF42BFCE298C70D500039ACD /* Message.swift in Sources */,
 				DFD9F891292FE54A00D1E03B /* userId.swift in Sources */,
+				DF42BFD0298C70E600039ACD /* User.swift in Sources */,
 				DFD3304F298C20F2004622B0 /* Root+load.swift in Sources */,
 				DF236749294148290076B821 /* center.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
@@ -865,6 +899,7 @@
 				DFB5CC18294A512A00BE749C /* hideKeyboard.swift in Sources */,
 				DF346448296B72D4001BE888 /* Message+formattedText.swift in Sources */,
 				DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */,
+				DF42BFD8298C711F00039ACD /* VideoChat.swift in Sources */,
 				DF1717BD2971F3B60085E698 /* flippedUpsideDown.swift in Sources */,
 				DFE8407C298AFA9100C3A7F8 /* cornerRadius.swift in Sources */,
 				DFD7D4892942426D0006CF85 /* Login+td.swift in Sources */,
@@ -888,6 +923,7 @@
 				DF5261D9294F505300FB7C73 /* photosScroll.swift in Sources */,
 				DF7AC27E2970BC3300D77ACB /* UIApplication.swift in Sources */,
 				DF8A42ED296E146C004774F6 /* TextView.swift in Sources */,
+				DF42BFCC298C70BF00039ACD /* +CustomChat.swift in Sources */,
 				DF7AC27A2970ADA900D77ACB /* add.swift in Sources */,
 				DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */,
 				DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */,
