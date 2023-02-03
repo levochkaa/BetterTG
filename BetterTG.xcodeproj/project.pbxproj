@@ -235,7 +235,6 @@
 		DF763B072971BE5B00334615 /* +main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+main.swift"; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = add.swift; sourceTree = "<group>"; };
 		DF7AC27D2970BC3300D77ACB /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
-		DF7D868A2948ED040089B56C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
 		DF8A42EC296E146C004774F6 /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
@@ -423,7 +422,6 @@
 		DF4B997528C3F3F50087C1B9 = {
 			isa = PBXGroup;
 			children = (
-				DF7D868A2948ED040089B56C /* README.md */,
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
 				DF4B999228C3F51C0087C1B9 /* Frameworks */,
@@ -442,6 +440,8 @@
 			isa = PBXGroup;
 			children = (
 				DFBFB86728CE48110076895C /* Utilities */,
+				DFDFC6D32938DA2C00A5919E /* PreferenceKeys */,
+				DFECD755292A92F7002A4BAD /* Extensions */,
 				DF0F9D4B28CCAAC000BCA763 /* Models */,
 				DF0F9D4A28CCAAB300BCA763 /* Views */,
 				DF0F9D4C28CCAACE00BCA763 /* ViewModels */,
@@ -481,6 +481,8 @@
 		DF55E2D3295B92F700A30C76 /* Common */ = {
 			isa = PBXGroup;
 			children = (
+				DFB5CC14294A44DD00BE749C /* Layouts */,
+				DFB85D07290EEAC800F66E20 /* AsyncTd */,
 				DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */,
 				DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */,
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
@@ -542,10 +544,6 @@
 			children = (
 				DF820B7628D7C7CF007DD293 /* Templates */,
 				DF3A159328D838C500789C32 /* Generated */,
-				DFDFC6D32938DA2C00A5919E /* PreferenceKeys */,
-				DFECD755292A92F7002A4BAD /* Extensions */,
-				DFB85D07290EEAC800F66E20 /* AsyncTd */,
-				DFB5CC14294A44DD00BE749C /* Layouts */,
 				DFBFB86828CE48290076895C /* Utils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
 			);
