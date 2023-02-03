@@ -21,11 +21,9 @@ extension LoginView {
                         .keyboardType(.numberPad)
                 }
             } label: {
-                Button {
+                Button(viewModel.selectedCountryNum.name) {
                     focusedPhoneNumber = false
                     showSelectCountryView.toggle()
-                } label: {
-                    Text(viewModel.selectedCountryNum.name)
                 }
             }
             

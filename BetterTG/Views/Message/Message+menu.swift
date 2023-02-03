@@ -43,63 +43,53 @@ extension MessageView {
         }
         
         if !text.isEmpty {
-            Button {
+            Button("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
                 UIPasteboard.general.string = text
-            } label: {
-                Label("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait")
             }
         }
         
         Divider()
         
         if customMessage.message.canBeDeletedOnlyForSelf, !customMessage.message.canBeDeletedForAllUsers {
-            Button(role: .destructive) {
+            Button("Delete only for me", systemImage: "trash", role: .destructive) {
                 Task {
                     await viewModel.deleteMessage(
                         id: customMessage.message.id,
                         deleteForBoth: false
                     )
                 }
-            } label: {
-                Label("Delete only for me", systemImage: "trash")
             }
         }
         
         if !customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
-            Button(role: .destructive) {
+            Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
                 Task {
                     await viewModel.deleteMessage(
                         id: customMessage.message.id,
                         deleteForBoth: true
                     )
                 }
-            } label: {
-                Label("Delete for both", systemImage: "trash.fill")
             }
         }
         
         if customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
             Menu("Delete") {
-                Button(role: .destructive) {
+                Button("Delete only for me", systemImage: "trash", role: .destructive) {
                     Task {
                         await viewModel.deleteMessage(
                             id: customMessage.message.id,
                             deleteForBoth: false
                         )
                     }
-                } label: {
-                    Label("Delete only for me", systemImage: "trash")
                 }
                 
-                Button(role: .destructive) {
+                Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
                     Task {
                         await viewModel.deleteMessage(
                             id: customMessage.message.id,
                             deleteForBoth: true
                         )
                     }
-                } label: {
-                    Label("Delete for both", systemImage: "trash.fill")
                 }
             }
         }
