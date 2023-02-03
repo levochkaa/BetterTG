@@ -9,6 +9,8 @@ extension ChatBottomArea {
             text: viewModel.editCustomMessage == nil ? $viewModel.text : $viewModel.editMessageText,
             axis: .vertical
         )
+        .unredacted()
+        .disabled(!redactionReasons.isEmpty)
         .focused(focused)
         .lineLimit(10)
         .padding(5)

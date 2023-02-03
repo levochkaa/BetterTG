@@ -10,7 +10,7 @@ extension CustomChat {
             chat: .moc,
             user: .moc,
             positions: [],
-            lastMessage: .moc,
+            lastMessage: .moc(),
             draftMessage: nil
         )
     }

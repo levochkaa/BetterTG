@@ -15,3 +15,10 @@ struct CustomMessage: Identifiable, Equatable {
     var animojis = [Animoji]()
     var forwardedFrom: String?
 }
+
+extension CustomMessage {
+    static let placeholder: [CustomMessage] = [
+        .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()),
+        .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random())
+    ]
+}

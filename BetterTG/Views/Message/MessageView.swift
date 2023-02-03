@@ -37,6 +37,8 @@ struct MessageView: View {
     let chevronId = "chevronId"
     let speechId = "speechId"
     
+    @Environment(\.redactionReasons) var redactionReasons
+    
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
             if let forwardedFrom = customMessage.forwardedFrom {

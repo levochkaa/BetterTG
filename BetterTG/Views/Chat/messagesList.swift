@@ -3,8 +3,8 @@
 import SwiftUI
 
 extension ChatView {
-    @ViewBuilder var messagesList: some View {
-        ForEach(viewModel.messages) { customMessage in
+    @ViewBuilder func messagesList(_ customMessages: [CustomMessage], redacted: Bool = false) -> some View {
+        ForEach(customMessages) { customMessage in
             HStack {
                 if customMessage.message.isOutgoing { Spacer() }
                 
@@ -21,7 +21,9 @@ extension ChatView {
                 
                 if !customMessage.message.isOutgoing { Spacer() }
             }
-            .id(customMessage.message.id)
+            .if(!redacted) {
+                $0.id(customMessage.message.id)
+            }
             .padding(customMessage.message.isOutgoing ? .trailing : .leading)
             .transition(
                 .asymmetric(

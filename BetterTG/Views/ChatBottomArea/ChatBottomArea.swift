@@ -19,6 +19,8 @@ struct ChatBottomArea: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     
+    @Environment(\.redactionReasons) var redactionReasons
+    
     let micId = "micId"
     
     var body: some View {
@@ -34,10 +36,12 @@ struct ChatBottomArea: View {
             if !viewModel.recordingVoiceNote {
                 HStack(alignment: .center, spacing: 10) {
                     leftSide
+                        .unredacted()
                     
                     textField
                     
                     rightSide
+                        .unredacted()
                 }
             } else {
                 voiceNoteRecording

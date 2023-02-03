@@ -6,24 +6,24 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         ZStack {
-            let attributedString = attributedString(for: formattedText)
-            
             Text(text)
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { draggableTextSize = $0 }
                 .hidden()
             
-            Text(attributedString)
+            Text(attributedString(for: formattedText))
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
-                .draggable(text) {
-                    Text(text)
-                        .frame(width: draggableTextSize.width, height: draggableTextSize.height)
-                        .multilineTextAlignment(.leading)
-                        .padding(8)
-                        .foregroundColor(.white)
-                        .background(.gray6)
-                        .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
+                .if(redactionReasons.isEmpty) {
+                    $0.draggable(text) {
+                        Text(text)
+                            .frame(width: draggableTextSize.width, height: draggableTextSize.height)
+                            .multilineTextAlignment(.leading)
+                            .padding(8)
+                            .foregroundColor(.white)
+                            .background(.gray6)
+                            .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
+                    }
                 }
                 .overlay {
                     if textSize != .zero {
@@ -40,6 +40,7 @@ extension MessageView {
                     messageDate
                         .menuOnPress { menu }
                         .offset(y: 3)
+                        .disabled(!redactionReasons.isEmpty)
                 }
         }
     }

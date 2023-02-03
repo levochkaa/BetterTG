@@ -30,7 +30,7 @@ extension Chat {
         positions: [],
         replyMarkupMessageId: 0,
         themeName: "",
-        title: "title",
+        title: "titletitletitle",
         type: .chatTypePrivate(.init(userId: 0)),
         unreadCount: 0,
         unreadMentionCount: 0,

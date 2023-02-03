@@ -38,37 +38,32 @@ struct ChatView: View {
     var body: some View {
         Group {
             if viewModel.initLoadingMessages {
-                Text("Loading...")
-                    .center(.vertically)
-                    .fullScreenBackground(color: .black)
+                ScrollView {
+                    LazyVStack(spacing: 5) {
+                        messagesList(CustomMessage.placeholder, redacted: true)
+                            .redacted(reason: .placeholder)
+                    }
+                }
+                .flippedUpsideDown()
+                .scrollDisabled(true)
             } else if viewModel.messages.isEmpty {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
-                    .safeAreaInset(edge: .bottom) {
-                        Group {
-                            if !isPreview {
-                                ChatBottomArea(
-                                    focused: $focused,
-                                    openedPhotoInfo: $openedPhotoInfo,
-                                    rootNamespace: rootNamespace
-                                )
-                            }
-                        }
-                    }
             } else {
                 bodyView
-                    .safeAreaInset(edge: .bottom) {
-                        Group {
-                            if !isPreview {
-                                ChatBottomArea(
-                                    focused: $focused,
-                                    openedPhotoInfo: $openedPhotoInfo,
-                                    rootNamespace: rootNamespace
-                                )
-                            }
-                        }
-                    }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !isPreview {
+                ChatBottomArea(
+                    focused: $focused,
+                    openedPhotoInfo: $openedPhotoInfo,
+                    rootNamespace: rootNamespace
+                )
+                .if(viewModel.initLoadingMessages) {
+                    $0.redacted(reason: .placeholder)
+                }
             }
         }
         .toolbar {

@@ -7,7 +7,7 @@ extension ChatView {
         ScrollView {
             ZStack {
                 LazyVStack(spacing: 5) {
-                    messagesList
+                    messagesList(viewModel.messages)
                 }
                 
                 GeometryReader { geometryProxy in

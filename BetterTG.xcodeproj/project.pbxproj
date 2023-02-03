@@ -84,6 +84,7 @@
 		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
 		DF99C02C2976B97F00D7C1DE /* Message+voiceNoteSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF99C02B2976B97F00D7C1DE /* Message+voiceNoteSide.swift */; };
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
+		DF9D5168298D02D9009AFE7F /* +CustomMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D5167298D02D9009AFE7F /* +CustomMessage.swift */; };
 		DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */; };
 		DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */; };
 		DFA214B1297D9BEF00758617 /* uniqued.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA214B0297D9BEF00758617 /* uniqued.swift */; };
@@ -243,6 +244,7 @@
 		DF8DE3912956158B001D5163 /* Chat+media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chat+media.swift"; sourceTree = "<group>"; };
 		DF96BAE1298BE120003936AC /* equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = equatable.swift; sourceTree = "<group>"; };
 		DF99C02B2976B97F00D7C1DE /* Message+voiceNoteSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+voiceNoteSide.swift"; sourceTree = "<group>"; };
+		DF9D5167298D02D9009AFE7F /* +CustomMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+CustomMessage.swift"; sourceTree = "<group>"; };
 		DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewer.swift; sourceTree = "<group>"; };
 		DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedPhotoInfo.swift; sourceTree = "<group>"; };
 		DFA214B0297D9BEF00758617 /* uniqued.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = uniqued.swift; sourceTree = "<group>"; };
@@ -415,6 +417,7 @@
 				DF42BFD3298C710300039ACD /* ChatPermission.swift */,
 				DF42BFD5298C710F00039ACD /* ChatNotificationSettings.swift */,
 				DF42BFD7298C711F00039ACD /* VideoChat.swift */,
+				DF9D5167298D02D9009AFE7F /* +CustomMessage.swift */,
 			);
 			path = Moc;
 			sourceTree = "<group>";
@@ -831,6 +834,7 @@
 				DF42BFD6298C710F00039ACD /* ChatNotificationSettings.swift in Sources */,
 				DFD7D48B294243620006CF85 /* Login+publishers.swift in Sources */,
 				DF2AE713295119AA00FF7850 /* Chat+messageContent.swift in Sources */,
+				DF9D5168298D02D9009AFE7F /* +CustomMessage.swift in Sources */,
 				DFE84078298AF0E300C3A7F8 /* background.swift in Sources */,
 				DF820B6228D76563007DD293 /* Logger.swift in Sources */,
 				DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */,
