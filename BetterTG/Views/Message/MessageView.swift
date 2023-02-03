@@ -20,6 +20,7 @@ struct MessageView: View {
     
     @State var isOutgoing = true
     @State var text = ""
+    @State var attributedStringWithoutDate = AttributedString()
     
     @State var forwardedWidth: Int = 0
     @State var replyWidth: Int = 0

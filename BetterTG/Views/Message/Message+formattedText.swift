@@ -6,17 +6,12 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         ZStack {
-            Text(text)
-                .fixedSize(horizontal: false, vertical: true)
-                .readSize { draggableTextSize = $0 }
-                .hidden()
-            
             Text(attributedString(for: formattedText))
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
                 .if(redactionReasons.isEmpty) {
                     $0.draggable(text) {
-                        Text(text)
+                        Text(attributedStringWithoutDate)
                             .frame(width: draggableTextSize.width, height: draggableTextSize.height)
                             .multilineTextAlignment(.leading)
                             .padding(8)
@@ -24,6 +19,12 @@ extension MessageView {
                             .background(.gray6)
                             .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
                     }
+                }
+                .overlay {
+                    Text(attributedStringWithoutDate)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .readSize { draggableTextSize = $0 }
+                        .hidden()
                 }
                 .overlay {
                     if textSize != .zero {
@@ -78,6 +79,10 @@ extension MessageView {
 //                    log("Error, not implemented: \(entity.type); for: \(formattedText)")
                     continue
             }
+        }
+        
+        Task.main { [result] in
+            attributedStringWithoutDate = result
         }
         
         var dateAttributedString = AttributedString("000:00")
