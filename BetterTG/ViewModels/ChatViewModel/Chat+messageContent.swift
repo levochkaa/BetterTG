@@ -7,7 +7,7 @@ extension ChatViewModel {
     func makeInputMessageContent(for url: URL) -> InputMessageContent {
         let path = url.path()
         
-        let image = UIImage(contentsOfFile: path)!
+        let image = UIImage(contentsOfFile: path) ?? UIImage()
         
         let input: InputFile = .inputFileLocal(.init(path: path))
         

@@ -79,8 +79,9 @@ extension ChatViewModel {
         let dateFormatter = DateFormatter()
         
         let difference = Date().timeIntervalSince1970 - TimeInterval(time)
-        
-        if difference < 60 * 60 {
+        if difference < 60 {
+            return "now"
+        } else if difference < 60 * 60 {
             return "\(Int(difference / 60)) minutes ago"
         } else if difference < 60 * 60 * 24 {
             return "\(Int(difference / 60 / 60)) hours ago"

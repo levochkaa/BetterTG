@@ -2,8 +2,43 @@
 
 import SwiftUI
 import TDLibKit
+import PhotosUI
 
 extension ChatViewModel {
+    func getImages() {
+        fetchedImages.removeAll()
+        
+        let options = PHFetchOptions()
+        options.includeAssetSourceTypes = [.typeUserLibrary]
+        options.sortDescriptors = [.init(key: "creationDate", ascending: false)]
+        let manager = PHCachingImageManager.default()
+        let imageOptions = PHImageRequestOptions()
+        imageOptions.version = .current
+        imageOptions.resizeMode = .exact
+        imageOptions.deliveryMode = .highQualityFormat
+        imageOptions.isNetworkAccessAllowed = true
+        imageOptions.isSynchronous = true
+        
+        PHAsset.fetchAssets(with: .image, options: options).enumerateObjects { asset, _, _ in
+            var imageAsset = ImageAsset(asset: asset)
+            manager.requestImage(
+                for: asset,
+                targetSize: PHImageManagerMaximumSize,
+                contentMode: .aspectFit,
+                options: imageOptions
+            ) { uiImage, _ in
+                imageAsset.uiImage = uiImage
+            }
+            self.fetchedImages.append(imageAsset)
+        }
+    }
+    
+    func delete(asset: PHAsset) {
+        PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+        }
+    }
+    
     func getReplyToMessage(id: Int64) async -> Message? {
         return id != 0 ? await tdGetMessage(id: id) : nil
     }

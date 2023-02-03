@@ -6,7 +6,7 @@ extension ChatBottomArea {
     @ViewBuilder var photosScroll: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .center, spacing: 5) {
-                ForEach(viewModel.displayedPhotos) { photo in
+                ForEach(viewModel.displayedImages) { photo in
                     photo.image
                         .resizable()
                         .scaledToFit()
@@ -28,7 +28,7 @@ extension ChatBottomArea {
                         .overlay(alignment: .topTrailing) {
                             Button {
                                 withAnimation {
-                                    viewModel.displayedPhotos.removeAll(where: { photo.id == $0.id })
+                                    viewModel.displayedImages.removeAll(where: { photo.id == $0.id })
                                 }
                             } label: {
                                 Image(systemName: "xmark")

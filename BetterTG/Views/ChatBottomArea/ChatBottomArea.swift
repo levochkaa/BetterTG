@@ -14,6 +14,7 @@ struct ChatBottomArea: View {
     @State var wave = [Float]()
     
     @State var showSendButton = false
+    @State var showBottomSheet = false
     
     @Namespace var chatBottomAreaNamespace
     
@@ -22,13 +23,14 @@ struct ChatBottomArea: View {
     @Environment(\.redactionReasons) var redactionReasons
     
     let micId = "micId"
+    let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
             topSide
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             
-            if !viewModel.displayedPhotos.isEmpty {
+            if !viewModel.displayedImages.isEmpty {
                 photosScroll
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -36,12 +38,10 @@ struct ChatBottomArea: View {
             if !viewModel.recordingVoiceNote {
                 HStack(alignment: .center, spacing: 10) {
                     leftSide
-                        .unredacted()
                     
                     textField
                     
                     rightSide
-                        .unredacted()
                 }
             } else {
                 voiceNoteRecording
@@ -58,6 +58,10 @@ struct ChatBottomArea: View {
         // swiftlint:disable multiple_closures_with_trailing_closure
         .alert("Error", isPresented: $viewModel.errorShown, actions: {}) {
             Text(viewModel.errorMessage)
+        }
+        .sheet(isPresented: $showBottomSheet) {
+            bottomSheet
+                .presentationDetents([.medium, .large])
         }
         .overlay(alignment: .bottomTrailing) {
             Circle()
@@ -81,17 +85,17 @@ struct ChatBottomArea: View {
         .onChange(of: viewModel.text) { _ in
             showSendButton = !viewModel.text.isEmpty
             || !viewModel.editMessageText.isEmpty
-            || !viewModel.displayedPhotos.isEmpty
+            || !viewModel.displayedImages.isEmpty
         }
         .onChange(of: viewModel.editMessageText) { _ in
             showSendButton = !viewModel.text.isEmpty
             || !viewModel.editMessageText.isEmpty
-            || !viewModel.displayedPhotos.isEmpty
+            || !viewModel.displayedImages.isEmpty
         }
-        .onChange(of: viewModel.displayedPhotos) { _ in
+        .onChange(of: viewModel.displayedImages) { _ in
             showSendButton = !viewModel.text.isEmpty
             || !viewModel.editMessageText.isEmpty
-            || !viewModel.displayedPhotos.isEmpty
+            || !viewModel.displayedImages.isEmpty
         }
     }
 }

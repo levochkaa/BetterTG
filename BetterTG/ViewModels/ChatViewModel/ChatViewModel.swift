@@ -22,14 +22,8 @@ class ChatViewModel: ObservableObject {
     var savedAlbumMainMessageId: Int64 = 0
     var savedAlbumMainMessageIdTemp: Int64 = 0
     var savedPhotoMessages = [Message]()
-    @Published var displayedPhotos = [SelectedImage]()
-    @Published var selectedPhotos = [PhotosPickerItem]() {
-        didSet {
-            Task {
-                await loadPhotos()
-            }
-        }
-    }
+    @Published var fetchedImages = [ImageAsset]()
+    @Published var displayedImages = [SelectedImage]()
     
     @Published var scrollViewProxy: ScrollViewProxy?
     

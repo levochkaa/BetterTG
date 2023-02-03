@@ -5,7 +5,7 @@ import TDLibKit
 
 extension ChatViewModel {
     func sendMessage() async {
-        if !displayedPhotos.isEmpty {
+        if !displayedImages.isEmpty {
             await sendMessagePhotos()
         } else if !editMessageText.isEmpty {
             await editMessage()
@@ -16,7 +16,7 @@ extension ChatViewModel {
         }
         
         await MainActor.run {
-            displayedPhotos.removeAll()
+            displayedImages.removeAll()
             editMessageText.removeAll()
             text.removeAll()
             replyMessage = nil
@@ -24,16 +24,24 @@ extension ChatViewModel {
         }
     }
     
+    func sendMessagePhoto(imageAsset: ImageAsset) {
+        if let url = imageAsset.url {
+            Task {
+                await tdSendMessage(with: makeInputMessageContent(for: url))
+            }
+        }
+    }
+    
     func sendMessagePhotos() async {
         await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
         
-        if displayedPhotos.count == 1, let photo = displayedPhotos.first {
+        if displayedImages.count == 1, let photo = displayedImages.first {
             await tdSendMessage(with: makeInputMessageContent(for: photo.url))
         } else {
-            let messageContents = displayedPhotos.map {
+            let messageContents = displayedImages.map {
                 makeInputMessageContent(for: $0.url)
             }
-            toBeSentPhotosCount = displayedPhotos.count
+            toBeSentPhotosCount = displayedImages.count
             await tdSendMessageAlbum(with: messageContents)
         }
     }

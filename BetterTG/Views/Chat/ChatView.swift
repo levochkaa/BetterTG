@@ -37,7 +37,7 @@ struct ChatView: View {
     
     var body: some View {
         Group {
-            if viewModel.initLoadingMessages {
+            if viewModel.initLoadingMessages, viewModel.messages.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 5) {
                         messagesList(CustomMessage.placeholder, redacted: true)
@@ -46,7 +46,7 @@ struct ChatView: View {
                 }
                 .flippedUpsideDown()
                 .scrollDisabled(true)
-            } else if viewModel.messages.isEmpty {
+            } else if !viewModel.initLoadingMessages, viewModel.messages.isEmpty {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
@@ -102,12 +102,10 @@ struct ChatView: View {
                                 .resizable()
                                 .scaledToFit()
                                 .contextMenu {
-                                    Button {
+                                    Button("Save", systemImage: "square.and.arrow.down") {
                                         guard let uiImage = UIImage(contentsOfFile: chatPhoto.big.local.path)
                                         else { return }
                                         UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
-                                    } label: {
-                                        Label("Save", systemImage: "square.and.arrow.down")
                                     }
                                 } preview: {
                                     image
@@ -172,7 +170,7 @@ struct ChatView: View {
                 .onReceive(nc.publisher(for: .customRecognizeSpeech)) { _ in scrollToLastOnFocus() }
                 .onChange(of: focused) { _ in scrollToLastOnFocus() }
                 .onChange(of: viewModel.messages) { _ in scrollToLastOnFocus() }
-                .onChange(of: viewModel.displayedPhotos) { _ in scrollToLastOnFocus() }
+                .onChange(of: viewModel.displayedImages) { _ in scrollToLastOnFocus() }
                 .onChange(of: viewModel.replyMessage) { reply in
                     if reply == nil {
                         scrollToLastOnFocus()
@@ -196,7 +194,7 @@ struct ChatView: View {
         }
         .background(.black)
         .dropDestination(for: SelectedImage.self) { items, _ in
-            viewModel.displayedPhotos = Array(items.prefix(10))
+            viewModel.displayedImages = Array(items.prefix(10))
             return true
         }
         .overlay(alignment: .bottomTrailing) {

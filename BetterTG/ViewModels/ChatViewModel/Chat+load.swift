@@ -4,32 +4,20 @@ import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {
-    func loadPhotos() async {
-        guard !selectedPhotos.isEmpty else { return }
-        
-        await MainActor.run {
-            withAnimation {
-                displayedPhotos.removeAll()
-            }
-        }
-        
-        let processedImages: [SelectedImage] = await selectedPhotos.asyncCompactMap {
-            do {
-                if let selectedImage = try await $0.loadTransferable(type: SelectedImage.self) {
-                    return selectedImage
+    func loadPhotos() {
+        let processedImages = fetchedImages
+            .filter { $0.selected }
+            .compactMap {
+                if let image = $0.thumbnail, let url = $0.url {
+                    return SelectedImage(image: image, url: url)
                 }
                 return nil
-            } catch {
-                log("Error transfering image data: \(error)")
-                return nil
             }
-        }
         
-        await MainActor.run {
-            withAnimation {
-                displayedPhotos = processedImages
-                selectedPhotos.removeAll()
-            }
+        fetchedImages = fetchedImages.map { $0.deselected() }
+        
+        withAnimation {
+            displayedImages = processedImages
         }
     }
     
