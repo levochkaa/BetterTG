@@ -5,13 +5,16 @@ import TDLibKit
 import PhotosUI
 
 extension ChatViewModel {
-    func getImages() {
-        fetchedImages.removeAll()
+    func getImages() async {
+        Task.main {
+            fetchedImages.removeAll()
+        }
         
-        let options = PHFetchOptions()
-        options.includeAssetSourceTypes = [.typeUserLibrary]
-        options.sortDescriptors = [.init(key: "creationDate", ascending: false)]
-        let manager = PHCachingImageManager.default()
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.includeAssetSourceTypes = [.typeUserLibrary]
+        fetchOptions.sortDescriptors = [.init(key: "creationDate", ascending: false)]
+        fetchOptions.fetchLimit = 201
+        
         let imageOptions = PHImageRequestOptions()
         imageOptions.version = .current
         imageOptions.resizeMode = .exact
@@ -19,17 +22,46 @@ extension ChatViewModel {
         imageOptions.isNetworkAccessAllowed = true
         imageOptions.isSynchronous = true
         
-        PHAsset.fetchAssets(with: .image, options: options).enumerateObjects { asset, _, _ in
+        let imageManager = PHCachingImageManager.default()
+        
+        PHAsset.fetchAssets(with: .image, options: fetchOptions).enumerateObjects { [self] asset, _, _ in
             var imageAsset = ImageAsset(asset: asset)
-            manager.requestImage(
-                for: asset,
+            
+            imageManager.requestImage(
+                for: imageAsset.asset,
                 targetSize: PHImageManagerMaximumSize,
                 contentMode: .aspectFit,
                 options: imageOptions
             ) { uiImage, _ in
-                imageAsset.uiImage = uiImage
+                if let uiImage {
+                    imageAsset.uiImage = uiImage
+                    imageAsset.thumbnail = Image(uiImage: uiImage)
+                    if let data = uiImage.jpegData(compressionQuality: 0.8) {
+                        let imageUrl = URL(filePath: NSTemporaryDirectory())
+                            .appending(path: "\(UUID().uuidString).png")
+                        do {
+                            try data.write(to: imageUrl, options: .atomic)
+                            imageAsset.url = imageUrl
+                        } catch {
+                            log("Error getting data for an image: \(error)")
+                        }
+                    }
+                }
             }
-            self.fetchedImages.append(imageAsset)
+            
+            Task.main { [imageAsset] in
+                fetchedImages.append(imageAsset)
+            }
+        }
+    }
+    
+    func toggleSelectedImage(_ index: Int, for imageAsset: ImageAsset) {
+        if imageAsset.selected {
+            fetchedImages[index].selected = false
+            selectedImagesCount -= 1
+        } else if selectedImagesCount < 10 {
+            fetchedImages[index].selected = true
+            selectedImagesCount += 1
         }
     }
     

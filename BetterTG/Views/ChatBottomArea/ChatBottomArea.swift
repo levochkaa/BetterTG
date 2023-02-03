@@ -15,6 +15,7 @@ struct ChatBottomArea: View {
     
     @State var showSendButton = false
     @State var showBottomSheet = false
+    @State var selectedImagesCount = 0
     
     @Namespace var chatBottomAreaNamespace
     

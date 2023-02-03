@@ -24,6 +24,7 @@ class ChatViewModel: ObservableObject {
     var savedPhotoMessages = [Message]()
     @Published var fetchedImages = [ImageAsset]()
     @Published var displayedImages = [SelectedImage]()
+    @Published var selectedImagesCount = 0
     
     @Published var scrollViewProxy: ScrollViewProxy?
     

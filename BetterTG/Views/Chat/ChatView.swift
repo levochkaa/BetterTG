@@ -46,6 +46,7 @@ struct ChatView: View {
                 }
                 .flippedUpsideDown()
                 .scrollDisabled(true)
+                .background(.black)
             } else if !viewModel.initLoadingMessages, viewModel.messages.isEmpty {
                 Text("No messages")
                     .center(.vertically)
