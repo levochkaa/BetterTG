@@ -51,7 +51,7 @@ extension MessageView {
         Divider()
         
         if customMessage.message.canBeDeletedOnlyForSelf, !customMessage.message.canBeDeletedForAllUsers {
-            Button("Delete only for me", systemImage: "trash", role: .destructive) {
+            Button("Delete", systemImage: "trash", role: .destructive) {
                 Task {
                     await viewModel.deleteMessage(
                         id: customMessage.message.id,

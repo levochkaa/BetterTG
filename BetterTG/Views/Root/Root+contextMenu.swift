@@ -6,7 +6,7 @@ import TDLibKit
 extension RootView {
     @ViewBuilder func contextMenu(for chat: Chat) -> some View {
         if !chat.canBeDeletedOnlyForSelf, chat.canBeDeletedForAllUsers {
-            Button("Delete for all users", systemImage: "trash.fill", role: .destructive) {
+            Button("Delete for everyone", systemImage: "trash.fill", role: .destructive) {
                 deleteChatForAllUsers = true
                 confirmedChat = chat
                 showConfirmChatDelete = true
@@ -14,7 +14,7 @@ extension RootView {
         }
         
         if chat.canBeDeletedOnlyForSelf, !chat.canBeDeletedForAllUsers {
-            Button("Delete only for me", systemImage: "trash", role: .destructive) {
+            Button("Delete", systemImage: "trash", role: .destructive) {
                 deleteChatForAllUsers = false
                 confirmedChat = chat
                 showConfirmChatDelete = true
