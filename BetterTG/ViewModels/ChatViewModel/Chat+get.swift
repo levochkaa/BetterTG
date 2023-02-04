@@ -13,7 +13,7 @@ extension ChatViewModel {
         let fetchOptions = PHFetchOptions()
         fetchOptions.includeAssetSourceTypes = [.typeUserLibrary]
         fetchOptions.sortDescriptors = [.init(key: "creationDate", ascending: false)]
-        fetchOptions.fetchLimit = 201
+        fetchOptions.fetchLimit = 51
         
         let imageOptions = PHImageRequestOptions()
         imageOptions.version = .current
