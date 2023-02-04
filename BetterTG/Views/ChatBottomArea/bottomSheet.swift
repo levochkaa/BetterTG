@@ -30,20 +30,31 @@ extension ChatBottomArea {
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
-                        showBottomSheet = false
+                        viewModel.showBottomSheet = false
                         viewModel.loadPhotos()
                     }
                     .bold()
                 }
                 
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        showBottomSheet = false
+                        viewModel.showBottomSheet = false
                         viewModel.fetchedImages = viewModel.fetchedImages.map { $0.deselected() }
                     }
                 }
+            }
+            .toolbarTitleMenu {
+                Button("Camera") {
+                    viewModel.presentationDetent = .large
+                    viewModel.showCameraView = true
+                }
+            }
+            .navigationDestination(isPresented: $viewModel.showCameraView) {
+                CameraView()
+                    .navigationTitle("Camera")
+                    .edgesIgnoringSafeArea(.bottom)
             }
         }
     }
@@ -96,7 +107,7 @@ extension ChatBottomArea {
         Divider()
         
         Button("Send", systemImage: "paperplane.fill") {
-            showBottomSheet = false
+            viewModel.showBottomSheet = false
             viewModel.sendMessagePhoto(imageAsset: imageAsset)
         }
         

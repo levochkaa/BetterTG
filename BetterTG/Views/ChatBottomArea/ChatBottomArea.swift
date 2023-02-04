@@ -14,7 +14,6 @@ struct ChatBottomArea: View {
     @State var wave = [Float]()
     
     @State var showSendButton = false
-    @State var showBottomSheet = false
     @State var selectedImagesCount = 0
     
     @Namespace var chatBottomAreaNamespace
@@ -60,9 +59,10 @@ struct ChatBottomArea: View {
         .alert("Error", isPresented: $viewModel.errorShown, actions: {}) {
             Text(viewModel.errorMessage)
         }
-        .sheet(isPresented: $showBottomSheet) {
+        .sheet(isPresented: $viewModel.showBottomSheet) {
             bottomSheet
-                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.hidden)
+                .presentationDetents([.medium, .large], selection: $viewModel.presentationDetent)
         }
         .overlay(alignment: .bottomTrailing) {
             Circle()

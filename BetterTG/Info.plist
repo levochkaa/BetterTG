@@ -12,12 +12,12 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict>
-		<key>UIImageRespectsSafeAreaInsets</key>
-		<true/>
-		<key>UIImageName</key>
-		<string>launchScreen</string>
 		<key>UIColorName</key>
 		<string>launchScreenBackground</string>
+		<key>UIImageName</key>
+		<string>launchScreen</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<true/>
 		<key>UILaunchScreen</key>
 		<dict/>
 	</dict>

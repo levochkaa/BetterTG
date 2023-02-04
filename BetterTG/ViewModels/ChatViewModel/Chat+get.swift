@@ -36,7 +36,7 @@ extension ChatViewModel {
                 if let uiImage {
                     imageAsset.uiImage = uiImage
                     imageAsset.thumbnail = Image(uiImage: uiImage)
-                    if let data = uiImage.jpegData(compressionQuality: 0.8) {
+                    if let data = uiImage.jpegData(compressionQuality: 1) {
                         let imageUrl = URL(filePath: NSTemporaryDirectory())
                             .appending(path: "\(UUID().uuidString).png")
                         do {

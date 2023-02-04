@@ -6,7 +6,7 @@ import PhotosUI
 extension ChatBottomArea {
     @ViewBuilder var leftSide: some View {
         Button {
-            showBottomSheet = true
+            viewModel.showBottomSheet = true
             Task {
                 await viewModel.getImages()
             }

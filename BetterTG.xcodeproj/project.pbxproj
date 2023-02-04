@@ -38,6 +38,7 @@
 		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF3BC41A2974142F002F207B /* Message+date.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC4192974142F002F207B /* Message+date.swift */; };
+		DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF40F14F298F01CC00383AE1 /* CameraView.swift */; };
 		DF42BFCC298C70BF00039ACD /* +CustomChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCB298C70BF00039ACD /* +CustomChat.swift */; };
 		DF42BFCE298C70D500039ACD /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCD298C70D500039ACD /* Message.swift */; };
 		DF42BFD0298C70E600039ACD /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCF298C70E600039ACD /* User.swift */; };
@@ -204,6 +205,7 @@
 		DF346449296B787D001BE888 /* MainActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActor.swift; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
 		DF3BC4192974142F002F207B /* Message+date.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+date.swift"; sourceTree = "<group>"; };
+		DF40F14F298F01CC00383AE1 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		DF42BFCB298C70BF00039ACD /* +CustomChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+CustomChat.swift"; sourceTree = "<group>"; };
 		DF42BFCD298C70D500039ACD /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		DF42BFCF298C70E600039ACD /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
@@ -499,6 +501,7 @@
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */,
 				DF8A42EC296E146C004774F6 /* TextView.swift */,
+				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -849,6 +852,7 @@
 				DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */,
 				DF2367452940ECFC0076B821 /* rgb.swift in Sources */,
 				DF763B082971BE5B00334615 /* +main.swift in Sources */,
+				DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */,
 				DFD3304B298C0AED004622B0 /* SearchScope.swift in Sources */,
 				DF42BFD2298C70F500039ACD /* Chat.swift in Sources */,
 				DFEB06C92959EE740099E2B2 /* speech.swift in Sources */,
@@ -1100,11 +1104,11 @@
 				INFOPLIST_FILE = BetterTG/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BetterTG;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We would like to access your Camera to let you send photos in chats.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We would like to access your Microphone to let you send Voice messages in chats.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We would like to access your Photos to let you send them in chats.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1139,11 +1143,11 @@
 				INFOPLIST_FILE = BetterTG/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BetterTG;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We would like to access your Camera to let you send photos in chats.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We would like to access your Microphone to let you send Voice messages in chats.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We would like to access your Photos to let you send them in chats.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
