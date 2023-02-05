@@ -40,7 +40,7 @@ struct ChatView: View {
             if viewModel.initLoadingMessages, viewModel.messages.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 5) {
-                        messagesList(CustomMessage.placeholder, redacted: true)
+                        messagesList(CustomMessage.placeholder(), redacted: true)
                             .redacted(reason: .placeholder)
                     }
                 }

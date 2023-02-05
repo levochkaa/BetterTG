@@ -42,6 +42,7 @@ extension ChatBottomArea {
                     Button("Cancel") {
                         viewModel.showBottomSheet = false
                         viewModel.fetchedImages = viewModel.fetchedImages.map { $0.deselected() }
+                        viewModel.selectedImagesCount = 0
                     }
                 }
             }

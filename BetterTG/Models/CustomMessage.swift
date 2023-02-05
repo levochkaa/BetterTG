@@ -17,8 +17,11 @@ struct CustomMessage: Identifiable, Equatable {
 }
 
 extension CustomMessage {
-    static let placeholder: [CustomMessage] = [
-        .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()),
-        .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random()), .moc(.random())
-    ]
+    static func placeholder(
+        _ b1: Bool = .random(), _ b2: Bool = .random(), _ b3: Bool = .random(),
+        _ b4: Bool = .random(), _ b5: Bool = .random(), _ b6: Bool = .random(),
+        _ b7: Bool = .random(), _ b8: Bool = .random(), _ b9: Bool = .random()
+    ) -> [CustomMessage] {
+        [.moc(b1), .moc(b2), .moc(b3), .moc(b4), .moc(b5), .moc(b6), .moc(b7), .moc(b8), .moc(b9)]
+    }
 }

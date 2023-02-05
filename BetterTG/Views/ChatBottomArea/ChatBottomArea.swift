@@ -79,7 +79,6 @@ struct ChatBottomArea: View {
                 .scaleEffect(viewModel.recordingVoiceNote ? 1 : 0)
                 .offset(x: 20, y: 20)
                 .onTapGesture {
-                    viewModel.text = ""
                     viewModel.mediaStopRecordingVoice(duration: Int(timerCount), wave: wave)
                 }
         }

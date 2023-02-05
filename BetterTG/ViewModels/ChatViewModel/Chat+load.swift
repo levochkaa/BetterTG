@@ -15,6 +15,7 @@ extension ChatViewModel {
             }
         
         fetchedImages = fetchedImages.map { $0.deselected() }
+        selectedImagesCount = 0
         
         withAnimation {
             displayedImages = processedImages

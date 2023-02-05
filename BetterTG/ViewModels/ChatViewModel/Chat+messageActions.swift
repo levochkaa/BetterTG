@@ -75,6 +75,7 @@ extension ChatViewModel {
                     )
                 )
         )
+        text.removeAll()
     }
     
     func editMessage() async {

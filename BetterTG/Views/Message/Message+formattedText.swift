@@ -48,6 +48,7 @@ extension MessageView {
     
     func attributedString(for formattedText: FormattedText) -> AttributedString {
         var result = AttributedString(formattedText.text)
+        var resultWithoutEmojis = AttributedString(formattedText.text)
         
         for entity in formattedText.entities {
             let stringRange = stringRange(for: formattedText.text, start: entity.offset, length: entity.length)
@@ -57,22 +58,31 @@ extension MessageView {
             switch entity.type {
                 case .textEntityTypeBold:
                     result[range].font = .body.bold()
+                    resultWithoutEmojis[range].font = .body.bold()
                 case .textEntityTypeItalic:
                     result[range].font = .body.italic()
+                    resultWithoutEmojis[range].font = .body.italic()
                 case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
                     result[range].font = .body.monospaced()
+                    resultWithoutEmojis[range].font = .body.monospaced()
                 case .textEntityTypeUnderline:
                     result[range].underlineStyle = .single
+                    resultWithoutEmojis[range].underlineStyle = .single
                 case .textEntityTypeStrikethrough:
                     result[range].strikethroughStyle = .single
+                    resultWithoutEmojis[range].strikethroughStyle = .single
                 case .textEntityTypePhoneNumber:
-                    result[range].link = URL(string: "tel:\(raw)")
+                    result[range].link = URL(string: "tel://\(raw)")
+                    resultWithoutEmojis[range].link = URL(string: "tel://\(raw)")
                 case .textEntityTypeEmailAddress:
-                    result[range].link = URL(string: "mailto:\(raw)")
+                    result[range].link = URL(string: "mailto://\(raw)")
+                    resultWithoutEmojis[range].link = URL(string: "mailto://\(raw)")
                 case .textEntityTypeUrl:
                     result[range].link = getUrl(from: raw)
+                    resultWithoutEmojis[range].link = getUrl(from: raw)
                 case .textEntityTypeTextUrl(let textEntityTypeTextUrl):
                     result[range].link = getUrl(from: textEntityTypeTextUrl.url)
+                    resultWithoutEmojis[range].link = getUrl(from: textEntityTypeTextUrl.url)
                 case .textEntityTypeCustomEmoji:
                     result[range].foregroundColor = .clear
                 default:
@@ -81,11 +91,11 @@ extension MessageView {
             }
         }
         
-        Task.main { [result] in
-            attributedStringWithoutDate = result
+        Task.main { [resultWithoutEmojis] in
+            attributedStringWithoutDate = resultWithoutEmojis
         }
         
-        var dateAttributedString = AttributedString("000:00")
+        var dateAttributedString = AttributedString(" 00:00")
         let range = dateAttributedString.startIndex..<dateAttributedString.endIndex
         dateAttributedString[range].font = .caption
         dateAttributedString[range].foregroundColor = .gray6
