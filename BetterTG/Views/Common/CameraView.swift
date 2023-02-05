@@ -32,17 +32,27 @@ struct CameraView: UIViewControllerRepresentable {
             self.parent = parent
         }
         
+        func hideCameraView() {
+            parent.viewModel.showBottomSheet = false
+            parent.viewModel.showCameraView = false
+            parent.viewModel.presentationDetent = .medium
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            hideCameraView()
+        }
+        
         func imagePickerController(
             _ picker: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
-            parent.viewModel.showBottomSheet = false
-            parent.viewModel.showCameraView = false
-            parent.viewModel.presentationDetent = .medium
+            hideCameraView()
             
             guard let uiImage = info[.originalImage] as? UIImage,
                   let data = uiImage.jpegData(compressionQuality: 1)
             else { return }
+            
+            UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
             
             let imageUrl = URL(filePath: NSTemporaryDirectory())
                 .appending(path: "\(UUID().uuidString).png")
