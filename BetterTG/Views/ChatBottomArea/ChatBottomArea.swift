@@ -62,7 +62,7 @@ struct ChatBottomArea: View {
         .sheet(isPresented: $viewModel.showBottomSheet) {
             bottomSheet
                 .presentationDragIndicator(.hidden)
-                .presentationDetents([.medium, .large], selection: $viewModel.presentationDetent)
+                .presentationDetents([.medium, .large])
         }
         .overlay(alignment: .bottomTrailing) {
             Circle()

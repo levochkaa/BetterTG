@@ -24,10 +24,7 @@ extension ChatBottomArea {
                 }
                 .padding(10)
             }
-            .navigationTitle(viewModel.selectedImagesCount == 0
-                             ? "Gallery"
-                             : "\(viewModel.selectedImagesCount) items selected"
-            )
+            .navigationTitle("Gallery")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -45,17 +42,27 @@ extension ChatBottomArea {
                         viewModel.selectedImagesCount = 0
                     }
                 }
+                
+                ToolbarItem(placement: .bottomBar) {
+                    Text("\(viewModel.selectedImagesCount)/10 items selected")
+                }
             }
             .toolbarTitleMenu {
                 Button("Camera") {
-                    viewModel.presentationDetent = .large
                     viewModel.showCameraView = true
                 }
             }
-            .navigationDestination(isPresented: $viewModel.showCameraView) {
-                CameraView()
-                    .navigationTitle("Camera")
-                    .edgesIgnoringSafeArea(.bottom)
+            .fullScreenCover(isPresented: $viewModel.showCameraView) {
+                NavigationStack {
+                    CameraView()
+                        .navigationTitle("Camera")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbarTitleMenu {
+                            Button("Gallery") {
+                                viewModel.showCameraView = false
+                            }
+                        }
+                }
             }
         }
     }

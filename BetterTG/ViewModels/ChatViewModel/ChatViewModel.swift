@@ -27,7 +27,6 @@ class ChatViewModel: ObservableObject {
     @Published var selectedImagesCount = 0
     @Published var showBottomSheet = false
     @Published var showCameraView = false
-    @Published var presentationDetent: PresentationDetent = .medium
     
     @Published var scrollViewProxy: ScrollViewProxy?
     

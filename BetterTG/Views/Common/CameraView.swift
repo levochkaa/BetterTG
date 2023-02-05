@@ -35,7 +35,6 @@ struct CameraView: UIViewControllerRepresentable {
         func hideCameraView() {
             parent.viewModel.showBottomSheet = false
             parent.viewModel.showCameraView = false
-            parent.viewModel.presentationDetent = .medium
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
