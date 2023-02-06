@@ -98,7 +98,7 @@ extension MessageView {
         var dateAttributedString = AttributedString(" 00:00")
         let range = dateAttributedString.startIndex..<dateAttributedString.endIndex
         dateAttributedString[range].font = .caption
-        dateAttributedString[range].foregroundColor = .gray6
+        dateAttributedString[range].foregroundColor = .clear
         result.append(dateAttributedString)
         
         return result
