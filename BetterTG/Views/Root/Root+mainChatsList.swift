@@ -7,16 +7,9 @@ extension RootView {
     @ViewBuilder func chatsList(_ customChats: [CustomChat], redacted: Bool = false) -> some View {
         ForEach(customChats) { customChat in
             NavigationLink {
-                ChatView(
-                    customChat: customChat,
-                    openedPhotoInfo: $openedPhotoInfo,
-                    rootNamespace: rootNamespace
-                )
+                ChatView(customChat: customChat)
             } label: {
                 chatsListItem(for: customChat, redacted: redacted)
-                    .if(!redacted) {
-                        $0.matchedGeometryEffect(id: customChat.chat.id, in: rootNamespace)
-                    }
                     .contextMenu {
                         contextMenu(for: customChat.chat)
                     } preview: {

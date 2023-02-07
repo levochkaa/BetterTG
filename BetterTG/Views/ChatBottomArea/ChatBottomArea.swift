@@ -6,9 +6,6 @@ struct ChatBottomArea: View {
     
     var focused: FocusState<Bool>.Binding
     
-    @Binding var openedPhotoInfo: OpenedPhotoInfo?
-    var rootNamespace: Namespace.ID?
-    
     @State var timerCount = 0.0
     @State var timer: Timer?
     @State var wave = [Float]()

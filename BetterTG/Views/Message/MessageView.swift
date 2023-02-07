@@ -7,9 +7,6 @@ struct MessageView: View {
     
     @State var customMessage: CustomMessage
     
-    @Binding var openedPhotoInfo: OpenedPhotoInfo?
-    var rootNamespace: Namespace.ID?
-    
     @EnvironmentObject var viewModel: ChatViewModel
     
     @State var recognized = false

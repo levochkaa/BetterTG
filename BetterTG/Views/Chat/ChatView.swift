@@ -8,9 +8,6 @@ struct ChatView: View {
     @StateObject var viewModel: ChatViewModel
     @State var isPreview: Bool
     
-    @Binding var openedPhotoInfo: OpenedPhotoInfo?
-    var rootNamespace: Namespace.ID?
-    
     @FocusState var focused
     @State var showPicker = false
     
@@ -19,20 +16,9 @@ struct ChatView: View {
     let scroll = "chatScroll"
     @State private var scrollOnFocus = true
     
-    init(customChat: CustomChat,
-         isPreview: Bool = false,
-         openedPhotoInfo: Binding<OpenedPhotoInfo?>? = nil,
-         rootNamespace: Namespace.ID? = nil
-    ) {
+    init(customChat: CustomChat, isPreview: Bool = false) {
         self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
         self._isPreview = State(initialValue: isPreview)
-        self.rootNamespace = rootNamespace
-        
-        if let openedPhotoInfo {
-            self._openedPhotoInfo = Binding(projectedValue: openedPhotoInfo)
-        } else {
-            self._openedPhotoInfo = Binding(get: { nil }, set: { _ in })
-        }
     }
     
     var body: some View {
@@ -57,14 +43,10 @@ struct ChatView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if !isPreview {
-                ChatBottomArea(
-                    focused: $focused,
-                    openedPhotoInfo: $openedPhotoInfo,
-                    rootNamespace: rootNamespace
-                )
-                .if(viewModel.initLoadingMessages) {
-                    $0.redacted(reason: .placeholder)
-                }
+                ChatBottomArea(focused: $focused)
+                    .if(viewModel.initLoadingMessages) {
+                        $0.redacted(reason: .placeholder)
+                    }
             }
         }
         .toolbar {

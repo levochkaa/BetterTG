@@ -90,8 +90,6 @@
 		DF9D516A298D1102009AFE7F /* bottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D5169298D1102009AFE7F /* bottomSheet.swift */; };
 		DF9D516C298D1340009AFE7F /* ImageAsset.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D516B298D1340009AFE7F /* ImageAsset.swift */; };
 		DF9D5170298D19A8009AFE7F /* Shape.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D516F298D19A8009AFE7F /* Shape.swift */; };
-		DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */; };
-		DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */; };
 		DFA214B1297D9BEF00758617 /* uniqued.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA214B0297D9BEF00758617 /* uniqued.swift */; };
 		DFA4E5B029759BAA003B43EF /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = DFA4E5AF29759BAA003B43EF /* SDWebImageWebPCoder */; };
 		DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC15294A44F200BE749C /* MediaAlbum.swift */; };
@@ -255,8 +253,6 @@
 		DF9D5169298D1102009AFE7F /* bottomSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = bottomSheet.swift; sourceTree = "<group>"; };
 		DF9D516B298D1340009AFE7F /* ImageAsset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAsset.swift; sourceTree = "<group>"; };
 		DF9D516F298D19A8009AFE7F /* Shape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shape.swift; sourceTree = "<group>"; };
-		DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewer.swift; sourceTree = "<group>"; };
-		DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedPhotoInfo.swift; sourceTree = "<group>"; };
 		DFA214B0297D9BEF00758617 /* uniqued.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = uniqued.swift; sourceTree = "<group>"; };
 		DFB5CC15294A44F200BE749C /* MediaAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAlbum.swift; sourceTree = "<group>"; };
 		DFB5CC17294A512A00BE749C /* hideKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = hideKeyboard.swift; sourceTree = "<group>"; };
@@ -369,7 +365,6 @@
 				DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */,
 				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
 				DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */,
-				DF9F4AE52947B0D800B5076C /* OpenedPhotoInfo.swift */,
 				DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */,
 				DF8ACA1C295F67D30007D5FF /* Animoji.swift */,
 				DF540681296C7ED700492867 /* CustomChat.swift */,
@@ -499,7 +494,6 @@
 				DFB5CC14294A44DD00BE749C /* Layouts */,
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
 				DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */,
-				DF9F4ADF29479AEB00B5076C /* PhotoViewer.swift */,
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */,
 				DF8A42EC296E146C004774F6 /* TextView.swift */,
@@ -900,7 +894,6 @@
 				DFA214B1297D9BEF00758617 /* uniqued.swift in Sources */,
 				DFECD74829293FEE002A4BAD /* phoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* voiceNote.swift in Sources */,
-				DF9F4AE029479AEB00B5076C /* PhotoViewer.swift in Sources */,
 				DF3BC41A2974142F002F207B /* Message+date.swift in Sources */,
 				DFE84083298AFB3200C3A7F8 /* data.swift in Sources */,
 				DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */,
@@ -919,7 +912,6 @@
 				DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */,
 				DFB5CC18294A512A00BE749C /* hideKeyboard.swift in Sources */,
 				DF346448296B72D4001BE888 /* Message+formattedText.swift in Sources */,
-				DF9F4AE62947B0D800B5076C /* OpenedPhotoInfo.swift in Sources */,
 				DF42BFD8298C711F00039ACD /* VideoChat.swift in Sources */,
 				DF1717BD2971F3B60085E698 /* flippedUpsideDown.swift in Sources */,
 				DFE8407C298AFA9100C3A7F8 /* cornerRadius.swift in Sources */,

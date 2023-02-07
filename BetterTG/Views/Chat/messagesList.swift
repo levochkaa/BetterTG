@@ -8,16 +8,12 @@ extension ChatView {
             HStack {
                 if customMessage.message.isOutgoing { Spacer() }
                 
-                MessageView(
-                    customMessage: customMessage,
-                    openedPhotoInfo: $openedPhotoInfo,
-                    rootNamespace: rootNamespace
-                )
-                .frame(
-                    maxWidth: Utils.size.width * 0.8,
-                    alignment: customMessage.message.isOutgoing ? .trailing : .leading
-                )
-                .flippedUpsideDown()
+                MessageView(customMessage: customMessage)
+                    .frame(
+                        maxWidth: Utils.size.width * 0.8,
+                        alignment: customMessage.message.isOutgoing ? .trailing : .leading
+                    )
+                    .flippedUpsideDown()
                 
                 if !customMessage.message.isOutgoing { Spacer() }
             }

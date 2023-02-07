@@ -10,20 +10,9 @@ extension MessageView {
                 image
                     .resizable()
                     .scaledToFill()
-                    .if(rootNamespace != nil) {
-                        $0.matchedGeometryEffect(
-                            id: "\(message.id)",
-                            in: rootNamespace!,
-                            properties: .frame
-                        )
-                    }
                     .onTapGesture {
                         withAnimation {
                             hideKeyboard()
-                            self.openedPhotoInfo = OpenedPhotoInfo(
-                                openedPhotoMessageId: message.id,
-                                openedPhoto: image
-                            )
                         }
                     }
             } placeholder: {

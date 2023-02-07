@@ -12,19 +12,6 @@ extension ChatBottomArea {
                         .scaledToFit()
                         .cornerRadius(10)
                         .transition(.scale.combined(with: .opacity))
-                        .matchedGeometryEffect(
-                            id: "\(photo.id)",
-                            in: rootNamespace!,
-                            properties: .frame
-                        )
-                        .onTapGesture {
-                            withAnimation {
-                                self.openedPhotoInfo = OpenedPhotoInfo(
-                                    openedPhotoMessageId: photo.id,
-                                    openedPhoto: photo.image
-                                )
-                            }
-                        }
                         .overlay(alignment: .topTrailing) {
                             Button {
                                 withAnimation {
