@@ -16,6 +16,10 @@ struct ChatView: View {
     let scroll = "chatScroll"
     @State private var scrollOnFocus = true
     
+    @Environment(\.dismiss) var dismiss
+    
+    @EnvironmentObject var rootViewModel: RootViewModel
+    
     init(customChat: CustomChat, isPreview: Bool = false) {
         self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
         self._isPreview = State(initialValue: isPreview)
@@ -44,12 +48,26 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             if !isPreview {
                 ChatBottomArea(focused: $focused)
+                    .offset(y: rootViewModel.openedItems == nil ? 0 : 100)
+                    .opacity(rootViewModel.openedItems == nil ? 1 : 0)
                     .if(viewModel.initLoadingMessages) {
                         $0.redacted(reason: .placeholder)
                     }
             }
         }
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline)
+                }
+                .offset(y: rootViewModel.openedItems == nil ? 0 : -100)
+                .opacity(rootViewModel.openedItems == nil ? 1 : 0)
+            }
+            
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
                     Text(viewModel.customChat.chat.title)
@@ -75,6 +93,8 @@ struct ChatView: View {
                     .animation(.default, value: viewModel.actionStatus)
                     .animation(.default, value: viewModel.onlineStatus)
                 }
+                .offset(y: rootViewModel.openedItems == nil ? 0 : -100)
+                .opacity(rootViewModel.openedItems == nil ? 1 : 0)
             }
             
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -112,6 +132,8 @@ struct ChatView: View {
                 }
                 .frame(width: 32, height: 32)
                 .clipShape(Circle())
+                .offset(y: rootViewModel.openedItems == nil ? 0 : -100)
+                .opacity(rootViewModel.openedItems == nil ? 1 : 0)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
