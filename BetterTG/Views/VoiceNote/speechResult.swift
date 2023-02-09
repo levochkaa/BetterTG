@@ -7,7 +7,7 @@ extension MessageView {
     @ViewBuilder func voiceNoteSpeechResult(for voiceNote: VoiceNote) -> some View {
         Text(recognizedText)
             .transition(.scale.combined(with: .opacity))
-            .matchedGeometryEffect(id: recognizedTextId, in: voiceNoteNamespace)
+            .matchedGeometryEffect(id: recognizedTextId, in: namespace)
             .if(recognizeSpeech && !recognized) {
                 $0.onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in
                     Task {

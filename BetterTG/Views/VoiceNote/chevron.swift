@@ -6,7 +6,7 @@ extension MessageView {
     @ViewBuilder func voiceNoteChevron(expanded: Bool, path: String? = nil, duration: Int) -> some View {
         Image(systemName: (isOutgoing && expanded) || (!isOutgoing && !expanded) ? "chevron.right" : "chevron.left")
             .font(.title)
-            .matchedGeometryEffect(id: chevronId, in: voiceNoteNamespace)
+            .matchedGeometryEffect(id: chevronId, in: namespace)
             .onTapGesture {
                 if expanded {
                     withAnimation {

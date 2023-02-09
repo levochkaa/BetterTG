@@ -9,11 +9,12 @@ struct MessageView: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     
+    @Namespace var namespace
+    
     @State var recognized = false
     @State var recognizedText = "..."
     @State var isListeningVoiceNote = false
     @State var recognizeSpeech = false
-    @Namespace var voiceNoteNamespace
     
     @State var isOutgoing = true
     @State var text = ""

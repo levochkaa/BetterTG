@@ -43,7 +43,7 @@ extension MessageView {
             }
             .font(.system(size: 40, weight: .bold))
             .transition(.scale)
-            .matchedGeometryEffect(id: playId, in: voiceNoteNamespace)
+            .matchedGeometryEffect(id: playId, in: namespace)
             .onTapGesture {
                 viewModel.mediaToggle(with: path, duration: voiceNote.duration)
             }
@@ -84,13 +84,13 @@ extension MessageView {
                  : formattedDuration(from: viewModel.currentTime)
             )
             .fixedSize(horizontal: true, vertical: false)
-            .matchedGeometryEffect(id: currentTimeId, in: voiceNoteNamespace)
+            .matchedGeometryEffect(id: currentTimeId, in: namespace)
             
             Spacer()
             
             Text(formattedDuration(from: voiceNote.duration))
                 .fixedSize(horizontal: true, vertical: false)
-                .matchedGeometryEffect(id: durationId, in: voiceNoteNamespace)
+                .matchedGeometryEffect(id: durationId, in: namespace)
         }
         .padding(.horizontal, 10)
         .foregroundColor(.white.opacity(0.5))

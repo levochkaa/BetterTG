@@ -41,7 +41,7 @@ extension MessageView {
             }
             .font(.largeTitle)
             .transition(.scale)
-            .matchedGeometryEffect(id: playId, in: voiceNoteNamespace)
+            .matchedGeometryEffect(id: playId, in: namespace)
             .onTapGesture {
                 if let path {
                     viewModel.mediaToggle(with: path, duration: voiceNote.duration)
@@ -64,13 +64,13 @@ extension MessageView {
         HStack(alignment: .center, spacing: 0) {
             Text((viewModel.savedMediaPath == path ? formattedDuration(from: viewModel.currentTime) : "0:00"))
                 .fixedSize(horizontal: true, vertical: false)
-                .matchedGeometryEffect(id: currentTimeId, in: voiceNoteNamespace)
+                .matchedGeometryEffect(id: currentTimeId, in: namespace)
             
             Text(" / ")
             
             Text(formattedDuration(from: voiceNote.duration))
                 .fixedSize(horizontal: true, vertical: false)
-                .matchedGeometryEffect(id: durationId, in: voiceNoteNamespace)
+                .matchedGeometryEffect(id: durationId, in: namespace)
         }
         .font(.caption)
         .foregroundColor(.white).opacity(0.5)

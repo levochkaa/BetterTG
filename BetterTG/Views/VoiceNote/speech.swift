@@ -7,7 +7,7 @@ extension MessageView {
     @ViewBuilder func voiceNoteSpeech(for voiceNote: VoiceNote) -> some View {
         Image(systemName: "a.square")
             .font(.title)
-            .matchedGeometryEffect(id: speechId, in: voiceNoteNamespace)
+            .matchedGeometryEffect(id: speechId, in: namespace)
             .onTapGesture {
                 Task {
                     await viewModel.tdRecognizeSpeech(for: customMessage.message.id)
