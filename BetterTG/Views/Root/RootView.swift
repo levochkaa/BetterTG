@@ -16,6 +16,8 @@ struct RootView: View {
     
     @State var showArchivedChats = false
     
+    @Namespace var namespace
+    
     let chatId = "chatId"
     
     @Environment(\.scenePhase) var scenePhase

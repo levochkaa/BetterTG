@@ -48,7 +48,7 @@ class RootViewModel: ObservableObject {
         var customChats = [CustomChat]()
         switch list {
             case .chatListMain:
-                if searchScope != .chats { return [] }
+                guard searchScope == .chats else { return [] }
                 customChats = mainChats
             case .chatListArchive:
                 customChats = archivedChats
@@ -57,6 +57,7 @@ class RootViewModel: ObservableObject {
         }
         
         return customChats
+            .uniqued()
             .sorted {
                 let firstOrder = $0.positions.first(where: { $0.list == list })?.order
                 let secondOrder = $1.positions.first(where: { $0.list == list })?.order

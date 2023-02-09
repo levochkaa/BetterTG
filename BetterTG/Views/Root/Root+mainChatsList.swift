@@ -10,6 +10,9 @@ extension RootView {
                 ChatView(customChat: customChat)
             } label: {
                 chatsListItem(for: customChat, redacted: redacted)
+                    .if(!redacted) {
+                        $0.matchedGeometryEffect(id: customChat.chat.id, in: namespace)
+                    }
                     .contextMenu {
                         contextMenu(for: customChat.chat)
                     } preview: {

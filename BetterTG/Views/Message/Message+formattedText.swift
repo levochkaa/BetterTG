@@ -6,11 +6,15 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         ZStack {
-            Text(attributedString(for: formattedText))
-                .fixedSize(horizontal: false, vertical: true)
-                .readSize { textSize = $0 }
-                .if(redactionReasons.isEmpty) {
-                    $0.draggable(text) {
+            if !redactionReasons.isEmpty {
+                Text(formattedText.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .readSize { textSize = $0 }
+            } else {
+                Text(attributedString(for: formattedText))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .readSize { textSize = $0 }
+                    .draggable(text) {
                         Text(attributedStringWithoutDate)
                             .frame(width: draggableTextSize.width, height: draggableTextSize.height)
                             .multilineTextAlignment(.leading)
@@ -19,30 +23,30 @@ extension MessageView {
                             .background(.gray6)
                             .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
                     }
-                }
-                .overlay {
-                    Text(attributedStringWithoutDate)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .readSize { draggableTextSize = $0 }
-                        .hidden()
-                }
-                .overlay {
-                    if textSize != .zero {
-                        AnimojiView(
-                            animojis: customMessage.animojis,
-                            formattedText: formattedText,
-                            textSize: textSize
-                        )
-                        .equatable()
-                        .allowsHitTesting(false)
+                    .overlay {
+                        Text(attributedStringWithoutDate)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .readSize { draggableTextSize = $0 }
+                            .hidden()
                     }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    messageDate
-                        .menuOnPress { menu }
-                        .offset(y: 3)
-                        .disabled(!redactionReasons.isEmpty)
-                }
+                    .overlay {
+                        if textSize != .zero {
+                            AnimojiView(
+                                animojis: customMessage.animojis,
+                                formattedText: formattedText,
+                                textSize: textSize
+                            )
+                            .equatable()
+                            .allowsHitTesting(false)
+                        }
+                    }
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            messageDate
+                .menuOnPress { menu }
+                .offset(y: 3)
+                .disabled(!redactionReasons.isEmpty)
         }
     }
     
