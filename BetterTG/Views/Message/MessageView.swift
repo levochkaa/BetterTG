@@ -8,6 +8,7 @@ struct MessageView: View {
     @State var customMessage: CustomMessage
     
     @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var rootViewModel: RootViewModel
     
     @Namespace var namespace
     

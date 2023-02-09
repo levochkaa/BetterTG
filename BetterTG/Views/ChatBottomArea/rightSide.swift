@@ -13,7 +13,7 @@ extension ChatBottomArea {
             } else {
                 Image(systemName: "mic.fill")
                     .foregroundColor(.white)
-                    .matchedGeometryEffect(id: micId, in: chatBottomAreaNamespace)
+                    .matchedGeometryEffect(id: micId, in: namespace)
             }
         }
         .disabled(!redactionReasons.isEmpty)

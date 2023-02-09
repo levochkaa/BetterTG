@@ -10,9 +10,11 @@ extension MessageView {
                 image
                     .resizable()
                     .scaledToFill()
+                    .matchedGeometryEffect(id: "\(size.photo.id)", in: rootViewModel.namespace, properties: .frame)
                     .onTapGesture {
                         withAnimation {
                             hideKeyboard()
+                            rootViewModel.openedItems = OpenedItems(id: size.photo.id, image: image, message: message)
                         }
                     }
             } placeholder: {
@@ -23,7 +25,7 @@ extension MessageView {
     
     @ViewBuilder func placeholder(with size: PhotoSize) -> some View {
         RoundedRectangle(cornerRadius: 15)
-            .fill(Color.gray6)
+            .fill(.gray6)
             .frame(
                 width: Utils.maxMessageContentWidth,
                 height: Utils.maxMessageContentWidth * (

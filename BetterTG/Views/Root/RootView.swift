@@ -52,6 +52,12 @@ struct RootView: View {
                 }
             }
         }
+        .environmentObject(viewModel)
+        .onAppear {
+            if viewModel.namespace == nil {
+                viewModel.namespace = namespace
+            }
+        }
     }
     
     @ViewBuilder var bodyView: some View {
@@ -118,6 +124,29 @@ struct RootView: View {
                         await viewModel.tdDeleteChatHistory(id: id, forAll: deleteChatForAllUsers)
                     }
                 }
+            }
+        }
+        .overlay {
+            if viewModel.openedItems != nil {
+                ZStack {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .ignoresSafeArea()
+                        .scaledToFill()
+                    
+                    ZoomableScrollView {
+                        viewModel.openedItems!.image
+                            .resizable()
+                            .scaledToFit()
+                            .onTapGesture {
+                                withAnimation {
+                                    viewModel.openedItems = nil
+                                }
+                            }
+                    }
+                    .matchedGeometryEffect(id: "\(viewModel.openedItems!.id)", in: namespace, properties: .frame)
+                }
+                .zIndex(1)
             }
         }
     }

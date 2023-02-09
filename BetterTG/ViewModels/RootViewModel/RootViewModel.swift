@@ -11,6 +11,8 @@ class RootViewModel: ObservableObject {
     @Published var searchedGlobalChats = [CustomChat]()
     @Published var archivedChats = [CustomChat]()
     @Published var searchScope: SearchScope = .chats
+    @Published var openedItems: OpenedItems?
+    var namespace: Namespace.ID! = nil
     
     init() {
         setPublishers()

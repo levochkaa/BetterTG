@@ -12,6 +12,16 @@ extension ChatBottomArea {
                         .scaledToFit()
                         .cornerRadius(10)
                         .transition(.scale.combined(with: .opacity))
+                        .matchedGeometryEffect(id: "\(photo.id)", in: rootViewModel.namespace)
+                        .onTapGesture {
+                            withAnimation {
+                                rootViewModel.openedItems = OpenedItems(
+                                    id: photo.id,
+                                    image: photo.image,
+                                    photos: viewModel.displayedImages
+                                )
+                            }
+                        }
                         .overlay(alignment: .topTrailing) {
                             Button {
                                 withAnimation {
