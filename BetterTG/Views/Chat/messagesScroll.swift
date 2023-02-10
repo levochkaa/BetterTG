@@ -4,7 +4,7 @@ import SwiftUI
 
 extension ChatView {
     @ViewBuilder var messagesScroll: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             ZStack {
                 LazyVStack(spacing: 5) {
                     messagesList(viewModel.messages)
@@ -20,5 +20,6 @@ extension ChatView {
         }
         .scrollDismissesKeyboard(.interactively)
         .flippedUpsideDown()
+        .scaleEffect(rootViewModel.openedItems == nil ? 1 : 0.9)
     }
 }

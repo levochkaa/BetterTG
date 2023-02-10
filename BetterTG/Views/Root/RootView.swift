@@ -128,23 +128,23 @@ struct RootView: View {
         }
         .overlay {
             if viewModel.openedItems != nil {
-                ZStack {
+                ZoomableScrollView {
+                    viewModel.openedItems!.image
+                        .resizable()
+                        .scaledToFit()
+                        .onTapGesture {
+                            withAnimation {
+                                viewModel.openedItems = nil
+                            }
+                        }
+                }
+                .matchedGeometryEffect(id: "\(viewModel.openedItems!.id)", in: namespace, properties: .frame)
+                .background {
                     Rectangle()
                         .fill(.ultraThinMaterial)
+                        .frame(maxHeight: .infinity)
                         .ignoresSafeArea()
                         .scaledToFill()
-                    
-                    ZoomableScrollView {
-                        viewModel.openedItems!.image
-                            .resizable()
-                            .scaledToFit()
-                            .onTapGesture {
-                                withAnimation {
-                                    viewModel.openedItems = nil
-                                }
-                            }
-                    }
-                    .matchedGeometryEffect(id: "\(viewModel.openedItems!.id)", in: namespace, properties: .frame)
                 }
                 .zIndex(1)
             }
