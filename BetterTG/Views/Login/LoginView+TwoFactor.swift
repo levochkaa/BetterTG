@@ -5,12 +5,10 @@ import SwiftUI
 extension LoginView {
     @ViewBuilder var twoFactorView: some View {
         VStack {
-            Spacer()
-            
-            Text("2FA Password")
-                .font(.largeTitle)
-            
-            Spacer()
+            SpacingAround {
+                Text("2FA Password")
+                    .font(.largeTitle)
+            }
             
             SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
                 .focused($focusedTwoFactor)

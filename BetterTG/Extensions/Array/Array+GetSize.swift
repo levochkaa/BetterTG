@@ -9,28 +9,17 @@ public enum PhotoSizeType: Int {
     
     var td: String {
         switch self {
-            case .iString:
-                return "i"
-            case .sBox:
-                return "s"
-            case .mBox:
-                return "m"
-            case .xBox:
-                return "x"
-            case .yBox:
-                return "y"
-            case .wBox:
-                return "w"
-            case .aCrop:
-                return "a"
-            case .bCrop:
-                return "b"
-            case .cCrop:
-                return "c"
-            case .dCrop:
-                return "d"
-            case .jOutline:
-                return "j"
+            case .iString: return "i"
+            case .sBox: return "s"
+            case .mBox: return "m"
+            case .xBox: return "x"
+            case .yBox: return "y"
+            case .wBox: return "w"
+            case .aCrop: return "a"
+            case .bCrop: return "b"
+            case .cCrop: return "c"
+            case .dCrop: return "d"
+            case .jOutline: return "j"
         }
     }
 }
@@ -51,7 +40,7 @@ public extension Array where Element == PhotoSize {
                 return getSize(PhotoSizeType(rawValue: type.rawValue - 1)!)
             }
         } else {
-            return filtered[0]
+            return filtered.first
         }
     }
 }

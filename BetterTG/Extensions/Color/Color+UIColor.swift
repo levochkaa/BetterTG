@@ -8,5 +8,4 @@ extension Color {
     static let gray4 = Color(uiColor: .systemGray4)
     static let gray3 = Color(uiColor: .systemGray3)
     static let gray2 = Color(uiColor: .systemGray2)
-    static let editedGray = Color(r: 85, g: 85, b: 85)
 }

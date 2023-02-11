@@ -8,7 +8,6 @@ extension User {
         addedToAttachmentMenu: false,
         emojiStatus: nil,
         firstName: "firstName",
-        hasAnonymousPhoneNumber: false,
         haveAccess: false,
         id: 0,
         isContact: false,

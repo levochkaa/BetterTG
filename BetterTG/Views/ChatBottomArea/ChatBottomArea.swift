@@ -53,10 +53,7 @@ struct ChatBottomArea: View {
         .background(.bar)
         .cornerRadius(15)
         .padding([.bottom, .horizontal], 5)
-        // swiftlint:disable multiple_closures_with_trailing_closure
-        .alert("Error", isPresented: $viewModel.errorShown, actions: {}) {
-            Text(viewModel.errorMessage)
-        }
+        .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
         .sheet(isPresented: $viewModel.showBottomSheet) {
             bottomSheet
                 .presentationDragIndicator(.hidden)

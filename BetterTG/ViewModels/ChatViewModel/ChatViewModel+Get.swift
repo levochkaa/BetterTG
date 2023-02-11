@@ -143,7 +143,7 @@ extension ChatViewModel {
         for entity in entities {
             if case .textEntityTypeCustomEmoji(let textEntityTypeCustomEmoji) = entity.type,
                let customEmoji = await tdGetCustomEmojiSticker(id: textEntityTypeCustomEmoji.customEmojiId),
-               case .stickerTypeCustomEmoji = customEmoji.type,
+               case .stickerFullTypeCustomEmoji = customEmoji.fullType,
                let file = await tdDownloadFile(id: customEmoji.sticker.id, synchronous: true) {
                 let url = URL(filePath: file.local.path)
                 var animoji: Animoji

@@ -10,9 +10,14 @@ extension ChatPermissions {
         canInviteUsers: false,
         canManageTopics: false,
         canPinMessages: false,
-        canSendMediaMessages: false,
+        canSendAudios: false,
+        canSendDocuments: false,
         canSendMessages: false,
         canSendOtherMessages: false,
-        canSendPolls: false
+        canSendPhotos: false,
+        canSendPolls: false,
+        canSendVideoNotes: false,
+        canSendVideos: false,
+        canSendVoiceNotes: false
     )
 }

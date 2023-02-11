@@ -21,7 +21,7 @@ extension ChatViewModel {
                     self.timeSliderValue = Double(time.intValue) / 1000
                 }
             }
-            .store(in: &cancellable)
+            .store(in: &cancellables)
         
         mediaPlayer
             .publisher(for: \.state, options: [.new])
@@ -33,7 +33,7 @@ extension ChatViewModel {
                         break
                 }
             }
-            .store(in: &cancellable)
+            .store(in: &cancellables)
     }
     
     func mediaStartRecordingVoice() {
@@ -205,7 +205,7 @@ extension ChatViewModel {
             currentTime = 0
             timeSliderValue = 0
             isSeeking = false
-            nc.post(name: .customIsListeningVoice, object: (false, savedMediaPath))
+            nc.post(name: .localIsListeningVoice, object: (false, savedMediaPath))
             savedMediaPath = ""
             mediaPlayer.media = nil
             mediaPlayer.stop()

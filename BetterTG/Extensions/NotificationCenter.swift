@@ -4,6 +4,7 @@ import Foundation
 import Combine
 
 let nc: NotificationCenter = .default
+var cancellables = Set<AnyCancellable>()
 
 extension NotificationCenter {
     
@@ -21,8 +22,25 @@ extension NotificationCenter {
             .store(in: &NotificationCenter.cancellable)
     }
     
+    func post(name: Notification.Name) {
+        self.post(name: name, object: nil)
+    }
+    
     func publisher(for name: Notification.Name) -> NotificationCenter.Publisher {
         self.publisher(for: name, object: nil)
+    }
+    
+    func mergeMany(
+        _ names: [Notification.Name],
+        @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
+    ) {
+        let publishers = names.map { self.publisher(for: $0) }
+        Publishers.MergeMany(publishers)
+            .receive(on: RunLoop.main)
+            .sink { notification in
+                perform(notification)
+            }
+            .store(in: &cancellables)
     }
     
     func mergeMany(

@@ -31,31 +31,35 @@ struct RootView: View {
                     LoginView()
                 }
             } else {
-                NavigationStack {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            chatsList(CustomChat.placeholder, redacted: true)
-                                .redacted(reason: .placeholder)
-                        }
-                        .padding(.top, 8)
-                    }
-                    .navigationTitle("BetterTG")
-                    .searchable(text: .constant(""), prompt: "Search chats...")
-                    .disabled(true)
-                    .scrollDisabled(true)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button(systemImage: "square.stack") {}
-                                .disabled(true)
-                        }
-                    }
-                }
+                bodyPlaceholder
             }
         }
         .environmentObject(viewModel)
         .onAppear {
             if viewModel.namespace == nil {
                 viewModel.namespace = namespace
+            }
+        }
+    }
+    
+    @ViewBuilder var bodyPlaceholder: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    chatsList(CustomChat.placeholder, redacted: true)
+                        .redacted(reason: .placeholder)
+                }
+                .padding(.top, 8)
+            }
+            .navigationTitle("BetterTG")
+            .searchable(text: .constant(""), prompt: "Search chats...")
+            .disabled(true)
+            .scrollDisabled(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(systemImage: "square.stack") {}
+                        .disabled(true)
+                }
             }
         }
     }
@@ -70,39 +74,12 @@ struct RootView: View {
                         case .global:
                             chatsList(viewModel.searchedGlobalChats)
                     }
-                    
                 }
                 .padding(.top, 8)
                 .animation(.default, value: viewModel.mainChats)
                 .animation(.default, value: viewModel.searchedGlobalChats)
             }
             .navigationTitle("BetterTG")
-            .searchable(text: $query, prompt: "Search chats...")
-            .searchScopes($viewModel.searchScope) {
-                ForEach(SearchScope.allCases, id: \.self) { scope in
-                    Text(scope.rawValue)
-                }
-            }
-            .onSubmit(of: .search) {
-                viewModel.searchGlobalChats(query.lowercased())
-            }
-            .onChange(of: viewModel.searchScope) { scope in
-                guard scope == .global else { return }
-                
-                if query.isEmpty {
-                    viewModel.searchScope = .chats
-                } else {
-                    viewModel.searchGlobalChats(query)
-                }
-            }
-            .onChange(of: query) { _ in
-                if query.isEmpty {
-                    viewModel.searchScope = .chats
-                }
-            }
-            .onChange(of: scenePhase) { newPhase in
-                viewModel.handleScenePhase(newPhase)
-            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(systemImage: "square.stack") {
@@ -110,19 +87,44 @@ struct RootView: View {
                     }
                 }
             }
-            .navigationDestination(isPresented: $showArchivedChats) {
-                archivedChatsView
+        }
+        .searchable(text: $query, prompt: "Search chats...")
+        .searchScopes($viewModel.searchScope) {
+            ForEach(SearchScope.allCases, id: \.self) { scope in
+                Text(scope.rawValue)
             }
-            .confirmationDialog(
-                "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
-                isPresented: $showConfirmChatDelete,
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) {
-                    guard let id = confirmedChat?.id else { return }
-                    Task {
-                        await viewModel.tdDeleteChatHistory(id: id, forAll: deleteChatForAllUsers)
-                    }
+        }
+        .onSubmit(of: .search) {
+            viewModel.searchGlobalChats(query.lowercased())
+        }
+        .onChange(of: viewModel.searchScope) { scope in
+            guard scope == .global else { return }
+            
+            if query.isEmpty {
+                viewModel.searchScope = .chats
+            } else {
+                viewModel.searchGlobalChats(query)
+            }
+        }
+        .onChange(of: query) { _ in
+            if query.isEmpty {
+                viewModel.searchScope = .chats
+            }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            viewModel.handleScenePhase(newPhase)
+        }
+        .navigationDestination(isPresented: $showArchivedChats) {
+            archivedChatsView
+        }
+        .confirmationDialog(
+            "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
+            isPresented: $showConfirmChatDelete
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let id = confirmedChat?.id else { return }
+                Task {
+                    await viewModel.tdDeleteChatHistory(id: id, forAll: deleteChatForAllUsers)
                 }
             }
         }

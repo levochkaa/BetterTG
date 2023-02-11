@@ -98,10 +98,12 @@ struct AnimojiView: UIViewRepresentable {
                     let decompressed = try data.gunzipped()
                     let animation = try LottieAnimation.from(data: decompressed)
                     let animationView = LottieAnimationView(animation: animation)
+                    
                     animationView.loopMode = .loop
                     animationView.contentMode = .scaleAspectFit
                     animationView.frame = frame
                     animationView.play()
+                    
                     view.addSubview(animationView)
                 } catch {
                     log("Error loading custom emoji animation (tgs): \(error)")

@@ -7,6 +7,7 @@ extension Message {
     static func moc(_ isOutgoing: Bool = false) -> Message {
         Message(
             authorSignature: "",
+            autoDeleteIn: 0,
             canBeDeletedForAllUsers: false,
             canBeDeletedOnlyForSelf: false,
             canBeEdited: false,
@@ -20,24 +21,16 @@ extension Message {
             canReportReactions: false,
             chatId: 0,
             containsUnreadMention: false,
-            content: .messageText(
-                .init(
-                    text: .init(
-                        entities: [],
-                        text: "texttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttext"
-                    ),
-                    webPage: nil
-                )
-            ),
+            content: .moc,
             date: 0,
             editDate: 0,
-            forwardInfo: nil,
+            forwardInfo: .moc,
             hasTimestampedMedia: false,
             id: 0,
-            interactionInfo: nil,
+            interactionInfo: .init(forwardCount: 0, reactions: [], replyInfo: nil, viewCount: 0),
             isChannelPost: false,
-            isOutgoing: isOutgoing,
-            isPinned: false,
+            isOutgoing: false,
+            isPinned: isOutgoing,
             isTopicMessage: false,
             mediaAlbumId: 0,
             messageThreadId: 0,
@@ -46,10 +39,10 @@ extension Message {
             replyToMessageId: 0,
             restrictionReason: "",
             schedulingState: nil,
-            senderId: .messageSenderUser(.init(userId: 0)),
+            selfDestructIn: 0,
+            selfDestructTime: 0,
+            senderId: .messageSenderChat(.init(chatId: 0)),
             sendingState: nil,
-            ttl: 0,
-            ttlExpiresIn: 0,
             unreadReactions: [],
             viaBotUserId: 0
         )

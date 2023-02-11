@@ -70,8 +70,6 @@ class ChatViewModel: ObservableObject {
     @Published var errorMessage = ""
     @Published var errorShown = false
     
-    var cancellable = Set<AnyCancellable>()
-    
     init(customChat: CustomChat) {
         self.customChat = customChat
         
@@ -85,9 +83,5 @@ class ChatViewModel: ObservableObject {
             guard let draftMessage = customChat.chat.draftMessage else { return }
             await self.setDraft(draftMessage)
         }
-    }
-    
-    deinit {
-        cancellable.forEach { $0.cancel() }
     }
 }

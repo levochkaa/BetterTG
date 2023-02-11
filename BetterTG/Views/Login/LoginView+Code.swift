@@ -5,12 +5,10 @@ import SwiftUI
 extension LoginView {
     @ViewBuilder var codeView: some View {
         VStack {
-            Spacer()
-            
-            Text("Code from Telegram")
-                .font(.largeTitle)
-            
-            Spacer()
+            SpacingAround {
+                Text("Code from Telegram")
+                    .font(.largeTitle)
+            }
             
             TextField("Code", text: $viewModel.code)
                 .focused($focusedCode)

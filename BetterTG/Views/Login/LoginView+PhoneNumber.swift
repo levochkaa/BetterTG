@@ -5,12 +5,10 @@ import SwiftUI
 extension LoginView {
     @ViewBuilder var phoneNumberView: some View {
         VStack(spacing: 10) {
-            Spacer()
-            
-            Text("Your phone")
-                .font(.largeTitle)
-            
-            Spacer()
+            SpacingAround {
+                Text("Your phone")
+                    .font(.largeTitle)
+            }
             
             GroupBox {
                 HStack {

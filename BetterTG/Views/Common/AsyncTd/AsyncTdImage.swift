@@ -4,6 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct AsyncTdImage<Content: View, Placeholder: View>: View {
+    
     let id: Int
     let image: (Image) -> Content
     let placeholder: () -> Placeholder

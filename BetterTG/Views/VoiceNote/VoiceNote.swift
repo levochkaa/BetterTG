@@ -14,7 +14,7 @@ extension MessageView {
                     voiceNoteView(voice.local.path, from: voiceNote)
                 }
             }
-            .onReceive(nc.publisher(for: .customIsListeningVoice)) { notification in
+            .onReceive(nc.publisher(for: .localIsListeningVoice)) { notification in
                 guard let value = notification.object as? (Bool, String) else { return }
                 if voice.local.path != value.1 {
                     isListeningVoiceNote = value.0
@@ -25,10 +25,10 @@ extension MessageView {
         }
         .padding(5)
         .onChange(of: isListeningVoiceNote) { _ in
-            nc.post(name: .customIsListeningVoice, object: nil)
+            nc.post(name: .localIsListeningVoice, object: nil)
         }
         .onChange(of: recognizeSpeech) { _ in
-            nc.post(name: .customRecognizeSpeech, object: nil)
+            nc.post(name: .localRecognizeSpeech, object: nil)
         }
     }
     

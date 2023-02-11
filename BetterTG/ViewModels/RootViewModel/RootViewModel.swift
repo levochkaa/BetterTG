@@ -59,7 +59,6 @@ class RootViewModel: ObservableObject {
         }
         
         return customChats
-            .uniqued()
             .sorted {
                 let firstOrder = $0.positions.first(where: { $0.list == list })?.order
                 let secondOrder = $1.positions.first(where: { $0.list == list })?.order

@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/airbnb/lottie-ios",
       "state" : {
-        "revision" : "a4622b4d6fdbe76cc5487bc27e84029abaf07217",
-        "version" : "4.0.1"
+        "revision" : "440a6eebb8a8ae9c773e9a3e21021b72a74ffbb7",
+        "version" : "4.1.2"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImage.git",
       "state" : {
-        "revision" : "4178d12a44691182c2eb79c70281b14cb73f4cbf",
-        "version" : "5.14.3"
+        "revision" : "7ccdcb02fb0ab47409a6602769cea0486be2a209",
+        "version" : "5.15.2"
       }
     },
     {
@@ -50,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImageWebPCoder.git",
       "state" : {
-        "revision" : "4416805045174938b11edb69a86e9f7dd0699952",
-        "version" : "0.9.1"
+        "revision" : "e6cd1a9d2c976c14a52a040062646b535d0a6337",
+        "version" : "0.10.1"
       }
     },
     {
@@ -59,8 +59,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
-        "revision" : "fddd1c00396eed152c45a46bea9f47b98e59301d",
-        "version" : "1.2.0"
+        "revision" : "fee6933f37fde9a5e12a1e4aeaa93fe60116ff2a",
+        "version" : "1.2.2"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "dace94eb5c43d84984d87fc0d2411f56a7edd16b",
-        "version" : "1.8.9-86d5f12e"
+        "revision" : "7bc7403c839f69681de7c27b9092b7931c6e4db6",
+        "version" : "1.8.11-6ba394fc"
       }
     },
     {
@@ -87,7 +87,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "a302aa53a0896a9f9f4e5cdbd2a2ba3cbd2cfea7"
+        "revision" : "de87e84315ed88c3e6c8d443c44c44d9a4cef711"
       }
     }
   ],

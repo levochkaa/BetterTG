@@ -4,6 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {
+    
     let id: Int
     @ViewBuilder let content: (File) -> Content
     @ViewBuilder let placeholder: () -> Placeholder

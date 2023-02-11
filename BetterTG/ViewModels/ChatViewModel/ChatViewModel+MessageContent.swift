@@ -15,14 +15,15 @@ extension ChatViewModel {
             InputMessagePhoto(
                 addedStickerFileIds: [],
                 caption: FormattedText(entities: [], text: text),
+                hasSpoiler: false,
                 height: Int(image.size.height),
                 photo: input,
+                selfDestructTime: 0,
                 thumbnail: InputThumbnail(
                     height: Int(image.size.height),
                     thumbnail: input,
                     width: Int(image.size.width)
                 ),
-                ttl: 0,
                 width: Int(image.size.width)
             )
         )
