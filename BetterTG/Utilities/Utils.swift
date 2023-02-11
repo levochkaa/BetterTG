@@ -4,7 +4,6 @@ import Foundation
 import UIKit
 
 enum Utils {
-    static let osVersion = UIDevice.current.systemVersion
     static var size = UIScreen.main.bounds.size
     static let bottomSheetPhotoWidth = size.width / 3 - 10
     static var maxMessageContentWidth = size.width * 0.8 - 32
@@ -54,9 +53,4 @@ enum Utils {
         }
         return simulator ? "Simulator \(identifier)" : identifier
     }()
-    
-    // swiftlint:disable force_cast
-    static func info<T>(key: String) -> T {
-        Bundle.main.infoDictionary?[key]! as! T
-    }
 }

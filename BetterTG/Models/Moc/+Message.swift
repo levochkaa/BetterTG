@@ -20,10 +20,15 @@ extension Message {
             canReportReactions: false,
             chatId: 0,
             containsUnreadMention: false,
-            content: .messageText(.init(text: .init(
-                entities: [],
-                text: "texttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttext"
-            ), webPage: nil)),
+            content: .messageText(
+                .init(
+                    text: .init(
+                        entities: [],
+                        text: "texttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttext"
+                    ),
+                    webPage: nil
+                )
+            ),
             date: 0,
             editDate: 0,
             forwardInfo: nil,

@@ -35,6 +35,6 @@ extension Chat {
         unreadCount: 0,
         unreadMentionCount: 0,
         unreadReactionCount: 0,
-        videoChat: .moc
+        videoChat: .init(defaultParticipantId: nil, groupCallId: 0, hasParticipants: false)
     )
 }

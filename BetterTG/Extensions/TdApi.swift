@@ -1,6 +1,6 @@
 // TdApi.swift
 
-import Foundation
+import UIKit
 import TDLibKit
 
 let tdApi: TdApi = .shared
@@ -36,7 +36,7 @@ extension TdApi {
                 _ = try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
-                    applicationVersion: Utils.info(key: "CFBundleShortVersionString"),
+                    applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
                     databaseDirectory: dir,
                     databaseEncryptionKey: Data(),
                     deviceModel: Utils.modelName,
@@ -44,7 +44,7 @@ extension TdApi {
                     filesDirectory: dir,
                     ignoreFileNames: false,
                     systemLanguageCode: "en-US",
-                    systemVersion: Utils.osVersion,
+                    systemVersion: UIDevice.current.systemVersion,
                     useChatInfoDatabase: true,
                     useFileDatabase: true,
                     useMessageDatabase: true,
@@ -61,7 +61,7 @@ extension TdApi {
     }
     
     func update(_ update: Update) {
-        // TdApi.logger.log("Update: \(update)")
+        // log("Update: \(update)")
         switch update {
             case .updateAuthorizationState(let updateAuthorizationState):
                 self.updateAuthorizationState(updateAuthorizationState.authorizationState)
@@ -108,7 +108,6 @@ extension TdApi {
     }
     
     func updateChatAction(_ updateChatAction: UpdateChatAction) {
-        // TdApi.logger.log("ChatAction: \(updateChatAction)")
         switch updateChatAction.action {
             case .chatActionTyping:
                 nc.post(name: .typing, object: updateChatAction)
@@ -144,7 +143,6 @@ extension TdApi {
     }
     
     func updateAuthorizationState(_ authorizationState: AuthorizationState) {
-        // TdApi.logger.log("Auth: \(authorizationState)")
         switch authorizationState {
             case .authorizationStateWaitTdlibParameters:
                 nc.post(name: .waitTdlibParameters, object: nil)
