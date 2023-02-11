@@ -86,7 +86,7 @@ extension RootViewModel {
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
-        if !mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
+        if !mainChats.isEmpty, !mainChats.contains(where: { $0.chat.id == chatLastMessage.chatId }) {
             Task {
                 guard let customChat = await getCustomChat(from: chatLastMessage.chatId) else { return }
 

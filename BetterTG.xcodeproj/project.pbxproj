@@ -82,7 +82,6 @@
 		DF8DE3922956158B001D5163 /* Chat+media.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8DE3912956158B001D5163 /* Chat+media.swift */; };
 		DF95C4C22995863A005D5290 /* ZoomableScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */; };
 		DF95C4C42995892A005D5290 /* OpenedItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF95C4C32995892A005D5290 /* OpenedItems.swift */; };
-		DF95C4C92995A8D3005D5290 /* UINavigationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF95C4C82995A8D3005D5290 /* UINavigationController.swift */; };
 		DF96BAE2298BE120003936AC /* equatable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF96BAE1298BE120003936AC /* equatable.swift */; };
 		DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = DF99043E295CA4B100BD6FFE /* Lottie */; };
 		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
@@ -100,6 +99,7 @@
 		DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
 		DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewModel.swift */; };
 		DFBFB86928CE48290076895C /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* Utils.swift */; };
+		DFCB65A22997DBC900835E9E /* ItemsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCB65A12997DBC900835E9E /* ItemsPreview.swift */; };
 		DFCC2A3B2950EEA300281EF8 /* Message+corners.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A3A2950EEA300281EF8 /* Message+corners.swift */; };
 		DFCC2A412950EF2800281EF8 /* Message+content.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A402950EF2800281EF8 /* Message+content.swift */; };
 		DFCC2A432950EFA600281EF8 /* Message+text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A422950EFA600281EF8 /* Message+text.swift */; };
@@ -250,7 +250,6 @@
 		DF8DE3912956158B001D5163 /* Chat+media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chat+media.swift"; sourceTree = "<group>"; };
 		DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableScrollView.swift; sourceTree = "<group>"; };
 		DF95C4C32995892A005D5290 /* OpenedItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedItems.swift; sourceTree = "<group>"; };
-		DF95C4C82995A8D3005D5290 /* UINavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UINavigationController.swift; sourceTree = "<group>"; };
 		DF96BAE1298BE120003936AC /* equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = equatable.swift; sourceTree = "<group>"; };
 		DF99C02B2976B97F00D7C1DE /* Message+voiceNoteSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+voiceNoteSide.swift"; sourceTree = "<group>"; };
 		DF9D5167298D02D9009AFE7F /* +CustomMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+CustomMessage.swift"; sourceTree = "<group>"; };
@@ -264,6 +263,7 @@
 		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
 		DFB85D10290EF92300F66E20 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		DFBFB86828CE48290076895C /* Utils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils.swift; sourceTree = "<group>"; };
+		DFCB65A12997DBC900835E9E /* ItemsPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemsPreview.swift; sourceTree = "<group>"; };
 		DFCC2A3A2950EEA300281EF8 /* Message+corners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+corners.swift"; sourceTree = "<group>"; };
 		DFCC2A402950EF2800281EF8 /* Message+content.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+content.swift"; sourceTree = "<group>"; };
 		DFCC2A422950EFA600281EF8 /* Message+text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Message+text.swift"; sourceTree = "<group>"; };
@@ -504,6 +504,7 @@
 				DF8A42EC296E146C004774F6 /* TextView.swift */,
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
 				DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */,
+				DFCB65A12997DBC900835E9E /* ItemsPreview.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -722,7 +723,6 @@
 				DFE84079298AFA7400C3A7F8 /* UIRectCorner.swift */,
 				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 				DF9D516F298D19A8009AFE7F /* Shape.swift */,
-				DF95C4C82995A8D3005D5290 /* UINavigationController.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -899,6 +899,7 @@
 				DF5261D7294F4FAD00FB7C73 /* rightSide.swift in Sources */,
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
 				DFA214B1297D9BEF00758617 /* uniqued.swift in Sources */,
+				DFCB65A22997DBC900835E9E /* ItemsPreview.swift in Sources */,
 				DFECD74829293FEE002A4BAD /* phoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* voiceNote.swift in Sources */,
 				DF3BC41A2974142F002F207B /* Message+date.swift in Sources */,
@@ -914,7 +915,6 @@
 				DF1717C32971F6AB0085E698 /* map.swift in Sources */,
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF6480EA29635A8400AEF104 /* Character.swift in Sources */,
-				DF95C4C92995A8D3005D5290 /* UINavigationController.swift in Sources */,
 				DFEB06C32959EB860099E2B2 /* voiceNoteView.swift in Sources */,
 				DFF44E672978711300B0E74C /* Root+contextMenu.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */,

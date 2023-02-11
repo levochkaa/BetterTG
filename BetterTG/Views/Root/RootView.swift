@@ -128,25 +128,7 @@ struct RootView: View {
         }
         .overlay {
             if viewModel.openedItems != nil {
-                ZoomableScrollView {
-                    viewModel.openedItems!.image
-                        .resizable()
-                        .scaledToFit()
-                        .onTapGesture {
-                            withAnimation {
-                                viewModel.openedItems = nil
-                            }
-                        }
-                }
-                .matchedGeometryEffect(id: "\(viewModel.openedItems!.id)", in: namespace, properties: .frame)
-                .background {
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .frame(maxHeight: .infinity)
-                        .ignoresSafeArea()
-                        .scaledToFill()
-                }
-                .zIndex(1)
+                ItemsPreview()
             }
         }
     }
