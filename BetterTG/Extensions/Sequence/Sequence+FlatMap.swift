@@ -1,4 +1,4 @@
-// flatMap.swift
+// Sequence+FlatMap.swift
 
 import Foundation
 

@@ -1,4 +1,4 @@
-// Root+chatsListItem.swift
+// RootView+ChatsListItem.swift
 
 import SwiftUI
 import TDLibKit

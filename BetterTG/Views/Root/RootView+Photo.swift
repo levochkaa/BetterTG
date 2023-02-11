@@ -1,4 +1,4 @@
-// Root+photo.swift
+// RootView+Photo.swift
 
 import SwiftUI
 import TDLibKit

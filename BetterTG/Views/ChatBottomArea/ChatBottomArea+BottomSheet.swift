@@ -1,4 +1,4 @@
-// bottomSheet.swift
+// ChatBottomArea+BottomSheet.swift
 
 import SwiftUI
 import PhotosUI

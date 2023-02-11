@@ -1,4 +1,4 @@
-// ChatNotificationSettings.swift
+// +ChatNotificationSettings.swift
 
 import SwiftUI
 import TDLibKit

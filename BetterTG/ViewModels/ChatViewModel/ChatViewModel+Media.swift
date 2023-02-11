@@ -1,4 +1,4 @@
-// Chat+media.swift
+// ChatViewModel+Media.swift
 
 import SwiftUI
 import MobileVLCKit

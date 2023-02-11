@@ -1,4 +1,4 @@
-// Chat+publishers.swift
+// ChatViewModel+Publishers.swift
 
 import SwiftUI
 import TDLibKit

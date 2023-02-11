@@ -1,4 +1,4 @@
-// Message+voiceNoteSide.swift
+// MessageView+VoiceNoteSide.swift
 
 import SwiftUI
 import TDLibKit

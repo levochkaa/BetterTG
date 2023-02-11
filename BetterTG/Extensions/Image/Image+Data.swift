@@ -1,4 +1,4 @@
-// data.swift
+// Image+Data.swift
 
 import SwiftUI
 

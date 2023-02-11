@@ -1,4 +1,4 @@
-// fullScreenBackground.swift
+// View+FullScreenBackground.swift
 
 import SwiftUI
 

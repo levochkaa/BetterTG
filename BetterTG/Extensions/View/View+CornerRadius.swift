@@ -1,4 +1,4 @@
-// cornerRadius.swift
+// View+CornerRadius.swift
 
 import SwiftUI
 

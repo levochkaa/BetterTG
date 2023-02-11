@@ -1,4 +1,4 @@
-// readSize.swift
+// View+ReadSize.swift
 
 import SwiftUI
 

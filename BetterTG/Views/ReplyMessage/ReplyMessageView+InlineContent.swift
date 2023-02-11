@@ -1,4 +1,4 @@
-// Reply+inlineContent.swift
+// ReplyMessageView+InlineContent.swift
 
 import SwiftUI
 import TDLibKit

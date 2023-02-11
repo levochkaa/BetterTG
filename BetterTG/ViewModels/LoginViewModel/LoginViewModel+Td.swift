@@ -1,4 +1,4 @@
-// Login+td.swift
+// LoginViewModel+Td.swift
 
 import SwiftUI
 import TDLibKit

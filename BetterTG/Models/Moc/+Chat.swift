@@ -1,4 +1,4 @@
-// Chat.swift
+// +Chat.swift
 
 import SwiftUI
 import TDLibKit

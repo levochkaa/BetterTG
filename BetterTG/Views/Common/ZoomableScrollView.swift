@@ -38,8 +38,6 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
         assert(context.coordinator.hostingController.view.superview == uiView)
     }
     
-    // MARK: - Coordinator
-    
     class Coordinator: NSObject, UIScrollViewDelegate {
         var hostingController: UIHostingController<Content>
         

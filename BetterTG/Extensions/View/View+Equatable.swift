@@ -1,4 +1,4 @@
-// equatable.swift
+// View+Equatable.swift
 
 import SwiftUI
 

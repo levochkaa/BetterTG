@@ -1,4 +1,4 @@
-// messagesList.swift
+// ChatView+MessagesList.swift
 
 import SwiftUI
 

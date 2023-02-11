@@ -1,4 +1,4 @@
-// messagesScroll.swift
+// ChatView+MessagesScroll.swift
 
 import SwiftUI
 

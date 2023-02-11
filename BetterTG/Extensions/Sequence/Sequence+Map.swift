@@ -1,4 +1,4 @@
-// map.swift
+// Sequence+Map.swift
 
 import Foundation
 

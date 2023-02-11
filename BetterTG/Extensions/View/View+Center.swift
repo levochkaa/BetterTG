@@ -1,4 +1,4 @@
-// center.swift
+// View+Center.swift
 
 import SwiftUI
 

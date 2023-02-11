@@ -1,4 +1,4 @@
-// Message+formattedText.swift
+// MessageView+FormattedText.swift
 
 import SwiftUI
 import TDLibKit

@@ -1,4 +1,4 @@
-// User.swift
+// +User.swift
 
 import SwiftUI
 import TDLibKit

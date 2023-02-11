@@ -1,4 +1,4 @@
-// hideKeyboard.swift
+// View+HideKeyboard.swift
 
 import SwiftUI
 

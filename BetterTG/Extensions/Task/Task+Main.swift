@@ -1,4 +1,4 @@
-// +main.swift
+// Task+Main.swift
 
 import Foundation
 

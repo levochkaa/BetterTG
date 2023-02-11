@@ -1,4 +1,4 @@
-// Chat+commandCenter.swift
+// ChatViewModel+CommandCenter.swift
 
 import SwiftUI
 import MediaPlayer

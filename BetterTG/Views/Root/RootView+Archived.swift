@@ -1,4 +1,4 @@
-// Root+archived.swift
+// RootView+Archived.swift
 
 import SwiftUI
 import TDLibKit

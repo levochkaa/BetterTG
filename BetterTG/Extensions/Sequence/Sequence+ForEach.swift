@@ -1,4 +1,4 @@
-// forEach.swift
+// Sequence+ForEach.swift
 
 import Foundation
 

@@ -1,4 +1,4 @@
-// getSize.swift
+// Array+GetSize.swift
 
 import Foundation
 import TDLibKit

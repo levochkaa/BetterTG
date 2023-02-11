@@ -1,4 +1,4 @@
-// ChatPermission.swift
+// +ChatPermission.swift
 
 import SwiftUI
 import TDLibKit

@@ -1,4 +1,4 @@
-// twoFactor.swift
+// LoginView+TwoFactor.swift
 
 import SwiftUI
 

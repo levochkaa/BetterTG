@@ -1,4 +1,4 @@
-// uniqued.swift
+// Array+Uniqued.swift
 
 import Foundation
 

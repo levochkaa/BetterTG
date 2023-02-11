@@ -1,4 +1,4 @@
-// textField.swift
+// ChatBottomArea+TextField.swift
 
 import SwiftUI
 

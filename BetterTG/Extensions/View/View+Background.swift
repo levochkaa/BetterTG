@@ -1,4 +1,4 @@
-// background.swift
+// View+Background.swift
 
 import SwiftUI
 

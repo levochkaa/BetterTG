@@ -1,4 +1,4 @@
-// Message+date.swift
+// MessageView+Date.swift
 
 import SwiftUI
 

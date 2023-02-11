@@ -1,4 +1,4 @@
-// Chat+td.swift
+// ChatViewModel+Td.swift
 
 import SwiftUI
 import TDLibKit

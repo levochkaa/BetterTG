@@ -1,4 +1,4 @@
-// compactMap.swift
+// Sequence+CompactMap.swift
 
 import Foundation
 

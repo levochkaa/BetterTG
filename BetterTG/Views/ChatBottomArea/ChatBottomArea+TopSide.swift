@@ -1,4 +1,4 @@
-// topSide.swift
+// ChatBottomArea+TopSide.swift
 
 import SwiftUI
 
