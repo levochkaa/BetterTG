@@ -25,20 +25,9 @@ extension LoginView {
                 }
             }
             
-            Spacer()
-            
-            Button {
+            bottomButton {
                 focusedPhoneNumber = false
-                Task {
-                    await viewModel.handleAuthorizationState()
-                }
-            } label: {
-                Text("Continue")
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.bottom, 10)
         }
         .padding()
         .sheet(isPresented: $showSelectCountryView) {

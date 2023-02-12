@@ -17,20 +17,9 @@ extension LoginView {
                 .background(.gray6)
                 .cornerRadius(10)
             
-            Spacer()
-            
-            Button {
+            bottomButton {
                 focusedCode = false
-                Task {
-                    await viewModel.handleAuthorizationState()
-                }
-            } label: {
-                Text("Continue")
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.bottom, 10)
         }
         .padding()
         .onAppear {

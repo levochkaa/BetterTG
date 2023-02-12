@@ -15,14 +15,7 @@ extension ChatBottomArea {
                         .matchedGeometryEffect(id: "\(photo.id)", in: rootViewModel.namespace)
                         .onTapGesture {
                             withAnimation {
-                                let items = viewModel.displayedImages.map {
-                                    IdentifiableImage(id: "\($0.id)", image: $0.image)
-                                }
-                                let index = items.firstIndex(where: { $0.id == "\(photo.id)" }) ?? 0
-                                rootViewModel.openedItems = OpenedItems(
-                                    images: items,
-                                    index: index
-                                )
+                                rootViewModel.openedItems = OpenedItems(viewModel.displayedImages, "\(photo.id)")
                             }
                         }
                         .overlay(alignment: .topTrailing) {
@@ -44,5 +37,6 @@ extension ChatBottomArea {
         .padding(5)
         .background(.gray6)
         .cornerRadius(15)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

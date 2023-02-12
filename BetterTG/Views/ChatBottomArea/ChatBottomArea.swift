@@ -1,6 +1,7 @@
 // ChatBottomArea.swift
 
 import SwiftUI
+import Combine
 
 struct ChatBottomArea: View {
     
@@ -10,7 +11,6 @@ struct ChatBottomArea: View {
     @State var timer: Timer?
     @State var wave = [Float]()
     
-    @State var showSendButton = false
     @State var selectedImagesCount = 0
     
     @Namespace var namespace
@@ -26,11 +26,9 @@ struct ChatBottomArea: View {
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
             topSide
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             
             if !viewModel.displayedImages.isEmpty {
                 photosScroll
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
             if !viewModel.recordingVoiceNote {
@@ -47,7 +45,7 @@ struct ChatBottomArea: View {
         }
         .animation(value: viewModel.editCustomMessage)
         .animation(value: viewModel.replyMessage)
-        .animation(value: showSendButton)
+        .animation(value: viewModel.showSendButton)
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)
@@ -76,21 +74,6 @@ struct ChatBottomArea: View {
                 .onTapGesture {
                     viewModel.mediaStopRecordingVoice(duration: Int(timerCount), wave: wave)
                 }
-        }
-        .onChange(of: viewModel.text) { _ in
-            showSendButton = !viewModel.text.isEmpty
-            || !viewModel.editMessageText.isEmpty
-            || !viewModel.displayedImages.isEmpty
-        }
-        .onChange(of: viewModel.editMessageText) { _ in
-            showSendButton = !viewModel.text.isEmpty
-            || !viewModel.editMessageText.isEmpty
-            || !viewModel.displayedImages.isEmpty
-        }
-        .onChange(of: viewModel.displayedImages) { _ in
-            showSendButton = !viewModel.text.isEmpty
-            || !viewModel.editMessageText.isEmpty
-            || !viewModel.displayedImages.isEmpty
         }
     }
 }

@@ -8,7 +8,7 @@ var cancellables = Set<AnyCancellable>()
 
 extension NotificationCenter {
     
-    static var cancellable = Set<AnyCancellable>()
+    static var cancellables = Set<AnyCancellable>()
     
     func publisher(
         for name: Notification.Name,
@@ -19,7 +19,7 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &NotificationCenter.cancellable)
+            .store(in: &NotificationCenter.cancellables)
     }
     
     func post(name: Notification.Name) {
@@ -28,6 +28,11 @@ extension NotificationCenter {
     
     func publisher(for name: Notification.Name) -> NotificationCenter.Publisher {
         self.publisher(for: name, object: nil)
+    }
+    
+    func mergeMany(_ names: [Notification.Name]) -> Publishers.MergeMany<NotificationCenter.Publisher> {
+        let publishers = names.map { self.publisher(for: $0) }
+        return Publishers.MergeMany(publishers)//.eraseToAnyPublisher()
     }
     
     func mergeMany(
@@ -40,7 +45,7 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &cancellables)
+            .store(in: &NotificationCenter.cancellables)
     }
     
     func mergeMany(
@@ -52,6 +57,6 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &NotificationCenter.cancellable)
+            .store(in: &NotificationCenter.cancellables)
     }
 }

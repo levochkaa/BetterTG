@@ -15,6 +15,7 @@ class ChatViewModel: ObservableObject {
     
     @Published var text = ""
     @Published var editMessageText = ""
+    @Published var showSendButton = false
     
     var loadedAlbums = Set<Int64>()
     var sentPhotosCount = 0

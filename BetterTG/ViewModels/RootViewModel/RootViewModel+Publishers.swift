@@ -5,14 +5,7 @@ import TDLibKit
 
 extension RootViewModel {
     func setPublishers() {
-        nc.mergeMany([
-            nc.publisher(for: .closed),
-            nc.publisher(for: .closing),
-            nc.publisher(for: .loggingOut),
-            nc.publisher(for: .waitPhoneNumber),
-            nc.publisher(for: .waitCode),
-            nc.publisher(for: .waitPassword)
-        ]) { _ in
+        nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword]) { _ in
             Task.main {
                 loggedIn = false
             }

@@ -8,7 +8,6 @@ extension MessageView {
         VStack {
             if !voiceNote.voice.local.path.isEmpty, voiceNote.voice.local.path == viewModel.savedMediaPath {
                 cancelVoiceNote
-                    .transition(.move(edge: isOutgoing ? .trailing : .leading).combined(with: .opacity))
             }
             
             Spacer()
@@ -26,6 +25,7 @@ extension MessageView {
             .onTapGesture {
                 viewModel.mediaStop()
             }
+            .transition(.move(edge: isOutgoing ? .trailing : .leading).combined(with: .opacity))
     }
     
     @ViewBuilder var messageOverlayDate: some View {

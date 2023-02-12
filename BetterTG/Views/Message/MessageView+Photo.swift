@@ -23,21 +23,7 @@ extension MessageView {
                             .onTapGesture {
                                 withAnimation {
                                     hideKeyboard()
-                                    let items = customMessage.album.compactMap {
-                                        if case .messagePhoto(let messagePhoto) = $0.content,
-                                           let size = messagePhoto.photo.sizes.getSize(.wBox) {
-                                            return IdentifiableImage(
-                                                id: "\(size.photo.id)",
-                                                image: Image(file: size.photo)
-                                            )
-                                        }
-                                        return nil
-                                    }
-                                    let index = items.firstIndex(where: { $0.id == "\(size.photo.id)" }) ?? 0
-                                    rootViewModel.openedItems = OpenedItems(
-                                        images: items,
-                                        index: index
-                                    )
+                                    rootViewModel.openedItems = OpenedItems(customMessage.album, "\(size.photo.id)")
                                 }
                             }
                     }

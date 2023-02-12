@@ -16,7 +16,7 @@ extension MessageView {
                     .readSize { textSize = $0 }
                     .draggable(text) {
                         Text(attributedStringWithoutDate)
-                            .frame(width: draggableTextSize.width, height: draggableTextSize.height)
+                            .frame(size: draggableTextSize)
                             .multilineTextAlignment(.leading)
                             .padding(8)
                             .foregroundColor(.white)

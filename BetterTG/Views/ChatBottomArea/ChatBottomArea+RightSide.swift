@@ -5,7 +5,7 @@ import SwiftUI
 extension ChatBottomArea {
     @ViewBuilder var rightSide: some View {
         Group {
-            if showSendButton {
+            if viewModel.showSendButton {
                 Image("send")
                     .resizable()
                     .clipShape(Circle())

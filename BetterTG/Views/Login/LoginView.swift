@@ -39,4 +39,21 @@ struct LoginView: View {
             )
         }
     }
+    
+    @ViewBuilder func bottomButton(_ action: @escaping () -> Void) -> some View {
+        Spacer()
+        
+        Button {
+            action()
+            Task {
+                await viewModel.handleAuthorizationState()
+            }
+        } label: {
+            Text("Continue")
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .padding(.bottom, 10)
+    }
 }

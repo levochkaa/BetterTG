@@ -1,10 +1,21 @@
 // ChatViewModel+Publishers.swift
 
 import SwiftUI
+import Combine
 import TDLibKit
 
 extension ChatViewModel {
+    func setLocalPublishers() {
+        Publishers.CombineLatest3($editMessageText, $text, $displayedImages)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] editMessageText, text, displayedImages in
+                self?.showSendButton = !text.isEmpty || !editMessageText.isEmpty || !displayedImages.isEmpty
+            }
+            .store(in: &cancellables)
+    }
+    
     func setPublishers() {
+        setLocalPublishers()
         setMediaPublishers()
         
         nc.publisher(for: .messageEdited) { notification in

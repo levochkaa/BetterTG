@@ -112,14 +112,12 @@ extension ChatBottomArea {
             }
         }
         
-        Divider()
-        
-        Button("Send", systemImage: "paperplane.fill") {
-            viewModel.showBottomSheet = false
-            viewModel.sendMessagePhoto(imageAsset: imageAsset)
+        DividerAround {
+            Button("Send", systemImage: "paperplane.fill") {
+                viewModel.showBottomSheet = false
+                viewModel.sendMessagePhoto(imageAsset: imageAsset)
+            }
         }
-        
-        Divider()
         
         Button("Delete", systemImage: "trash.fill", role: .destructive) {
             viewModel.delete(asset: imageAsset.asset)
