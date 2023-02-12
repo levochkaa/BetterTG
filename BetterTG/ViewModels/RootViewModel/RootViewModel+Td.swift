@@ -22,10 +22,10 @@ extension RootViewModel {
         }
     }
     
-    func tdGetChatHistory(id: Int64) async {
+    func tdGetChatHistory(chatId: Int64) async {
         do {
             _ = try await tdApi.getChatHistory(
-                chatId: id,
+                chatId: chatId,
                 fromMessageId: 0,
                 limit: 30,
                 offset: 0,
@@ -36,9 +36,17 @@ extension RootViewModel {
         }
     }
     
-    func tdDeleteChatHistory(id: Int64, forAll: Bool) async {
+    func tdToggleChatIsPinned(chatId: Int64, chatList: ChatList, isPinned: Bool) async {
         do {
-            _ = try await tdApi.deleteChatHistory(chatId: id, removeFromChatList: true, revoke: forAll)
+            _ = try await tdApi.toggleChatIsPinned(chatId: chatId, chatList: chatList, isPinned: isPinned)
+        } catch {
+            log("Error toggling chatIsPinned: \(isPinned)")
+        }
+    }
+    
+    func tdDeleteChatHistory(chatId: Int64, forAll: Bool) async {
+        do {
+            _ = try await tdApi.deleteChatHistory(chatId: chatId, removeFromChatList: true, revoke: forAll)
         } catch {
             log("Error deleting chat: \(error)")
         }

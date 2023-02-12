@@ -9,7 +9,7 @@ extension RootView {
                 LazyVStack(spacing: 8) {
                     switch viewModel.searchScope {
                         case .chats:
-                            chatsList(viewModel.filteredSortedChats(query.lowercased()))
+                            chatsList(viewModel.filteredSortedChats(query.lowercased()), chatList: .chatListMain)
                         case .global:
                             chatsList(viewModel.searchedGlobalChats)
                     }
@@ -63,7 +63,7 @@ extension RootView {
             Button("Delete", role: .destructive) {
                 guard let id = confirmedChat?.id else { return }
                 Task {
-                    await viewModel.tdDeleteChatHistory(id: id, forAll: deleteChatForAllUsers)
+                    await viewModel.tdDeleteChatHistory(chatId: id, forAll: deleteChatForAllUsers)
                 }
             }
         }

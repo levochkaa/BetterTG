@@ -43,10 +43,11 @@ extension MessageView {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            messageDate
-                .menuOnPress { menu }
-                .offset(y: 3)
-                .disabled(!redactionReasons.isEmpty)
+            if redactionReasons.isEmpty {
+                messageDate
+                    .menuOnPress { menu }
+                    .offset(y: 3)
+            }
         }
     }
     

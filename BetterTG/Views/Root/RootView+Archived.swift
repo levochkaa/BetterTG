@@ -8,7 +8,10 @@ extension RootView {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    chatsList(viewModel.filteredSortedChats(queryArchived, for: .chatListArchive))
+                    chatsList(
+                        viewModel.filteredSortedChats(queryArchived, for: .chatListArchive),
+                        chatList: .chatListArchive
+                    )
                 }
                 .padding(.top, 8)
                 .animation(value: viewModel.archivedChats)

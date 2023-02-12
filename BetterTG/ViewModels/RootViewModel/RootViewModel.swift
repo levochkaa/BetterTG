@@ -24,7 +24,7 @@ class RootViewModel: ObservableObject {
                 log("App is Active")
                 Task {
                     await mainChats.asyncForEach { customChat in
-                        await tdGetChatHistory(id: customChat.chat.id)
+                        await tdGetChatHistory(chatId: customChat.chat.id)
                     }
                 }
             case .inactive:
@@ -33,6 +33,16 @@ class RootViewModel: ObservableObject {
                 log("App is in a Background")
             @unknown default:
                 log("Unknown state of an App")
+        }
+    }
+    
+    func togglePinned(chatId: Int64, chatList: ChatList, value: Bool) {
+        Task {
+            await tdToggleChatIsPinned(
+                chatId: chatId,
+                chatList: chatList,
+                isPinned: value
+            )
         }
     }
     

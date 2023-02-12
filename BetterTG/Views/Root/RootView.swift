@@ -34,6 +34,8 @@ struct RootView: View {
                 bodyPlaceholder
             }
         }
+        .transition(.opacity)
+        .animation(value: viewModel.loggedIn)
         .environmentObject(viewModel)
         .onAppear {
             if viewModel.namespace == nil {
