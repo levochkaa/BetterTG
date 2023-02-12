@@ -15,10 +15,13 @@ extension ChatBottomArea {
                         .matchedGeometryEffect(id: "\(photo.id)", in: rootViewModel.namespace)
                         .onTapGesture {
                             withAnimation {
+                                let items = viewModel.displayedImages.map {
+                                    IdentifiableImage(id: "\($0.id)", image: $0.image)
+                                }
+                                let index = items.firstIndex(where: { $0.id == "\(photo.id)" }) ?? 0
                                 rootViewModel.openedItems = OpenedItems(
-                                    id: photo.id,
-                                    image: photo.image,
-                                    photos: viewModel.displayedImages
+                                    images: items,
+                                    index: index
                                 )
                             }
                         }

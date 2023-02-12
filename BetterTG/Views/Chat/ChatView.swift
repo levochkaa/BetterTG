@@ -92,8 +92,8 @@ struct ChatView: View {
             .foregroundColor(
                 !viewModel.actionStatus.isEmpty || viewModel.onlineStatus == "online" ? .blue : .gray
             )
-            .animation(.default, value: viewModel.actionStatus)
-            .animation(.default, value: viewModel.onlineStatus)
+            .animation(value: viewModel.actionStatus)
+            .animation(value: viewModel.onlineStatus)
         }
     }
     

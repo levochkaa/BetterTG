@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 extension Message {
-    static func moc(_ isOutgoing: Bool = false) -> Message {
+    static func moc(_ isOutgoing: Bool, _ count: Int) -> Message {
         Message(
             authorSignature: "",
             autoDeleteIn: 0,
@@ -21,7 +21,7 @@ extension Message {
             canReportReactions: false,
             chatId: 0,
             containsUnreadMention: false,
-            content: .moc,
+            content: .moc(count),
             date: 0,
             editDate: 0,
             forwardInfo: .moc,

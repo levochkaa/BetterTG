@@ -4,13 +4,15 @@ import Foundation
 import TDLibKit
 
 extension MessageContent {
-    static let moc = Self.messageText(
-        .init(
-            text: .init(
-                entities: [],
-                text: "texttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttexttextexttexttext"
-            ),
-            webPage: nil
+    static func moc(_ count: Int) -> MessageContent {
+        .messageText(
+            .init(
+                text: .init(
+                    entities: [],
+                    text: String(repeating: "texttexttexttexttext", count: count)
+                ),
+                webPage: nil
+            )
         )
-    )
+    }
 }

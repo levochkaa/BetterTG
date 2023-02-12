@@ -31,7 +31,7 @@ struct LoginView: View {
                 )
                 .combined(with: .opacity)
             )
-            .animation(.default, value: viewModel.loginState)
+            .animation(value: viewModel.loginState)
             .navigationTitle("Login")
             .errorAlert(
                 show: $viewModel.errorShown,

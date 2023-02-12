@@ -4,8 +4,11 @@ import SwiftUI
 import TDLibKit
 
 struct OpenedItems {
-    var id: any Hashable
+    var images: [IdentifiableImage]
+    var index: Int
+}
+
+struct IdentifiableImage: Identifiable {
+    var id = UUID().uuidString
     var image: Image
-    var message: Message?
-    var photos: [SelectedImage]?
 }

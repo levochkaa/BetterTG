@@ -11,7 +11,7 @@ extension RootView {
                     chatsList(viewModel.filteredSortedChats(queryArchived, for: .chatListArchive))
                 }
                 .padding(.top, 8)
-                .animation(.default, value: viewModel.archivedChats)
+                .animation(value: viewModel.archivedChats)
             }
             .background(.black)
             .navigationTitle("Archived")
