@@ -72,7 +72,7 @@ extension ChatView {
                     .onTapGesture {
                         viewModel.scrollToLast()
                     }
-                    .transition(.move(edge: .trailing).combined(with: .scale).combined(with: .opacity))
+                    .transition(.move(edge: .bottom).combined(with: .scale).combined(with: .opacity))
             }
         }
         .onDisappear {
