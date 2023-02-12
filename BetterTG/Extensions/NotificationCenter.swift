@@ -32,7 +32,7 @@ extension NotificationCenter {
     
     func mergeMany(_ names: [Notification.Name]) -> Publishers.MergeMany<NotificationCenter.Publisher> {
         let publishers = names.map { self.publisher(for: $0) }
-        return Publishers.MergeMany(publishers)//.eraseToAnyPublisher()
+        return Publishers.MergeMany(publishers)
     }
     
     func mergeMany(
