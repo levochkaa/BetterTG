@@ -20,6 +20,5 @@ extension ChatView {
         }
         .scrollDismissesKeyboard(.interactively)
         .flippedUpsideDown()
-        .scaleEffect(rootViewModel.openedItems == nil ? 1 : 0.9)
     }
 }

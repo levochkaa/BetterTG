@@ -7,27 +7,16 @@ extension MessageView {
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto, with message: Message) -> some View {
         if let size = messagePhoto.photo.sizes.getSize(.wBox) {
             AsyncTdImage(id: size.photo.id) { image in
-                Group {
-                    if let openedItems = rootViewModel.openedItems,
-                       openedItems.images.contains(where: { $0.id == "\(size.photo.id)"}) {
-                        placeholder(with: size)
-                    } else {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .matchedGeometryEffect(
-                                id: "\(size.photo.id)",
-                                in: rootViewModel.namespace,
-                                properties: .frame
-                            )
-                            .onTapGesture {
-                                withAnimation {
-                                    hideKeyboard()
-                                    rootViewModel.openedItems = OpenedItems(customMessage.album, "\(size.photo.id)")
-                                }
-                            }
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .matchedGeometryEffect(id: "\(size.photo.id)", in: rootViewModel.namespace)
+                    .onTapGesture {
+                        withAnimation {
+                            hideKeyboard()
+                            rootViewModel.openedItem = OpenedItem(id: "\(size.photo.id)", image: image)
+                        }
                     }
-                }
             } placeholder: {
                 placeholder(with: size)
             }

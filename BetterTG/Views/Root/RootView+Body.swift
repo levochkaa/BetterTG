@@ -68,8 +68,8 @@ extension RootView {
             }
         }
         .overlay {
-            if viewModel.openedItems != nil {
-                ItemsPreview()
+            if let openedItem = viewModel.openedItem {
+                ItemView(item: openedItem)
                     .zIndex(1)
             }
         }
