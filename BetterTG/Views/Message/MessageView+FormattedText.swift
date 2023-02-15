@@ -36,7 +36,7 @@ extension MessageView {
                                 formattedText: formattedText,
                                 textSize: textSize
                             )
-                            .equatable()
+                            .equatable(by: textSize)
                             .allowsHitTesting(false)
                         }
                     }
