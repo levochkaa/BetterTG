@@ -84,6 +84,8 @@ extension ChatBottomArea {
                             .transition(.scale)
                     }
                 }
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, .blue)
                 .padding(5)
             }
             .onTapGesture { [imageAsset] in

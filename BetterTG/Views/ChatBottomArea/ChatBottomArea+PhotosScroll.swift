@@ -24,8 +24,9 @@ extension ChatBottomArea {
                                     viewModel.displayedImages.removeAll(where: { photo.id == $0.id })
                                 }
                             } label: {
-                                Image(systemName: "xmark")
-                                    .foregroundColor(.white)
+                                Image(systemName: "xmark.circle.fill")
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, .blue)
                                     .padding(5)
                             }
                         }
