@@ -10,6 +10,9 @@ struct MessageView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     @EnvironmentObject var rootViewModel: RootViewModel
     
+    // not using @EnvironmentObject, because of EXC_BAD_ACCESS on contextMenu in RootView (chatListItem)
+    @StateObject var settings = SettingsViewModel()
+    
     @Namespace var namespace
     
     @State var recognized = false
@@ -41,13 +44,14 @@ struct MessageView: View {
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
-            if let forwardedFrom = customMessage.forwardedFrom {
+            if settings.showForwardedFrom, let forwardedFrom = customMessage.forwardedFrom {
                 HStack(alignment: .center, spacing: 0) {
                     Text("FF: ")
                         .foregroundColor(.white).opacity(0.5)
                     
                     Text(forwardedFrom)
                         .bold()
+                        .lineLimit(1)
                 }
                 .padding(5)
                 .background(backgroundColor(for: .forwarded))
@@ -55,7 +59,7 @@ struct MessageView: View {
                 .readSize { forwardedWidth = Int($0.width) }
             }
             
-            if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
+            if settings.showReplies, customMessage.replyUser != nil, customMessage.replyToMessage != nil {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
                     .padding(5)
                     .background(backgroundColor(for: .reply))
@@ -65,7 +69,7 @@ struct MessageView: View {
             
             HStack(alignment: .bottom, spacing: 0) {
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
-                    isOutgoing, textWidth == 0 {
+                   isOutgoing, textWidth == 0, settings.showVoiceNotes {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
                 
@@ -77,7 +81,7 @@ struct MessageView: View {
                     .readSize { contentWidth = Int($0.width) }
                 
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
-                    !isOutgoing, textWidth == 0 {
+                   !isOutgoing, textWidth == 0, settings.showVoiceNotes {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
             }
@@ -90,7 +94,7 @@ struct MessageView: View {
                 .cornerRadius(corners(for: .text))
                 .readSize { textWidth = Int($0.width) }
             
-            if customMessage.message.editDate != 0 {
+            if settings.showEdited, customMessage.message.editDate != 0 {
                 Text("edited")
                     .font(.caption)
                     .foregroundColor(.white).opacity(0.5)

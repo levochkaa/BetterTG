@@ -30,7 +30,7 @@ extension MessageView {
                             .hidden()
                     }
                     .overlay {
-                        if textSize != .zero {
+                        if textSize != .zero, settings.showAnimojis {
                             AnimojiView(
                                 animojis: customMessage.animojis,
                                 formattedText: formattedText,
@@ -51,6 +51,7 @@ extension MessageView {
         }
     }
     
+    // swiftlint:disable function_body_length
     func attributedString(for formattedText: FormattedText) -> AttributedString {
         var result = AttributedString(formattedText.text)
         var resultWithoutEmojis = AttributedString(formattedText.text)
@@ -89,7 +90,9 @@ extension MessageView {
                     result[range].link = getUrl(from: textEntityTypeTextUrl.url)
                     resultWithoutEmojis[range].link = getUrl(from: textEntityTypeTextUrl.url)
                 case .textEntityTypeCustomEmoji:
-                    result[range].foregroundColor = .clear
+                    if settings.showAnimojis {
+                        result[range].foregroundColor = .clear
+                    }
                 default:
 //                    log("Error, not implemented: \(entity.type); for: \(formattedText)")
                     continue

@@ -31,16 +31,18 @@ extension RootView {
                             $0
                                 .presentationBackground(.ultraThinMaterial)
                                 .presentationCornerRadius(20)
-                                .presentationContentInteraction(.automatic)
+                                .presentationContentInteraction(.resizes)
                                 .presentationCompactAdaptation(.sheet)
-                                .presentationBackgroundInteraction(.enabled)
+                                .presentationBackgroundInteraction(.disabled)
                         }
                     }
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(systemImage: "square.stack") {
-                        showArchivedChats = true
+                if settings.showArchivedChatsButton {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button(systemImage: "square.stack") {
+                            showArchivedChats = true
+                        }
                     }
                 }
                 

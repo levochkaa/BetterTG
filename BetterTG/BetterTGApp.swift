@@ -4,6 +4,7 @@ import SwiftUI
 import TDLibKit
 import AVKit
 import SDWebImageWebPCoder
+import Lottie
 
 @main
 struct BetterTGApp: App {
@@ -21,6 +22,9 @@ struct BetterTGApp: App {
         SDImageCodersManager.shared.addCoder(SDImageWebPCoder.shared)
         
         UIApplication.window?.overrideUserInterfaceStyle = .dark
+        
+        LottieConfiguration.shared.renderingEngine = .specific(.coreAnimation)
+        LottieLogger.shared = .printToConsole
     }
     
     var body: some Scene {

@@ -19,25 +19,48 @@ struct SettingsView: View {
                 }
                 .headerProminence(.increased)
             }
+            .listRowBackground(Color.clear)
             
-            Section {
+            customSection(header: "Chats List") {
+                Toggle("Archived Chats", isOn: $settings.showArchivedChatsButton)
+            }
+            
+            customSection(header: "Chat") {
                 Toggle("Albums", isOn: $settings.showAlbums)
                 Toggle("Photos", isOn: $settings.showPhotos)
                 Toggle("Animojis", isOn: $settings.showAnimojis)
                 Toggle("Voice Notes", isOn: $settings.showVoiceNotes)
-            } header: {
-                Text("Chat")
-                    .headerProminence(.increased)
-            } footer: {
-                Text("Toggle these things to fix problems with perfomance in messages list")
+                Toggle("Replies", isOn: $settings.showReplies)
+                Toggle("Forwarded From", isOn: $settings.showForwardedFrom)
+                Toggle("Edited", isOn: $settings.showEdited)
             }
-            .listRowBackground(
-                Rectangle()
-                    .fill(.thinMaterial)
-            )
         }
         .listStyle(.automatic)
         .scrollContentBackground(.hidden)
+    }
+    
+    @ViewBuilder func customSection<Content: View>(
+        header: String? = nil,
+        increasedHeader: Bool = true,
+        footer: String? = nil,
+        @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        Section {
+            content()
+        } header: {
+            if let header {
+                Text(header)
+                    .headerProminence(increasedHeader ? .increased : .standard)
+            }
+        } footer: {
+            if let footer {
+                Text(footer)
+            }
+        }
+        .listRowBackground(
+            Rectangle()
+                .fill(.thinMaterial)
+        )
     }
 }
 

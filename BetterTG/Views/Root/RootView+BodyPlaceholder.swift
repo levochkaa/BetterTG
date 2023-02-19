@@ -17,9 +17,11 @@ extension RootView {
             .disabled(true)
             .scrollDisabled(true)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(systemImage: "square.stack") {}
-                        .disabled(true)
+                if settings.showArchivedChatsButton {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button(systemImage: "square.stack") {}
+                            .disabled(true)
+                    }
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
