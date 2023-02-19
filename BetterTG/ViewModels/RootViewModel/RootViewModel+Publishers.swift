@@ -48,13 +48,11 @@ extension RootViewModel {
     func chatReadInbox(_ chatReadInbox: UpdateChatReadInbox) {
         Task.main {
             guard let index = mainChats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId }) else { return }
-            
             mainChats[index].unreadCount = chatReadInbox.unreadCount
         }
         
         Task.main {
             guard let index = archivedChats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId }) else { return }
-            
             archivedChats[index].unreadCount = chatReadInbox.unreadCount
         }
     }
