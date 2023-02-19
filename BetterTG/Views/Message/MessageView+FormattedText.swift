@@ -5,49 +5,45 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        ZStack {
-            if !redactionReasons.isEmpty {
-                Text(formattedText.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .readSize { textSize = $0 }
-            } else {
-                Text(attributedString(for: formattedText))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .readSize { textSize = $0 }
-                    .draggable(text) {
-                        Text(attributedStringWithoutDate)
-                            .frame(size: draggableTextSize)
-                            .multilineTextAlignment(.leading)
-                            .padding(8)
-                            .foregroundColor(.white)
-                            .background(.gray6)
-                            .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
+        if redactionReasons.isEmpty {
+            Text(attributedString(for: formattedText))
+                .fixedSize(horizontal: false, vertical: true)
+                .readSize { textSize = $0 }
+                .draggable(text) {
+                    Text(attributedStringWithoutDate)
+                        .frame(size: draggableTextSize)
+                        .multilineTextAlignment(.leading)
+                        .padding(8)
+                        .foregroundColor(.white)
+                        .background(.gray6)
+                        .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
+                }
+                .overlay {
+                    Text(attributedStringWithoutDate)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .readSize { draggableTextSize = $0 }
+                        .hidden()
+                }
+                .overlay {
+                    if textSize != .zero, settings.showAnimojis {
+                        AnimojiView(
+                            animojis: customMessage.animojis,
+                            formattedText: formattedText,
+                            textSize: textSize
+                        )
+                        .equatable(by: textSize)
+                        .allowsHitTesting(false)
                     }
-                    .overlay {
-                        Text(attributedStringWithoutDate)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .readSize { draggableTextSize = $0 }
-                            .hidden()
-                    }
-                    .overlay {
-                        if textSize != .zero, settings.showAnimojis {
-                            AnimojiView(
-                                animojis: customMessage.animojis,
-                                formattedText: formattedText,
-                                textSize: textSize
-                            )
-                            .equatable(by: textSize)
-                            .allowsHitTesting(false)
-                        }
-                    }
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if redactionReasons.isEmpty {
-                messageDate
-                    .menuOnPress { menu }
-                    .offset(y: 3)
-            }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    messageDate
+                        .menuOnPress { menu }
+                        .offset(y: 3)
+                }
+        } else {
+            Text(formattedText.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .readSize { textSize = $0 }
         }
     }
     
