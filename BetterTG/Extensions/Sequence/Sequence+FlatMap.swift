@@ -2,7 +2,7 @@
 
 import Foundation
 
-extension Sequence {
+extension Sequence where Element: Sendable {
     /// Transform the sequence into an array of new values using
     /// an async closure that returns sequences. The returned sequences
     /// will be flattened into the array returned from this function.
@@ -48,8 +48,8 @@ extension Sequence {
     ///   within the returned array.
     func concurrentFlatMap<T: Sequence>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @escaping (Element) async -> T
-    ) async -> [T.Element] {
+        _ transform: @Sendable @escaping (Element) async -> T
+    ) async -> [T.Element] where T: Sendable {
         let tasks = map { element in
             Task(priority: priority) {
                 await transform(element)
@@ -82,8 +82,8 @@ extension Sequence {
     /// - throws: Rethrows any error thrown by the passed closure.
     func concurrentFlatMap<T: Sequence>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @escaping (Element) async throws -> T
-    ) async throws -> [T.Element] {
+        _ transform: @Sendable @escaping (Element) async throws -> T
+    ) async throws -> [T.Element] where T: Sendable {
         let tasks = map { element in
             Task(priority: priority) {
                 try await transform(element)

@@ -2,7 +2,7 @@
 
 import Foundation
 
-extension Sequence {
+extension Sequence where Element: Sendable {
     /// Run an async closure for each element within the sequence.
     ///
     /// The closure calls will be performed in order, by waiting for
@@ -32,7 +32,7 @@ extension Sequence {
     /// - parameter operation: The closure to run for each element.
     func concurrentForEach(
         withPriority priority: TaskPriority? = nil,
-        _ operation: @escaping (Element) async -> Void
+        _ operation: @Sendable @escaping (Element) async -> Void
     ) async {
         await withTaskGroup(of: Void.self) { group in
             for element in self {
@@ -58,7 +58,7 @@ extension Sequence {
     /// - throws: Rethrows any error thrown by the passed closure.
     func concurrentForEach(
         withPriority priority: TaskPriority? = nil,
-        _ operation: @escaping (Element) async throws -> Void
+        _ operation: @Sendable @escaping (Element) async throws -> Void
     ) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             for element in self {

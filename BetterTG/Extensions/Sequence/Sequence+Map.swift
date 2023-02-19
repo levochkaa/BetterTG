@@ -2,7 +2,7 @@
 
 import Foundation
 
-extension Sequence {
+extension Sequence where Element: Sendable {
     /// Transform the sequence into an array of new values using
     /// an async closure.
     ///
@@ -40,9 +40,9 @@ extension Sequence {
     /// - parameter transform: The transform to run on each element.
     /// - returns: The transformed values as an array. The order of
     ///   the transformed values will match the original sequence.
-    func concurrentMap<T>(
+    func concurrentMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @escaping (Element) async -> T
+        _ transform: @Sendable @escaping (Element) async -> T
     ) async -> [T] {
         let tasks = map { element in
             Task(priority: priority) {
@@ -71,9 +71,9 @@ extension Sequence {
     /// - returns: The transformed values as an array. The order of
     ///   the transformed values will match the original sequence.
     /// - throws: Rethrows any error thrown by the passed closure.
-    func concurrentMap<T>(
+    func concurrentMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @escaping (Element) async throws -> T
+        _ transform: @Sendable @escaping (Element) async throws -> T
     ) async throws -> [T] {
         let tasks = map { element in
             Task(priority: priority) {

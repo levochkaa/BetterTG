@@ -2,7 +2,7 @@
 
 import Foundation
 
-extension Sequence {
+extension Sequence where Element: Sendable {
     /// Transform the sequence into an array of new values using
     /// an async closure that returns optional values. Only the
     /// non-`nil` return values will be included in the new array.
@@ -48,9 +48,9 @@ extension Sequence {
     /// - returns: The transformed values as an array. The order of
     ///   the transformed values will match the original sequence,
     ///   except for the values that were transformed into `nil`.
-    func concurrentCompactMap<T>(
+    func concurrentCompactMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @escaping (Element) async -> T?
+        _ transform: @Sendable @escaping (Element) async -> T?
     ) async -> [T] {
         let tasks = map { element in
             Task(priority: priority) {
@@ -81,9 +81,9 @@ extension Sequence {
     ///   the transformed values will match the original sequence,
     ///   except for the values that were transformed into `nil`.
     /// - throws: Rethrows any error thrown by the passed closure.
-    func concurrentCompactMap<T>(
+    func concurrentCompactMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @escaping (Element) async throws -> T?
+        _ transform: @Sendable @escaping (Element) async throws -> T?
     ) async throws -> [T] {
         let tasks = map { element in
             Task(priority: priority) {
