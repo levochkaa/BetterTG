@@ -102,7 +102,7 @@ extension TdApi {
             case .updateChatPosition(let updateChatPosition):
                 nc.post(name: .chatPosition, object: updateChatPosition)
             case .updateChatReadInbox(let updateChatReadInbox):
-                nc.post(name: .chatReadInbox, object: updateChatReadInbox)
+                Task.main { nc.post(name: .chatReadInbox, object: updateChatReadInbox) }
             case .updateChatReadOutbox(let updateChatReadOutbox):
                 nc.post(name: .chatReadOutbox, object: updateChatReadOutbox)
             case .updateChatActionBar(let updateChatActionBar):

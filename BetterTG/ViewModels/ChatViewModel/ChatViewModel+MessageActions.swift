@@ -116,4 +116,10 @@ extension ChatViewModel {
             await tdDeleteMessages(ids: ids, deleteForBoth: deleteForBoth)
         }
     }
+    
+    func viewMessage(id: Int64) {
+        Task {
+            await tdViewMessages(ids: [id])
+        }
+    }
 }

@@ -159,11 +159,24 @@ extension ChatViewModel {
         }
     }
     
+    func tdViewMessages(ids: [Int64]) async {
+        do {
+            _ = try await tdApi.viewMessages(
+                chatId: customChat.chat.id,
+                forceRead: true,
+                messageIds: ids,
+                messageThreadId: 0
+            )
+        } catch {
+            log("Error viewing messages: \(error)")
+        }
+    }
+    
     func tdSendChatAction(_ chatAction: ChatAction) async {
         do {
             _ = try await tdApi.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
         } catch {
-            log("Error ")
+            log("Error sending chatAction: \(error)")
         }
     }
     

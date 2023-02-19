@@ -39,14 +39,14 @@ extension RootView {
             }
             .toolbar {
                 if settings.showArchivedChatsButton {
-                    ToolbarItem(placement: .navigationBarLeading) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button(systemImage: "square.stack") {
                             showArchivedChats = true
                         }
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button(systemImage: "gear") {
                         showSettings = true
                     }

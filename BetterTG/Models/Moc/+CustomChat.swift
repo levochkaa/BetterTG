@@ -8,8 +8,9 @@ extension CustomChat {
         CustomChat(
             id: UUID(),
             chat: .moc,
-            user: .moc,
             positions: [],
+            unreadCount: 0,
+            user: .moc,
             lastMessage: .moc(.random(), 2),
             draftMessage: nil
         )

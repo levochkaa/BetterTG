@@ -8,7 +8,7 @@ import MobileVLCKit
 
 final class ChatViewModel: ObservableObject {
 
-    let customChat: CustomChat
+    var customChat: CustomChat
     
     @Published var onlineStatus = ""
     @Published var actionStatus = ""

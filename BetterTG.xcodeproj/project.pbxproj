@@ -89,6 +89,8 @@
 		DF9AC6C229A23F1300D6EC76 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C129A23F1300D6EC76 /* SettingsViewModel.swift */; };
 		DF9AC6C529A23F8900D6EC76 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C429A23F8900D6EC76 /* SettingsView.swift */; };
 		DF9AC6C729A240B800D6EC76 /* View+Modify.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C629A240B800D6EC76 /* View+Modify.swift */; };
+		DF9AC6CB29A261EB00D6EC76 /* VisibleKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6CA29A261EB00D6EC76 /* VisibleKey.swift */; };
+		DF9AC6CD29A2620800D6EC76 /* View+OnVisible.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6CC29A2620800D6EC76 /* View+OnVisible.swift */; };
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
 		DF9C816F2998DECE008989B0 /* RootView+BodyPlaceholder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C816E2998DECE008989B0 /* RootView+BodyPlaceholder.swift */; };
 		DF9C81712998DEEF008989B0 /* RootView+Body.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C81702998DEEF008989B0 /* RootView+Body.swift */; };
@@ -269,6 +271,8 @@
 		DF9AC6C129A23F1300D6EC76 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		DF9AC6C429A23F8900D6EC76 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		DF9AC6C629A240B800D6EC76 /* View+Modify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Modify.swift"; sourceTree = "<group>"; };
+		DF9AC6CA29A261EB00D6EC76 /* VisibleKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisibleKey.swift; sourceTree = "<group>"; };
+		DF9AC6CC29A2620800D6EC76 /* View+OnVisible.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+OnVisible.swift"; sourceTree = "<group>"; };
 		DF9C816E2998DECE008989B0 /* RootView+BodyPlaceholder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+BodyPlaceholder.swift"; sourceTree = "<group>"; };
 		DF9C81702998DEEF008989B0 /* RootView+Body.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+Body.swift"; sourceTree = "<group>"; };
 		DF9C81722998F6D6008989B0 /* View+Animation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Animation.swift"; sourceTree = "<group>"; };
@@ -643,6 +647,7 @@
 				DF9C81722998F6D6008989B0 /* View+Animation.swift */,
 				DF9C817C29994BC8008989B0 /* View+Frame.swift */,
 				DF9AC6C629A240B800D6EC76 /* View+Modify.swift */,
+				DF9AC6CC29A2620800D6EC76 /* View+OnVisible.swift */,
 			);
 			path = View;
 			sourceTree = "<group>";
@@ -702,6 +707,7 @@
 			children = (
 				1A21D2D40D206E1E75C06EAC /* ScrollOffsetPreferenceKey.swift */,
 				1A21D3AA803B5B4DCF8AC3E5 /* SizePreferenceKey.swift */,
+				DF9AC6CA29A261EB00D6EC76 /* VisibleKey.swift */,
 			);
 			path = PreferenceKeys;
 			sourceTree = "<group>";
@@ -934,6 +940,7 @@
 				DF2AE70F2951195C00FF7850 /* ChatViewModel+Scroll.swift in Sources */,
 				DFD7D49B29427B450006CF85 /* RootView+ChatsListItem.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
+				DF9AC6CB29A261EB00D6EC76 /* VisibleKey.swift in Sources */,
 				DF09693F2976E4E4004F1EE4 /* ChatViewModel+CommandCenter.swift in Sources */,
 				DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */,
 				DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */,
@@ -986,6 +993,7 @@
 				DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DFCC2A412950EF2800281EF8 /* MessageView+Content.swift in Sources */,
+				DF9AC6CD29A2620800D6EC76 /* View+OnVisible.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFA7EDD829983C4300090591 /* +MessageForwardInfo.swift in Sources */,
 				DF34644A296B787D001BE888 /* MainActor.swift in Sources */,

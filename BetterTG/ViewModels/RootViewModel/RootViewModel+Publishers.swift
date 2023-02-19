@@ -38,6 +38,25 @@ extension RootViewModel {
             guard let newChat = notification.object as? UpdateNewChat else { return }
             self.newChat(newChat)
         }
+        
+        nc.publisher(for: .chatReadInbox) { notification in
+            guard let chatReadInbox = notification.object as? UpdateChatReadInbox else { return }
+            self.chatReadInbox(chatReadInbox)
+        }
+    }
+    
+    func chatReadInbox(_ chatReadInbox: UpdateChatReadInbox) {
+        Task.main {
+            guard let index = mainChats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId }) else { return }
+            
+            mainChats[index].unreadCount = chatReadInbox.unreadCount
+        }
+        
+        Task.main {
+            guard let index = archivedChats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId }) else { return }
+            
+            archivedChats[index].unreadCount = chatReadInbox.unreadCount
+        }
     }
     
     func newChat(_ newChat: UpdateNewChat) {
@@ -51,11 +70,11 @@ extension RootViewModel {
     }
     
     func chatPosition(_ chatPosition: UpdateChatPosition) {
-        guard chatPosition.position.order != 0 else {
-            return Task.main {
-                mainChats.removeAll(where: { $0.chat.id == chatPosition.chatId })
-            }
-        }
+//        guard chatPosition.position.order != 0 else {
+//            return Task.main {
+//                mainChats.removeAll(where: { $0.chat.id == chatPosition.chatId })
+//            }
+//        }
         
         Task.main {
             guard let index = mainChats.firstIndex(where: { $0.chat.id == chatPosition.chatId }),

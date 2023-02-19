@@ -10,6 +10,15 @@ extension RootView {
         chatList: ChatList
     ) -> some View {
         HStack {
+            if let isPinned = customChat.positions.first(where: { $0.list == chatList })?.isPinned, isPinned {
+                Button(systemImage: "pin.fill") {
+                    viewModel.togglePinned(chatId: customChat.chat.id, chatList: chatList, value: !isPinned)
+                }
+                .font(.title2)
+                .foregroundColor(.white)
+                .padding(.leading, 10)
+            }
+            
             if !redacted {
                 chatsListPhoto(for: customChat.chat)
             } else {
@@ -31,14 +40,19 @@ extension RootView {
             }
             .lineLimit(1)
             
-            if let isPinned = customChat.positions.first(where: { $0.list == chatList })?.isPinned, isPinned {
+            if customChat.unreadCount != 0 {
                 Spacer()
                 
-                Button(systemImage: "pin.fill") {
-                    viewModel.togglePinned(chatId: customChat.chat.id, chatList: chatList, value: !isPinned)
-                }
-                .font(.title2)
-                .foregroundColor(.white)
+                Circle()
+                    .fill(.blue)
+                    .frame(width: 32, height: 32)
+                    .overlay {
+                        Text("\(customChat.unreadCount)")
+                            .font(.callout)
+                            .foregroundColor(.white)
+                            .minimumScaleFactor(0.5)
+                    }
+                    .padding(.trailing, 10)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

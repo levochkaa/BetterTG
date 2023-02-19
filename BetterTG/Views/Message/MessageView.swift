@@ -20,6 +20,7 @@ struct MessageView: View {
     @State var isListeningVoiceNote = false
     @State var recognizeSpeech = false
     
+    @State var canBeRead = true
     @State var isOutgoing = true
     @State var text = ""
     @State var attributedStringWithoutDate = AttributedString()
@@ -106,6 +107,11 @@ struct MessageView: View {
         }
         .onAppear {
             isOutgoing = customMessage.message.isOutgoing
+        }
+        .onVisible {
+            guard canBeRead else { return }
+            defer { canBeRead = false }
+            viewModel.viewMessage(id: customMessage.message.id)
         }
         .onReceive(nc.publisher(for: .messageEdited)) { notification in
             guard let messageEdited = notification.object as? UpdateMessageEdited,

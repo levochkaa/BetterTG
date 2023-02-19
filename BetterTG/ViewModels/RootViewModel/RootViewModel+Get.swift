@@ -13,8 +13,9 @@ extension RootViewModel {
             if case .userTypeRegular = user.type {
                 return CustomChat(
                     chat: chat,
-                    user: user,
                     positions: chat.positions,
+                    unreadCount: chat.unreadCount,
+                    user: user,
                     lastMessage: chat.lastMessage,
                     draftMessage: chat.draftMessage
                 )

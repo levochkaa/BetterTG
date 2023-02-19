@@ -6,22 +6,25 @@ import TDLibKit
 struct CustomChat: Identifiable, Equatable {
     let id: UUID
     var chat: Chat
-    var user: User
     var positions: [ChatPosition]
+    var unreadCount: Int
+    var user: User
     var lastMessage: Message?
     var draftMessage: DraftMessage?
     
     init(id: UUID = UUID(),
          chat: Chat,
-         user: User,
          positions: [ChatPosition],
+         unreadCount: Int,
+         user: User,
          lastMessage: Message? = nil,
          draftMessage: DraftMessage? = nil
     ) {
         self.id = id
         self.chat = chat
-        self.user = user
         self.positions = positions
+        self.unreadCount = unreadCount
+        self.user = user
         self.lastMessage = lastMessage
         self.draftMessage = draftMessage
     }
