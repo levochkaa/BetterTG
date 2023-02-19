@@ -6,6 +6,7 @@ import TDLibKit
 struct RootView: View {
     
     @StateObject var viewModel = RootViewModel()
+    @StateObject var settings = SettingsViewModel()
     
     @State var showConfirmChatDelete = false
     @State var deleteChatForAllUsers = false
@@ -15,6 +16,7 @@ struct RootView: View {
     @State var queryArchived = ""
     
     @State var showArchivedChats = false
+    @State var showSettings = false
     
     @Namespace var namespace
     
@@ -37,6 +39,7 @@ struct RootView: View {
         .transition(.opacity)
         .animation(value: viewModel.loggedIn)
         .environmentObject(viewModel)
+        .environmentObject(settings)
         .onAppear {
             if viewModel.namespace == nil {
                 viewModel.namespace = namespace

@@ -22,10 +22,31 @@ extension RootView {
             .navigationDestination(isPresented: $showArchivedChats) {
                 archivedChatsView
             }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.hidden)
+                    .modify {
+                        if #available(iOS 16.4, *) {
+                            $0
+                                .presentationBackground(.ultraThinMaterial)
+                                .presentationCornerRadius(20)
+                                .presentationContentInteraction(.automatic)
+                                .presentationCompactAdaptation(.sheet)
+                                .presentationBackgroundInteraction(.enabled)
+                        }
+                    }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(systemImage: "square.stack") {
                         showArchivedChats = true
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(systemImage: "gear") {
+                        showSettings = true
                     }
                 }
             }

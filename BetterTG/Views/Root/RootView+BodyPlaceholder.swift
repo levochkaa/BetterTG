@@ -21,6 +21,11 @@ extension RootView {
                     Button(systemImage: "square.stack") {}
                         .disabled(true)
                 }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(systemImage: "gear") {}
+                        .disabled(true)
+                }
             }
         }
     }
