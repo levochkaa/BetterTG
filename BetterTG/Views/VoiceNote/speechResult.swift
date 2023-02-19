@@ -1,7 +1,7 @@
 // speechResult.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension MessageView {
     @ViewBuilder func voiceNoteSpeechResult(for voiceNote: VoiceNote) -> some View {

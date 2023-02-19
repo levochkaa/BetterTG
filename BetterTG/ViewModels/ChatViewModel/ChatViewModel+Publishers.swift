@@ -2,7 +2,7 @@
 
 import SwiftUI
 import Combine
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension ChatViewModel {
     func setLocalPublishers() {

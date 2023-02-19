@@ -1,7 +1,7 @@
 // ChatViewModel+Load.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension ChatViewModel {
     func loadPhotos() {

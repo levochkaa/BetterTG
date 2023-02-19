@@ -2,9 +2,9 @@
 
 import SwiftUI
 import Combine
-import TDLibKit
+@preconcurrency import TDLibKit
 
-class LoginViewModel: ObservableObject {
+final class LoginViewModel: ObservableObject {
     @Published var loginState: LoginState = .phoneNumber
     
     @Published var countryNums = [PhoneNumberInfo]()

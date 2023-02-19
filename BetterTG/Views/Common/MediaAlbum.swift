@@ -348,7 +348,7 @@ struct MediaAlbum: Layout {
                             innerPositionFlags.insert(.right)
                         }
                         
-                        if positionFlags == .none {
+                        if positionFlags == .unknown {
                             innerPositionFlags = .inside
                         }
                         

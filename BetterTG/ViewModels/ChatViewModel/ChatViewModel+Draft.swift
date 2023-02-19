@@ -1,7 +1,7 @@
 // ChatViewModel+Draft.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension ChatViewModel {
     func setDraft(_ draftMessage: DraftMessage) async {

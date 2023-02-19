@@ -4,7 +4,7 @@ import SwiftUI
 import Combine
 import TDLibKit
 
-class RootViewModel: ObservableObject {
+final class RootViewModel: ObservableObject {
     
     @Published var loggedIn: Bool?
     @Published var mainChats = [CustomChat]()

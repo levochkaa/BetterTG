@@ -1,7 +1,7 @@
 // ReplyMessageView.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 struct ReplyMessageView: View {
     

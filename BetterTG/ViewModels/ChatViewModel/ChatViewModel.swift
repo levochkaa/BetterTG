@@ -6,7 +6,7 @@ import TDLibKit
 import PhotosUI
 import MobileVLCKit
 
-class ChatViewModel: ObservableObject {
+final class ChatViewModel: ObservableObject {
 
     let customChat: CustomChat
     

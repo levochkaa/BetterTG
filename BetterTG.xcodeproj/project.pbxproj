@@ -85,6 +85,7 @@
 		DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = DF99043E295CA4B100BD6FFE /* Lottie */; };
 		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
 		DF99C02C2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF99C02B2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift */; };
+		DF9AC6BF29A2386E00D6EC76 /* Sendable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */; };
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
 		DF9C816F2998DECE008989B0 /* RootView+BodyPlaceholder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C816E2998DECE008989B0 /* RootView+BodyPlaceholder.swift */; };
 		DF9C81712998DEEF008989B0 /* RootView+Body.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C81702998DEEF008989B0 /* RootView+Body.swift */; };
@@ -261,6 +262,7 @@
 		DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableScrollView.swift; sourceTree = "<group>"; };
 		DF96BAE1298BE120003936AC /* View+Equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Equatable.swift"; sourceTree = "<group>"; };
 		DF99C02B2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+VoiceNoteSide.swift"; sourceTree = "<group>"; };
+		DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sendable.swift; sourceTree = "<group>"; };
 		DF9C816E2998DECE008989B0 /* RootView+BodyPlaceholder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+BodyPlaceholder.swift"; sourceTree = "<group>"; };
 		DF9C81702998DEEF008989B0 /* RootView+Body.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+Body.swift"; sourceTree = "<group>"; };
 		DF9C81722998F6D6008989B0 /* View+Animation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Animation.swift"; sourceTree = "<group>"; };
@@ -745,6 +747,7 @@
 				DFE84079298AFA7400C3A7F8 /* UIRectCorner.swift */,
 				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 				DF9D516F298D19A8009AFE7F /* Shape.swift */,
+				DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -949,6 +952,7 @@
 				DF346448296B72D4001BE888 /* MessageView+FormattedText.swift in Sources */,
 				DF1717BD2971F3B60085E698 /* View+FlippedUpsideDown.swift in Sources */,
 				DF9C817729993AAF008989B0 /* ChatView+Toolbar.swift in Sources */,
+				DF9AC6BF29A2386E00D6EC76 /* Sendable.swift in Sources */,
 				DFE8407C298AFA9100C3A7F8 /* View+CornerRadius.swift in Sources */,
 				DFD7D4892942426D0006CF85 /* LoginViewModel+Td.swift in Sources */,
 				DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */,
