@@ -6,9 +6,51 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         if redactionReasons.isEmpty {
-            Text(attributedString(for: formattedText))
+            ZStack {
+                Text(attributedString(for: formattedText))
+                    .readSize { textSize = $0 }
+                    .hidden()
+                
+                if textSize != .zero {
+                    TextView(
+                        formattedText: formattedText,
+                        textSize: textSize
+                    )
+                    .frame(width: textSize.width, height: textSize.height, alignment: .topLeading)
+                    .equatable(by: textSize)
+                    .draggable(formattedText.text) {
+                        Text(attributedStringWithoutDate)
+                            .frame(size: draggableTextSize)
+                            .multilineTextAlignment(.leading)
+                            .padding(8)
+                            .foregroundColor(.white)
+                            .background(.gray6)
+                            .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
+                    }
+                    .overlay {
+                        Text(attributedStringWithoutDate)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .readSize { draggableTextSize = $0 }
+                            .hidden()
+                    }
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                messageDate
+                    .menuOnPress { menu }
+                    .offset(y: 3)
+            }
+        } else {
+            Text(formattedText.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
+        }
+    }
+    
+    @ViewBuilder func legacyFormattedTextView(_ formattedText: FormattedText) -> some View {
+        if redactionReasons.isEmpty {
+            Text(attributedString(for: formattedText))
+                .fixedSize(horizontal: false, vertical: true)
                 .draggable(text) {
                     Text(attributedStringWithoutDate)
                         .frame(size: draggableTextSize)
@@ -24,17 +66,17 @@ extension MessageView {
                         .readSize { draggableTextSize = $0 }
                         .hidden()
                 }
-                .overlay {
-                    if textSize != .zero, settings.showAnimojis {
-                        AnimojiView(
-                            animojis: customMessage.animojis,
-                            formattedText: formattedText,
-                            textSize: textSize
-                        )
-                        .equatable(by: textSize)
-                        .allowsHitTesting(false)
-                    }
-                }
+//                .overlay {
+//                    if textSize != .zero, settings.showAnimojis {
+//                        AnimojiView(
+//                            animojis: customMessage.animojis,
+//                            formattedText: formattedText,
+//                            textSize: textSize
+//                        )
+//                        .equatable(by: textSize)
+//                        .allowsHitTesting(false)
+//                    }
+//                }
                 .overlay(alignment: .bottomTrailing) {
                     messageDate
                         .menuOnPress { menu }

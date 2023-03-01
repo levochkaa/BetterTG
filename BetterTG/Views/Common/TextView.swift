@@ -3,119 +3,185 @@
 import SwiftUI
 import TDLibKit
 import Lottie
+import Gzip
+import MobileVLCKit
+import SDWebImage
 
-/// before using it, check AnimojiView.swift, because not everything is implemented here
 struct TextView: UIViewRepresentable {
     
     let formattedText: FormattedText
-    let customEmojiAnimations: [Animoji]
     let textSize: CGSize
     
-    // swiftlint:disable function_body_length
+    @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var settings: SettingsViewModel
+    
+    var filteredEntities: [TextEntity] {
+        formattedText.entities
+            .filter {
+                if case .textEntityTypeCustomEmoji = $0.type { return true }
+                return false
+            }
+    }
+    
     func makeUIView(context: Context) -> UITextView {
         let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
         let textView = UITextView(frame: frame)
-        textView.font = UIFont.preferredFont(forTextStyle: .body)
-        textView.backgroundColor = UIColor.systemGray6
+        textView.font = UIFont.body
+        textView.backgroundColor = .clear
         textView.isScrollEnabled = false
         textView.dataDetectorTypes = .all
         textView.isEditable = false
+        textView.isSelectable = false
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainerInset = .zero
         
-        let attributedText = NSMutableAttributedString(string: formattedText.text, attributes: [
-            .font: UIFont.preferredFont(forTextStyle: .body) as Any,
-            .foregroundColor: UIColor.white
-        ])
-        
-        var emojiIndex = 0
+        let attributedString = NSMutableAttributedString(
+            string: formattedText.text,
+            attributes: [
+                .font: UIFont.body as Any,
+                .foregroundColor: UIColor.white
+            ]
+        )
         
         for entity in formattedText.entities {
-            let range = NSRange(location: entity.offset, length: entity.length)
-            let stringRange = stringRange(for: formattedText.text, start: entity.offset, length: entity.length)
-            let raw = String(formattedText.text[stringRange])
-            
-            switch entity.type {
-                case .textEntityTypeBold:
-                    attributedText.addAttribute(.font, value: UIFont.boldSystemFont(ofSize: 17) as Any, range: range)
-                case .textEntityTypeItalic:
-                    attributedText.addAttribute(.font, value: UIFont.italicSystemFont(ofSize: 17) as Any, range: range)
-                case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
-                    attributedText.addAttribute(
-                        .font,
-                        value: UIFont.monospacedSystemFont(ofSize: 17, weight: .regular) as Any,
-                        range: range
-                    )
-                case .textEntityTypeUnderline:
-                    attributedText.addAttribute(.underlineStyle, value: 1, range: range)
-                case .textEntityTypeStrikethrough:
-                    attributedText.addAttribute(.strikethroughStyle, value: 1, range: range)
-                case .textEntityTypePhoneNumber:
-                    attributedText.addAttribute(.link, value: URL(string: "tel:\(raw)") as Any, range: range)
-                case .textEntityTypeEmailAddress:
-                    attributedText.addAttribute(.link, value: URL(string: "mailto:\(raw)") as Any, range: range)
-                case .textEntityTypeUrl:
-                    attributedText.addAttribute(
-                        .link,
-                        value: URL(string: whitelisted(raw) ? raw : "https://\(raw)") as Any,
-                        range: range
-                    )
-                case .textEntityTypeTextUrl(let textUrl):
-                    attributedText.addAttribute(
-                        .link,
-                        value: URL(string: whitelisted(textUrl.url) ? textUrl.url : "https://\(textUrl.url)") as Any,
-                        range: range
-                    )
-                case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
-                    // because of crash on messages with unsupported emojis
-                    if emojiIndex >= customEmojiAnimations.count { break }
-                    
-                    textView.attributedText = attributedText
-                    
-                    let glyphIndex = textView.layoutManager.glyphIndexForCharacter(
-                        at: entity.offset + entity.length - 1
-                    )
-                    
-                    var rangeOfCharacter = NSRange()
-                    textView.layoutManager.characterRange(
-                        forGlyphRange: NSRange(location: glyphIndex, length: 1),
-                        actualGlyphRange: &rangeOfCharacter
-                    )
-                    
-                    var point = textView.layoutManager.boundingRect(
-                        forGlyphRange: rangeOfCharacter,
-                        in: textView.textContainer
-                    ).origin
-                    point.y -= 1.5
-                    
-//                    let animationView = LottieAnimationView(
-//                        animation: animojis[emojiIndex].lottieAnimation
-//                    )
-//                    animationView.loopMode = .loop
-//                    animationView.contentMode = .scaleAspectFit
-//                    animationView.frame = CGRect(origin: point, size: CGSize(width: 24, height: 24))
-//                    animationView.play()
-                    
-                    emojiIndex += 1
-                    
-                    attributedText.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
-                    
-//                    textView.addSubview(animationView)
-                default:
-                    break
-            }
+            setEntity(textView, entity: entity, for: attributedString)
         }
         
-        textView.attributedText = attributedText
+        textView.attributedText = attributedString
+        
+        if settings.showAnimojis {
+            Task {
+                await setAnimojis(textView, isInit: true)
+            }
+        }
         
         return textView
     }
     
-    func updateUIView(_ uiView: UITextView, context: Context) {}
+    func updateUIView(_ textView: UITextView, context: Context) {}
     
-    func whitelisted(_ url: String) -> Bool {
-        url.hasPrefix("https://") || url.hasPrefix("http://") || url.hasPrefix("tg://")
+    func setEntity(_ textView: UITextView, entity: TextEntity, for attributedString: NSMutableAttributedString) {
+        let range = NSRange(location: entity.offset, length: entity.length)
+        let stringRange = stringRange(for: formattedText.text, start: entity.offset, length: entity.length)
+        let raw = String(formattedText.text[stringRange])
+        
+        switch entity.type {
+            case .textEntityTypeBold:
+                attributedString.addAttribute(.font, value: UIFont.bold, range: range)
+            case .textEntityTypeItalic:
+                attributedString.addAttribute(.font, value: UIFont.italic, range: range)
+            case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
+                attributedString.addAttribute(.font, value: UIFont.monospaced, range: range)
+            case .textEntityTypeUnderline:
+                attributedString.addAttribute(.underlineStyle, value: 1, range: range)
+            case .textEntityTypeStrikethrough:
+                attributedString.addAttribute(.strikethroughStyle, value: 1, range: range)
+            case .textEntityTypePhoneNumber:
+                attributedString.addAttribute(.link, value: URL(string: "tel://\(raw)") as Any, range: range)
+            case .textEntityTypeEmailAddress:
+                attributedString.addAttribute(.link, value: URL(string: "mailto://\(raw)") as Any, range: range)
+            case .textEntityTypeUrl:
+                attributedString.addAttribute(.link, value: getUrl(from: raw) as Any, range: range)
+            case .textEntityTypeTextUrl(let textUrl):
+                attributedString.addAttribute(.link, value: getUrl(from: textUrl.url) as Any, range: range)
+            case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
+                guard settings.showAnimojis else { break }
+                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
+            default:
+                break
+        }
+        
+        let dateAttributedString = NSMutableAttributedString(
+            string: " 00:00",
+            attributes: [
+                .font: UIFont.caption,
+                .foregroundColor: UIColor.clear
+            ]
+        )
+        attributedString.append(dateAttributedString)
+    }
+    
+    func setAnimojis(_ textView: UITextView, isInit: Bool = false) async {
+        var emojiIndex = 0
+        let animojis = await viewModel.getAnimojis(from: formattedText.entities)
+        for animoji in animojis {
+            let entity = filteredEntities[emojiIndex]
+            let frame = getFrame(textView, from: entity)
+            
+            if isInit {
+                renderAnimoji(textView, animoji: animoji, with: frame)
+            } else {
+                UIView.animate(withDuration: Utils.defaultAnimationDuration) {
+                    textView.subviews[emojiIndex].frame = frame
+                }
+            }
+            
+            emojiIndex += 1
+        }
+    }
+    
+    func renderAnimoji(_ textView: UIView, animoji: Animoji, with frame: CGRect) {
+        switch animoji.type {
+            case .webp(let url):
+                let webpUiImageView = UIImageView(frame: frame)
+                webpUiImageView.sd_setImage(with: url)
+                textView.addSubview(webpUiImageView)
+            case .webm(let url): // sometimes working, sometimes don't, when works, it's awful
+                let webmUiView = UIView(frame: frame)
+                let media = VLCMedia(url: url)
+                
+                let mediaList = VLCMediaList()
+                mediaList.add(media)
+                
+                let mediaListPlayer = VLCMediaListPlayer(drawable: webmUiView)
+                mediaListPlayer.mediaList = mediaList
+                
+                mediaListPlayer.repeatMode = .repeatCurrentItem
+                mediaListPlayer.play(media)
+                
+                textView.addSubview(webmUiView)
+            case .tgs(let url):
+                do {
+                    let data = try Data(contentsOf: url)
+                    let decompressed = try data.gunzipped()
+                    let animation = try LottieAnimation.from(data: decompressed)
+                    let animationView = LottieAnimationView(animation: animation)
+                    
+                    animationView.loopMode = .loop
+                    animationView.contentMode = .scaleAspectFit
+                    animationView.frame = frame
+                    animationView.play()
+                    
+                    textView.addSubview(animationView)
+                } catch {
+                    log("Error loading custom emoji animation (tgs): \(error)")
+                }
+        }
+    }
+    
+    func getFrame(_ textView: UITextView, from entity: TextEntity) -> CGRect {
+        let glyphIndex = textView.layoutManager.glyphIndexForCharacter(
+            at: entity.offset + entity.length - 1
+        )
+        
+        var rangeOfCharacter = NSRange()
+        textView.layoutManager.characterRange(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            actualGlyphRange: &rangeOfCharacter
+        )
+        
+        var point = textView.layoutManager.boundingRect(
+            forGlyphRange: rangeOfCharacter,
+            in: textView.textContainer
+        ).origin
+        point.y -= 1.5
+        
+        return CGRect(origin: point, size: CGSize(width: 24, height: 24))
+    }
+    
+    func getUrl(from string: String) -> URL? {
+        URL(string: string.contains("://") ? string : "https://\(string)")
     }
     
     func stringRange(

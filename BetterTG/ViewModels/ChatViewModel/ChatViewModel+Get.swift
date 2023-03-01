@@ -85,7 +85,6 @@ extension ChatViewModel {
         let replyToMessage = await getReplyToMessage(id: message.replyToMessageId)
         var customMessage = CustomMessage(message: message, replyToMessage: replyToMessage)
         if message.mediaAlbumId != 0 { customMessage.album.append(message) }
-        customMessage.animojis = await getAnimojis(from: customMessage.message.content)
         customMessage.forwardedFrom = await getForwardedFrom(message.forwardInfo?.origin)
         
         if case .messageSenderUser(let messageSenderUser) = message.senderId {
@@ -124,39 +123,27 @@ extension ChatViewModel {
         }
     }
     
-    func getAnimojis(from content: MessageContent) async -> [Animoji] {
-        switch content {
-            case .messageText(let messageText):
-                return await getAnimojis(from: messageText.text.entities)
-            case .messagePhoto(let messagePhoto):
-                return await getAnimojis(from: messagePhoto.caption.entities)
-            case .messageVoiceNote(let messageVoiceNote):
-                return await getAnimojis(from: messageVoiceNote.caption.entities)
-            default:
-                return []
-        }
-    }
-    
     func getAnimojis(from entities: [TextEntity]) async -> [Animoji] {
         var animojis = [Animoji]()
         
         for entity in entities {
-            if case .textEntityTypeCustomEmoji(let textEntityTypeCustomEmoji) = entity.type,
-               let customEmoji = await tdGetCustomEmojiSticker(id: textEntityTypeCustomEmoji.customEmojiId),
-               case .stickerFullTypeCustomEmoji = customEmoji.fullType,
-               let file = await tdDownloadFile(id: customEmoji.sticker.id, synchronous: true) {
-                let url = URL(filePath: file.local.path)
-                var animoji: Animoji
-                switch customEmoji.format {
-                    case .stickerFormatTgs:
-                        animoji = Animoji(type: .tgs(url), realEmoji: customEmoji.emoji)
-                    case .stickerFormatWebp:
-                        animoji = Animoji(type: .webp(url), realEmoji: customEmoji.emoji)
-                    case .stickerFormatWebm:
-                        animoji = Animoji(type: .webm(url), realEmoji: customEmoji.emoji)
-                }
-                animojis.append(animoji)
+            guard case .textEntityTypeCustomEmoji(let textEntityTypeCustomEmoji) = entity.type,
+                  let customEmoji = await tdGetCustomEmojiSticker(id: textEntityTypeCustomEmoji.customEmojiId),
+                  case .stickerFullTypeCustomEmoji = customEmoji.fullType,
+                  let file = await tdDownloadFile(id: customEmoji.sticker.id, synchronous: true)
+            else { continue }
+            
+            let url = URL(filePath: file.local.path)
+            let animoji: Animoji
+            switch customEmoji.format {
+                case .stickerFormatTgs:
+                    animoji = Animoji(type: .tgs(url), realEmoji: customEmoji.emoji)
+                case .stickerFormatWebp:
+                    animoji = Animoji(type: .webp(url), realEmoji: customEmoji.emoji)
+                case .stickerFormatWebm:
+                    animoji = Animoji(type: .webm(url), realEmoji: customEmoji.emoji)
             }
+            animojis.append(animoji)
         }
         
         return animojis

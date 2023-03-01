@@ -115,9 +115,3 @@ struct AnimojiView: UIViewRepresentable {
         loadEmojis(for: uiView)
     }
 }
-
-extension AnimojiView: Equatable {
-    static func == (lhs: AnimojiView, rhs: AnimojiView) -> Bool {
-        lhs.textSize == rhs.textSize
-    }
-}

@@ -12,7 +12,6 @@ extension CustomMessage {
             replyToMessage: nil,
             album: [],
             sendFailed: false,
-            animojis: [],
             forwardedFrom: nil
         )
     }

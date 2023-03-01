@@ -12,7 +12,6 @@ struct CustomMessage: Identifiable, Equatable {
     var replyToMessage: Message?
     var album = [Message]()
     var sendFailed = false
-    var animojis = [Animoji]()
     var forwardedFrom: String?
 }
 
