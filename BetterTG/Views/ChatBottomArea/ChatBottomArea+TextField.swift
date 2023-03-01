@@ -4,23 +4,22 @@ import SwiftUI
 
 extension ChatBottomArea {
     @ViewBuilder var textField: some View {
-        TextField(
+        CustomTextField(
             "Message...",
-            text: viewModel.editCustomMessage == nil ? $viewModel.text : $viewModel.editMessageText,
-            axis: .vertical
+            text: viewModel.editCustomMessage == nil ? $viewModel.text : $viewModel.editMessageText
         )
         .unredacted()
         .disabled(!redactionReasons.isEmpty)
         .focused(focused)
         .lineLimit(10)
-        .padding(5)
+        .padding(.horizontal, 5)
         .background(.gray6)
         .cornerRadius(15)
         .onReceive(viewModel.$text.debounce(for: 2, scheduler: DispatchQueue.main)) { _ in
             Task {
                 await viewModel.updateDraft()
                 
-                if !viewModel.text.isEmpty {
+                if !viewModel.text.characters.isEmpty {
                     await viewModel.tdSendChatAction(.chatActionTyping)
                 } else {
                     await viewModel.tdSendChatAction(.chatActionCancel)

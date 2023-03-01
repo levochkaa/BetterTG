@@ -13,8 +13,8 @@ final class ChatViewModel: ObservableObject {
     @Published var onlineStatus = ""
     @Published var actionStatus = ""
     
-    @Published var text = ""
-    @Published var editMessageText = ""
+    @Published var text: AttributedString = ""
+    @Published var editMessageText: AttributedString = ""
     @Published var showSendButton = false
     
     var loadedAlbums = Set<Int64>()

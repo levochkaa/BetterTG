@@ -38,7 +38,11 @@
 		DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */; };
 		DF346448296B72D4001BE888 /* MessageView+FormattedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346447296B72D4001BE888 /* MessageView+FormattedText.swift */; };
 		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
+		DF34C38929A2A43600EA2606 /* CustomTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF34C38829A2A43600EA2606 /* CustomTextField.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
+		DF3A714F29AB66B200A7EC22 /* String.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A714E29AB66B200A7EC22 /* String.swift */; };
+		DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715029AB702E00A7EC22 /* AttributedString.swift */; };
+		DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715229AB705900A7EC22 /* UIFont.swift */; };
 		DF3BC41A2974142F002F207B /* MessageView+Date.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC4192974142F002F207B /* MessageView+Date.swift */; };
 		DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF40F14F298F01CC00383AE1 /* CameraView.swift */; };
 		DF42BFCC298C70BF00039ACD /* +CustomChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFCB298C70BF00039ACD /* +CustomChat.swift */; };
@@ -223,7 +227,11 @@
 		DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+MessageActions.swift"; sourceTree = "<group>"; };
 		DF346447296B72D4001BE888 /* MessageView+FormattedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+FormattedText.swift"; sourceTree = "<group>"; };
 		DF346449296B787D001BE888 /* MainActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActor.swift; sourceTree = "<group>"; };
+		DF34C38829A2A43600EA2606 /* CustomTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomTextField.swift; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
+		DF3A714E29AB66B200A7EC22 /* String.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = String.swift; sourceTree = "<group>"; };
+		DF3A715029AB702E00A7EC22 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
+		DF3A715229AB705900A7EC22 /* UIFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIFont.swift; sourceTree = "<group>"; };
 		DF3BC4192974142F002F207B /* MessageView+Date.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+Date.swift"; sourceTree = "<group>"; };
 		DF40F14F298F01CC00383AE1 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		DF42BFCB298C70BF00039ACD /* +CustomChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+CustomChat.swift"; sourceTree = "<group>"; };
@@ -547,6 +555,7 @@
 				DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */,
 				DF9C817A29994AF6008989B0 /* DividerAround.swift */,
 				DF180BD9299D8F3C008174A4 /* ItemView.swift */,
+				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -782,6 +791,9 @@
 				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 				DF9D516F298D19A8009AFE7F /* Shape.swift */,
 				DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */,
+				DF3A714E29AB66B200A7EC22 /* String.swift */,
+				DF3A715029AB702E00A7EC22 /* AttributedString.swift */,
+				DF3A715229AB705900A7EC22 /* UIFont.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -918,6 +930,7 @@
 				DF95C4C22995863A005D5290 /* ZoomableScrollView.swift in Sources */,
 				DFD3304B298C0AED004622B0 /* SearchScope.swift in Sources */,
 				DF42BFD2298C70F500039ACD /* +Chat.swift in Sources */,
+				DF3A714F29AB66B200A7EC22 /* String.swift in Sources */,
 				DFEB06C92959EE740099E2B2 /* speech.swift in Sources */,
 				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF9D516A298D1102009AFE7F /* ChatBottomArea+BottomSheet.swift in Sources */,
@@ -955,6 +968,7 @@
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DF9C817529993A89008989B0 /* ChatView+MessagesPlaceholder.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* RootView+LastOrDraft.swift in Sources */,
+				DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */,
 				DF42BFCE298C70D500039ACD /* +Message.swift in Sources */,
 				DFD9F891292FE54A00D1E03B /* Color+UserId.swift in Sources */,
 				DF42BFD0298C70E600039ACD /* +User.swift in Sources */,
@@ -963,6 +977,7 @@
 				DF236749294148290076B821 /* View+Center.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
 				DFD7D493294256B90006CF85 /* ChatViewModel+Publishers.swift in Sources */,
+				DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */,
 				DF5261D7294F4FAD00FB7C73 /* ChatBottomArea+RightSide.swift in Sources */,
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
 				DFA214B1297D9BEF00758617 /* Array+Uniqued.swift in Sources */,
@@ -1032,6 +1047,7 @@
 				DFEB06CD295A00C10099E2B2 /* speechResult.swift in Sources */,
 				DFCC2A432950EFA600281EF8 /* MessageView+Text.swift in Sources */,
 				1A21DAE2BADBE9A5D6ADB856 /* ChatView.swift in Sources */,
+				DF34C38929A2A43600EA2606 /* CustomTextField.swift in Sources */,
 				1A21DEB0AEA5264CCA4C99D4 /* ChatView+MessagesScroll.swift in Sources */,
 				1A21DC64C76CD45E513C8669 /* View+ReadSize.swift in Sources */,
 				DF2AE70B295118C800FF7850 /* ChatViewModel+Load.swift in Sources */,

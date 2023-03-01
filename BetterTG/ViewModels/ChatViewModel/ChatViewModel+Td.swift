@@ -50,7 +50,7 @@ extension ChatViewModel {
                                 disableWebPagePreview: true,
                                 text: FormattedText(
                                     entities: [],
-                                    text: editMessageText
+                                    text: editMessageText.string
                                 )
                             )
                         ),
@@ -89,7 +89,7 @@ extension ChatViewModel {
             _ = try await tdApi.editMessageCaption(
                 caption: FormattedText(
                     entities: [],
-                    text: editMessageText
+                    text: editMessageText.string
                 ),
                 chatId: customChat.chat.id,
                 messageId: editMessage.id,

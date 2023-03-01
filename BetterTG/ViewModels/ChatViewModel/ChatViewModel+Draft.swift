@@ -1,15 +1,15 @@
 // ChatViewModel+Draft.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 extension ChatViewModel {
     func setDraft(_ draftMessage: DraftMessage) async {
-        if !text.isEmpty || replyMessage != nil { return }
+        if !text.characters.isEmpty || replyMessage != nil { return }
         
         if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
             await MainActor.run {
-                text = inputMessageText.text.text
+                text = inputMessageText.text.text.attributedString
             }
         }
         
@@ -31,7 +31,7 @@ extension ChatViewModel {
                     disableWebPagePreview: true,
                     text: FormattedText(
                         entities: [],
-                        text: text
+                        text: text.string
                     )
                 )
             ),

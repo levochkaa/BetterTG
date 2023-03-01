@@ -7,9 +7,9 @@ extension ChatViewModel {
     func sendMessage() async {
         if !displayedImages.isEmpty {
             await sendMessagePhotos()
-        } else if !editMessageText.isEmpty {
+        } else if !editMessageText.characters.isEmpty {
             await editMessage()
-        } else if !text.isEmpty {
+        } else if !text.characters.isEmpty {
             await sendMessageText()
         } else {
             return
@@ -17,8 +17,8 @@ extension ChatViewModel {
         
         await MainActor.run {
             displayedImages.removeAll()
-            editMessageText.removeAll()
-            text.removeAll()
+            editMessageText = ""
+            text = ""
             replyMessage = nil
             editCustomMessage = nil
         }
@@ -54,7 +54,7 @@ extension ChatViewModel {
                         disableWebPagePreview: true,
                         text: FormattedText(
                             entities: [],
-                            text: text
+                            text: text.string
                         )
                     )
                 )
@@ -67,7 +67,7 @@ extension ChatViewModel {
                     .init(
                         caption: FormattedText(
                             entities: [],
-                            text: text
+                            text: text.string
                         ),
                         duration: duration,
                         voiceNote: .inputFileLocal(.init(path: savedVoiceNoteUrl.path())),
@@ -75,7 +75,7 @@ extension ChatViewModel {
                     )
                 )
         )
-        text.removeAll()
+        text = ""
     }
     
     func editMessage() async {
@@ -95,11 +95,11 @@ extension ChatViewModel {
         withAnimation {
             switch message?.content {
                 case .messageText(let messageText):
-                    editMessageText = messageText.text.text
+                    editMessageText = messageText.text.text.attributedString
                 case .messagePhoto(let messagePhoto):
-                    editMessageText = messagePhoto.caption.text
+                    editMessageText = messagePhoto.caption.text.attributedString
                 case .messageVoiceNote(let messageVoiceNote):
-                    editMessageText = messageVoiceNote.caption.text
+                    editMessageText = messageVoiceNote.caption.text.attributedString
                 default:
                     break
             }

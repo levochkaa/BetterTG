@@ -9,7 +9,9 @@ extension ChatViewModel {
         Publishers.CombineLatest3($editMessageText, $text, $displayedImages)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] editMessageText, text, displayedImages in
-                self?.showSendButton = !text.isEmpty || !editMessageText.isEmpty || !displayedImages.isEmpty
+                self?.showSendButton = !displayedImages.isEmpty
+                || !editMessageText.characters.isEmpty
+                || !text.characters.isEmpty
             }
             .store(in: &cancellables)
     }
