@@ -6,7 +6,6 @@ import TDLibKit
 struct ChatView: View {
     
     @StateObject var viewModel: ChatViewModel
-    @State var isPreview: Bool
     
     @FocusState var focused
     
@@ -15,13 +14,13 @@ struct ChatView: View {
     let scroll = "chatScroll"
     @State var scrollOnFocus = true
     
+    @Environment(\.isPreview) var isPreview
     @Environment(\.dismiss) var dismiss
     
     @EnvironmentObject var rootViewModel: RootViewModel
     
-    init(customChat: CustomChat, isPreview: Bool = false) {
+    init(customChat: CustomChat) {
         self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
-        self._isPreview = State(initialValue: isPreview)
     }
     
     var body: some View {

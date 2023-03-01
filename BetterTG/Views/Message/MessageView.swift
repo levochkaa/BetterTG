@@ -41,6 +41,7 @@ struct MessageView: View {
     let chevronId = "chevronId"
     let speechId = "speechId"
     
+    @Environment(\.isPreview) var isPreview
     @Environment(\.redactionReasons) var redactionReasons
     
     var body: some View {

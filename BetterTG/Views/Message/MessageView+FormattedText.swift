@@ -5,9 +5,18 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        if redactionReasons.isEmpty {
+        if isPreview {
+            Text(attributedString(for: formattedText))
+                .fixedSize(horizontal: false, vertical: true)
+                .readSize { textSize = $0 }
+        } else if !redactionReasons.isEmpty {
+            Text(formattedText.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .readSize { textSize = $0 }
+        } else {
             ZStack {
                 Text(attributedString(for: formattedText))
+                    .fixedSize(horizontal: false, vertical: true)
                     .readSize { textSize = $0 }
                     .hidden()
                 
@@ -40,10 +49,6 @@ extension MessageView {
                     .menuOnPress { menu }
                     .offset(y: 3)
             }
-        } else {
-            Text(formattedText.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .readSize { textSize = $0 }
         }
     }
     

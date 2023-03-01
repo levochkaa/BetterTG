@@ -17,14 +17,15 @@ extension RootView {
                     .if(!redacted) {
                         $0.matchedGeometryEffect(id: customChat.chat.id, in: namespace)
                     }
-                    .contextMenu {
-                        contextMenu(for: customChat, chatList: chatList)
-                    } preview: {
-                        NavigationStack {
-                            ChatView(customChat: customChat, isPreview: true)
-                                .environmentObject(viewModel)
-                        }
-                    }
+            }
+            .contextMenu {
+                contextMenu(for: customChat, chatList: chatList)
+            } preview: {
+                NavigationStack {
+                    ChatView(customChat: customChat)
+                        .environmentObject(viewModel)
+                        .environment(\.isPreview, true)
+                }
             }
             .disabled(redacted)
             .task {
