@@ -123,6 +123,6 @@ extension Notification.Name {
     static let chatMember = Self("chatMember")
     static let newChatJoinRequest = Self("newChatJoinRequest")
     
-    static let localIsListeningVoice = Self("customIsListeningVoice")
-    static let localRecognizeSpeech = Self("customRecognizeSpeech")
+    static let localIsListeningVoice = Self("localIsListeningVoice")
+    static let localRecognizeSpeech = Self("localRecognizeSpeech")
 }
