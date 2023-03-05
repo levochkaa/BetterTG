@@ -6,7 +6,7 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         if isPreview {
-            Text(attributedString(for: formattedText))
+            Text(formattedText.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
         } else if !redactionReasons.isEmpty {
