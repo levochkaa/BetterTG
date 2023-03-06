@@ -68,6 +68,24 @@ extension ChatViewModel {
             else { return }
             self.userStatus(userStatus.status)
         }
+        
+        nc.publisher(for: .chatLastMessage) { notification in
+            guard let chatLastMessage = notification.object as? UpdateChatLastMessage,
+                  chatLastMessage.chatId == customChat.chat.id
+            else { return }
+            self.chatLastMessage(chatLastMessage)
+        }
+    }
+    
+    func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
+        guard #available(iOS 16.2, *),
+              let content = chatLastMessage.lastMessage?.content,
+              let lastMessageText = getText(from: content)
+        else { return }
+        
+        Task {
+            await LiveActivityManager.updateActivity(with: lastMessageText, id: currentLiveActivityId)
+        }
     }
     
     func userStatus(_ status: UserStatus) {

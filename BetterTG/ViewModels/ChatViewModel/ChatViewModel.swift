@@ -10,6 +10,8 @@ final class ChatViewModel: ObservableObject {
 
     var customChat: CustomChat
     
+    var currentLiveActivityId: String = ""
+    
     @Published var onlineStatus = ""
     @Published var actionStatus = ""
     

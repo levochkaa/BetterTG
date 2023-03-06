@@ -48,6 +48,17 @@ struct ChatView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .environmentObject(viewModel)
+        .modify {
+            if #available(iOS 16.2, *) {
+                $0
+                    .task {
+                        await viewModel.loadLiveActivity()
+                    }
+                    .onDisappear {
+                        Task { await LiveActivityManager.endAllActivities() }
+                    }
+            }
+        }
     }
     
     func scrollToLastOnFocus() {

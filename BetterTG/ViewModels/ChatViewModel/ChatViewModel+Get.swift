@@ -148,4 +148,20 @@ extension ChatViewModel {
         
         return animojis
     }
+    
+    func getText(from content: MessageContent) -> String? {
+        switch content {
+            case .messageText(let messageText):
+                guard !messageText.text.text.isEmpty else { return nil }
+                return messageText.text.text
+            case .messagePhoto(let messagePhoto):
+                guard !messagePhoto.caption.text.isEmpty else { return nil }
+                return messagePhoto.caption.text
+            case .messageVoiceNote(let messageVoiceNote):
+                guard !messageVoiceNote.caption.text.isEmpty else { return nil }
+                return messageVoiceNote.caption.text
+            default:
+                return nil
+        }
+    }
 }

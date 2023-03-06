@@ -73,6 +73,20 @@
 		DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */; };
 		DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF55E2D1295B783F00A30C76 /* MobileVLCKit */; };
 		DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5D2CA82951D02500A1498B /* VoiceNote.swift */; };
+		DF63537129B68F180054F0A0 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF63537029B68F180054F0A0 /* WidgetKit.framework */; };
+		DF63537329B68F180054F0A0 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF63537229B68F180054F0A0 /* SwiftUI.framework */; };
+		DF63537629B68F180054F0A0 /* BetterWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63537529B68F180054F0A0 /* BetterWidgetBundle.swift */; };
+		DF63537829B68F180054F0A0 /* BetterWidgetLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63537729B68F180054F0A0 /* BetterWidgetLiveActivity.swift */; };
+		DF63537A29B68F180054F0A0 /* BetterWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63537929B68F180054F0A0 /* BetterWidget.swift */; };
+		DF63537D29B68F180054F0A0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF63537C29B68F180054F0A0 /* Assets.xcassets */; };
+		DF63537F29B68F180054F0A0 /* BetterWidget.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = DF63537B29B68F180054F0A0 /* BetterWidget.intentdefinition */; };
+		DF63538029B68F180054F0A0 /* BetterWidget.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = DF63537B29B68F180054F0A0 /* BetterWidget.intentdefinition */; };
+		DF63538329B68F180054F0A0 /* BetterWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DF63536F29B68F180054F0A0 /* BetterWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DF63538929B68F6B0054F0A0 /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63538829B68F6B0054F0A0 /* LiveActivityManager.swift */; };
+		DF63538A29B68F6E0054F0A0 /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63538829B68F6B0054F0A0 /* LiveActivityManager.swift */; };
+		DF63538C29B68FAE0054F0A0 /* MessageAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */; };
+		DF63538D29B6916B0054F0A0 /* MessageAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */; };
+		DF63538F29B693120054F0A0 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF763B062971BCA600334615 /* Task+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B052971BCA600334615 /* Task+Async.swift */; };
 		DF763B082971BE5B00334615 /* Task+Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task+Main.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
@@ -173,7 +187,28 @@
 		DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		DF63538129B68F180054F0A0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DF4B997628C3F3F50087C1B9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DF63536E29B68F180054F0A0;
+			remoteInfo = BetterWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
+		DF63538429B68F180054F0A0 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DF63538329B68F180054F0A0 /* BetterWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DFBB1D92290D6B8400CE7BB5 /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -264,6 +299,19 @@
 		DF540681296C7ED700492867 /* CustomChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomChat.swift; sourceTree = "<group>"; };
 		DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatBottomArea+VoiceNote.swift"; sourceTree = "<group>"; };
 		DF5D2CA82951D02500A1498B /* VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNote.swift; sourceTree = "<group>"; };
+		DF63536F29B68F180054F0A0 /* BetterWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BetterWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF63537029B68F180054F0A0 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		DF63537229B68F180054F0A0 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		DF63537529B68F180054F0A0 /* BetterWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterWidgetBundle.swift; sourceTree = "<group>"; };
+		DF63537729B68F180054F0A0 /* BetterWidgetLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterWidgetLiveActivity.swift; sourceTree = "<group>"; };
+		DF63537929B68F180054F0A0 /* BetterWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterWidget.swift; sourceTree = "<group>"; };
+		DF63537B29B68F180054F0A0 /* BetterWidget.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = BetterWidget.intentdefinition; sourceTree = "<group>"; };
+		DF63537C29B68F180054F0A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DF63537E29B68F180054F0A0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DF63538829B68F6B0054F0A0 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
+		DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAttributes.swift; sourceTree = "<group>"; };
+		DF63539029B69A8A0054F0A0 /* BetterTG.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BetterTG.entitlements; sourceTree = "<group>"; };
+		DF63539129B6A2A60054F0A0 /* BetterWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BetterWidgetExtension.entitlements; sourceTree = "<group>"; };
 		DF763B052971BCA600334615 /* Task+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Async.swift"; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task+Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Main.swift"; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
@@ -377,6 +425,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DF63536C29B68F180054F0A0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DF63537329B68F180054F0A0 /* SwiftUI.framework in Frameworks */,
+				DF63537129B68F180054F0A0 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -424,6 +481,7 @@
 				DFD3304A298C0AED004622B0 /* SearchScope.swift */,
 				DF9D516B298D1340009AFE7F /* ImageAsset.swift */,
 				DF180BD7299D8C0F008174A4 /* OpenedItem.swift */,
+				DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -487,7 +545,9 @@
 		DF4B997528C3F3F50087C1B9 = {
 			isa = PBXGroup;
 			children = (
+				DF63539129B6A2A60054F0A0 /* BetterWidgetExtension.entitlements */,
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
+				DF63537429B68F180054F0A0 /* BetterWidget */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
 				DF4B999228C3F51C0087C1B9 /* Frameworks */,
 			);
@@ -497,6 +557,7 @@
 			isa = PBXGroup;
 			children = (
 				DF4B997E28C3F3F50087C1B9 /* BetterTG.app */,
+				DF63536F29B68F180054F0A0 /* BetterWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -514,6 +575,7 @@
 				DF4B998528C3F3F60087C1B9 /* Assets.xcassets */,
 				DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */,
 				DF4B999728C3F6950087C1B9 /* Info.plist */,
+				DF63539029B69A8A0054F0A0 /* BetterTG.entitlements */,
 				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
 			);
 			path = BetterTG;
@@ -526,6 +588,8 @@
 				DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */,
 				DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */,
 				DF4B999328C3F51C0087C1B9 /* libz.1.tbd */,
+				DF63537029B68F180054F0A0 /* WidgetKit.framework */,
+				DF63537229B68F180054F0A0 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -561,6 +625,19 @@
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 			);
 			path = Common;
+			sourceTree = "<group>";
+		};
+		DF63537429B68F180054F0A0 /* BetterWidget */ = {
+			isa = PBXGroup;
+			children = (
+				DF63537529B68F180054F0A0 /* BetterWidgetBundle.swift */,
+				DF63537729B68F180054F0A0 /* BetterWidgetLiveActivity.swift */,
+				DF63537929B68F180054F0A0 /* BetterWidget.swift */,
+				DF63537B29B68F180054F0A0 /* BetterWidget.intentdefinition */,
+				DF63537C29B68F180054F0A0 /* Assets.xcassets */,
+				DF63537E29B68F180054F0A0 /* Info.plist */,
+			);
+			path = BetterWidget;
 			sourceTree = "<group>";
 		};
 		DF763B042971BC9400334615 /* Task */ = {
@@ -625,6 +702,7 @@
 				DF3A159328D838C500789C32 /* Generated */,
 				DFBFB86828CE48290076895C /* Utils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
+				DF63538829B68F6B0054F0A0 /* LiveActivityManager.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -822,10 +900,12 @@
 				DF820B6328D770FD007DD293 /* Run Swiftlint */,
 				DFBB1D92290D6B8400CE7BB5 /* Embed Watch Content */,
 				DFE2618629196FB300267815 /* Embed Frameworks */,
+				DF63538429B68F180054F0A0 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				DF63538229B68F180054F0A0 /* PBXTargetDependency */,
 			);
 			name = BetterTG;
 			packageProductDependencies = (
@@ -841,6 +921,23 @@
 			productReference = DF4B997E28C3F3F50087C1B9 /* BetterTG.app */;
 			productType = "com.apple.product-type.application";
 		};
+		DF63536E29B68F180054F0A0 /* BetterWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DF63538729B68F180054F0A0 /* Build configuration list for PBXNativeTarget "BetterWidgetExtension" */;
+			buildPhases = (
+				DF63536B29B68F180054F0A0 /* Sources */,
+				DF63536C29B68F180054F0A0 /* Frameworks */,
+				DF63536D29B68F180054F0A0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BetterWidgetExtension;
+			productName = BetterWidgetExtension;
+			productReference = DF63536F29B68F180054F0A0 /* BetterWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -848,11 +945,14 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1410;
+				LastSwiftUpdateCheck = 1430;
 				LastUpgradeCheck = 1400;
 				TargetAttributes = {
 					DF4B997D28C3F3F50087C1B9 = {
 						CreatedOnToolsVersion = 14.0;
+					};
+					DF63536E29B68F180054F0A0 = {
+						CreatedOnToolsVersion = 14.3;
 					};
 				};
 			};
@@ -879,6 +979,7 @@
 			projectRoot = "";
 			targets = (
 				DF4B997D28C3F3F50087C1B9 /* BetterTG */,
+				DF63536E29B68F180054F0A0 /* BetterWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -891,6 +992,14 @@
 				DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */,
 				DF4B998928C3F3F60087C1B9 /* Preview Assets.xcassets in Resources */,
 				DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DF63536D29B68F180054F0A0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DF63537D29B68F180054F0A0 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -976,6 +1085,7 @@
 				DF9AC6CF29A2884300D6EC76 /* ChatView+ScrollToBottomButton.swift in Sources */,
 				DF96BAE2298BE120003936AC /* View+Equatable.swift in Sources */,
 				DF42BFD4298C710300039ACD /* +ChatPermission.swift in Sources */,
+				DF63538029B68F180054F0A0 /* BetterWidget.intentdefinition in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DF9C817529993A89008989B0 /* ChatView+MessagesPlaceholder.swift in Sources */,
@@ -994,6 +1104,7 @@
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
 				DFA214B1297D9BEF00758617 /* Array+Uniqued.swift in Sources */,
 				DFA7EDD629983BF600090591 /* +MessageContent.swift in Sources */,
+				DF63538C29B68FAE0054F0A0 /* MessageAttributes.swift in Sources */,
 				DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */,
 				DF3BC41A2974142F002F207B /* MessageView+Date.swift in Sources */,
@@ -1038,6 +1149,7 @@
 				DF5261DB294F50A000FB7C73 /* ChatBottomArea+TextField.swift in Sources */,
 				DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */,
 				DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */,
+				DF63538929B68F6B0054F0A0 /* LiveActivityManager.swift in Sources */,
 				DF9C816F2998DECE008989B0 /* RootView+BodyPlaceholder.swift in Sources */,
 				DFE026602951142D004C8C83 /* ReplyMessageView+Content.swift in Sources */,
 				DF99C02C2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift in Sources */,
@@ -1076,7 +1188,29 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DF63536B29B68F180054F0A0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DF63538D29B6916B0054F0A0 /* MessageAttributes.swift in Sources */,
+				DF63537F29B68F180054F0A0 /* BetterWidget.intentdefinition in Sources */,
+				DF63537829B68F180054F0A0 /* BetterWidgetLiveActivity.swift in Sources */,
+				DF63537A29B68F180054F0A0 /* BetterWidget.swift in Sources */,
+				DF63538F29B693120054F0A0 /* Logger.swift in Sources */,
+				DF63538A29B68F6E0054F0A0 /* LiveActivityManager.swift in Sources */,
+				DF63537629B68F180054F0A0 /* BetterWidgetBundle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DF63538229B68F180054F0A0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DF63536E29B68F180054F0A0 /* BetterWidgetExtension */;
+			targetProxy = DF63538129B68F180054F0A0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		DF4B998A28C3F3F60087C1B9 /* Debug */ = {
@@ -1200,8 +1334,10 @@
 		DF4B998D28C3F3F60087C1B9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BetterTG/BetterTG.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1239,8 +1375,10 @@
 		DF4B998E28C3F3F60087C1B9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BetterTG/BetterTG.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1275,6 +1413,66 @@
 			};
 			name = Release;
 		};
+		DF63538529B68F180054F0A0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = BetterWidgetExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BetterWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BetterWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.levochkaaa.BetterTG.BetterWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DF63538629B68F180054F0A0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = BetterWidgetExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7Z2WHPKU8W;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BetterWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BetterWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.levochkaaa.BetterTG.BetterWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1292,6 +1490,15 @@
 			buildConfigurations = (
 				DF4B998D28C3F3F60087C1B9 /* Debug */,
 				DF4B998E28C3F3F60087C1B9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DF63538729B68F180054F0A0 /* Build configuration list for PBXNativeTarget "BetterWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DF63538529B68F180054F0A0 /* Debug */,
+				DF63538629B68F180054F0A0 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
