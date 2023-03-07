@@ -76,7 +76,7 @@ extension ChatViewModel {
     func loadLiveActivity() async {
         guard let content = customChat.chat.lastMessage?.content,
               let lastMessageText = getText(from: content),
-              let photoId = customChat.chat.photo?.small.id,
+              let photoId = customChat.chat.photo?.small.id ?? customChat.user.profilePhoto?.small.id,
               let file = await tdDownloadFile(id: photoId, synchronous: true, priority: 32),
               let url = URL(string: file.local.path),
               let destinationUrl = FileManager.default.containerURL(
@@ -85,10 +85,7 @@ extension ChatViewModel {
         else { return }
         
         let destinationPath = destinationUrl.appending(path: url.lastPathComponent).path()
-        if !FileManager.default.fileExists(atPath: file.local.path) {
-            try? FileManager.default.moveItem(atPath: file.local.path, toPath: destinationPath)
-        }
-        log("destination: \(destinationPath)", file.local.path)
+        try? FileManager.default.moveItem(atPath: file.local.path, toPath: destinationPath)
         
         currentLiveActivityId = LiveActivityManager.startActivity(
             messageAttributes: .init(name: customChat.chat.title, avatarId: url.lastPathComponent),

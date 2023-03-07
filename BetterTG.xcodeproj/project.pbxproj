@@ -545,7 +545,6 @@
 		DF4B997528C3F3F50087C1B9 = {
 			isa = PBXGroup;
 			children = (
-				DF63539129B6A2A60054F0A0 /* BetterWidgetExtension.entitlements */,
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
 				DF63537429B68F180054F0A0 /* BetterWidget */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
@@ -636,6 +635,7 @@
 				DF63537B29B68F180054F0A0 /* BetterWidget.intentdefinition */,
 				DF63537C29B68F180054F0A0 /* Assets.xcassets */,
 				DF63537E29B68F180054F0A0 /* Info.plist */,
+				DF63539129B6A2A60054F0A0 /* BetterWidgetExtension.entitlements */,
 			);
 			path = BetterWidget;
 			sourceTree = "<group>";
@@ -1418,7 +1418,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
-				CODE_SIGN_ENTITLEMENTS = BetterWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = BetterWidget/BetterWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1439,7 +1439,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -1448,7 +1448,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
-				CODE_SIGN_ENTITLEMENTS = BetterWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = BetterWidget/BetterWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1469,7 +1469,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
