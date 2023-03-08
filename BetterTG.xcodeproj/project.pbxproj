@@ -87,6 +87,8 @@
 		DF63538C29B68FAE0054F0A0 /* MessageAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */; };
 		DF63538D29B6916B0054F0A0 /* MessageAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */; };
 		DF63538F29B693120054F0A0 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
+		DF68DAFD29B9286F0010ADE9 /* CustomMessageReaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DAFC29B9286F0010ADE9 /* CustomMessageReaction.swift */; };
+		DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */; };
 		DF763B062971BCA600334615 /* Task+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B052971BCA600334615 /* Task+Async.swift */; };
 		DF763B082971BE5B00334615 /* Task+Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task+Main.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
@@ -312,6 +314,8 @@
 		DF63538B29B68FAE0054F0A0 /* MessageAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAttributes.swift; sourceTree = "<group>"; };
 		DF63539029B69A8A0054F0A0 /* BetterTG.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BetterTG.entitlements; sourceTree = "<group>"; };
 		DF63539129B6A2A60054F0A0 /* BetterWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BetterWidgetExtension.entitlements; sourceTree = "<group>"; };
+		DF68DAFC29B9286F0010ADE9 /* CustomMessageReaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMessageReaction.swift; sourceTree = "<group>"; };
+		DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomLayout.swift; sourceTree = "<group>"; };
 		DF763B052971BCA600334615 /* Task+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Async.swift"; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task+Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Main.swift"; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
@@ -471,13 +475,12 @@
 			isa = PBXGroup;
 			children = (
 				DF42BFCA298C70B100039ACD /* Moc */,
+				DF68DAFE29B928A70010ADE9 /* Custom */,
 				DF51DA36290D96A400AB9E60 /* LoginState.swift */,
 				DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */,
-				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
 				DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */,
 				DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */,
 				DF8ACA1C295F67D30007D5FF /* Animoji.swift */,
-				DF540681296C7ED700492867 /* CustomChat.swift */,
 				DFD3304A298C0AED004622B0 /* SearchScope.swift */,
 				DF9D516B298D1340009AFE7F /* ImageAsset.swift */,
 				DF180BD7299D8C0F008174A4 /* OpenedItem.swift */,
@@ -611,8 +614,8 @@
 		DF55E2D3295B92F700A30C76 /* Common */ = {
 			isa = PBXGroup;
 			children = (
+				DF68DAFF29B92AD80010ADE9 /* Layouts */,
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
-				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
 				DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */,
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */,
@@ -638,6 +641,25 @@
 				DF63539129B6A2A60054F0A0 /* BetterWidgetExtension.entitlements */,
 			);
 			path = BetterWidget;
+			sourceTree = "<group>";
+		};
+		DF68DAFE29B928A70010ADE9 /* Custom */ = {
+			isa = PBXGroup;
+			children = (
+				DF540681296C7ED700492867 /* CustomChat.swift */,
+				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
+				DF68DAFC29B9286F0010ADE9 /* CustomMessageReaction.swift */,
+			);
+			path = Custom;
+			sourceTree = "<group>";
+		};
+		DF68DAFF29B92AD80010ADE9 /* Layouts */ = {
+			isa = PBXGroup;
+			children = (
+				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
+				DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */,
+			);
+			path = Layouts;
 			sourceTree = "<group>";
 		};
 		DF763B042971BC9400334615 /* Task */ = {
@@ -1033,6 +1055,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DF0F9D4E28CCACE500BCA763 /* RootViewModel.swift in Sources */,
+				DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */,
 				DFCC2A452950F02C00281EF8 /* MessageView+Menu.swift in Sources */,
 				DF1717C92971F77F0085E698 /* Sequence+ForEach.swift in Sources */,
 				DF3A159528D838C500789C32 /* Secret.swift in Sources */,
@@ -1169,6 +1192,7 @@
 				DF2367472940F9810076B821 /* Task+Delayed.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* View+If.swift in Sources */,
 				DFEB06CD295A00C10099E2B2 /* speechResult.swift in Sources */,
+				DF68DAFD29B9286F0010ADE9 /* CustomMessageReaction.swift in Sources */,
 				DFCC2A432950EFA600281EF8 /* MessageView+Text.swift in Sources */,
 				1A21DAE2BADBE9A5D6ADB856 /* ChatView.swift in Sources */,
 				DF34C38929A2A43600EA2606 /* CustomTextField.swift in Sources */,

@@ -86,6 +86,7 @@ extension ChatViewModel {
         var customMessage = CustomMessage(message: message, replyToMessage: replyToMessage)
         if message.mediaAlbumId != 0 { customMessage.album.append(message) }
         customMessage.forwardedFrom = await getForwardedFrom(message.forwardInfo?.origin)
+        customMessage.reactions = await getCustomReactions(message.interactionInfo?.reactions)
         
         if case .messageSenderUser(let messageSenderUser) = message.senderId {
             customMessage.senderUser = await tdGetUser(id: messageSenderUser.userId)
@@ -96,6 +97,24 @@ extension ChatViewModel {
         }
         
         return customMessage
+    }
+    
+    func getCustomReactions(_ reactions: [MessageReaction]?) async -> [CustomMessageReaction]? {
+        guard let reactions else { return nil }
+        
+        var customReactions = [CustomMessageReaction]()
+        for reaction in reactions {
+            if case .reactionTypeEmoji(let reactionTypeEmoji) = reaction.type {
+                let customReaction = CustomMessageReaction(
+                    isChosen: reaction.isChosen,
+                    totalCount: reaction.totalCount,
+                    emoji: reactionTypeEmoji.emoji
+                )
+                customReactions.append(customReaction)
+            }
+        }
+        
+        return customReactions.isEmpty ? nil : customReactions
     }
     
     func getForwardedFrom(_ origin: MessageForwardOrigin?) async -> String? {
