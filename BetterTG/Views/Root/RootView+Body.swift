@@ -90,6 +90,10 @@ extension RootView {
                 }
             }
         }
+        .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            guard #available(iOS 16.2, *) else { return }
+            LiveActivityManager.endAllActivities()
+        }
         .overlay {
             if let openedItem = viewModel.openedItem {
                 ItemView(item: openedItem)

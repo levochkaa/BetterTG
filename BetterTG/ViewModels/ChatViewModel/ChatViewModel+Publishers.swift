@@ -83,9 +83,7 @@ extension ChatViewModel {
               let lastMessageText = getText(from: content)
         else { return }
         
-        Task {
-            await LiveActivityManager.updateActivity(with: lastMessageText, id: currentLiveActivityId)
-        }
+        LiveActivityManager.updateActivity(with: lastMessageText, id: currentLiveActivityId)
     }
     
     func userStatus(_ status: UserStatus) {

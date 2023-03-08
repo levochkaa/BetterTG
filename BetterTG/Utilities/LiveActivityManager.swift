@@ -35,23 +35,23 @@ class LiveActivityManager {
         }
     }
     
-    static func updateActivity(with lastMessageText: String, id: String) async {
+    static func updateActivity(with lastMessageText: String, id: String) {
         let updatedContentState = MessageAttributes.ContentState(lastMessageText: lastMessageText)
         let activity = Activity<MessageAttributes>.activities.first(where: { $0.id == id })
         let updatedActivityContent = ActivityContent(state: updatedContentState, staleDate: nil)
-        await activity?.update(updatedActivityContent)
+        Task { await activity?.update(updatedActivityContent) }
     }
     
-    static func endAllActivities() async {
+    static func endAllActivities() {
         log("Ended all activities")
         for activity in Activity<MessageAttributes>.activities {
-            await activity.end(nil, dismissalPolicy: .immediate)
+            Task { await activity.end(nil, dismissalPolicy: .immediate) }
         }
     }
     
-    static func endActivity(_ id: String) async {
+    static func endActivity(_ id: String) {
         log("Ended activity: \(id)")
         let activity = Activity<MessageAttributes>.activities.first(where: { $0.id == id })
-        await activity?.end(nil, dismissalPolicy: .immediate)
+        Task { await activity?.end(nil, dismissalPolicy: .immediate) }
     }
 }

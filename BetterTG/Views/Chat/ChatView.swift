@@ -55,7 +55,10 @@ struct ChatView: View {
                         await viewModel.loadLiveActivity()
                     }
                     .onDisappear {
-                        Task { await LiveActivityManager.endAllActivities() }
+                        LiveActivityManager.endAllActivities()
+                    }
+                    .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                        Task { await viewModel.loadLiveActivity() }
                     }
             }
         }

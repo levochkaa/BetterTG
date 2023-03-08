@@ -34,6 +34,8 @@ struct MessageView: View {
     @State var textSize: CGSize = .zero
     @State var draggableTextSize: CGSize = .zero
     
+    @State var showContextMenu = false
+    
     let recognizedTextId = "recognizedTextId"
     let playId = "playId"
     let currentTimeId = "currentTimeId"
@@ -105,6 +107,12 @@ struct MessageView: View {
                     .cornerRadius(corners(for: .edit))
                     .readSize { editWidth = Int($0.width) }
             }
+        }
+        .onLongPressGesture {
+            showContextMenu = true
+        }
+        .confirmationDialog(text, isPresented: $showContextMenu) {
+            menu
         }
         .onAppear {
             isOutgoing = customMessage.message.isOutgoing

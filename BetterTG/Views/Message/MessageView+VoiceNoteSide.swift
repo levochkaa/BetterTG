@@ -33,6 +33,6 @@ extension MessageView {
             .padding(3)
             .background(.gray6)
             .cornerRadius(15)
-            .menuOnPress { menu }
+//            .menuOnPress { menu }
     }
 }

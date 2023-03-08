@@ -46,7 +46,7 @@ extension MessageView {
             }
             .overlay(alignment: .bottomTrailing) {
                 messageDate
-                    .menuOnPress { menu }
+//                    .menuOnPress { menu }
                     .offset(y: 3)
             }
         }
@@ -84,7 +84,7 @@ extension MessageView {
 //                }
                 .overlay(alignment: .bottomTrailing) {
                     messageDate
-                        .menuOnPress { menu }
+//                        .menuOnPress { menu }
                         .offset(y: 3)
                 }
         } else {
