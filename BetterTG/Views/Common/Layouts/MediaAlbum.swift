@@ -4,7 +4,7 @@
 
 import SwiftUI
 
-// swiftlint:disable line_length
+// swiftlint:disable line_length type_body_length file_length cyclomatic_complexity function_body_length
 
 /// This layout works (at least it should) and functions the same as in the
 /// Telegram iOS client, just because the layout logic was sto- i mean
@@ -13,7 +13,6 @@ import SwiftUI
 /// Source:
 /// https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/MosaicLayout/Sources/ChatMessageBubbleMosaicLayout.swift
 @available(iOS 16, *)
-// swiftlint:disable type_body_length file_length
 struct MediaAlbum: Layout {
     typealias AlbumLayout = ([(CGRect, ItemPosition)], CGSize)
     
@@ -52,7 +51,6 @@ struct MediaAlbum: Layout {
     
     // Please don't kill me for this code, I just got it from TG iOS, it's
     // not documented at all
-    // swiftlint:disable cyclomatic_complexity function_body_length
     private func generateLayout(proposal: ProposedViewSize, subviews: Subviews) -> AlbumLayout {
         // Arguments from the original function so I
         // don't waste time refactoring that steaming
@@ -445,3 +443,5 @@ extension MediaAlbum {
         let heights: [CGFloat]
     }
 }
+
+// swiftlint:enable line_length type_body_length file_length cyclomatic_complexity function_body_length

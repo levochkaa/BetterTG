@@ -281,6 +281,7 @@ extension TdApi {
                 break
         }
     }
+    // swiftlint:enable function_body_length
     
     func updateAuthorizationState(_ authorizationState: AuthorizationState) {
         switch authorizationState {

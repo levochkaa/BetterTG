@@ -62,3 +62,4 @@ struct CustomLayout: Layout {
         }
     }
 }
+// swiftlint:enable identifier_name

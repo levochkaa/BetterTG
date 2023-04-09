@@ -95,5 +95,5 @@ extension MessageView {
         }
         return corners
     }
-
+    // swiftlint:enable function_body_length
 }

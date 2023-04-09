@@ -154,6 +154,7 @@ extension MessageView {
         
         return result
     }
+    // swiftlint:enable function_body_length
     
     func getUrl(from string: String) -> URL? {
         URL(string: string.contains("://") ? string : "https://\(string)")

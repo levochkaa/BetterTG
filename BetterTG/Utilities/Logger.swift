@@ -27,3 +27,5 @@ func log(_ messages: Any..., file: String = #fileID, function: String = #functio
     logger.log("[\(date)] [\(fileName)] [\(function)] [\(line)]\n\(output)")
     #endif
 }
+
+// swiftlint:enable force_cast line_length

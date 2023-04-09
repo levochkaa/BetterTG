@@ -168,9 +168,9 @@ extension ChatViewModel {
         }
     }
     
-    // swiftlint:disable compiler_protocol_init
     /// seeking to `(timeSliderValue * 1000)`
     func mediaSeekTo() {
+        // swiftlint:disable:next compiler_protocol_init
         let number = NSNumber(floatLiteral: timeSliderValue * 1000)
         let time = VLCTime(number: number)
         mediaPlayer.time = time
