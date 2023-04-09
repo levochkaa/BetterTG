@@ -108,6 +108,7 @@ struct MessageView: View {
                     .readSize { editWidth = Int($0.width) }
             }
         }
+        .onTapGesture {}
         .onLongPressGesture {
             showContextMenu = true
         }
