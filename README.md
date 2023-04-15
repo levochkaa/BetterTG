@@ -14,36 +14,56 @@
 # Currently implemented
 
 - login
-- all chats with people from main folder
-- sending/reading text/photo messages
-- replying to messages
-- chat draft
-- editing messages
+- all chats with people from main folder/archive
+- sending/reading text/photo/voice/album messages
+- replying to/editing messages
+- draft, forwarded from
+- animojis (tgs, webp, sometimes webm)
+- pinned chats
+- searching your/global chats
+- custom settings sheet
 - unique UI
+- last seen online
+- formatting/formatted messages
+- live activity with opened chat
+
+# Road Map
+
+[GitHub Project](https://github.com/users/levochkaa/projects/1/views/1)
 
 # Installation
 
 Download an .ipa file from [releases tab](https://github.com/levochkaa/BetterTG/releases/latest) and install through [Sideloadly](https://altstore.io)
 or [AltStore (suggested)](https://altstore.io).
 
+**Soon, I will buy Paid Apple Developer account, I promise.**
+
 # Screenshots
 
-<span>
-    <img src=".github/images/screenshots/listOfChats.PNG" alt="screenshots/listOfChats" width="200px">
-</span>
-<span>
-    <img src=".github/images/screenshots/messagesList.PNG" alt="screenshots/messagesList" width="200px">
-</span>
-<span>
-    <img src=".github/images/screenshots/replying.PNG" alt="screenshots/replying" width="200px">
-</span>
-<span>
-    <img src=".github/images/screenshots/editing.PNG" alt="screenshots/editing" width="200px">
-</span>
+<span><img src=".github/images/screenshots/1.PNG" alt="screenshots/1" width="200px"></span>
+<span><img src=".github/images/screenshots/2.PNG" alt="screenshots/2" width="200px"></span>
+<span><img src=".github/images/screenshots/3.PNG" alt="screenshots/3" width="200px"></span>
+<span><img src=".github/images/screenshots/4.PNG" alt="screenshots/4" width="200px"></span>
+<span><img src=".github/images/screenshots/5.PNG" alt="screenshots/5" width="200px"></span>
+<span><img src=".github/images/screenshots/6.PNG" alt="screenshots/6" width="200px"></span>
+<span><img src=".github/images/screenshots/7.PNG" alt="screenshots/7" width="200px"></span>
+<span><img src=".github/images/screenshots/8.PNG" alt="screenshots/8" width="200px"></span>
+<span><img src=".github/images/screenshots/9.PNG" alt="screenshots/9" width="200px"></span>
+<span><img src=".github/images/screenshots/10.PNG" alt="screenshots/10" width="200px"></span>
+<span><img src=".github/images/screenshots/11.PNG" alt="screenshots/11" width="200px"></span>
+<span><img src=".github/images/screenshots/12.PNG" alt="screenshots/12" width="200px"></span>
+<span><img src=".github/images/screenshots/13.PNG" alt="screenshots/13" width="200px"></span>
+<span><img src=".github/images/screenshots/14.PNG" alt="screenshots/14" width="200px"></span>
+<span><img src=".github/images/screenshots/15.PNG" alt="screenshots/15" width="200px"></span>
+<span><img src=".github/images/screenshots/16.PNG" alt="screenshots/16" width="200px"></span>
+<span><img src=".github/images/screenshots/17.PNG" alt="screenshots/17" width="200px"></span>
+<span><img src=".github/images/screenshots/18.PNG" alt="screenshots/18" width="200px"></span>
 
 # Contributing
 
 You can contribute **any** change you want to!
+
+**But, if you are intreseted in the project Road Map, check this [GitHub Project](https://github.com/users/levochkaa/projects/1/views/1)**
 
 ## Step 1 - Clone the repo
 
