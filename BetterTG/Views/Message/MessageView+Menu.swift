@@ -59,7 +59,7 @@ extension MessageView {
             }
         }
         
-        if !customMessage.message.canBeDeletedOnlyForSelf { // , customMessage.message.canBeDeletedForAllUsers {
+        if customMessage.message.canBeDeletedForAllUsers { // , !customMessage.message.canBeDeletedOnlyForSelf {
             Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
                 Task {
                     await viewModel.deleteMessage(

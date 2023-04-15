@@ -53,6 +53,8 @@ private struct UITextViewWrapper: UIViewRepresentable {
     @Binding var text: AttributedString
     @Binding var calculatedHeight: CGFloat
     
+    var becomeFirstResponer: Bool
+    
     let textView = CustomUITextView()
     
     let attributes: [NSAttributedString.Key: Any] = [
@@ -62,10 +64,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
     
     func makeUIView(context: Context) -> UIViewType {
         textView.delegate = context.coordinator
-        textView.attributedText = NSMutableAttributedString(
-            string: text.string,
-            attributes: attributes
-        )
+        textView.attributedText = NSMutableAttributedString(string: text.string, attributes: attributes)
         textView.font = .body
         textView.isEditable = true
         textView.isSelectable = true
@@ -75,6 +74,10 @@ private struct UITextViewWrapper: UIViewRepresentable {
         textView.typingAttributes = attributes
         
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        
+        if becomeFirstResponer {
+            textView.becomeFirstResponder()
+        }
         
         return textView
     }
@@ -129,18 +132,20 @@ struct CustomTextField: View {
     
     private var placeholder: String
     @Binding private var text: AttributedString
+    private var focus: Bool
     
     @State private var dynamicHeight: CGFloat = 38
     @State private var showingPlaceholder = true
     
-    init(_ placeholder: String = "", text: Binding<AttributedString>) {
+    init(_ placeholder: String = "", text: Binding<AttributedString>, focus: Bool = false) {
+        self.focus = focus
         self.placeholder = placeholder
         self._text = text
         self._showingPlaceholder = State(initialValue: self.text.characters.isEmpty)
     }
     
     var body: some View {
-        UITextViewWrapper(text: $text, calculatedHeight: $dynamicHeight)
+        UITextViewWrapper(text: $text, calculatedHeight: $dynamicHeight, becomeFirstResponer: focus)
             .frame(height: dynamicHeight)
             .onChange(of: text) { newText in
                 showingPlaceholder = newText.characters.isEmpty

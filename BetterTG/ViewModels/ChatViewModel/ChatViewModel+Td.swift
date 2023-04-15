@@ -174,7 +174,7 @@ extension ChatViewModel {
                 messageThreadId: 0
             )
         } catch {
-            log("Error viewing messages: \(error)")
+//            log("Error viewing messages: \(error)")
         }
     }
     

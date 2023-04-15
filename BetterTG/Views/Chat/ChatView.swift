@@ -25,14 +25,18 @@ struct ChatView: View {
     
     var body: some View {
         Group {
-            if viewModel.initLoadingMessages, viewModel.messages.isEmpty {
-                messagesPlaceholder
-            } else if !viewModel.initLoadingMessages, viewModel.messages.isEmpty {
-                Text("No messages")
-                    .center(.vertically)
-                    .fullScreenBackground(color: .black)
-            } else {
+            if isPreview {
                 bodyView
+            } else {
+                if viewModel.initLoadingMessages {
+                    messagesPlaceholder
+                } else if !viewModel.initLoadingMessages, viewModel.messages.isEmpty {
+                    Text("No messages")
+                        .center(.vertically)
+                        .fullScreenBackground(color: .black)
+                } else {
+                    bodyView
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {

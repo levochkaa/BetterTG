@@ -4,10 +4,13 @@ import SwiftUI
 
 extension ChatBottomArea {
     @ViewBuilder var textField: some View {
-        CustomTextField(
-            "Message...",
-            text: viewModel.editCustomMessage == nil ? $viewModel.text : $viewModel.editMessageText
-        )
+        Group {
+            if viewModel.editCustomMessage == nil {
+                CustomTextField("Message...", text: $viewModel.text)
+            } else {
+                CustomTextField("Edit...", text: $viewModel.editMessageText, focus: true)
+            }
+        }
         .unredacted()
         .disabled(!redactionReasons.isEmpty)
         .focused(focused)

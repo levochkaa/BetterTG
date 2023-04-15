@@ -24,6 +24,7 @@ extension RootView {
                 NavigationStack {
                     ChatView(customChat: customChat)
                         .environmentObject(viewModel)
+                        .environmentObject(settings)
                         .environment(\.isPreview, true)
                 }
             }

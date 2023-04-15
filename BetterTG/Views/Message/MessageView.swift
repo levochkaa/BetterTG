@@ -9,9 +9,7 @@ struct MessageView: View {
     
     @EnvironmentObject var viewModel: ChatViewModel
     @EnvironmentObject var rootViewModel: RootViewModel
-    
-    // not using @EnvironmentObject, because of EXC_BAD_ACCESS on contextMenu in RootView (chatListItem)
-    @StateObject var settings = SettingsViewModel()
+    @EnvironmentObject var settings: SettingsViewModel
     
     @Namespace var namespace
     
@@ -23,7 +21,6 @@ struct MessageView: View {
     @State var canBeRead = true
     @State var isOutgoing = true
     @State var text = ""
-    @State var attributedStringWithoutDate = AttributedString()
     
     @State var forwardedWidth: Int = 0
     @State var replyWidth: Int = 0

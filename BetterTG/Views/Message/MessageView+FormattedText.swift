@@ -5,11 +5,7 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        if isPreview {
-            Text(formattedText.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .readSize { textSize = $0 }
-        } else if !redactionReasons.isEmpty {
+        if !redactionReasons.isEmpty {
             Text(formattedText.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
@@ -25,12 +21,9 @@ extension MessageView {
     
     /// SwiftUI is fucked.
     private func getTextViewSize(for text: String) -> CGSize {
-        let textStorage = NSTextStorage(
-            attributedString: NSAttributedString(
-                string: text + " 00:00",
-                attributes: [NSAttributedString.Key.font: UIFont.body as Any]
-            )
-        )
+        let attributedString = NSMutableAttributedString(string: text, attributes: [.font: UIFont.body as Any])
+        attributedString.append(NSAttributedString(string: " 00:00", attributes: [.font: UIFont.caption as Any]))
+        let textStorage = NSTextStorage(attributedString: attributedString)
         let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
         let boundingRect = CGRect(origin: .zero, size: size)
         let textContainer = NSTextContainer(size: size)
