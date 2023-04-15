@@ -14,41 +14,36 @@ extension MessageView {
                 .fixedSize(horizontal: false, vertical: true)
                 .readSize { textSize = $0 }
         } else {
-            ZStack {
-                Text(attributedString(for: formattedText))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .readSize { textSize = $0 }
-                    .hidden()
-                
-                if textSize != .zero {
-                    TextView(
-                        formattedText: formattedText,
-                        textSize: textSize
-                    )
-                    .frame(width: textSize.width, height: textSize.height, alignment: .topLeading)
-                    .equatable(by: textSize)
-                    .draggable(formattedText.text) {
-                        Text(attributedStringWithoutDate)
-                            .frame(size: draggableTextSize)
-                            .multilineTextAlignment(.leading)
-                            .padding(8)
-                            .foregroundColor(.white)
-                            .background(.gray6)
-                            .cornerRadius([.bottomLeft, .bottomRight, .topLeft, .topRight])
-                    }
-                    .overlay {
-                        Text(attributedStringWithoutDate)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .readSize { draggableTextSize = $0 }
-                            .hidden()
-                    }
+            TextView(formattedText: formattedText)
+                .frame(size: getTextViewSize(for: formattedText.text))
+                .overlay(alignment: .bottomTrailing) {
+                    messageDate
+                        .offset(y: 3)
                 }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                messageDate
-//                    .menuOnPress { menu }
-                    .offset(y: 3)
-            }
         }
+    }
+    
+    private func getTextViewSize(for text: String) -> CGSize {
+        let textStorage = NSTextStorage(
+            attributedString: NSAttributedString(
+                string: text + " 00:00",
+                attributes: [NSAttributedString.Key.font: UIFont.body as Any]
+            )
+        )
+        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
+        let boundingRect = CGRect(origin: .zero, size: size)
+        
+        let textContainer = NSTextContainer(size: size)
+        textContainer.lineFragmentPadding = 0
+        
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
+        
+        let rect = layoutManager.usedRect(for: textContainer)
+        
+        return rect.integral.size
     }
 }

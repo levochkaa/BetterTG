@@ -32,7 +32,6 @@ struct MessageView: View {
     @State var editWidth: Int = 0
     
     @State var textSize: CGSize = .zero
-    @State var draggableTextSize: CGSize = .zero
     
     @State var showContextMenu = false
     

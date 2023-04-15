@@ -10,7 +10,6 @@ import SDWebImage
 struct TextView: UIViewRepresentable {
     
     let formattedText: FormattedText
-    let textSize: CGSize
     
     @EnvironmentObject var viewModel: ChatViewModel
     @EnvironmentObject var settings: SettingsViewModel
@@ -24,8 +23,7 @@ struct TextView: UIViewRepresentable {
     }
     
     func makeUIView(context: Context) -> UITextView {
-        let frame = CGRect(origin: CGPoint(x: 0, y: 0), size: textSize)
-        let textView = UITextView(frame: frame)
+        let textView = UITextView(frame: .zero)
         textView.font = UIFont.body
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
