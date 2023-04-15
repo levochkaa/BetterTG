@@ -40,24 +40,24 @@ or [AltStore (suggested)](https://altstore.io).
 
 # Screenshots
 
-<span><img src=".github/images/screenshots/1.PNG" alt="screenshots/1" width="200px"></span>
-<span><img src=".github/images/screenshots/2.PNG" alt="screenshots/2" width="200px"></span>
-<span><img src=".github/images/screenshots/3.PNG" alt="screenshots/3" width="200px"></span>
-<span><img src=".github/images/screenshots/4.PNG" alt="screenshots/4" width="200px"></span>
-<span><img src=".github/images/screenshots/5.PNG" alt="screenshots/5" width="200px"></span>
-<span><img src=".github/images/screenshots/6.PNG" alt="screenshots/6" width="200px"></span>
-<span><img src=".github/images/screenshots/7.PNG" alt="screenshots/7" width="200px"></span>
-<span><img src=".github/images/screenshots/8.PNG" alt="screenshots/8" width="200px"></span>
-<span><img src=".github/images/screenshots/9.PNG" alt="screenshots/9" width="200px"></span>
-<span><img src=".github/images/screenshots/10.PNG" alt="screenshots/10" width="200px"></span>
-<span><img src=".github/images/screenshots/11.PNG" alt="screenshots/11" width="200px"></span>
-<span><img src=".github/images/screenshots/12.PNG" alt="screenshots/12" width="200px"></span>
-<span><img src=".github/images/screenshots/13.PNG" alt="screenshots/13" width="200px"></span>
-<span><img src=".github/images/screenshots/14.PNG" alt="screenshots/14" width="200px"></span>
-<span><img src=".github/images/screenshots/15.PNG" alt="screenshots/15" width="200px"></span>
-<span><img src=".github/images/screenshots/16.PNG" alt="screenshots/16" width="200px"></span>
-<span><img src=".github/images/screenshots/17.PNG" alt="screenshots/17" width="200px"></span>
-<span><img src=".github/images/screenshots/18.PNG" alt="screenshots/18" width="200px"></span>
+<span><img src=".github/images/screenshots/1.png" alt="screenshots/1" width="200px"></span>
+<span><img src=".github/images/screenshots/2.png" alt="screenshots/2" width="200px"></span>
+<span><img src=".github/images/screenshots/3.png" alt="screenshots/3" width="200px"></span>
+<span><img src=".github/images/screenshots/4.png" alt="screenshots/4" width="200px"></span>
+<span><img src=".github/images/screenshots/5.png" alt="screenshots/5" width="200px"></span>
+<span><img src=".github/images/screenshots/6.png" alt="screenshots/6" width="200px"></span>
+<span><img src=".github/images/screenshots/7.png" alt="screenshots/7" width="200px"></span>
+<span><img src=".github/images/screenshots/8.png" alt="screenshots/8" width="200px"></span>
+<span><img src=".github/images/screenshots/9.png" alt="screenshots/9" width="200px"></span>
+<span><img src=".github/images/screenshots/10.png" alt="screenshots/10" width="200px"></span>
+<span><img src=".github/images/screenshots/11.png" alt="screenshots/11" width="200px"></span>
+<span><img src=".github/images/screenshots/12.png" alt="screenshots/12" width="200px"></span>
+<span><img src=".github/images/screenshots/13.png" alt="screenshots/13" width="200px"></span>
+<span><img src=".github/images/screenshots/14.png" alt="screenshots/14" width="200px"></span>
+<span><img src=".github/images/screenshots/15.png" alt="screenshots/15" width="200px"></span>
+<span><img src=".github/images/screenshots/16.png" alt="screenshots/16" width="200px"></span>
+<span><img src=".github/images/screenshots/17.png" alt="screenshots/17" width="200px"></span>
+<span><img src=".github/images/screenshots/18.png" alt="screenshots/18" width="200px"></span>
 
 # Contributing
 
