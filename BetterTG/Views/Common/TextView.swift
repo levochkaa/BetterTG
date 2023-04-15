@@ -24,7 +24,7 @@ struct TextView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView(frame: .zero)
-        textView.font = UIFont.body
+        textView.font = .body
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
         textView.dataDetectorTypes = .all
@@ -33,7 +33,17 @@ struct TextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainerInset = .zero
-        
+        setText(textView)
+        return textView
+    }
+    
+    func updateUIView(_ textView: UITextView, context: Context) {
+        if textView.attributedText != NSAttributedString(string: formattedText.text) {
+            setText(textView)
+        }
+    }
+    
+    func setText(_ textView: UITextView) {
         let attributedString = NSMutableAttributedString(
             string: formattedText.text,
             attributes: [
@@ -53,11 +63,7 @@ struct TextView: UIViewRepresentable {
                 await setAnimojis(textView, isInit: true)
             }
         }
-        
-        return textView
     }
-    
-    func updateUIView(_ textView: UITextView, context: Context) {}
     
     func setEntity(_ textView: UITextView, entity: TextEntity, for attributedString: NSMutableAttributedString) {
         let range = NSRange(location: entity.offset, length: entity.length)
