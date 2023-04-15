@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/airbnb/lottie-ios",
       "state" : {
-        "revision" : "440a6eebb8a8ae9c773e9a3e21021b72a74ffbb7",
-        "version" : "4.1.2"
+        "revision" : "4e51b71c6ef1b645c9a83de112d627c919143137",
+        "version" : "4.1.3"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImage.git",
       "state" : {
-        "revision" : "7ccdcb02fb0ab47409a6602769cea0486be2a209",
-        "version" : "5.15.2"
+        "revision" : "fb50c1d20f24db5322b2f8f379de3618f75fe08e",
+        "version" : "5.15.5"
       }
     },
     {
@@ -50,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImageWebPCoder.git",
       "state" : {
-        "revision" : "e6cd1a9d2c976c14a52a040062646b535d0a6337",
-        "version" : "0.10.1"
+        "revision" : "7087a82a3d23cbace8e4bb12cd0df054c7f2356a",
+        "version" : "0.11.0"
       }
     },
     {
@@ -68,8 +68,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/siteline/SwiftUI-Introspect.git",
       "state" : {
-        "revision" : "f2616860a41f9d9932da412a8978fec79c06fe24",
-        "version" : "0.1.4"
+        "revision" : "c18951c747ab62af7c15e17a81bd37d4fd5a9979",
+        "version" : "0.2.3"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "7bc7403c839f69681de7c27b9092b7931c6e4db6",
-        "version" : "1.8.11-6ba394fc"
+        "revision" : "f7077969845006e8bfea664cc5bd87af5da57241",
+        "version" : "1.8.11-1543c41f"
       }
     },
     {
@@ -87,7 +87,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "de87e84315ed88c3e6c8d443c44c44d9a4cef711"
+        "revision" : "f1623455e261c0f22ad9e6c5fca960ae6e14bdad"
       }
     }
   ],
