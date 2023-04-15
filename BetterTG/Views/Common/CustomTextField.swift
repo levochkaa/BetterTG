@@ -56,7 +56,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
     let textView = CustomUITextView()
     
     let attributes: [NSAttributedString.Key: Any] = [
-        .font: UIFont.systemFont(ofSize: 17),
+        .font: UIFont.body,
         .foregroundColor: UIColor.white
     ]
     
@@ -66,7 +66,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
             string: text.string,
             attributes: attributes
         )
-        textView.font = UIFont.systemFont(ofSize: 17)
+        textView.font = .body
         textView.isEditable = true
         textView.isSelectable = true
         textView.isUserInteractionEnabled = true
@@ -145,8 +145,8 @@ struct CustomTextField: View {
             .onChange(of: text) { newText in
                 showingPlaceholder = newText.characters.isEmpty
             }
-            .background(alignment: .topLeading) {
-                if showingPlaceholder {
+            .if(showingPlaceholder) {
+                $0.background(alignment: .topLeading) {
                     Text(placeholder)
                         .foregroundColor(.gray)
                         .padding(.leading, 4)

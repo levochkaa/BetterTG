@@ -50,7 +50,7 @@ struct MessageView: View {
             if settings.showForwardedFrom, let forwardedFrom = customMessage.forwardedFrom {
                 HStack(alignment: .center, spacing: 0) {
                     Text("FF: ")
-                        .foregroundColor(.white).opacity(0.5)
+                        .foregroundColor(.white.opacity(0.5))
                     
                     Text(forwardedFrom)
                         .bold()

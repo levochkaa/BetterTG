@@ -23,6 +23,7 @@ extension MessageView {
         }
     }
     
+    /// SwiftUI is fucked.
     private func getTextViewSize(for text: String) -> CGSize {
         let textStorage = NSTextStorage(
             attributedString: NSAttributedString(
@@ -32,18 +33,13 @@ extension MessageView {
         )
         let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
         let boundingRect = CGRect(origin: .zero, size: size)
-        
         let textContainer = NSTextContainer(size: size)
         textContainer.lineFragmentPadding = 0
-        
         let layoutManager = NSLayoutManager()
         layoutManager.addTextContainer(textContainer)
-        
         textStorage.addLayoutManager(layoutManager)
         layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
-        
         let rect = layoutManager.usedRect(for: textContainer)
-        
         return rect.integral.size
     }
 }
