@@ -59,6 +59,11 @@ or [AltStore (suggested)](https://altstore.io).
 <span><img src=".github/images/screenshots/17.png" alt="screenshots/17" width="270px"></span>
 <span><img src=".github/images/screenshots/18.png" alt="screenshots/18" width="270px"></span>
 
+# Important
+
+- Release scheme isn't building at the moment, it just stucks at compiling TDLibKit, use DEBUG
+- Performance with animoji's is terrible, I recommend disabling them in settings sheet
+
 # Contributing
 
 You can contribute **any** change you want to!
