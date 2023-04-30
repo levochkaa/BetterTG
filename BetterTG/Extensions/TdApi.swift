@@ -60,15 +60,14 @@ extension TdApi {
         }
     }
     
-    // swiftlint:disable function_body_length
     func update(_ update: Update) {
         switch update {
             case .updateAuthorizationState(let updateAuthorizationState):
                 self.updateAuthorizationState(updateAuthorizationState.authorizationState)
             case .updateNewMessage(let updateNewMessage):
                 Task.main { nc.post(name: .newMessage, object: updateNewMessage) }
-            case .updateMessageSendAcknowledged(let updateMessageSendAcknowledged):
-                nc.post(name: .messageSendAcknowledged, object: updateMessageSendAcknowledged)
+//            case .updateMessageSendAcknowledged(let updateMessageSendAcknowledged):
+//                nc.post(name: .messageSendAcknowledged, object: updateMessageSendAcknowledged)
             case .updateMessageSendSucceeded(let updateMessageSendSucceeded):
                 nc.post(name: .messageSendSucceeded, object: updateMessageSendSucceeded)
             case .updateMessageSendFailed(let updateMessageSendFailed):
@@ -77,84 +76,84 @@ extension TdApi {
                 nc.post(name: .messageSendContent, object: updateMessageContent)
             case .updateMessageEdited(let updateMessageEdited):
                 Task.main { nc.post(name: .messageEdited, object: updateMessageEdited) }
-            case .updateMessageIsPinned(let updateMessageIsPinned):
-                nc.post(name: .messageIsPinned, object: updateMessageIsPinned)
-            case .updateMessageInteractionInfo(let updateMessageInteractionInfo):
-                nc.post(name: .messageInteractionInfo, object: updateMessageInteractionInfo)
-            case .updateMessageContentOpened(let updateMessageContentOpened):
-                nc.post(name: .messageContentOpened, object: updateMessageContentOpened)
-            case .updateMessageMentionRead(let updateMessageMentionRead):
-                nc.post(name: .messageMentionRead, object: updateMessageMentionRead)
-            case .updateMessageUnreadReactions(let updateMessageUnreadReactions):
-                nc.post(name: .messageUnreadReactions, object: updateMessageUnreadReactions)
-            case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
-                nc.post(name: .messageLiveLocationViewed, object: updateMessageLiveLocationViewed)
+//            case .updateMessageIsPinned(let updateMessageIsPinned):
+//                nc.post(name: .messageIsPinned, object: updateMessageIsPinned)
+//            case .updateMessageInteractionInfo(let updateMessageInteractionInfo):
+//                nc.post(name: .messageInteractionInfo, object: updateMessageInteractionInfo)
+//            case .updateMessageContentOpened(let updateMessageContentOpened):
+//                nc.post(name: .messageContentOpened, object: updateMessageContentOpened)
+//            case .updateMessageMentionRead(let updateMessageMentionRead):
+//                nc.post(name: .messageMentionRead, object: updateMessageMentionRead)
+//            case .updateMessageUnreadReactions(let updateMessageUnreadReactions):
+//                nc.post(name: .messageUnreadReactions, object: updateMessageUnreadReactions)
+//            case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
+//                nc.post(name: .messageLiveLocationViewed, object: updateMessageLiveLocationViewed)
             case .updateNewChat(let updateNewChat):
                 nc.post(name: .newChat, object: updateNewChat)
-            case .updateChatTitle(let updateChatTitle):
-                nc.post(name: .chatTitle, object: updateChatTitle)
-            case .updateChatPhoto(let updateChatPhoto):
-                nc.post(name: .chatPhoto, object: updateChatPhoto)
-            case .updateChatPermissions(let updateChatPermissions):
-                nc.post(name: .chatPermissions, object: updateChatPermissions)
+//            case .updateChatTitle(let updateChatTitle):
+//                nc.post(name: .chatTitle, object: updateChatTitle)
+//            case .updateChatPhoto(let updateChatPhoto):
+//                nc.post(name: .chatPhoto, object: updateChatPhoto)
+//            case .updateChatPermissions(let updateChatPermissions):
+//                nc.post(name: .chatPermissions, object: updateChatPermissions)
             case .updateChatLastMessage(let updateChatLastMessage):
                 nc.post(name: .chatLastMessage, object: updateChatLastMessage)
             case .updateChatPosition(let updateChatPosition):
                 nc.post(name: .chatPosition, object: updateChatPosition)
             case .updateChatReadInbox(let updateChatReadInbox):
                 Task.main { nc.post(name: .chatReadInbox, object: updateChatReadInbox) }
-            case .updateChatReadOutbox(let updateChatReadOutbox):
-                nc.post(name: .chatReadOutbox, object: updateChatReadOutbox)
-            case .updateChatActionBar(let updateChatActionBar):
-                nc.post(name: .chatActionBar, object: updateChatActionBar)
-            case .updateChatAvailableReactions(let updateChatAvailableReactions):
-                nc.post(name: .chatAvailableReactions, object: updateChatAvailableReactions)
+//            case .updateChatReadOutbox(let updateChatReadOutbox):
+//                nc.post(name: .chatReadOutbox, object: updateChatReadOutbox)
+//            case .updateChatActionBar(let updateChatActionBar):
+//                nc.post(name: .chatActionBar, object: updateChatActionBar)
+//            case .updateChatAvailableReactions(let updateChatAvailableReactions):
+//                nc.post(name: .chatAvailableReactions, object: updateChatAvailableReactions)
             case .updateChatDraftMessage(let updateChatDraftMessage):
                 nc.post(name: .chatDraftMessage, object: updateChatDraftMessage)
-            case .updateChatMessageSender(let updateChatMessageSender):
-                nc.post(name: .chatMessageSender, object: updateChatMessageSender)
-            case .updateChatMessageAutoDeleteTime(let updateChatMessageAutoDeleteTime):
-                nc.post(name: .chatMessageAutoDeleteTime, object: updateChatMessageAutoDeleteTime)
-            case .updateChatNotificationSettings(let updateChatNotificationSettings):
-                nc.post(name: .chatNotificationSettings, object: updateChatNotificationSettings)
-            case .updateChatPendingJoinRequests(let updateChatPendingJoinRequests):
-                nc.post(name: .chatPendingJoinRequests, object: updateChatPendingJoinRequests)
-            case .updateChatReplyMarkup(let updateChatReplyMarkup):
-                nc.post(name: .chatReplyMarkup, object: updateChatReplyMarkup)
-            case .updateChatTheme(let updateChatTheme):
-                nc.post(name: .chatTheme, object: updateChatTheme)
+//            case .updateChatMessageSender(let updateChatMessageSender):
+//                nc.post(name: .chatMessageSender, object: updateChatMessageSender)
+//            case .updateChatMessageAutoDeleteTime(let updateChatMessageAutoDeleteTime):
+//                nc.post(name: .chatMessageAutoDeleteTime, object: updateChatMessageAutoDeleteTime)
+//            case .updateChatNotificationSettings(let updateChatNotificationSettings):
+//                nc.post(name: .chatNotificationSettings, object: updateChatNotificationSettings)
+//            case .updateChatPendingJoinRequests(let updateChatPendingJoinRequests):
+//                nc.post(name: .chatPendingJoinRequests, object: updateChatPendingJoinRequests)
+//            case .updateChatReplyMarkup(let updateChatReplyMarkup):
+//                nc.post(name: .chatReplyMarkup, object: updateChatReplyMarkup)
+//            case .updateChatTheme(let updateChatTheme):
+//                nc.post(name: .chatTheme, object: updateChatTheme)
             case .updateChatUnreadMentionCount(let updateChatUnreadMentionCount):
                 nc.post(name: .chatUnreadMentionCount, object: updateChatUnreadMentionCount)
             case .updateChatUnreadReactionCount(let updateChatUnreadReactionCount):
                 nc.post(name: .chatUnreadReactionCount, object: updateChatUnreadReactionCount)
-            case .updateChatVideoChat(let updateChatVideoChat):
-                nc.post(name: .chatVideoChat, object: updateChatVideoChat)
-            case .updateChatDefaultDisableNotification(let updateChatDefaultDisableNotification):
-                nc.post(name: .chatDefaultDisableNotification, object: updateChatDefaultDisableNotification)
-            case .updateChatHasProtectedContent(let updateChatHasProtectedContent):
-                nc.post(name: .chatHasProtectedContent, object: updateChatHasProtectedContent)
-            case .updateChatIsTranslatable(let updateChatIsTranslatable):
-                nc.post(name: .chatIsTranslatable, object: updateChatIsTranslatable)
-            case .updateChatHasScheduledMessages(let updateChatHasScheduledMessages):
-                nc.post(name: .chatHasScheduledMessages, object: updateChatHasScheduledMessages)
-            case .updateChatIsBlocked(let updateChatIsBlocked):
-                nc.post(name: .chatIsBlocked, object: updateChatIsBlocked)
-            case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
-                nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
-            case .updateChatOnlineMemberCount(let updateChatOnlineMemberCount):
-                nc.post(name: .chatOnlineMemberCount, object: updateChatOnlineMemberCount)
-            case .updateForumTopicInfo(let updateForumTopicInfo):
-                nc.post(name: .forumTopicInfo, object: updateForumTopicInfo)
-            case .updateScopeNotificationSettings(let updateScopeNotificationSettings):
-                nc.post(name: .scopeNotificationSettings, object: updateScopeNotificationSettings)
-            case .updateNotification(let updateNotification):
-                nc.post(name: .notification, object: updateNotification)
-            case .updateNotificationGroup(let updateNotificationGroup):
-                nc.post(name: .notificationGroup, object: updateNotificationGroup)
-            case .updateActiveNotifications(let updateActiveNotifications):
-                nc.post(name: .activeNotifications, object: updateActiveNotifications)
-            case .updateHavePendingNotifications(let updateHavePendingNotifications):
-                nc.post(name: .havePendingNotifications, object: updateHavePendingNotifications)
+//            case .updateChatVideoChat(let updateChatVideoChat):
+//                nc.post(name: .chatVideoChat, object: updateChatVideoChat)
+//            case .updateChatDefaultDisableNotification(let updateChatDefaultDisableNotification):
+//                nc.post(name: .chatDefaultDisableNotification, object: updateChatDefaultDisableNotification)
+//            case .updateChatHasProtectedContent(let updateChatHasProtectedContent):
+//                nc.post(name: .chatHasProtectedContent, object: updateChatHasProtectedContent)
+//            case .updateChatIsTranslatable(let updateChatIsTranslatable):
+//                nc.post(name: .chatIsTranslatable, object: updateChatIsTranslatable)
+//            case .updateChatHasScheduledMessages(let updateChatHasScheduledMessages):
+//                nc.post(name: .chatHasScheduledMessages, object: updateChatHasScheduledMessages)
+//            case .updateChatIsBlocked(let updateChatIsBlocked):
+//                nc.post(name: .chatIsBlocked, object: updateChatIsBlocked)
+//            case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
+//                nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
+//            case .updateChatOnlineMemberCount(let updateChatOnlineMemberCount):
+//                nc.post(name: .chatOnlineMemberCount, object: updateChatOnlineMemberCount)
+//            case .updateForumTopicInfo(let updateForumTopicInfo):
+//                nc.post(name: .forumTopicInfo, object: updateForumTopicInfo)
+//            case .updateScopeNotificationSettings(let updateScopeNotificationSettings):
+//                nc.post(name: .scopeNotificationSettings, object: updateScopeNotificationSettings)
+//            case .updateNotification(let updateNotification):
+//                nc.post(name: .notification, object: updateNotification)
+//            case .updateNotificationGroup(let updateNotificationGroup):
+//                nc.post(name: .notificationGroup, object: updateNotificationGroup)
+//            case .updateActiveNotifications(let updateActiveNotifications):
+//                nc.post(name: .activeNotifications, object: updateActiveNotifications)
+//            case .updateHavePendingNotifications(let updateHavePendingNotifications):
+//                nc.post(name: .havePendingNotifications, object: updateHavePendingNotifications)
             case .updateDeleteMessages(let updateDeleteMessages):
                 nc.post(name: .deleteMessages, object: updateDeleteMessages)
             case .updateChatAction(let updateChatAction):
@@ -163,36 +162,36 @@ extension TdApi {
                 nc.post(name: .userStatus, object: updateUserStatus)
             case .updateUser(let updateUser):
                 nc.post(name: .user, object: updateUser)
-            case .updateBasicGroup(let updateBasicGroup):
-                nc.post(name: .basicGroup, object: updateBasicGroup)
-            case .updateSupergroup(let updateSupergroup):
-                nc.post(name: .supergroup, object: updateSupergroup)
-            case .updateSecretChat(let updateSecretChat):
-                nc.post(name: .secretChat, object: updateSecretChat)
-            case .updateUserFullInfo(let updateUserFullInfo):
-                nc.post(name: .userFullInfo, object: updateUserFullInfo)
-            case .updateBasicGroupFullInfo(let updateBasicGroupFullInfo):
-                nc.post(name: .basicGroupFullInfo, object: updateBasicGroupFullInfo)
-            case .updateSupergroupFullInfo(let updateSupergroupFullInfo):
-                nc.post(name: .supergroupFullInfo, object: updateSupergroupFullInfo)
-            case .updateServiceNotification(let updateServiceNotification):
-                nc.post(name: .serviceNotification, object: updateServiceNotification)
+//            case .updateBasicGroup(let updateBasicGroup):
+//                nc.post(name: .basicGroup, object: updateBasicGroup)
+//            case .updateSupergroup(let updateSupergroup):
+//                nc.post(name: .supergroup, object: updateSupergroup)
+//            case .updateSecretChat(let updateSecretChat):
+//                nc.post(name: .secretChat, object: updateSecretChat)
+//            case .updateUserFullInfo(let updateUserFullInfo):
+//                nc.post(name: .userFullInfo, object: updateUserFullInfo)
+//            case .updateBasicGroupFullInfo(let updateBasicGroupFullInfo):
+//                nc.post(name: .basicGroupFullInfo, object: updateBasicGroupFullInfo)
+//            case .updateSupergroupFullInfo(let updateSupergroupFullInfo):
+//                nc.post(name: .supergroupFullInfo, object: updateSupergroupFullInfo)
+//            case .updateServiceNotification(let updateServiceNotification):
+//                nc.post(name: .serviceNotification, object: updateServiceNotification)
             case .updateFile(let updateFile):
                 Task.main { nc.post(name: .file, object: updateFile) }
-            case .updateFileGenerationStart(let updateFileGenerationStart):
-                nc.post(name: .fileGenerationStart, object: updateFileGenerationStart)
-            case .updateFileGenerationStop(let updateFileGenerationStop):
-                nc.post(name: .fileGenerationStop, object: updateFileGenerationStop)
-            case .updateFileDownloads(let updateFileDownloads):
-                nc.post(name: .fileDownloads, object: updateFileDownloads)
-            case .updateFileAddedToDownloads(let updateFileAddedToDownloads):
-                nc.post(name: .fileAddedToDownloads, object: updateFileAddedToDownloads)
-            case .updateFileDownload(let updateFileDownload):
-                nc.post(name: .fileDownload, object: updateFileDownload)
-            case .updateFileRemovedFromDownloads(let updateFileRemovedFromDownloads):
-                nc.post(name: .fileRemovedFromDownloads, object: updateFileRemovedFromDownloads)
-            case .updateCall(let updateCall):
-                nc.post(name: .call, object: updateCall)
+//            case .updateFileGenerationStart(let updateFileGenerationStart):
+//                nc.post(name: .fileGenerationStart, object: updateFileGenerationStart)
+//            case .updateFileGenerationStop(let updateFileGenerationStop):
+//                nc.post(name: .fileGenerationStop, object: updateFileGenerationStop)
+//            case .updateFileDownloads(let updateFileDownloads):
+//                nc.post(name: .fileDownloads, object: updateFileDownloads)
+//            case .updateFileAddedToDownloads(let updateFileAddedToDownloads):
+//                nc.post(name: .fileAddedToDownloads, object: updateFileAddedToDownloads)
+//            case .updateFileDownload(let updateFileDownload):
+//                nc.post(name: .fileDownload, object: updateFileDownload)
+//            case .updateFileRemovedFromDownloads(let updateFileRemovedFromDownloads):
+//                nc.post(name: .fileRemovedFromDownloads, object: updateFileRemovedFromDownloads)
+//            case .updateCall(let updateCall):
+//                nc.post(name: .call, object: updateCall)
 //            case .updateGroupCall(let updateGroupCall):
 //                nc.post(name: .groupCall, object: updateGroupCall)
 //            case .updateGroupCallParticipant(let updateGroupCallParticipant):
@@ -279,7 +278,6 @@ extension TdApi {
                 break
         }
     }
-    // swiftlint:enable function_body_length
     
     func updateAuthorizationState(_ authorizationState: AuthorizationState) {
         switch authorizationState {
