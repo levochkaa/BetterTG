@@ -7,6 +7,7 @@ extension Chat {
     static let moc = Chat(
         actionBar: nil,
         availableReactions: .chatAvailableReactionsAll,
+        background: nil,
         canBeDeletedForAllUsers: false,
         canBeDeletedOnlyForSelf: false,
         canBeReported: false,

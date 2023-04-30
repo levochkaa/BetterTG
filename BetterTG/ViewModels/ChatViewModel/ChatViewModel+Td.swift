@@ -171,7 +171,7 @@ extension ChatViewModel {
                 chatId: customChat.chat.id,
                 forceRead: true,
                 messageIds: ids,
-                messageThreadId: 0
+                source: .messageSourceChatHistory
             )
         } catch {
 //            log("Error viewing messages: \(error)")

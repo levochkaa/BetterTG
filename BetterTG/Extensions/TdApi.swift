@@ -141,8 +141,6 @@ extension TdApi {
                 nc.post(name: .chatIsBlocked, object: updateChatIsBlocked)
             case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
                 nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
-            case .updateChatFilters(let updateChatFilters):
-                nc.post(name: .chatFilters, object: updateChatFilters)
             case .updateChatOnlineMemberCount(let updateChatOnlineMemberCount):
                 nc.post(name: .chatOnlineMemberCount, object: updateChatOnlineMemberCount)
             case .updateForumTopicInfo(let updateForumTopicInfo):

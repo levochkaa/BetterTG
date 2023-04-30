@@ -54,7 +54,6 @@ extension Notification.Name {
     static let chatHasScheduledMessages = Self("chatHasScheduledMessages")
     static let chatIsBlocked = Self("chatIsBlocked")
     static let chatIsMarkedAsUnread = Self("chatIsMarkedAsUnread")
-    static let chatFilters = Self("chatFilters")
     static let chatOnlineMemberCount = Self("chatFilters")
     static let forumTopicInfo = Self("forumTopicInfo")
     static let scopeNotificationSettings = Self("scopeNotificationSettings")
