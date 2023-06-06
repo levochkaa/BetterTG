@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImage.git",
       "state" : {
-        "revision" : "20df851f2ae27efbaeeff73e9babdf4fd839a144",
-        "version" : "5.15.6"
+        "revision" : "c51ba84499268ea3020e6aee9e229c0f56b9d924",
+        "version" : "5.16.0"
       }
     },
     {
@@ -68,8 +68,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/siteline/SwiftUI-Introspect.git",
       "state" : {
-        "revision" : "c18951c747ab62af7c15e17a81bd37d4fd5a9979",
-        "version" : "0.2.3"
+        "revision" : "c29b50a475120fdfa22573622464a7346aaf99a4",
+        "version" : "0.6.0"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "37bc16cf2c1cd4728dd3a4c050b5cfb53e262bfd",
-        "version" : "1.8.14-4041ecb5"
+        "revision" : "6a6b60414ab3e9ccfae45a1a2abea4a18011cac0",
+        "version" : "1.8.14-4580cfc2"
       }
     },
     {
@@ -87,7 +87,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "4a9eeb9ca2dfbddf998358399d84d32b8431e7f2"
+        "revision" : "adbfe0b07ee3cb900edc52dba71d0789e9817648"
       }
     }
   ],
