@@ -26,16 +26,11 @@ extension RootView {
                 SettingsView()
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.hidden)
-                    .modify {
-                        if #available(iOS 16.4, *) {
-                            $0
-                                .presentationBackground(.ultraThinMaterial)
-                                .presentationCornerRadius(20)
-                                .presentationContentInteraction(.resizes)
-                                .presentationCompactAdaptation(.sheet)
-                                .presentationBackgroundInteraction(.disabled)
-                        }
-                    }
+                    .presentationBackground(.ultraThinMaterial)
+                    .presentationCornerRadius(20)
+                    .presentationContentInteraction(.resizes)
+                    .presentationCompactAdaptation(.sheet)
+                    .presentationBackgroundInteraction(.disabled)
             }
             .toolbar {
                 if settings.showArchivedChatsButton {
@@ -91,7 +86,6 @@ extension RootView {
             }
         }
         .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            guard #available(iOS 16.2, *) else { return }
             LiveActivityManager.endAllActivities()
         }
         .overlay {

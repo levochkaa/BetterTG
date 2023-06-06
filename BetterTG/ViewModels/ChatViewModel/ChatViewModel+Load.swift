@@ -72,7 +72,6 @@ extension ChatViewModel {
         }
     }
     
-    @available(iOS 16.2, *)
     func loadLiveActivity() async {
         guard let content = customChat.chat.lastMessage?.content,
               let lastMessageText = getText(from: content),

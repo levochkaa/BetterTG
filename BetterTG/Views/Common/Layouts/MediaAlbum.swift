@@ -12,7 +12,6 @@ import SwiftUI
 ///
 /// Source:
 /// https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/MosaicLayout/Sources/ChatMessageBubbleMosaicLayout.swift
-@available(iOS 16, *)
 struct MediaAlbum: Layout {
     typealias AlbumLayout = ([(CGRect, ItemPosition)], CGSize)
     

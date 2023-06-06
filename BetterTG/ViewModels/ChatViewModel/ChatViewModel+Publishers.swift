@@ -78,8 +78,7 @@ extension ChatViewModel {
     }
     
     func chatLastMessage(_ chatLastMessage: UpdateChatLastMessage) {
-        guard #available(iOS 16.2, *),
-              let content = chatLastMessage.lastMessage?.content,
+        guard let content = chatLastMessage.lastMessage?.content,
               let lastMessageText = getText(from: content)
         else { return }
         

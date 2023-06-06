@@ -52,19 +52,14 @@ struct ChatView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .environmentObject(viewModel)
-        .modify {
-            if #available(iOS 16.2, *) {
-                $0
-                    .task {
-                        await viewModel.loadLiveActivity()
-                    }
-                    .onDisappear {
-                        LiveActivityManager.endAllActivities()
-                    }
-                    .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-                        Task { await viewModel.loadLiveActivity() }
-                    }
-            }
+        .task {
+            await viewModel.loadLiveActivity()
+        }
+        .onDisappear {
+            LiveActivityManager.endAllActivities()
+        }
+        .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task { await viewModel.loadLiveActivity() }
         }
     }
     
