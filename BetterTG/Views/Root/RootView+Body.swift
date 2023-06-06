@@ -57,7 +57,7 @@ extension RootView {
         .onSubmit(of: .search) {
             viewModel.searchGlobalChats(query.lowercased())
         }
-        .onChange(of: viewModel.searchScope) { scope in
+        .onChange(of: viewModel.searchScope) { _, scope in
             guard scope == .global else { return }
             
             if query.isEmpty {
@@ -66,12 +66,12 @@ extension RootView {
                 viewModel.searchGlobalChats(query)
             }
         }
-        .onChange(of: query) { _ in
+        .onChange(of: query) {
             if query.isEmpty {
                 viewModel.searchScope = .chats
             }
         }
-        .onChange(of: scenePhase) { newPhase in
+        .onChange(of: scenePhase) { _, newPhase in
             viewModel.handleScenePhase(newPhase)
         }
         .confirmationDialog(

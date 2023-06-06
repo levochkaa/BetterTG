@@ -147,7 +147,7 @@ struct CustomTextField: View {
     var body: some View {
         UITextViewWrapper(text: $text, calculatedHeight: $dynamicHeight, becomeFirstResponer: focus)
             .frame(height: dynamicHeight)
-            .onChange(of: text) { newText in
+            .onChange(of: text) { _, newText in
                 showingPlaceholder = newText.characters.isEmpty
             }
             .if(showingPlaceholder) {

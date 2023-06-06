@@ -32,7 +32,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                 isDownloaded = updateFile.file.local.isDownloadingCompleted
             }
         }
-        .onChange(of: id) { id in
+        .onChange(of: id) { _, id in
             download(id)
         }
         .onAppear {

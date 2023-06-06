@@ -24,10 +24,10 @@ extension MessageView {
             voiceNoteView(from: voiceNote)
         }
         .padding(5)
-        .onChange(of: isListeningVoiceNote) { _ in
+        .onChange(of: isListeningVoiceNote) {
             nc.post(name: .localIsListeningVoice, object: nil)
         }
-        .onChange(of: recognizeSpeech) { _ in
+        .onChange(of: recognizeSpeech) {
             nc.post(name: .localRecognizeSpeech, object: nil)
         }
     }

@@ -41,7 +41,7 @@ extension ChatViewModel {
         savedMediaPath = ""
         mediaStop()
         
-        audioSession.requestRecordPermission { granted in
+        AVAudioApplication.requestRecordPermission { granted in
             if granted {
                 log("Access to Microphone for Voice messages is granted")
             } else {

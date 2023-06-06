@@ -36,13 +36,13 @@ extension ChatView {
                     }
                 }
                 .onReceive(nc.mergeMany([.localRecognizeSpeech, .localIsListeningVoice])) { _ in scrollToLastOnFocus() }
-                .onChange(of: focused) { _ in scrollToLastOnFocus() }
-                .onChange(of: viewModel.messages) { _ in scrollToLastOnFocus() }
-                .onChange(of: viewModel.displayedImages) { _ in scrollToLastOnFocus() }
-                .onChange(of: viewModel.replyMessage) { reply in
+                .onChange(of: focused) { scrollToLastOnFocus() }
+                .onChange(of: viewModel.messages) { scrollToLastOnFocus() }
+                .onChange(of: viewModel.displayedImages) { scrollToLastOnFocus() }
+                .onChange(of: viewModel.replyMessage) { _, reply in
                     if reply == nil { scrollToLastOnFocus() } else { focused = true }
                 }
-                .onChange(of: viewModel.editCustomMessage) { edit in
+                .onChange(of: viewModel.editCustomMessage) { _, edit in
                     if edit == nil { scrollToLastOnFocus() } else { focused = true }
                 }
                 .onAppear {
