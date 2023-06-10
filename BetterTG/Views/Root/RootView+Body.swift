@@ -33,7 +33,7 @@ extension RootView {
                     .presentationBackgroundInteraction(.disabled)
             }
             .toolbar {
-                if settings.showArchivedChatsButton {
+                if showArchivedChatsButton {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(systemImage: "square.stack") {
                             showArchivedChats = true

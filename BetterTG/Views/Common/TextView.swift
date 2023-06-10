@@ -11,8 +11,9 @@ struct TextView: UIViewRepresentable {
     
     let formattedText: FormattedText
     
-    @EnvironmentObject var viewModel: ChatViewModel
-    @EnvironmentObject var settings: SettingsViewModel
+    @Environment(ChatViewModel.self) var viewModel
+    
+    @AppStorage("showAnimojis") var showAnimojis = true
     
     var filteredEntities: [TextEntity] {
         formattedText.entities
@@ -58,7 +59,7 @@ struct TextView: UIViewRepresentable {
         
         textView.attributedText = attributedString
         
-        if settings.showAnimojis {
+        if showAnimojis {
             Task {
                 await setAnimojis(textView, isInit: true)
             }
@@ -90,7 +91,7 @@ struct TextView: UIViewRepresentable {
             case .textEntityTypeTextUrl(let textUrl):
                 attributedString.addAttribute(.link, value: getUrl(from: textUrl.url) as Any, range: range)
             case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
-                guard settings.showAnimojis else { break }
+                guard showAnimojis else { break }
                 attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
             default:
                 break
@@ -113,11 +114,13 @@ struct TextView: UIViewRepresentable {
             let entity = filteredEntities[emojiIndex]
             let frame = getFrame(textView, from: entity)
             
-            if isInit {
-                renderAnimoji(textView, animoji: animoji, with: frame)
-            } else {
-                UIView.animate(withDuration: Utils.defaultAnimationDuration) {
-                    textView.subviews[emojiIndex].frame = frame
+            await MainActor.run { [emojiIndex] in
+                if isInit {
+                    renderAnimoji(textView, animoji: animoji, with: frame)
+                } else {
+                    UIView.animate(withDuration: Utils.defaultAnimationDuration) {
+                        textView.subviews[emojiIndex].frame = frame
+                    }
                 }
             }
             

@@ -6,7 +6,7 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder var messageContent: some View {
         Group {
-            if settings.showAlbums, !customMessage.album.isEmpty {
+            if showAlbums, !customMessage.album.isEmpty {
                 MediaAlbum {
                     ForEach(customMessage.album, id: \.id) { albumMessage in
                         if case .messagePhoto(let messagePhoto) = albumMessage.content {
@@ -23,7 +23,7 @@ extension MessageView {
             $0.overlay(alignment: .bottomTrailing) {
                 if case .messageVoiceNote = customMessage.message.content {
                     EmptyView()
-                } else if settings.showAlbums {
+                } else if showAlbums {
                     messageOverlayDate
                         .padding(5)
                 }
@@ -34,12 +34,12 @@ extension MessageView {
     @ViewBuilder var simpleMessageContent: some View {
         switch customMessage.message.content {
             case .messagePhoto(let messagePhoto):
-                if settings.showPhotos {
+                if showPhotos {
                     makeMessagePhoto(from: messagePhoto, with: customMessage.message)
                         .scaledToFit()
                 }
             case .messageVoiceNote(let messageVoiceNote):
-                if settings.showVoiceNotes {
+                if showVoiceNotes {
                     makeMessageVoiceNote(from: messageVoiceNote.voiceNote, with: customMessage.message)
                 }
             default:

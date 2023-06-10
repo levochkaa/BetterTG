@@ -1,7 +1,7 @@
 // RootViewModel+Publishers.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 extension RootViewModel {
     func setPublishers() {

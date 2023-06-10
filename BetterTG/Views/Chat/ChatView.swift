@@ -5,22 +5,22 @@ import TDLibKit
 
 struct ChatView: View {
     
-    @StateObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     
     @FocusState var focused
     
     @State var isScrollToBottomButtonShown = false
     
-    let scroll = "chatScroll"
+    var scroll = "chatScroll"
     @State var scrollOnFocus = true
     
     @Environment(\.isPreview) var isPreview
     @Environment(\.dismiss) var dismiss
     
-    @EnvironmentObject var rootViewModel: RootViewModel
+    @Environment(RootViewModel.self) var rootViewModel
     
     init(customChat: CustomChat) {
-        self._viewModel = StateObject(wrappedValue: ChatViewModel(customChat: customChat))
+        self.viewModel = ChatViewModel(customChat: customChat)
     }
     
     var body: some View {
@@ -51,7 +51,7 @@ struct ChatView: View {
             toolbar
         }
         .navigationBarTitleDisplayMode(.inline)
-        .environmentObject(viewModel)
+        .environment(viewModel)
         .task {
             await viewModel.loadLiveActivity()
         }
@@ -60,6 +60,15 @@ struct ChatView: View {
         }
         .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task { await viewModel.loadLiveActivity() }
+        }
+        .onChange(of: viewModel.editCustomMessage) { _, editCustomMessage in
+            guard let editCustomMessage else { return }
+            viewModel.setEditMessageText(from: editCustomMessage.message)
+        }
+        .onChange(of: viewModel.replyMessage) {
+            Task {
+                await viewModel.updateDraft()
+            }
         }
     }
     

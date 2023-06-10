@@ -23,8 +23,7 @@ extension RootView {
             } preview: {
                 NavigationStack {
                     ChatView(customChat: customChat)
-                        .environmentObject(viewModel)
-                        .environmentObject(settings)
+                        .environment(viewModel)
                         .environment(\.isPreview, true)
                 }
             }

@@ -5,73 +5,62 @@ import Combine
 import TDLibKit
 import PhotosUI
 import MobileVLCKit
+import Observation
 
-final class ChatViewModel: ObservableObject {
-
-    var customChat: CustomChat
+@Observable final class ChatViewModel {
+    @ObservationIgnored var customChat: CustomChat
     
-    var currentLiveActivityId: String = ""
+    @ObservationIgnored var currentLiveActivityId: String = ""
     
-    @Published var onlineStatus = ""
-    @Published var actionStatus = ""
+    var onlineStatus = ""
+    var actionStatus = ""
     
-    @Published var text: AttributedString = ""
-    @Published var editMessageText: AttributedString = ""
-    @Published var showSendButton = false
+    @ObservationIgnored let textDebouncer = Debouncer()
+    var text: AttributedString = ""
+    var editMessageText: AttributedString = ""
+    var showSendButton = false
     
-    var loadedAlbums = Set<Int64>()
-    var sentPhotosCount = 0
-    var toBeSentPhotosCount = 0
-    var savedAlbumMainMessageId: Int64 = 0
-    var savedAlbumMainMessageIdTemp: Int64 = 0
-    var savedPhotoMessages = [Message]()
-    @Published var fetchedImages = [ImageAsset]()
-    @Published var displayedImages = [SelectedImage]()
-    @Published var selectedImagesCount = 0
-    @Published var showBottomSheet = false
-    @Published var showCameraView = false
+    @ObservationIgnored var loadedAlbums = Set<Int64>()
+    @ObservationIgnored var sentPhotosCount = 0
+    @ObservationIgnored var toBeSentPhotosCount = 0
+    @ObservationIgnored var savedAlbumMainMessageId: Int64 = 0
+    @ObservationIgnored var savedAlbumMainMessageIdTemp: Int64 = 0
+    @ObservationIgnored var savedPhotoMessages = [Message]()
+    var fetchedImages = [ImageAsset]()
+    var displayedImages = [SelectedImage]()
+    var selectedImagesCount = 0
+    var showBottomSheet = false
+    var showCameraView = false
     
-    @Published var scrollViewProxy: ScrollViewProxy?
+    var scrollViewProxy: ScrollViewProxy? = nil
     
-    @Published var savedNewMessages = [Message]()
-    @Published var messages = [CustomMessage]()
-    @Published var highlightedMessageId: Int64?
+    var savedNewMessages = [Message]()
+    var messages = [CustomMessage]()
+    var highlightedMessageId: Int64? = nil
     
-    @Published var loadingMessages = false
-    @Published var initLoadingMessages = false
+    var loadingMessages = false
+    var initLoadingMessages = false
     
-    var offset = 0
-    var limit = 30
+    @ObservationIgnored var offset = 0
+    @ObservationIgnored var limit = 30
     
-    var savedVoiceNoteUrl = URL(filePath: "")
-    var audioRecorder = AVAudioRecorder()
-    let audioSession = AVAudioSession.sharedInstance()
-    var mediaPlayer = VLCMediaPlayer()
-    @Published var duration = 0
-    @Published var recordingVoiceNote = false
-    @Published var isPlaying = false
-    @Published var savedMediaPath = ""
-    @Published var currentTime: Int32 = 0
-    @Published var timeSliderValue = 0.0
-    @Published var isSeeking = false
+    @ObservationIgnored var savedVoiceNoteUrl = URL(filePath: "")
+    @ObservationIgnored var audioRecorder = AVAudioRecorder()
+    @ObservationIgnored let audioSession = AVAudioSession.sharedInstance()
+    @ObservationIgnored var mediaPlayer = VLCMediaPlayer()
+    var duration = 0
+    var recordingVoiceNote = false
+    var isPlaying = false
+    var savedMediaPath = ""
+    var currentTime: Int32 = 0
+    var timeSliderValue = 0.0
+    var isSeeking = false
     
-    @Published var editCustomMessage: CustomMessage? {
-        didSet {
-            if editCustomMessage != nil {
-                setEditMessageText(from: editCustomMessage?.message)
-            }
-        }
-    }
-    @Published var replyMessage: CustomMessage? {
-        didSet {
-            Task {
-                await updateDraft()
-            }
-        }
-    }
+    var editCustomMessage: CustomMessage? = nil
+    var replyMessage: CustomMessage? = nil
     
-    @Published var errorMessage = ""
-    @Published var errorShown = false
+    var errorMessage = ""
+    var errorShown = false
     
     init(customChat: CustomChat) {
         self.customChat = customChat

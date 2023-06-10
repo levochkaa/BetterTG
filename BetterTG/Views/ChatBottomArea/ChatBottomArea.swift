@@ -15,8 +15,8 @@ struct ChatBottomArea: View {
     
     @Namespace var namespace
     
-    @EnvironmentObject var viewModel: ChatViewModel
-    @EnvironmentObject var rootViewModel: RootViewModel
+    @Environment(ChatViewModel.self) var viewModel
+    @Environment(RootViewModel.self) var rootViewModel
     
     @Environment(\.redactionReasons) var redactionReasons
     
@@ -24,23 +24,31 @@ struct ChatBottomArea: View {
     let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     
     var body: some View {
-        VStack(alignment: .center, spacing: 5) {
-            topSide
-            
-            if !viewModel.displayedImages.isEmpty {
-                photosScroll
-            }
-            
-            if !viewModel.recordingVoiceNote {
-                HStack(alignment: .center, spacing: 10) {
-                    leftSide
-                    
-                    textField
-                    
-                    rightSide
+        WithBindable<ChatViewModel> { bindableViewModel in
+            VStack(alignment: .center, spacing: 5) {
+                topSide
+                
+                if !viewModel.displayedImages.isEmpty {
+                    photosScroll
                 }
-            } else {
-                voiceNoteRecording
+                
+                if !viewModel.recordingVoiceNote {
+                    HStack(alignment: .center, spacing: 10) {
+                        leftSide
+                        
+                        textField
+                        
+                        rightSide
+                    }
+                } else {
+                    voiceNoteRecording
+                }
+            }
+            .errorAlert(show: bindableViewModel.errorShown, text: viewModel.errorMessage)
+            .sheet(isPresented: bindableViewModel.showBottomSheet) {
+                bottomSheet
+                    .presentationDragIndicator(.hidden)
+                    .presentationDetents([.medium, .large])
             }
         }
         .animation(value: viewModel.editCustomMessage)
@@ -51,12 +59,6 @@ struct ChatBottomArea: View {
         .background(.bar)
         .cornerRadius(15)
         .padding([.bottom, .horizontal], 5)
-        .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
-        .sheet(isPresented: $viewModel.showBottomSheet) {
-            bottomSheet
-                .presentationDragIndicator(.hidden)
-                .presentationDetents([.medium, .large])
-        }
         .overlay(alignment: .bottomTrailing) {
             Circle()
                 .fill(.blue)

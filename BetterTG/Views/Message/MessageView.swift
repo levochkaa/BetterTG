@@ -7,9 +7,15 @@ struct MessageView: View {
     
     @State var customMessage: CustomMessage
     
-    @EnvironmentObject var viewModel: ChatViewModel
-    @EnvironmentObject var rootViewModel: RootViewModel
-    @EnvironmentObject var settings: SettingsViewModel
+    @Environment(ChatViewModel.self) var viewModel
+    @Environment(RootViewModel.self) var rootViewModel
+    
+    @AppStorage("showForwardedFrom") var showForwardedFrom = true
+    @AppStorage("showEdited") var showEdited = true
+    @AppStorage("showVoiceNotes") var showVoiceNotes = true
+    @AppStorage("showReplies") var showReplies = true
+    @AppStorage("showAlbums") var showAlbums = true
+    @AppStorage("showPhotos") var showPhotos = true
     
     @Namespace var namespace
     
@@ -44,7 +50,7 @@ struct MessageView: View {
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
-            if settings.showForwardedFrom, let forwardedFrom = customMessage.forwardedFrom {
+            if showForwardedFrom, let forwardedFrom = customMessage.forwardedFrom {
                 HStack(alignment: .center, spacing: 0) {
                     Text("FF: ")
                         .foregroundColor(.white.opacity(0.5))
@@ -59,7 +65,7 @@ struct MessageView: View {
                 .readSize { forwardedWidth = Int($0.width) }
             }
             
-            if settings.showReplies, customMessage.replyUser != nil, customMessage.replyToMessage != nil {
+            if showReplies, customMessage.replyUser != nil, customMessage.replyToMessage != nil {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
                     .padding(5)
                     .background(backgroundColor(for: .reply))
@@ -69,7 +75,7 @@ struct MessageView: View {
             
             HStack(alignment: .bottom, spacing: 0) {
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
-                   isOutgoing, textWidth == 0, settings.showVoiceNotes {
+                   isOutgoing, textWidth == 0, showVoiceNotes {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
                 
@@ -81,7 +87,7 @@ struct MessageView: View {
                     .readSize { contentWidth = Int($0.width) }
                 
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
-                   !isOutgoing, textWidth == 0, settings.showVoiceNotes {
+                   !isOutgoing, textWidth == 0, showVoiceNotes {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
             }
@@ -94,7 +100,7 @@ struct MessageView: View {
                 .cornerRadius(corners(for: .text))
                 .readSize { textWidth = Int($0.width) }
             
-            if settings.showEdited, customMessage.message.editDate != 0 {
+            if showEdited, customMessage.message.editDate != 0 {
                 Text("edited")
                     .font(.caption)
                     .foregroundColor(.white).opacity(0.5)

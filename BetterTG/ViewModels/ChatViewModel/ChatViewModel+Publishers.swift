@@ -2,18 +2,38 @@
 
 import SwiftUI
 import Combine
-@preconcurrency import TDLibKit
+import TDLibKit
+import Observation
 
 extension ChatViewModel {
     func setLocalPublishers() {
-        Publishers.CombineLatest3($editMessageText, $text, $displayedImages)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] editMessageText, text, displayedImages in
-                self?.showSendButton = !displayedImages.isEmpty
-                || !editMessageText.characters.isEmpty
-                || !text.characters.isEmpty
+        withObservationTracking {
+            _ = editMessageText
+            _ = text
+            _ = displayedImages
+        } onChange: { [weak self] in
+            guard let self else { return }
+            showSendButton = !displayedImages.isEmpty || !editMessageText.characters.isEmpty || !text.characters.isEmpty
+        }
+        
+        withObservationTracking {
+            _ = text
+        } onChange: { [weak self] in
+            guard let self else { return }
+            textDebouncer.call(delay: 2) { [weak self] in
+                guard let self else { return }
+                Task { [weak self] in
+                    guard let self else { return }
+                    await updateDraft()
+                    
+                    if !text.characters.isEmpty {
+                        await tdSendChatAction(.chatActionTyping)
+                    } else {
+                        await tdSendChatAction(.chatActionCancel)
+                    }
+                }
             }
-            .store(in: &cancellables)
+        }
     }
     
     func setPublishers() {

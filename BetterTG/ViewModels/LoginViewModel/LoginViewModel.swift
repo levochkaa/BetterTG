@@ -2,24 +2,25 @@
 
 import SwiftUI
 import Combine
-@preconcurrency import TDLibKit
+import TDLibKit
+import Observation
 
-final class LoginViewModel: ObservableObject {
-    @Published var loginState: LoginState = .phoneNumber
+@Observable final class LoginViewModel {
+    var loginState: LoginState = .phoneNumber
     
-    @Published var countryNums = [PhoneNumberInfo]()
-    @Published var selectedCountryNum = PhoneNumberInfo(
+    var countryNums = [PhoneNumberInfo]()
+    var selectedCountryNum = PhoneNumberInfo(
         country: "RU",
         phoneNumberPrefix: "7",
         name: "Russian Federation"
     )
     
-    @Published var phoneNumber = ""
-    @Published var code = ""
-    @Published var hint = ""
-    @Published var twoFactor = ""
+    var phoneNumber = ""
+    var code = ""
+    var hint = ""
+    var twoFactor = ""
     
-    @Published var errorShown = false
+    var errorShown = false
     
     init() {
         setPublishers()

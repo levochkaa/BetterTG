@@ -3,8 +3,14 @@
 import SwiftUI
 
 struct SettingsView: View {
-    
-    @EnvironmentObject var settings: SettingsViewModel
+    @AppStorage("showAnimojis") var showAnimojis = true
+    @AppStorage("showPhotos") var showPhotos = true
+    @AppStorage("showAlbums") var showAlbums = true
+    @AppStorage("showVoiceNotes") var showVoiceNotes = true
+    @AppStorage("showArchivedChatsButton") var showArchivedChatsButton = true
+    @AppStorage("showReplies") var showReplies = true
+    @AppStorage("showForwardedFrom") var showForwardedFrom = true
+    @AppStorage("showEdited") var showEdited = true
     
     var body: some View {
         List {
@@ -22,17 +28,17 @@ struct SettingsView: View {
             .listRowBackground(Color.clear)
             
             customSection(header: "Chats List") {
-                Toggle("Archived Chats", isOn: $settings.showArchivedChatsButton)
+                Toggle("Archived Chats", isOn: $showArchivedChatsButton)
             }
             
             customSection(header: "Chat") {
-                Toggle("Albums", isOn: $settings.showAlbums)
-                Toggle("Photos", isOn: $settings.showPhotos)
-                Toggle("Animojis", isOn: $settings.showAnimojis)
-                Toggle("Voice Notes", isOn: $settings.showVoiceNotes)
-                Toggle("Replies", isOn: $settings.showReplies)
-                Toggle("Forwarded From", isOn: $settings.showForwardedFrom)
-                Toggle("Edited", isOn: $settings.showEdited)
+                Toggle("Albums", isOn: $showAlbums)
+                Toggle("Photos", isOn: $showPhotos)
+                Toggle("Animojis", isOn: $showAnimojis)
+                Toggle("Voice Notes", isOn: $showVoiceNotes)
+                Toggle("Replies", isOn: $showReplies)
+                Toggle("Forwarded From", isOn: $showForwardedFrom)
+                Toggle("Edited", isOn: $showEdited)
             }
         }
         .listStyle(.automatic)
@@ -67,6 +73,5 @@ struct SettingsView: View {
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
         SettingsView()
-            .environmentObject(SettingsViewModel())
     }
 }

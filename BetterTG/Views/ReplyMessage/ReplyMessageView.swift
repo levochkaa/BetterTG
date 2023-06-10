@@ -1,14 +1,14 @@
 // ReplyMessageView.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct ReplyMessageView: View {
     
     @State var customMessage: CustomMessage
     @State var type: ReplyMessageType
     
-    @EnvironmentObject var viewModel: ChatViewModel
+    @Environment(ChatViewModel.self) var viewModel
     
     var body: some View {
         HStack(alignment: .center, spacing: 5) {

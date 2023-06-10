@@ -4,7 +4,7 @@ import SwiftUI
 
 struct CameraView: UIViewControllerRepresentable {
     
-    @EnvironmentObject var viewModel: ChatViewModel
+    @Environment(ChatViewModel.self) var viewModel
     
     func makeUIViewController(context: Context) -> some UIViewController {
         let controller = UIImagePickerController()

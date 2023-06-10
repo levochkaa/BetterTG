@@ -17,7 +17,7 @@ extension RootView {
             .disabled(true)
             .scrollDisabled(true)
             .toolbar {
-                if settings.showArchivedChatsButton {
+                if showArchivedChatsButton {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(systemImage: "square.stack") {}
                             .disabled(true)

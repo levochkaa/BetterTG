@@ -3,16 +3,16 @@
 import SwiftUI
 import Combine
 import TDLibKit
+import Observation
 
-final class RootViewModel: ObservableObject {
-    
-    @Published var loggedIn: Bool?
-    @Published var mainChats = [CustomChat]()
-    @Published var searchedGlobalChats = [CustomChat]()
-    @Published var archivedChats = [CustomChat]()
-    @Published var searchScope: SearchScope = .chats
-    @Published var openedItem: OpenedItem?
-    var namespace: Namespace.ID! = nil
+@Observable final class RootViewModel {
+    var loggedIn: Bool? = nil
+    var mainChats = [CustomChat]()
+    var searchedGlobalChats = [CustomChat]()
+    var archivedChats = [CustomChat]()
+    var searchScope: SearchScope = .chats
+    var openedItem: OpenedItem? = nil
+    @ObservationIgnored var namespace: Namespace.ID! = nil
     
     init() {
         setPublishers()

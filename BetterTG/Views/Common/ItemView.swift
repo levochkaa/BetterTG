@@ -9,7 +9,7 @@ struct ItemView: View {
     @State private var offsetY: CGFloat = 0
     @State private var opacity: Double = 1
     
-    @EnvironmentObject var viewModel: RootViewModel
+    @Environment(RootViewModel.self) var viewModel
     
     var hideGesture: some Gesture {
         DragGesture()
