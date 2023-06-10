@@ -4,5 +4,6 @@ disabled_rules:
   - identifier_name
   - cyclomatic_complexity
   - inclusive_language
+  - redundant_optional_initialization
 excluded:
   - third-party
