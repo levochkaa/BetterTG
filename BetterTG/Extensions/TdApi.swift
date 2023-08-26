@@ -51,6 +51,7 @@ func startTdLibUpdateHandler() {
             log("Error TdLibUpdateHandler: \(error)")
         }
     }
+    Task { try await td.setLogStream(logStream: .logStreamEmpty) }
 }
 
 // swiftlint:disable:next function_body_length
