@@ -8,9 +8,7 @@ import Observation
 extension ChatViewModel {
     func setLocalPublishers() {
         withObservationTracking {
-            _ = editMessageText
-            _ = text
-            _ = displayedImages
+            (_, _, _) = (editMessageText, text, displayedImages)
         } onChange: { [weak self] in
             guard let self else { return }
             showSendButton = !displayedImages.isEmpty || !editMessageText.characters.isEmpty || !text.characters.isEmpty

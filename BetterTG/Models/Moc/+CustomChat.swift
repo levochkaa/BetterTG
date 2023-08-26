@@ -6,7 +6,7 @@ import TDLibKit
 extension CustomChat {
     static func moc(_ id: UUID) -> CustomChat {
         CustomChat(
-            id: UUID(),
+            id: id,
             chat: .moc,
             positions: [],
             unreadCount: 0,
