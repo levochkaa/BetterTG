@@ -8,8 +8,11 @@ extension User {
         addedToAttachmentMenu: false,
         emojiStatus: nil,
         firstName: "firstName",
+        hasActiveStories: false,
+        hasUnreadActiveStories: false,
         haveAccess: false,
         id: 0,
+        isCloseFriend: false,
         isContact: false,
         isFake: false,
         isMutualContact: false,
@@ -17,13 +20,13 @@ extension User {
         isScam: false,
         isSupport: false,
         isVerified: false,
-        languageCode: "",
+        languageCode: "en",
         lastName: "lastName",
         phoneNumber: "",
         profilePhoto: nil,
         restrictionReason: "",
         status: .userStatusEmpty,
-        type: .userTypeRegular,
+        type: .userTypeUnknown,
         usernames: nil
     )
 }

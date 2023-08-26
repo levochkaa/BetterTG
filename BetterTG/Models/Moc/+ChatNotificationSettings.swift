@@ -8,12 +8,18 @@ extension ChatNotificationSettings {
         disableMentionNotifications: false,
         disablePinnedMessageNotifications: false,
         muteFor: 0,
+        muteStories: false, 
         showPreview: false,
+        showStorySender: false, 
         soundId: 0,
+        storySoundId: 0, 
         useDefaultDisableMentionNotifications: false,
         useDefaultDisablePinnedMessageNotifications: false,
         useDefaultMuteFor: false,
+        useDefaultMuteStories: false, 
         useDefaultShowPreview: false,
-        useDefaultSound: false
+        useDefaultShowStorySender: false, 
+        useDefaultSound: false,
+        useDefaultStorySound: false
     )
 }
