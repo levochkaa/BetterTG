@@ -15,7 +15,7 @@ extension LoginViewModel {
     
     func tdResendAuthenticationCode() async {
         do {
-            _ = try await tdApi.resendAuthenticationCode()
+            try await tdApi.resendAuthenticationCode()
         } catch {
             log("Error resending authCode: \(error)")
         }
@@ -23,7 +23,7 @@ extension LoginViewModel {
     
     func tdSetAuthenticationPhoneNumber(phoneNumber: String) async {
         do {
-            _ = try await tdApi.setAuthenticationPhoneNumber(
+            try await tdApi.setAuthenticationPhoneNumber(
                 phoneNumber: phoneNumber,
                 settings: nil
             )
@@ -34,7 +34,7 @@ extension LoginViewModel {
     
     func tdCheckAuthenticationCode(code: String) async {
         do {
-            _ = try await tdApi.checkAuthenticationCode(code: code)
+            try await tdApi.checkAuthenticationCode(code: code)
         } catch {
             log("Error checking authCode: \(error)")
         }
@@ -42,7 +42,7 @@ extension LoginViewModel {
     
     func tdCheckAuthenticationPassword(password: String) async {
         do {
-            _ = try await tdApi.checkAuthenticationPassword(password: password)
+            try await tdApi.checkAuthenticationPassword(password: password)
         } catch {
             log("Error checking authPassword: \(error)")
         }

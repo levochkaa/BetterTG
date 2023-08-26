@@ -38,7 +38,7 @@ extension RootViewModel {
     
     func tdToggleChatIsPinned(chatId: Int64, chatList: ChatList, isPinned: Bool) async {
         do {
-            _ = try await tdApi.toggleChatIsPinned(chatId: chatId, chatList: chatList, isPinned: isPinned)
+            try await tdApi.toggleChatIsPinned(chatId: chatId, chatList: chatList, isPinned: isPinned)
         } catch {
             log("Error toggling chatIsPinned: \(isPinned)")
         }
@@ -46,7 +46,7 @@ extension RootViewModel {
     
     func tdDeleteChatHistory(chatId: Int64, forAll: Bool) async {
         do {
-            _ = try await tdApi.deleteChatHistory(chatId: chatId, removeFromChatList: true, revoke: forAll)
+            try await tdApi.deleteChatHistory(chatId: chatId, removeFromChatList: true, revoke: forAll)
         } catch {
             log("Error deleting chat: \(error)")
         }
@@ -63,7 +63,7 @@ extension RootViewModel {
     
     func tdLoadChats(for chatList: ChatList = .chatListMain) async {
         do {
-            _ = try await tdApi.loadChats(chatList: chatList, limit: 200)
+            try await tdApi.loadChats(chatList: chatList, limit: 200)
         } catch {
             log("Error loading chats: \(error)")
         }

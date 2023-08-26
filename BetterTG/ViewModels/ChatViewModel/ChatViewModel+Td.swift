@@ -15,7 +15,7 @@ extension ChatViewModel {
     
     func tdDeleteMessages(ids: [Int64], deleteForBoth: Bool) async {
         do {
-            _ = try await tdApi.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
+            try await tdApi.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
         } catch {
             log("Error deleting messages: \(error)")
         }
@@ -108,7 +108,7 @@ extension ChatViewModel {
     
     func tdSetChatDraftMessage(_ draftMessage: DraftMessage) async {
         do {
-            _ = try await tdApi.setChatDraftMessage(
+            try await tdApi.setChatDraftMessage(
                 chatId: customChat.chat.id,
                 draftMessage: draftMessage,
                 messageThreadId: 0
@@ -167,7 +167,7 @@ extension ChatViewModel {
     
     func tdViewMessages(ids: [Int64]) async {
         do {
-            _ = try await tdApi.viewMessages(
+            try await tdApi.viewMessages(
                 chatId: customChat.chat.id,
                 forceRead: true,
                 messageIds: ids,
@@ -180,7 +180,7 @@ extension ChatViewModel {
     
     func tdSendChatAction(_ chatAction: ChatAction) async {
         do {
-            _ = try await tdApi.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
+            try await tdApi.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
         } catch {
             log("Error sending chatAction: \(error)")
         }
@@ -188,7 +188,7 @@ extension ChatViewModel {
     
     func tdRecognizeSpeech(for messageId: Int64) async {
         do {
-            _ = try await tdApi.recognizeSpeech(chatId: customChat.chat.id, messageId: messageId)
+            try await tdApi.recognizeSpeech(chatId: customChat.chat.id, messageId: messageId)
         } catch {
             log("Error recognizing speech: \(error)")
         }

@@ -33,7 +33,7 @@ extension TdApi {
                 url.append(path: "td")
                 let dir = url.path()
                 
-                _ = try await self.setTdlibParameters(
+                try await self.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
                     applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
