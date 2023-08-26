@@ -71,8 +71,21 @@ extension ChatViewModel {
         }
     }
     
-    func getReplyToMessage(id: Int64) async -> Message? {
-        return id != 0 ? await tdGetMessage(id: id) : nil
+    func getMessageReplyTo(from customMessage: CustomMessage?) -> MessageReplyTo? {
+        guard let customMessage else { return nil }
+        return .messageReplyToMessage(
+            .init(
+                chatId: customMessage.message.chatId,
+                messageId: customMessage.message.id
+            )
+        )
+    }
+    
+    func getReplyToMessage(_ replyTo: MessageReplyTo?) async -> Message? {
+        if case .messageReplyToMessage(let messageReplyToMessage) = replyTo {
+            return messageReplyToMessage.messageId != 0 ? await tdGetMessage(id: messageReplyToMessage.messageId) : nil
+        }
+        return nil
     }
     
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
@@ -82,7 +95,7 @@ extension ChatViewModel {
     }
     
     func getCustomMessage(from message: Message) async -> CustomMessage {
-        let replyToMessage = await getReplyToMessage(id: message.replyToMessageId)
+        let replyToMessage = await getReplyToMessage(message.replyTo)
         var customMessage = CustomMessage(message: message, replyToMessage: replyToMessage)
         if message.mediaAlbumId != 0 { customMessage.album.append(message) }
         customMessage.forwardedFrom = await getForwardedFrom(message.forwardInfo?.origin)

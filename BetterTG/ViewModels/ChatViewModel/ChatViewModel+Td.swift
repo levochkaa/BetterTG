@@ -126,7 +126,7 @@ extension ChatViewModel {
                 messageThreadId: 0,
                 options: nil,
                 replyMarkup: nil,
-                replyToMessageId: replyMessage?.message.id ?? 0
+                replyTo: getMessageReplyTo(from: replyMessage)
             )
         } catch {
             await tdSendChatAction(.chatActionCancel)
@@ -142,7 +142,7 @@ extension ChatViewModel {
                 messageThreadId: nil,
                 onlyPreview: nil,
                 options: nil,
-                replyToMessageId: replyMessage?.message.id ?? 0
+                replyTo: getMessageReplyTo(from: replyMessage)
             )
         } catch {
             await tdSendChatAction(.chatActionCancel)
