@@ -150,8 +150,8 @@ struct CustomTextField: View {
             .onChange(of: text) { _, newText in
                 showingPlaceholder = newText.characters.isEmpty
             }
-            .if(showingPlaceholder) {
-                $0.background(alignment: .topLeading) {
+            .background(alignment: .topLeading) {
+                if showingPlaceholder {
                     Text(placeholder)
                         .foregroundColor(.gray)
                         .padding(.leading, 4)
