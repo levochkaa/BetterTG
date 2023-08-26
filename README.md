@@ -5,8 +5,7 @@
 <p align="center">A Telegram client for iOS</p>
 
 ![](https://img.shields.io/badge/platform-iOS-000000?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/minimum%20OS-iOS%2016-blueviolet?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/Swift%205.7-FA7343?style=flat&logo=swift&logoColor=white)
+![](https://img.shields.io/badge/minimum%20OS-iOS%2017-blueviolet?style=flat&logo=apple&logoColor=white)
 ![](https://img.shields.io/badge/SwiftUI-2E00F1?style=flat&logo=swift&logoColor=white)
 ![](https://img.shields.io/badge/Telegram-2CA5E0?style=flat&logo=telegram&logoColor=white)
 [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg?style=flat)](https://opensource.org/licenses/)
@@ -25,7 +24,6 @@
 - unique UI
 - last seen online
 - formatting/formatted messages
-- live activity with opened chat
 
 # Road Map
 
@@ -61,14 +59,9 @@ or [AltStore (suggested)](https://altstore.io).
 
 # Important
 
-- Release scheme isn't building at the moment, it just stucks at compiling TDLibKit, use DEBUG
 - Performance with animoji's is terrible, I recommend disabling them in settings sheet
 
 # Contributing
-
-You can contribute **any** change you want to!
-
-**But, if you are intreseted in the project Road Map, check this [GitHub Project](https://github.com/users/levochkaa/projects/1/views/1)**
 
 ## Step 1 - Clone the repo
 
@@ -78,7 +71,7 @@ git clone https://github.com/levochkaa/BetterTG.git
 
 ## Step 2 - Download XCode
 
-Latest **Xcode 14 beta** versions are used for this project.\
+Latest **Xcode** version is used for this project.\
 I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading XCode.
 
 ## Step 3 - `api_id` and `api_hash`
