@@ -12,10 +12,10 @@
     {
       "identity" : "libwebp-xcode",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/SDWebImage/libwebp-Xcode",
+      "location" : "https://github.com/SDWebImage/libwebp-Xcode.git",
       "state" : {
-        "revision" : "4f52fc9b29600a03de6e05af16df0d694cb44301",
-        "version" : "1.2.4"
+        "revision" : "1cdddb80ccef6d30e869c4abe1f9f3d3871a25b5",
+        "version" : "1.3.1"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImage.git",
       "state" : {
-        "revision" : "c51ba84499268ea3020e6aee9e229c0f56b9d924",
-        "version" : "5.16.0"
+        "revision" : "633996a807442ec28df9d33b0f88ce57a0e2fdbf",
+        "version" : "5.17.0"
       }
     },
     {
@@ -50,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImageWebPCoder.git",
       "state" : {
-        "revision" : "7087a82a3d23cbace8e4bb12cd0df054c7f2356a",
-        "version" : "0.11.0"
+        "revision" : "3819cb70faa2454b54d8364779bfacd8c216a6e2",
+        "version" : "0.13.0"
       }
     },
     {
@@ -59,8 +59,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
-        "revision" : "fee6933f37fde9a5e12a1e4aeaa93fe60116ff2a",
-        "version" : "1.2.2"
+        "revision" : "8f4d2753f0e4778c76d5f05ad16c74f707390531",
+        "version" : "1.2.3"
       }
     },
     {
@@ -68,8 +68,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/siteline/SwiftUI-Introspect.git",
       "state" : {
-        "revision" : "c29b50a475120fdfa22573622464a7346aaf99a4",
-        "version" : "0.6.0"
+        "revision" : "9da0f9b7bffe96a7c98a0128f1e214f62728a39a",
+        "version" : "0.11.1"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "6a6b60414ab3e9ccfae45a1a2abea4a18011cac0",
-        "version" : "1.8.14-4580cfc2"
+        "revision" : "cb116d8b428d54b3fff227be3b1664de198f0e5b",
+        "version" : "1.8.16-470c36ce"
       }
     },
     {
@@ -87,7 +87,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "adbfe0b07ee3cb900edc52dba71d0789e9817648"
+        "revision" : "f912fb34dd6c1450243ff8e8f3408fdd2245043f"
       }
     }
   ],
