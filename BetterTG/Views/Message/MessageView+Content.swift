@@ -19,8 +19,8 @@ extension MessageView {
                 simpleMessageContent
             }
         }
-        .if(textWidth == .zero) {
-            $0.overlay(alignment: .bottomTrailing) {
+        .overlay(alignment: .bottomTrailing) {
+            if textWidth == .zero {
                 if case .messageVoiceNote = customMessage.message.content {
                     EmptyView()
                 } else if showAlbums {
