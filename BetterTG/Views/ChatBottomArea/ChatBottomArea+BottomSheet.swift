@@ -6,36 +6,35 @@ import PhotosUI
 extension ChatBottomArea {
     @ViewBuilder var bottomSheet: some View {
         NavigationStack {
-            WithBindable<ChatViewModel> { bindableViewModel in
-                ScrollView(showsIndicators: false) {
-                    LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
-                        ForEach(Array(viewModel.fetchedImages.enumerated()), id: \.offset) { index, imageAsset in
-                            if let thummbail = imageAsset.thumbnail {
-                                fetchedImageView(index, for: imageAsset, with: thummbail)
-                            } else {
-                                RoundedRectangle(cornerRadius: 15)
-                                    .fill(.gray6)
-                                    .frame(width: Utils.bottomSheetPhotoWidth, height: Utils.bottomSheetPhotoWidth)
-                                    .overlay {
-                                        Image(systemName: "exclamationmark.square")
-                                            .font(.largeTitle)
-                                    }
-                            }
+            @Bindable var viewModel = viewModel
+            ScrollView(showsIndicators: false) {
+                LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
+                    ForEach(Array(viewModel.fetchedImages.enumerated()), id: \.offset) { index, imageAsset in
+                        if let thummbail = imageAsset.thumbnail {
+                            fetchedImageView(index, for: imageAsset, with: thummbail)
+                        } else {
+                            RoundedRectangle(cornerRadius: 15)
+                                .fill(.gray6)
+                                .frame(width: Utils.bottomSheetPhotoWidth, height: Utils.bottomSheetPhotoWidth)
+                                .overlay {
+                                    Image(systemName: "exclamationmark.square")
+                                        .font(.largeTitle)
+                                }
                         }
                     }
-                    .padding(10)
                 }
-                .fullScreenCover(isPresented: bindableViewModel.showCameraView) {
-                    NavigationStack {
-                        CameraView()
-                            .navigationTitle("Camera")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbarTitleMenu {
-                                Button("Gallery") {
-                                    viewModel.showCameraView = false
-                                }
+                .padding(10)
+            }
+            .fullScreenCover(isPresented: $viewModel.showCameraView) {
+                NavigationStack {
+                    CameraView()
+                        .navigationTitle("Camera")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbarTitleMenu {
+                            Button("Gallery") {
+                                viewModel.showCameraView = false
                             }
-                    }
+                        }
                 }
             }
             .navigationTitle("Gallery")

@@ -51,7 +51,6 @@
 		DF42BFD2298C70F500039ACD /* +Chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD1298C70F500039ACD /* +Chat.swift */; };
 		DF42BFD4298C710300039ACD /* +ChatPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD3298C710300039ACD /* +ChatPermission.swift */; };
 		DF42BFD6298C710F00039ACD /* +ChatNotificationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42BFD5298C710F00039ACD /* +ChatNotificationSettings.swift */; };
-		DF4A5FF92A34FA6100ABD5D1 /* WithBindable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4A5FF82A34FA6100ABD5D1 /* WithBindable.swift */; };
 		DF4A5FFB2A350EC900ABD5D1 /* Debouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4A5FFA2A350EC900ABD5D1 /* Debouncer.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
@@ -255,7 +254,6 @@
 		DF42BFD1298C70F500039ACD /* +Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+Chat.swift"; sourceTree = "<group>"; };
 		DF42BFD3298C710300039ACD /* +ChatPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+ChatPermission.swift"; sourceTree = "<group>"; };
 		DF42BFD5298C710F00039ACD /* +ChatNotificationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "+ChatNotificationSettings.swift"; sourceTree = "<group>"; };
-		DF4A5FF82A34FA6100ABD5D1 /* WithBindable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WithBindable.swift; sourceTree = "<group>"; };
 		DF4A5FFA2A350EC900ABD5D1 /* Debouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debouncer.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
@@ -580,7 +578,6 @@
 				DF9C817A29994AF6008989B0 /* DividerAround.swift */,
 				DF180BD9299D8F3C008174A4 /* ItemView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
-				DF4A5FF82A34FA6100ABD5D1 /* WithBindable.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -1076,7 +1073,6 @@
 				DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */,
 				DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */,
 				DF9C816F2998DECE008989B0 /* RootView+BodyPlaceholder.swift in Sources */,
-				DF4A5FF92A34FA6100ABD5D1 /* WithBindable.swift in Sources */,
 				DFE026602951142D004C8C83 /* ReplyMessageView+Content.swift in Sources */,
 				DF99C02C2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift in Sources */,
 				DF5261DF294F602600FB7C73 /* MessageView.swift in Sources */,

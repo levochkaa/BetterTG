@@ -24,32 +24,31 @@ struct ChatBottomArea: View {
     let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     
     var body: some View {
-        WithBindable<ChatViewModel> { bindableViewModel in
-            VStack(alignment: .center, spacing: 5) {
-                topSide
-                
-                if !viewModel.displayedImages.isEmpty {
-                    photosScroll
-                }
-                
-                if !viewModel.recordingVoiceNote {
-                    HStack(alignment: .center, spacing: 10) {
-                        leftSide
-                        
-                        textField
-                        
-                        rightSide
-                    }
-                } else {
-                    voiceNoteRecording
-                }
+        @Bindable var viewModel = viewModel
+        VStack(alignment: .center, spacing: 5) {
+            topSide
+            
+            if !viewModel.displayedImages.isEmpty {
+                photosScroll
             }
-            .errorAlert(show: bindableViewModel.errorShown, text: viewModel.errorMessage)
-            .sheet(isPresented: bindableViewModel.showBottomSheet) {
-                bottomSheet
-                    .presentationDragIndicator(.hidden)
-                    .presentationDetents([.medium, .large])
+            
+            if !viewModel.recordingVoiceNote {
+                HStack(alignment: .center, spacing: 10) {
+                    leftSide
+                    
+                    textField
+                    
+                    rightSide
+                }
+            } else {
+                voiceNoteRecording
             }
+        }
+        .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
+        .sheet(isPresented: $viewModel.showBottomSheet) {
+            bottomSheet
+                .presentationDragIndicator(.hidden)
+                .presentationDetents([.medium, .large])
         }
         .animation(value: viewModel.editCustomMessage)
         .animation(value: viewModel.replyMessage)

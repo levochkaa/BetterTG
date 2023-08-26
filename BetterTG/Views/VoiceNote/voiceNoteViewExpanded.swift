@@ -67,18 +67,17 @@ extension MessageView {
     }
     
     @ViewBuilder func voiceNoteViewExpandedBottom(for voiceNote: VoiceNote) -> some View {
-        WithBindable<ChatViewModel> { bindableViewModel in
-            Slider(value: bindableViewModel.timeSliderValue, in: 0...Double(voiceNote.duration)) {
-                Text("Voice Note Time Slider")
-            } onEditingChanged: { value in
-                if !value {
-                    viewModel.mediaSeekTo()
-                } else {
-                    viewModel.isSeeking = true
-                }
+        @Bindable var viewModel = viewModel
+        Slider(value: $viewModel.timeSliderValue, in: 0...Double(voiceNote.duration)) {
+            Text("Voice Note Time Slider")
+        } onEditingChanged: { value in
+            if !value {
+                viewModel.mediaSeekTo()
+            } else {
+                viewModel.isSeeking = true
             }
-            .padding(.horizontal, 10)
         }
+        .padding(.horizontal, 10)
         
         HStack(alignment: .center, spacing: 0) {
             Text(viewModel.isSeeking

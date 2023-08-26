@@ -4,11 +4,12 @@ import SwiftUI
 
 extension ChatBottomArea {
     @ViewBuilder var textField: some View {
-        WithBindable<ChatViewModel> { bindableViewModel in
+        @Bindable var viewModel = viewModel
+        Group {
             if viewModel.editCustomMessage == nil {
-                CustomTextField("Message...", text: bindableViewModel.text)
+                CustomTextField("Message...", text: $viewModel.text)
             } else {
-                CustomTextField("Edit...", text: bindableViewModel.editMessageText, focus: true)
+                CustomTextField("Edit...", text: $viewModel.editMessageText, focus: true)
             }
         }
         .unredacted()
