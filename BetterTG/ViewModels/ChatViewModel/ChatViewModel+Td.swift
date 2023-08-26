@@ -6,7 +6,7 @@ import TDLibKit
 extension ChatViewModel {
     func tdGetChat(id: Int64) async -> Chat? {
         do {
-            return try await tdApi.getChat(chatId: id)
+            return try await td.getChat(chatId: id)
         } catch {
             log("Error getting chat: \(error)")
             return nil
@@ -15,7 +15,7 @@ extension ChatViewModel {
     
     func tdDeleteMessages(ids: [Int64], deleteForBoth: Bool) async {
         do {
-            try await tdApi.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
+            try await td.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
         } catch {
             log("Error deleting messages: \(error)")
         }
@@ -23,7 +23,7 @@ extension ChatViewModel {
     
     func tdGetMessage(id: Int64) async -> Message? {
         do {
-            return try await tdApi.getMessage(chatId: customChat.chat.id, messageId: id)
+            return try await td.getMessage(chatId: customChat.chat.id, messageId: id)
         } catch {
             log("Error getting message: \(error)")
             return nil
@@ -32,7 +32,7 @@ extension ChatViewModel {
     
     func tdGetUser(id: Int64) async -> User? {
         do {
-            return try await tdApi.getUser(userId: id)
+            return try await td.getUser(userId: id)
         } catch {
             log("Error getting user: \(error)")
             return nil
@@ -41,7 +41,7 @@ extension ChatViewModel {
     
     func tdEditMessageText(_ editMessage: Message) async {
         do {
-            _ = try await tdApi.editMessageText(
+            _ = try await td.editMessageText(
                 chatId: customChat.chat.id,
                 inputMessageContent:
                         .inputMessageText(
@@ -68,7 +68,7 @@ extension ChatViewModel {
     
     func tdGetCustomEmojiStickers(ids: [TdInt64]) async -> [Sticker]? {
         do {
-            return try await tdApi.getCustomEmojiStickers(customEmojiIds: ids).stickers
+            return try await td.getCustomEmojiStickers(customEmojiIds: ids).stickers
         } catch {
             log("Error getting customEmojiStickers: \(error)")
             return nil
@@ -77,7 +77,7 @@ extension ChatViewModel {
     
     func tdDownloadFile(id: Int, synchronous: Bool, priority: Int = 4) async -> File? {
         do {
-            return try await tdApi.downloadFile(
+            return try await td.downloadFile(
                 fileId: id,
                 limit: 0,
                 offset: 0,
@@ -92,7 +92,7 @@ extension ChatViewModel {
     
     func tdEditMessageCaption(_ editMessage: Message) async {
         do {
-            _ = try await tdApi.editMessageCaption(
+            _ = try await td.editMessageCaption(
                 caption: FormattedText(
                     entities: [],
                     text: editMessageText.string
@@ -108,7 +108,7 @@ extension ChatViewModel {
     
     func tdSetChatDraftMessage(_ draftMessage: DraftMessage) async {
         do {
-            try await tdApi.setChatDraftMessage(
+            try await td.setChatDraftMessage(
                 chatId: customChat.chat.id,
                 draftMessage: draftMessage,
                 messageThreadId: 0
@@ -120,7 +120,7 @@ extension ChatViewModel {
     
     func tdSendMessage(with inputMessageContent: InputMessageContent) async {
         do {
-            _ = try await tdApi.sendMessage(
+            _ = try await td.sendMessage(
                 chatId: customChat.chat.id,
                 inputMessageContent: inputMessageContent,
                 messageThreadId: 0,
@@ -136,7 +136,7 @@ extension ChatViewModel {
     
     func tdSendMessageAlbum(with inputMessageContents: [InputMessageContent]) async {
         do {
-            _ = try await tdApi.sendMessageAlbum(
+            _ = try await td.sendMessageAlbum(
                 chatId: customChat.chat.id,
                 inputMessageContents: inputMessageContents,
                 messageThreadId: nil,
@@ -152,7 +152,7 @@ extension ChatViewModel {
     
     func tdGetChatHistory() async -> [Message]? {
         do {
-            return try await tdApi.getChatHistory(
+            return try await td.getChatHistory(
                 chatId: customChat.chat.id,
                 fromMessageId: self.messages.last?.message.id ?? 0,
                 limit: limit,
@@ -167,7 +167,7 @@ extension ChatViewModel {
     
     func tdViewMessages(ids: [Int64]) async {
         do {
-            try await tdApi.viewMessages(
+            try await td.viewMessages(
                 chatId: customChat.chat.id,
                 forceRead: true,
                 messageIds: ids,
@@ -180,7 +180,7 @@ extension ChatViewModel {
     
     func tdSendChatAction(_ chatAction: ChatAction) async {
         do {
-            try await tdApi.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
+            try await td.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
         } catch {
             log("Error sending chatAction: \(error)")
         }
@@ -188,7 +188,7 @@ extension ChatViewModel {
     
     func tdRecognizeSpeech(for messageId: Int64) async {
         do {
-            try await tdApi.recognizeSpeech(chatId: customChat.chat.id, messageId: messageId)
+            try await td.recognizeSpeech(chatId: customChat.chat.id, messageId: messageId)
         } catch {
             log("Error recognizing speech: \(error)")
         }

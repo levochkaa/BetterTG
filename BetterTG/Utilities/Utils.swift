@@ -1,7 +1,6 @@
 // Utils.swift
 
-import Foundation
-import UIKit
+import SwiftUI
 
 enum Utils {
     static var size = UIScreen.main.bounds.size

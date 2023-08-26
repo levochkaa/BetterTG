@@ -6,7 +6,7 @@ import TDLibKit
 extension RootViewModel {
     func tdGetChat(id: Int64) async -> Chat? {
         do {
-            return try await tdApi.getChat(chatId: id)
+            return try await td.getChat(chatId: id)
         } catch {
             log("Error getting chat: \(error)")
             return nil
@@ -15,7 +15,7 @@ extension RootViewModel {
     
     func tdGetMessage(chatId: Int64, messageId: Int64) async -> Message? {
         do {
-            return try await tdApi.getMessage(chatId: chatId, messageId: messageId)
+            return try await td.getMessage(chatId: chatId, messageId: messageId)
         } catch {
             log("Error getting message: \(error)")
             return nil
@@ -24,7 +24,7 @@ extension RootViewModel {
     
     func tdGetChatHistory(chatId: Int64) async {
         do {
-            _ = try await tdApi.getChatHistory(
+            _ = try await td.getChatHistory(
                 chatId: chatId,
                 fromMessageId: 0,
                 limit: 30,
@@ -38,7 +38,7 @@ extension RootViewModel {
     
     func tdToggleChatIsPinned(chatId: Int64, chatList: ChatList, isPinned: Bool) async {
         do {
-            try await tdApi.toggleChatIsPinned(chatId: chatId, chatList: chatList, isPinned: isPinned)
+            try await td.toggleChatIsPinned(chatId: chatId, chatList: chatList, isPinned: isPinned)
         } catch {
             log("Error toggling chatIsPinned: \(isPinned)")
         }
@@ -46,7 +46,7 @@ extension RootViewModel {
     
     func tdDeleteChatHistory(chatId: Int64, forAll: Bool) async {
         do {
-            try await tdApi.deleteChatHistory(chatId: chatId, removeFromChatList: true, revoke: forAll)
+            try await td.deleteChatHistory(chatId: chatId, removeFromChatList: true, revoke: forAll)
         } catch {
             log("Error deleting chat: \(error)")
         }
@@ -54,7 +54,7 @@ extension RootViewModel {
     
     func tdSearchPublicChats(query: String) async -> [Int64] {
         do {
-            return try await tdApi.searchPublicChats(query: query).chatIds
+            return try await td.searchPublicChats(query: query).chatIds
         } catch {
             log("Error searching publicChats (global): \(error)")
             return []
@@ -63,7 +63,7 @@ extension RootViewModel {
     
     func tdLoadChats(for chatList: ChatList = .chatListMain) async {
         do {
-            try await tdApi.loadChats(chatList: chatList, limit: 200)
+            try await td.loadChats(chatList: chatList, limit: 200)
         } catch {
             log("Error loading chats: \(error)")
         }
@@ -71,7 +71,7 @@ extension RootViewModel {
     
     func tdGetChats(for chatList: ChatList = .chatListMain) async -> [Int64] {
         do {
-            return try await tdApi.getChats(chatList: chatList, limit: 200).chatIds
+            return try await td.getChats(chatList: chatList, limit: 200).chatIds
         } catch {
             log("Error getting chats: \(error)")
             return []
@@ -80,7 +80,7 @@ extension RootViewModel {
     
     func tdGetUser(id: Int64) async -> User? {
         do {
-            return try await tdApi.getUser(userId: id)
+            return try await td.getUser(userId: id)
         } catch {
             log("Error getting user: \(error)")
             return nil

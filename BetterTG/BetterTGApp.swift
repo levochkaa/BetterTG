@@ -10,7 +10,7 @@ import Lottie
 struct BetterTGApp: App {
     
     init() {
-        TdApi.shared.startTdLibUpdateHandler()
+        startTdLibUpdateHandler()
         
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()

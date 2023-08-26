@@ -6,7 +6,7 @@ import TDLibKit
 extension LoginViewModel {
     func tdGetAuthorizationState() async -> AuthorizationState? {
         do {
-            return try await tdApi.getAuthorizationState()
+            return try await td.getAuthorizationState()
         } catch {
             log("Error getting authState: \(error)")
             return nil
@@ -15,7 +15,7 @@ extension LoginViewModel {
     
     func tdResendAuthenticationCode() async {
         do {
-            try await tdApi.resendAuthenticationCode()
+            try await td.resendAuthenticationCode()
         } catch {
             log("Error resending authCode: \(error)")
         }
@@ -23,7 +23,7 @@ extension LoginViewModel {
     
     func tdSetAuthenticationPhoneNumber(phoneNumber: String) async {
         do {
-            try await tdApi.setAuthenticationPhoneNumber(
+            try await td.setAuthenticationPhoneNumber(
                 phoneNumber: phoneNumber,
                 settings: nil
             )
@@ -34,7 +34,7 @@ extension LoginViewModel {
     
     func tdCheckAuthenticationCode(code: String) async {
         do {
-            try await tdApi.checkAuthenticationCode(code: code)
+            try await td.checkAuthenticationCode(code: code)
         } catch {
             log("Error checking authCode: \(error)")
         }
@@ -42,7 +42,7 @@ extension LoginViewModel {
     
     func tdCheckAuthenticationPassword(password: String) async {
         do {
-            try await tdApi.checkAuthenticationPassword(password: password)
+            try await td.checkAuthenticationPassword(password: password)
         } catch {
             log("Error checking authPassword: \(error)")
         }
@@ -50,7 +50,7 @@ extension LoginViewModel {
     
     func tdGetCountries() async -> [CountryInfo]? {
         do {
-            return try await tdApi.getCountries().countries
+            return try await td.getCountries().countries
         } catch {
             log("Error getting countries: \(error)")
             return nil
@@ -59,7 +59,7 @@ extension LoginViewModel {
     
     func tdGetCountryCode() async -> String? {
         do {
-            return try await tdApi.getCountryCode().text
+            return try await td.getCountryCode().text
         } catch {
             log("Error getting countryCode: \(error)")
             return nil

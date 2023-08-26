@@ -43,7 +43,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     private func download(_ id: Int? = nil) {
         Task {
             do {
-                self.file = try await tdApi.downloadFile(
+                self.file = try await td.downloadFile(
                     fileId: id ?? self.id,
                     limit: 0,
                     offset: 0,
