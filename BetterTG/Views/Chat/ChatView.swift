@@ -52,15 +52,6 @@ struct ChatView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .environment(viewModel)
-        .task {
-            await viewModel.loadLiveActivity()
-        }
-        .onDisappear {
-            LiveActivityManager.endAllActivities()
-        }
-        .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            Task { await viewModel.loadLiveActivity() }
-        }
         .onChange(of: viewModel.editCustomMessage) { _, editCustomMessage in
             guard let editCustomMessage else { return }
             viewModel.setEditMessageText(from: editCustomMessage.message)

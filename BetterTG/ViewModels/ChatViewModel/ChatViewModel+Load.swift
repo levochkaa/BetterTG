@@ -71,24 +71,4 @@ extension ChatViewModel {
             }
         }
     }
-    
-    func loadLiveActivity() async {
-        guard let content = customChat.chat.lastMessage?.content,
-              let lastMessageText = getText(from: content),
-              let photoId = customChat.chat.photo?.small.id ?? customChat.user.profilePhoto?.small.id,
-              let file = await tdDownloadFile(id: photoId, synchronous: true, priority: 32),
-              let url = URL(string: file.local.path),
-              let destinationUrl = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: "group.com.levochkaaa.BetterTGWidget"
-              )
-        else { return }
-        
-        let destinationPath = destinationUrl.appending(path: url.lastPathComponent).path()
-        try? FileManager.default.moveItem(atPath: file.local.path, toPath: destinationPath)
-        
-        currentLiveActivityId = LiveActivityManager.startActivity(
-            messageAttributes: .init(name: customChat.chat.title, avatarId: url.lastPathComponent),
-            contentState: .init(lastMessageText: lastMessageText)
-        )
-    }
 }

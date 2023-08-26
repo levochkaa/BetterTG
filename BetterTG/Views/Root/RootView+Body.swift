@@ -85,9 +85,6 @@ extension RootView {
                 }
             }
         }
-        .onReceive(nc.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            LiveActivityManager.endAllActivities()
-        }
         .overlay {
             if let openedItem = viewModel.openedItem {
                 ItemView(item: openedItem)

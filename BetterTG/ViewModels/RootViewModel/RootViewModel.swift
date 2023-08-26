@@ -22,7 +22,6 @@ import Observation
         switch scenePhase {
             case .active:
                 log("App is Active")
-                LiveActivityManager.endAllActivities()
                 Task {
                     await mainChats.asyncForEach { customChat in
                         await tdGetChatHistory(chatId: customChat.chat.id)
