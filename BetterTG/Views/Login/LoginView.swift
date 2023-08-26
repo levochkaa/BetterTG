@@ -8,9 +8,7 @@ struct LoginView: View {
     
     @State var showSelectCountryView = false
     @State var searchCountries = ""
-    @FocusState var focusedPhoneNumber
-    @FocusState var focusedTwoFactor
-    @FocusState var focusedCode
+    @FocusState var focused: LoginState?
     
     var body: some View {
         NavigationStack {

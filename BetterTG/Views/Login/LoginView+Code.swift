@@ -11,19 +11,16 @@ extension LoginView {
             }
             
             TextField("Code", text: $viewModel.code)
-                .focused($focusedCode)
+                .focused($focused, equals: .code)
                 .keyboardType(.numberPad)
                 .padding()
                 .background(.gray6)
                 .cornerRadius(10)
             
             bottomButton {
-                focusedCode = false
+                focused = .twoFactor
             }
         }
         .padding()
-        .onAppear {
-            focusedCode = true
-        }
     }
 }

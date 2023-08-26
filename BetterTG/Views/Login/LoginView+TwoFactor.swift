@@ -11,7 +11,7 @@ extension LoginView {
             }
             
             SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
-                .focused($focusedTwoFactor)
+                .focused($focused, equals: .twoFactor)
                 .textContentType(.password)
                 .keyboardType(.alphabet)
                 .padding()
@@ -19,12 +19,9 @@ extension LoginView {
                 .cornerRadius(10)
             
             bottomButton {
-                focusedTwoFactor = false
+                focused = nil
             }
         }
         .padding()
-        .onAppear {
-            focusedTwoFactor = true
-        }
     }
 }

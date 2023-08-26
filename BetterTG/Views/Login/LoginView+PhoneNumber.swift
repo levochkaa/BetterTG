@@ -15,18 +15,17 @@ extension LoginView {
                     Text("+\(viewModel.selectedCountryNum.phoneNumberPrefix)")
                     
                     TextField("Phone Number", text: $viewModel.phoneNumber)
-                        .focused($focusedPhoneNumber)
+                        .focused($focused, equals: .phoneNumber)
                         .keyboardType(.numberPad)
                 }
             } label: {
                 Button(viewModel.selectedCountryNum.name) {
-                    focusedPhoneNumber = false
                     showSelectCountryView.toggle()
                 }
             }
             
             bottomButton {
-                focusedPhoneNumber = false
+                focused = .code
             }
         }
         .padding()
@@ -35,7 +34,6 @@ extension LoginView {
                 .presentationDetents([.medium, .large])
         }
         .onAppear {
-            focusedPhoneNumber = true
             viewModel.loadCountries()
         }
     }
