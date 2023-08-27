@@ -21,9 +21,6 @@ struct BetterTGApp: App {
         
         SDImageCodersManager.shared.addCoder(SDImageWebPCoder.shared)
         
-        UIApplication.window?.overrideUserInterfaceStyle = .dark
-        UIApplication.keyWindow?.overrideUserInterfaceStyle = .dark
-        
         LottieConfiguration.shared.renderingEngine = .specific(.coreAnimation)
         LottieLogger.shared = .printToConsole
     }
@@ -31,8 +28,6 @@ struct BetterTGApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .preferredColorScheme(.dark)
-                .environment(\.colorScheme, .dark)
         }
     }
 }

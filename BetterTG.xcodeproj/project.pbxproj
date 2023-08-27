@@ -80,7 +80,6 @@
 		DF763B062971BCA600334615 /* Task+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B052971BCA600334615 /* Task+Async.swift */; };
 		DF763B082971BE5B00334615 /* Task+Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task+Main.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
-		DF7AC27E2970BC3300D77ACB /* UIApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC27D2970BC3300D77ACB /* UIApplication.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
@@ -93,7 +92,6 @@
 		DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = DF99043E295CA4B100BD6FFE /* Lottie */; };
 		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
 		DF99C02C2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF99C02B2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift */; };
-		DF9AC6BF29A2386E00D6EC76 /* Sendable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */; };
 		DF9AC6C529A23F8900D6EC76 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C429A23F8900D6EC76 /* SettingsView.swift */; };
 		DF9AC6C729A240B800D6EC76 /* View+Modify.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C629A240B800D6EC76 /* View+Modify.swift */; };
 		DF9AC6CB29A261EB00D6EC76 /* VisibleKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6CA29A261EB00D6EC76 /* VisibleKey.swift */; };
@@ -284,7 +282,6 @@
 		DF763B052971BCA600334615 /* Task+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Async.swift"; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task+Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Main.swift"; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
-		DF7AC27D2970BC3300D77ACB /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
 		DF8A42EC296E146C004774F6 /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
@@ -294,7 +291,6 @@
 		DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableScrollView.swift; sourceTree = "<group>"; };
 		DF96BAE1298BE120003936AC /* View+Equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Equatable.swift"; sourceTree = "<group>"; };
 		DF99C02B2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+VoiceNoteSide.swift"; sourceTree = "<group>"; };
-		DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sendable.swift; sourceTree = "<group>"; };
 		DF9AC6C429A23F8900D6EC76 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		DF9AC6C629A240B800D6EC76 /* View+Modify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Modify.swift"; sourceTree = "<group>"; };
 		DF9AC6CA29A261EB00D6EC76 /* VisibleKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisibleKey.swift; sourceTree = "<group>"; };
@@ -822,11 +818,9 @@
 				DFECD756292A938B002A4BAD /* NotificationName.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter.swift */,
 				DF346449296B787D001BE888 /* MainActor.swift */,
-				DF7AC27D2970BC3300D77ACB /* UIApplication.swift */,
 				DFE84079298AFA7400C3A7F8 /* UIRectCorner.swift */,
 				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 				DF9D516F298D19A8009AFE7F /* Shape.swift */,
-				DF9AC6BE29A2386E00D6EC76 /* Sendable.swift */,
 				DF3A714E29AB66B200A7EC22 /* String.swift */,
 				DF3A715029AB702E00A7EC22 /* AttributedString.swift */,
 				DF3A715229AB705900A7EC22 /* UIFont.swift */,
@@ -1044,7 +1038,6 @@
 				DF346448296B72D4001BE888 /* MessageView+FormattedText.swift in Sources */,
 				DF1717BD2971F3B60085E698 /* View+FlippedUpsideDown.swift in Sources */,
 				DF9C817729993AAF008989B0 /* ChatView+Toolbar.swift in Sources */,
-				DF9AC6BF29A2386E00D6EC76 /* Sendable.swift in Sources */,
 				DFE8407C298AFA9100C3A7F8 /* View+CornerRadius.swift in Sources */,
 				DFD7D4892942426D0006CF85 /* LoginViewModel+Td.swift in Sources */,
 				DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */,
@@ -1070,7 +1063,6 @@
 				DF5261DF294F602600FB7C73 /* MessageView.swift in Sources */,
 				DFD7D48F294246230006CF85 /* RootViewModel+Td.swift in Sources */,
 				DF5261D9294F505300FB7C73 /* ChatBottomArea+PhotosScroll.swift in Sources */,
-				DF7AC27E2970BC3300D77ACB /* UIApplication.swift in Sources */,
 				DF8A42ED296E146C004774F6 /* TextView.swift in Sources */,
 				DF42BFCC298C70BF00039ACD /* +CustomChat.swift in Sources */,
 				DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */,
@@ -1251,6 +1243,7 @@
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1296,6 +1289,7 @@
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
