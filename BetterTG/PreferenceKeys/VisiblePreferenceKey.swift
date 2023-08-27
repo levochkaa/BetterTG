@@ -1,6 +1,6 @@
-// VisibleKey.swift
+// VisiblePreferenceKey.swift
 
-struct VisibleKey: PreferenceKey {
+struct VisiblePreferenceKey: PreferenceKey {
     static var defaultValue: Bool = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { }
 }

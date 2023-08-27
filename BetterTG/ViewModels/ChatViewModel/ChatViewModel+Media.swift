@@ -173,7 +173,7 @@ extension ChatViewModel {
         let number = NSNumber(floatLiteral: timeSliderValue * 1000)
         let time = VLCTime(number: number)
         mediaPlayer.time = time
-        Task.async(after: 0.1) {
+        Task.main(delay: 0.1) {
             self.isSeeking = false
         }
     }

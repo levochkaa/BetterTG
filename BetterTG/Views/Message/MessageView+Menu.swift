@@ -7,7 +7,7 @@ extension MessageView {
                 withAnimation {
                     viewModel.replyMessage = nil
                 }
-                Task.async(after: Utils.defaultAnimationDuration + 0.05) {
+                Task.main(delay: Utils.defaultAnimationDuration + 0.05) {
                     withAnimation {
                         viewModel.replyMessage = customMessage
                     }
@@ -25,7 +25,7 @@ extension MessageView {
                     withAnimation {
                         viewModel.editCustomMessage = nil
                     }
-                    Task.async(after: Utils.defaultAnimationDuration + 0.05) {
+                    Task.main(delay: Utils.defaultAnimationDuration + 0.05) {
                         withAnimation {
                             viewModel.editCustomMessage = customMessage
                         }

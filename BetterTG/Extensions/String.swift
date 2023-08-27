@@ -6,7 +6,7 @@ extension String {
         mutable.addAttributes([
             .font: UIFont.systemFont(ofSize: 17),
             .foregroundColor: UIColor.white
-        ], range: NSRange(location: 0, length: self.count))
+        ], range: NSRange(location: 0, length: count))
         return AttributedString(mutable)
     }
 }

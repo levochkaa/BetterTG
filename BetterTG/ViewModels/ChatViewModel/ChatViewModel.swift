@@ -14,7 +14,6 @@ import Observation
     var onlineStatus = ""
     var actionStatus = ""
     
-    @ObservationIgnored let textDebouncer = Debouncer()
     var text: AttributedString = ""
     var editMessageText: AttributedString = ""
     var showSendButton = false

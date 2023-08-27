@@ -16,7 +16,7 @@ extension ChatBottomArea {
         .background(.gray6)
         .cornerRadius(15)
         .onChange(of: viewModel.text) { _, text in
-            viewModel.textDebouncer.call(delay: 2) {
+            textDebouncer.call(delay: 2) {
                 Task { [viewModel] in
                     await viewModel.updateDraft()
                     

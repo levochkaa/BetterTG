@@ -10,10 +10,10 @@ private struct OnVisible: ViewModifier {
                 GeometryReader { proxy in
                     Color.clear
                         .preference(
-                            key: VisibleKey.self,
+                            key: VisiblePreferenceKey.self,
                             value: UIScreen.main.bounds.intersects(proxy.frame(in: .global))
                         )
-                        .onPreferenceChange(VisibleKey.self) { isVisible in
+                        .onPreferenceChange(VisiblePreferenceKey.self) { isVisible in
                             guard isVisible else { return }
                             action?()
                         }

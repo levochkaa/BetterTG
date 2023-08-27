@@ -22,9 +22,8 @@ enum Utils {
         }
         
         switch identifier {
-            case "iPhone10,1", "iPhone10,4": identifier = "iPhone 8"
-            case "iPhone10,2", "iPhone10,5": identifier = "iPhone 8 Plus"
-            case "iPhone10,3", "iPhone10,6": identifier = "iPhone X"
+            case "iPhone12,8": identifier = "iPhone SE (2nd)"
+            case "iPhone14,6": identifier = "iPhone SE (3rd)"
             case "iPhone11,2": identifier = "iPhone XS"
             case "iPhone11,4", "iPhone11,6": identifier = "iPhone XS Max"
             case "iPhone11,8": identifier = "iPhone XR"
@@ -43,11 +42,9 @@ enum Utils {
             case "iPhone14,8": identifier = "iPhone 14 Plus"
             case "iPhone15,2": identifier = "iPhone 14 Pro"
             case "iPhone15,3": identifier = "iPhone 14 Pro Max"
-            case "iPhone8,4":  identifier = "iPhone SE"
-            case "iPhone12,8": identifier = "iPhone SE (2nd)"
-            case "iPhone14,6": identifier = "iPhone SE (3rd)"
             default: break
         }
+        
         return simulator ? "Simulator \(identifier)" : identifier
     }()
 }

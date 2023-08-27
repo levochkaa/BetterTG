@@ -11,6 +11,6 @@ struct PlaceholderView: View {
             .font(.system(size: fontSize, design: .rounded))
             .foregroundColor(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(fromUserId: userId).gradient)
+            .background(Color(userId: userId).gradient)
     }
 }

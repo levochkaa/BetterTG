@@ -107,7 +107,7 @@ extension ChatBottomArea {
             imageAsset.selected ? "Deselect" : "Select",
             systemImage: imageAsset.selected ? "circle" : "checkmark.circle.fill"
         ) {
-            Task.async(after: Utils.defaultAnimationDuration * 2) {
+            Task.main(delay: Utils.defaultAnimationDuration * 2) {
                 withAnimation {
                     viewModel.toggleSelectedImage(index, for: imageAsset)
                 }

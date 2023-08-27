@@ -222,7 +222,7 @@ extension ChatViewModel {
     func deleteMessages(_ deleteMessages: UpdateDeleteMessages) {
         if deleteMessages.fromCache || !deleteMessages.isPermanent { return }
         
-        Task.async(after: Utils.defaultAnimationDuration + 0.15) {
+        Task.main(delay: Utils.defaultAnimationDuration + 0.15) {
             withAnimation {
                 self.messages.removeAll(where: { customMessage in
                     deleteMessages.messageIds.contains(customMessage.message.id)

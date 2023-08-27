@@ -17,7 +17,7 @@ extension ChatViewModel {
             highlightedMessageId = id
         }
         
-        Task.async(after: 0.5) {
+        Task.main(delay: 0.5) {
             withAnimation {
                 self.highlightedMessageId = nil
             }

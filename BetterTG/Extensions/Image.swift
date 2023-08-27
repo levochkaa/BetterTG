@@ -1,6 +1,12 @@
-// Image+Data.swift
+// Image.swift
+
+import TDLibKit
 
 extension Image {
+    init(file: TDLibKit.File) {
+        self.init(uiImage: UIImage(contentsOfFile: file.local.path) ?? UIImage())
+    }
+    
     init?(data: Data) {
         if let uiImage = UIImage(data: data) {
             self.init(uiImage: uiImage)
