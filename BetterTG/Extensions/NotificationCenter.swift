@@ -44,16 +44,4 @@ extension NotificationCenter {
             }
             .store(in: &cancellables)
     }
-    
-    func mergeMany(
-        _ publishers: [Publisher],
-        @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
-    ) {
-        Publishers.MergeMany(publishers)
-            .receive(on: RunLoop.main)
-            .sink { notification in
-                perform(notification)
-            }
-            .store(in: &cancellables)
-    }
 }

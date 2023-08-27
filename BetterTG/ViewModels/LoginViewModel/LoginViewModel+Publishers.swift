@@ -15,13 +15,8 @@ extension LoginViewModel {
             loginState = .code
         }
         
-        nc.mergeMany([
-            nc.publisher(for: .waitPhoneNumber),
-            nc.publisher(for: .closed),
-            nc.publisher(for: .closing),
-            nc.publisher(for: .loggingOut)
-        ]) { _ in
-            self.loginState = .phoneNumber
+        nc.mergeMany([.waitPhoneNumber, .closed, .closing, .loggingOut]) { _ in
+            loginState = .phoneNumber
         }
     }
 }
