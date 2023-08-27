@@ -7,7 +7,7 @@ private let manager = TDLibClientManager()
 var td: TDLibClient!
 
 func startTdLibUpdateHandler() {
-    NotificationCenter.cancellables.forEach { $0.cancel() }
+    cancellables.forEach { $0.cancel() }
     
     nc.publisher(for: .waitTdlibParameters) { _ in
         Task {

@@ -7,9 +7,6 @@ let nc: NotificationCenter = .default
 var cancellables = Set<AnyCancellable>()
 
 extension NotificationCenter {
-    
-    static var cancellables = Set<AnyCancellable>()
-    
     func publisher(
         for name: Notification.Name,
         @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
@@ -19,7 +16,7 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &NotificationCenter.cancellables)
+            .store(in: &cancellables)
     }
     
     func post(name: Notification.Name) {
@@ -45,7 +42,7 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &NotificationCenter.cancellables)
+            .store(in: &cancellables)
     }
     
     func mergeMany(
@@ -57,6 +54,6 @@ extension NotificationCenter {
             .sink { notification in
                 perform(notification)
             }
-            .store(in: &NotificationCenter.cancellables)
+            .store(in: &cancellables)
     }
 }
