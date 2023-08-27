@@ -68,7 +68,6 @@
 		DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */; };
 		DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF55E2D1295B783F00A30C76 /* MobileVLCKit */; };
 		DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5D2CA82951D02500A1498B /* VoiceNote.swift */; };
-		DF68DAFD29B9286F0010ADE9 /* CustomMessageReaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DAFC29B9286F0010ADE9 /* CustomMessageReaction.swift */; };
 		DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */; };
 		DF763B062971BCA600334615 /* Task+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B052971BCA600334615 /* Task+Async.swift */; };
 		DF763B082971BE5B00334615 /* Task+Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task+Main.swift */; };
@@ -258,7 +257,6 @@
 		DF5D2CA82951D02500A1498B /* VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNote.swift; sourceTree = "<group>"; };
 		DF63537029B68F180054F0A0 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		DF63537229B68F180054F0A0 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		DF68DAFC29B9286F0010ADE9 /* CustomMessageReaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMessageReaction.swift; sourceTree = "<group>"; };
 		DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomLayout.swift; sourceTree = "<group>"; };
 		DF763B052971BCA600334615 /* Task+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Async.swift"; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task+Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Task+Main.swift"; sourceTree = "<group>"; };
@@ -538,7 +536,6 @@
 			children = (
 				DF540681296C7ED700492867 /* CustomChat.swift */,
 				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
-				DF68DAFC29B9286F0010ADE9 /* CustomMessageReaction.swift */,
 			);
 			path = Custom;
 			sourceTree = "<group>";
@@ -1002,7 +999,6 @@
 				DF2367472940F9810076B821 /* Task+Delayed.swift in Sources */,
 				1A21DD03B6876C47203219A8 /* View+If.swift in Sources */,
 				DFEB06CD295A00C10099E2B2 /* speechResult.swift in Sources */,
-				DF68DAFD29B9286F0010ADE9 /* CustomMessageReaction.swift in Sources */,
 				DFCC2A432950EFA600281EF8 /* MessageView+Text.swift in Sources */,
 				DFFA98852A9B52900037460A /* Tab.swift in Sources */,
 				1A21DAE2BADBE9A5D6ADB856 /* ChatView.swift in Sources */,

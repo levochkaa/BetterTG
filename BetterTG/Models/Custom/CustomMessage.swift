@@ -11,5 +11,4 @@ struct CustomMessage: Identifiable, Equatable {
     var album = [Message]()
     var sendFailed = false
     var forwardedFrom: String?
-    var reactions: [CustomMessageReaction]?
 }
