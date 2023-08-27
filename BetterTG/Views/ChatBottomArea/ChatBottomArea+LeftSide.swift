@@ -16,7 +16,5 @@ extension ChatBottomArea {
                 .foregroundColor(.white)
                 .contentShape(Rectangle())
         }
-        .disabled(!redactionReasons.isEmpty)
-        .unredacted()
     }
 }

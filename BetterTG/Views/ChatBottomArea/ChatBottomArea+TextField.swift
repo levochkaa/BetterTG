@@ -12,8 +12,6 @@ extension ChatBottomArea {
                 CustomTextField("Edit...", text: $viewModel.editMessageText, focus: true)
             }
         }
-        .unredacted()
-        .disabled(!redactionReasons.isEmpty)
         .focused(focused)
         .lineLimit(10)
         .padding(.horizontal, 5)

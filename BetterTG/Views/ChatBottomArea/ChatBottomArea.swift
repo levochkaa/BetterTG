@@ -20,8 +20,6 @@ struct ChatBottomArea: View {
     @Environment(ChatViewModel.self) var viewModel
     @Environment(RootViewModel.self) var rootViewModel
     
-    @Environment(\.redactionReasons) var redactionReasons
-    
     let micId = "micId"
     let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     

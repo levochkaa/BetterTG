@@ -6,7 +6,6 @@ import TDLibKit
 extension RootView {
     @ViewBuilder func chatsList(
         _ customChats: [CustomChat],
-        redacted: Bool = false,
         chatList: ChatList = .chatListMain
     ) -> some View {
         ForEach(customChats) { customChat in
@@ -27,11 +26,8 @@ extension RootView {
                         .environment(\.isPreview, true)
                 }
             }
-            .disabled(redacted)
             .task {
-                if !redacted {
-                    await viewModel.tdGetChatHistory(chatId: customChat.chat.id)
-                }
+                await viewModel.tdGetChatHistory(chatId: customChat.chat.id)
             }
         }
     }

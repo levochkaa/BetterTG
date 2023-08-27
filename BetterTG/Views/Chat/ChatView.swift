@@ -42,9 +42,6 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             if !isPreview {
                 ChatBottomArea(focused: $focused)
-                    .if(viewModel.initLoadingMessages) {
-                        $0.redacted(reason: .placeholder)
-                    }
             }
         }
         .toolbar {

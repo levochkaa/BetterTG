@@ -5,18 +5,12 @@ import TDLibKit
 
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        if !redactionReasons.isEmpty {
-            Text(formattedText.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .readSize { textSize = $0 }
-        } else {
-            TextView(formattedText: formattedText)
-                .frame(size: getTextViewSize(for: formattedText.text))
-                .overlay(alignment: .bottomTrailing) {
-                    messageDate
-                        .offset(y: 3)
-                }
-        }
+        TextView(formattedText: formattedText)
+            .frame(size: getTextViewSize(for: formattedText.text))
+            .overlay(alignment: .bottomTrailing) {
+                messageDate
+                    .offset(y: 3)
+            }
     }
     
     /// SwiftUI is fucked.

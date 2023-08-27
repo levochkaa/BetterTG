@@ -16,8 +16,6 @@ extension ChatBottomArea {
                     .matchedGeometryEffect(id: micId, in: namespace)
             }
         }
-        .disabled(!redactionReasons.isEmpty)
-        .unredacted()
         .font(.title2)
         .contentShape(Rectangle())
         .transition(.scale.animation(.default))

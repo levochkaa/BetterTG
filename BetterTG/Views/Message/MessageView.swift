@@ -46,7 +46,6 @@ struct MessageView: View {
     let speechId = "speechId"
     
     @Environment(\.isPreview) var isPreview
-    @Environment(\.redactionReasons) var redactionReasons
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {

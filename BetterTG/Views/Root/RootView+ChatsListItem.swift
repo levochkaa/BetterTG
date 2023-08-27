@@ -6,7 +6,6 @@ import TDLibKit
 extension RootView {
     @ViewBuilder func chatsListItem(
         for customChat: CustomChat,
-        redacted: Bool = false,
         chatList: ChatList
     ) -> some View {
         HStack {
@@ -19,17 +18,7 @@ extension RootView {
                 .padding(.leading, 10)
             }
             
-            if !redacted {
-                chatsListPhoto(for: customChat.chat)
-            } else {
-                Circle()
-                    .frame(width: 64)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                            .unredacted()
-                    }
-            }
+            chatsListPhoto(for: customChat.chat)
             
             VStack(alignment: .leading, spacing: 0) {
                 Text(customChat.chat.title)
