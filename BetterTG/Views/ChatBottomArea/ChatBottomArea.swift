@@ -13,6 +13,8 @@ struct ChatBottomArea: View {
     
     @State var selectedImagesCount = 0
     
+    @State var showSendButton = false
+    
     @Namespace var namespace
     
     @Environment(ChatViewModel.self) var viewModel
@@ -52,7 +54,7 @@ struct ChatBottomArea: View {
         }
         .animation(value: viewModel.editCustomMessage)
         .animation(value: viewModel.replyMessage)
-        .animation(value: viewModel.showSendButton)
+        .animation(value: showSendButton)
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)
@@ -66,7 +68,7 @@ struct ChatBottomArea: View {
                     Image(systemName: "mic.fill")
                         .foregroundColor(.white)
                         .font(.title2)
-                        .matchedGeometryEffect(id: micId, in: namespace)
+                        .matchedGeometryEffect(id: micId, in: namespace, isSource: false)
                 }
                 .disabled(!viewModel.recordingVoiceNote)
                 .opacity(viewModel.recordingVoiceNote ? 1 : 0)

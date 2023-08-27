@@ -5,7 +5,7 @@ import SwiftUI
 extension ChatBottomArea {
     @ViewBuilder var rightSide: some View {
         Group {
-            if viewModel.showSendButton {
+            if showSendButton {
                 Image("send")
                     .resizable()
                     .clipShape(Circle())
@@ -13,7 +13,7 @@ extension ChatBottomArea {
             } else {
                 Image(systemName: "mic.fill")
                     .foregroundColor(.white)
-                    .matchedGeometryEffect(id: micId, in: namespace)
+                    .matchedGeometryEffect(id: micId, in: namespace, isSource: true)
             }
         }
         .disabled(!redactionReasons.isEmpty)
@@ -31,5 +31,13 @@ extension ChatBottomArea {
                 viewModel.mediaStartRecordingVoice()
             }
         }
+        .onChange(of: viewModel.editMessageText, setShowSendButton)
+        .onChange(of: viewModel.text, setShowSendButton)
+        .onChange(of: viewModel.displayedImages, setShowSendButton)
+    }
+    
+    func setShowSendButton() {
+        // swiftlint:disable:next line_length
+        showSendButton = !viewModel.displayedImages.isEmpty || !viewModel.editMessageText.characters.isEmpty || !viewModel.text.characters.isEmpty
     }
 }
