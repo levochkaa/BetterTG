@@ -1,9 +1,8 @@
-mkdir BetterTG/Utilities/Generated
-cd BetterTG/Utilities/Templates
+cd BetterTG/Secret
 find . -name "*.gyb" |
 while read file; do
     filename=$(echo "$file" | sed 's/.\///')
-    API_ID=$1 API_HASH=$2 gyb --line-directive '' -o "../Generated/${filename%.gyb}" "$filename";
+    API_ID=$1 API_HASH=$2 gyb --line-directive '' -o "${filename%.gyb}" "$filename";
 done
 
 cd ../..

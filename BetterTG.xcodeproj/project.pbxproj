@@ -442,12 +442,13 @@
 			path = Sequence;
 			sourceTree = "<group>";
 		};
-		DF3A159328D838C500789C32 /* Generated */ = {
+		DF3A159328D838C500789C32 /* Secret */ = {
 			isa = PBXGroup;
 			children = (
+				DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */,
 				DF3A159428D838C500789C32 /* Secret.swift */,
 			);
-			path = Generated;
+			path = Secret;
 			sourceTree = "<group>";
 		};
 		DF4B997528C3F3F50087C1B9 = {
@@ -470,6 +471,7 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
+				DF3A159328D838C500789C32 /* Secret */,
 				DFBFB86728CE48110076895C /* Utilities */,
 				DFDFC6D32938DA2C00A5919E /* PreferenceKeys */,
 				DFD2DE6E29B00CEF00D531F4 /* EnvironmentKeys */,
@@ -572,14 +574,6 @@
 			path = Login;
 			sourceTree = "<group>";
 		};
-		DF820B7628D7C7CF007DD293 /* Templates */ = {
-			isa = PBXGroup;
-			children = (
-				DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */,
-			);
-			path = Templates;
-			sourceTree = "<group>";
-		};
 		DFB85D07290EEAC800F66E20 /* AsyncTd */ = {
 			isa = PBXGroup;
 			children = (
@@ -592,8 +586,6 @@
 		DFBFB86728CE48110076895C /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
-				DF820B7628D7C7CF007DD293 /* Templates */,
-				DF3A159328D838C500789C32 /* Generated */,
 				DFBFB86828CE48290076895C /* Utils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
 				DF4A5FFA2A350EC900ABD5D1 /* Debouncer.swift */,
