@@ -20,6 +20,7 @@ struct RootView: View {
     @Namespace var namespace
     
     @AppStorage("showArchivedChatsButton") var showArchivedChatsButton = true
+    @AppStorage("loggedIn") var loggedIn = false
     
     let chatId = "chatId"
     
@@ -27,23 +28,25 @@ struct RootView: View {
     
     var body: some View {
         Group {
-            if let loggedIn = viewModel.loggedIn {
-                if loggedIn {
-                    bodyView
-                } else {
-                    LoginView()
-                }
+            if loggedIn {
+                bodyView
             } else {
-                bodyPlaceholder
+                LoginView()
             }
         }
         .transition(.opacity)
-        .animation(value: viewModel.loggedIn)
+        .animation(value: loggedIn)
         .environment(viewModel)
         .onAppear {
             if viewModel.namespace == nil {
                 viewModel.namespace = namespace
             }
+        }
+        .onReceive(nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword])) { _ in
+            loggedIn = false
+        }
+        .onReceive(nc.publisher(for: .ready)) { _ in
+            loggedIn = true
         }
     }
 }

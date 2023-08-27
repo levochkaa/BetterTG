@@ -6,7 +6,6 @@ import TDLibKit
 import Observation
 
 @Observable final class RootViewModel {
-    var loggedIn: Bool? = nil
     var mainChats = [CustomChat]()
     var searchedGlobalChats = [CustomChat]()
     var archivedChats = [CustomChat]()

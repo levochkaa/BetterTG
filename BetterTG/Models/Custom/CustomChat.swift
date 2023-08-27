@@ -29,10 +29,3 @@ struct CustomChat: Identifiable, Equatable, Hashable {
         self.draftMessage = draftMessage
     }
 }
-
-extension CustomChat {
-    static let placeholder: [CustomChat] = [
-        .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()),
-        .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID()), .moc(UUID())
-    ]
-}

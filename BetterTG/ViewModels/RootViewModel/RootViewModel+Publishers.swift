@@ -5,15 +5,8 @@ import TDLibKit
 
 extension RootViewModel {
     func setPublishers() {
-        nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword]) { _ in
-            Task.main {
-                loggedIn = false
-            }
-        }
-        
         nc.publisher(for: .ready) { _ in
             Task.main {
-                loggedIn = true
                 loadMainChats()
                 loadArchivedChats()
             }
