@@ -6,10 +6,7 @@ import TDLibKit
 extension RootViewModel {
     func setPublishers() {
         nc.publisher(for: .ready) { _ in
-            Task.main {
-                loadMainChats()
-                loadArchivedChats()
-            }
+            loadMainChats()
         }
         
         nc.publisher(for: .chatLastMessage) { notification in

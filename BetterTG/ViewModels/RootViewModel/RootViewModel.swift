@@ -33,32 +33,21 @@ import Observation
         }
     }
     
-    func togglePinned(chatId: Int64, chatList: ChatList, value: Bool) {
+    func togglePinned(chatId: Int64, value: Bool) {
         Task {
             await tdToggleChatIsPinned(
                 chatId: chatId,
-                chatList: chatList,
                 isPinned: value
             )
         }
     }
     
-    func filteredSortedChats(_ query: String, for list: ChatList = .chatListMain) -> [CustomChat] {
+    func filteredSortedChats(_ query: String) -> [CustomChat] {
         let query = query.lowercased()
-        var customChats = [CustomChat]()
-        switch list {
-            case .chatListMain:
-                customChats = mainChats
-            case .chatListArchive:
-                customChats = archivedChats
-            default:
-                return []
-        }
-        
-        return customChats
+        return mainChats
             .sorted {
-                let firstOrder = $0.positions.first(where: { $0.list == list })?.order
-                let secondOrder = $1.positions.first(where: { $0.list == list })?.order
+                let firstOrder = $0.positions.first(where: { $0.list == .chatListMain })?.order
+                let secondOrder = $1.positions.first(where: { $0.list == .chatListMain })?.order
                 
                 if let firstOrder, let secondOrder {
                     return firstOrder > secondOrder

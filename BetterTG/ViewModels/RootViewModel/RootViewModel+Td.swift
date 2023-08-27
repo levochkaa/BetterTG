@@ -36,9 +36,9 @@ extension RootViewModel {
         }
     }
     
-    func tdToggleChatIsPinned(chatId: Int64, chatList: ChatList, isPinned: Bool) async {
+    func tdToggleChatIsPinned(chatId: Int64, isPinned: Bool) async {
         do {
-            try await td.toggleChatIsPinned(chatId: chatId, chatList: chatList, isPinned: isPinned)
+            try await td.toggleChatIsPinned(chatId: chatId, chatList: .chatListMain, isPinned: isPinned)
         } catch {
             log("Error toggling chatIsPinned: \(isPinned)")
         }
@@ -61,17 +61,17 @@ extension RootViewModel {
         }
     }
     
-    func tdLoadChats(for chatList: ChatList = .chatListMain) async {
+    func tdLoadChats() async {
         do {
-            try await td.loadChats(chatList: chatList, limit: 200)
+            try await td.loadChats(chatList: .chatListMain, limit: 200)
         } catch {
             log("Error loading chats: \(error)")
         }
     }
     
-    func tdGetChats(for chatList: ChatList = .chatListMain) async -> [Int64] {
+    func tdGetChats() async -> [Int64] {
         do {
-            return try await td.getChats(chatList: chatList, limit: 200).chatIds
+            return try await td.getChats(chatList: .chatListMain, limit: 200).chatIds
         } catch {
             log("Error getting chats: \(error)")
             return []

@@ -4,10 +4,10 @@ import SwiftUI
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder func contextMenu(for customChat: CustomChat, chatList: ChatList) -> some View {
-        if let isPinned = customChat.positions.first(where: { $0.list == chatList })?.isPinned {
+    @ViewBuilder func contextMenu(for customChat: CustomChat) -> some View {
+        if let isPinned = customChat.positions.first(where: { $0.list == .chatListMain })?.isPinned {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash.fill" : "pin.fill") {
-                viewModel.togglePinned(chatId: customChat.chat.id, chatList: chatList, value: !isPinned)
+                viewModel.togglePinned(chatId: customChat.chat.id, value: !isPinned)
             }
         }
         

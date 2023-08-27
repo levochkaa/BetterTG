@@ -5,13 +5,12 @@ import TDLibKit
 
 extension RootView {
     @ViewBuilder func chatsListItem(
-        for customChat: CustomChat,
-        chatList: ChatList
+        for customChat: CustomChat
     ) -> some View {
         HStack {
-            if let isPinned = customChat.positions.first(where: { $0.list == chatList })?.isPinned, isPinned {
+            if let isPinned = customChat.positions.first(where: { $0.list == .chatListMain })?.isPinned, isPinned {
                 Button(systemImage: "pin.fill") {
-                    viewModel.togglePinned(chatId: customChat.chat.id, chatList: chatList, value: !isPinned)
+                    viewModel.togglePinned(chatId: customChat.chat.id, value: !isPinned)
                 }
                 .font(.title2)
                 .foregroundColor(.white)
