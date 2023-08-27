@@ -1,7 +1,5 @@
 // Button.swift
 
-import SwiftUI
-
 extension Button where Label == SwiftUI.Label<Text, Image> {
     init(
         _ title: String = "",

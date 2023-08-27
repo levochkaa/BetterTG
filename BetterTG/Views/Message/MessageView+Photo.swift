@@ -1,6 +1,5 @@
 // MessageView+Photo.swift
 
-import SwiftUI
 import TDLibKit
 
 extension MessageView {

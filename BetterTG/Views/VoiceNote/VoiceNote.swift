@@ -1,6 +1,5 @@
 // VoiceNote.swift
 
-import SwiftUI
 import TDLibKit
 import MobileVLCKit
 

@@ -1,6 +1,5 @@
 // ChatView+Toolbar.swift
 
-import SwiftUI
 import TDLibKit
 
 extension ChatView {

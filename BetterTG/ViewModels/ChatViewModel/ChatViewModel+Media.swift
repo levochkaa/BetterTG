@@ -1,6 +1,5 @@
 // ChatViewModel+Media.swift
 
-import SwiftUI
 import MobileVLCKit
 import AVKit
 import AVFoundation

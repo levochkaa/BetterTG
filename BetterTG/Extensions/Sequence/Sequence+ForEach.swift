@@ -1,7 +1,5 @@
 // Sequence+ForEach.swift
 
-import Foundation
-
 extension Sequence where Element: Sendable {
     /// Run an async closure for each element within the sequence.
     ///

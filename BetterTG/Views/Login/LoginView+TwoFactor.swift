@@ -1,7 +1,5 @@
 // LoginView+TwoFactor.swift
 
-import SwiftUI
-
 extension LoginView {
     @ViewBuilder var twoFactorView: some View {
         VStack {

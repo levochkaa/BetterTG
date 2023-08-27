@@ -1,7 +1,5 @@
 // Color+UIColor.swift
 
-import SwiftUI
-
 extension Color {
     static let gray6 = Color(uiColor: .systemGray6)
     static let gray5 = Color(uiColor: .systemGray5)

@@ -1,7 +1,5 @@
 // Sequence+CompactMap.swift
 
-import Foundation
-
 extension Sequence where Element: Sendable {
     /// Transform the sequence into an array of new values using
     /// an async closure that returns optional values. Only the

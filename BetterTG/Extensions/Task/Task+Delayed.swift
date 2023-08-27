@@ -1,7 +1,5 @@
 // Task+Delayed.swift
 
-import Foundation
-
 extension Task where Failure == Error {
     static func delayed(
         by seconds: Int,

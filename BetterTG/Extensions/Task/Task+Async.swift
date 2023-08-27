@@ -1,7 +1,5 @@
 // Task+Async.swift
 
-import SwiftUI
-
 extension Task where Success == Never, Failure == Never {
     static func async(
         after time: TimeInterval,

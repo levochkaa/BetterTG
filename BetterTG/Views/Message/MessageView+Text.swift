@@ -1,7 +1,5 @@
 // MessageView+Text.swift
 
-import SwiftUI
-
 extension MessageView {
     @ViewBuilder var messageText: some View {
         Group {

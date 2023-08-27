@@ -1,7 +1,5 @@
 // SizePreferenceKey.swift
 
-import SwiftUI
-
 struct SizePreferenceKey: PreferenceKey {
     typealias Value = CGSize
     static var defaultValue: Value = .zero

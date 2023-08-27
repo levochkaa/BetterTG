@@ -1,7 +1,5 @@
 // CustomLayout.swift
 
-import SwiftUI
-
 // swiftlint:disable identifier_name
 struct CustomLayout: Layout {
     

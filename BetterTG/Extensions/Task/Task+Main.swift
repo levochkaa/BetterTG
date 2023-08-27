@@ -1,7 +1,5 @@
 // Task+Main.swift
 
-import Foundation
-
 extension Task where Failure == Error {
     static func main(
         priority: TaskPriority? = nil,

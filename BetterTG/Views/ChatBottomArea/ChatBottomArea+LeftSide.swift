@@ -1,6 +1,5 @@
 // ChatBottomArea+LeftSide.swift
 
-import SwiftUI
 import PhotosUI
 
 extension ChatBottomArea {

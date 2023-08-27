@@ -2,8 +2,6 @@
 // Source:
 // https://github.com/mock-foundation/moc/blob/master/Shared/Layouts/MediaAlbum.swift
 
-import SwiftUI
-
 // swiftlint:disable line_length type_body_length file_length cyclomatic_complexity function_body_length
 
 /// This layout works (at least it should) and functions the same as in the

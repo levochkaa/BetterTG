@@ -1,8 +1,6 @@
 // NotificationName.swift
 
-import Foundation
-
-extension Notification.Name {
+extension Foundation.Notification.Name {
     static let waitTdlibParameters = Self("waitTdlibParameters")
     static let waitPhoneNumber = Self("waitPhoneNumber")
     static let waitEmailAddress = Self("waitEmailAddress")

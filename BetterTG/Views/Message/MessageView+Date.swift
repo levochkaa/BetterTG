@@ -1,7 +1,5 @@
 // MessageView+Date.swift
 
-import SwiftUI
-
 extension MessageView {
     @ViewBuilder var messageDate: some View {
         Text(formatted(customMessage.message.date))

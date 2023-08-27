@@ -1,6 +1,5 @@
 // ChatBottomArea+BottomSheet.swift
 
-import SwiftUI
 import PhotosUI
 
 extension ChatBottomArea {

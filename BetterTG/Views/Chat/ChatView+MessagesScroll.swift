@@ -1,7 +1,5 @@
 // ChatView+MessagesScroll.swift
 
-import SwiftUI
-
 extension ChatView {
     @ViewBuilder var messagesScroll: some View {
         ScrollView(showsIndicators: false) {

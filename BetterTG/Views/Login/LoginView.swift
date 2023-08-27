@@ -1,7 +1,5 @@
 // LoginView.swift
 
-import SwiftUI
-
 struct LoginView: View {
     
     @Bindable var viewModel = LoginViewModel()

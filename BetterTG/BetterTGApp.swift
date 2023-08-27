@@ -1,6 +1,5 @@
 // BetterTGApp.swift
 
-import SwiftUI
 import TDLibKit
 import AVKit
 import SDWebImageWebPCoder

@@ -1,6 +1,5 @@
 // MessageView.swift
 
-import SwiftUI
 import TDLibKit
 
 struct MessageView: View {

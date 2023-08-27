@@ -1,6 +1,5 @@
 // Array+GetSize.swift
 
-import Foundation
 import TDLibKit
 
 public enum PhotoSizeType: Int {

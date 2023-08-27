@@ -1,7 +1,5 @@
 // LoginView+PhoneNumber.swift
 
-import SwiftUI
-
 extension LoginView {
     @ViewBuilder var phoneNumberView: some View {
         VStack(spacing: 10) {

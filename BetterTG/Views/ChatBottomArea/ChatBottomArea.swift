@@ -1,6 +1,5 @@
 // ChatBottomArea.swift
 
-import SwiftUI
 import Combine
 
 struct ChatBottomArea: View {

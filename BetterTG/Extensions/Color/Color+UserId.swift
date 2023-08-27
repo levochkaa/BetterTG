@@ -1,7 +1,5 @@
 // Color+UserId.swift
 
-import SwiftUI
-
 extension Color {
     init(fromUserId userId: Int64) {
         let colors: [Color] = [.red, .green, .yellow, .blue, .purple, .pink, .blue, .orange]

@@ -1,6 +1,5 @@
 // Logger.swift
 
-import Foundation
 import os.log
 
 let logger = os.Logger(subsystem: "BetterTG", category: "BetterTG")

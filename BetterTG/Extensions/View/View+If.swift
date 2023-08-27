@@ -1,7 +1,5 @@
 // View+If.swift
 
-import SwiftUI
-
 extension View {
     @ViewBuilder func `if`<TrueContent: View, FalseContent: View>(
         _ condition: Bool,

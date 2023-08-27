@@ -1,7 +1,5 @@
 // View+FlippedUpsideDown.swift
 
-import SwiftUI
-
 extension View {
     func flippedUpsideDown() -> some View {
         self

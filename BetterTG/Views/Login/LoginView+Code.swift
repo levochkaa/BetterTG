@@ -1,7 +1,5 @@
 // LoginView+Code.swift
 
-import SwiftUI
-
 extension LoginView {
     @ViewBuilder var codeView: some View {
         VStack {

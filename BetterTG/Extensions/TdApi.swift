@@ -1,6 +1,5 @@
 // TdApi.swift
 
-import SwiftUI
 import TDLibKit
 
 private let manager = TDLibClientManager()

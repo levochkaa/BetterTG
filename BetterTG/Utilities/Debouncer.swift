@@ -1,7 +1,5 @@
 // Debouncer.swift
 
-import Foundation
-
 class Debouncer {
     private var timer: Timer?
     

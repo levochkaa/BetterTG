@@ -1,6 +1,5 @@
 // RootView+ContextMenu.swift
 
-import SwiftUI
 import TDLibKit
 
 extension RootView {

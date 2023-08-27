@@ -1,6 +1,5 @@
 // speech.swift
 
-import SwiftUI
 import TDLibKit
 
 extension MessageView {

@@ -1,6 +1,5 @@
 // voiceNoteViewExpanded.swift
 
-import SwiftUI
 import TDLibKit
 
 extension MessageView {

@@ -1,6 +1,5 @@
 // ChatView.swift
 
-import SwiftUI
 import TDLibKit
 
 struct ChatView: View {

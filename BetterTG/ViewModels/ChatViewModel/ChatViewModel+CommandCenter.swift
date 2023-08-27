@@ -1,6 +1,5 @@
 // ChatViewModel+CommandCenter.swift
 
-import SwiftUI
 import MediaPlayer
 
 extension ChatViewModel {

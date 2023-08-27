@@ -1,6 +1,5 @@
 // ChatView+Body.swift
 
-import SwiftUI
 import TDLibKit
 
 extension ChatView {

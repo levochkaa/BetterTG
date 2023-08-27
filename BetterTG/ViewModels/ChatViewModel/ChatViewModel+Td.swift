@@ -1,6 +1,5 @@
 // ChatViewModel+Td.swift
 
-import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {

@@ -1,7 +1,5 @@
 // String.swift
 
-import SwiftUI
-
 extension String {
     var attributedString: AttributedString {
         let mutable = NSMutableAttributedString(string: self)

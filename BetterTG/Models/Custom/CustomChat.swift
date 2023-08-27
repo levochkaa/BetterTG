@@ -1,6 +1,5 @@
 // CustomChat.swift
 
-import Foundation
 import TDLibKit
 
 struct CustomChat: Identifiable, Equatable, Hashable {

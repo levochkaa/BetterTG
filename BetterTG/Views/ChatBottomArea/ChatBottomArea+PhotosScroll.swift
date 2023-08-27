@@ -1,7 +1,5 @@
 // ChatBottomArea+PhotosScroll.swift
 
-import SwiftUI
-
 extension ChatBottomArea {
     @ViewBuilder var photosScroll: some View {
         ScrollView(.horizontal, showsIndicators: false) {

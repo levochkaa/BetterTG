@@ -1,7 +1,5 @@
 // ChatView+MessagesList.swift
 
-import SwiftUI
-
 extension ChatView {
     @ViewBuilder func messagesList(_ customMessages: [CustomMessage]) -> some View {
         ForEach(customMessages) { customMessage in

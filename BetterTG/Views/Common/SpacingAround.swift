@@ -1,7 +1,5 @@
 // SpacingAround.swift
 
-import SwiftUI
-
 struct SpacingAround<Content: View>: View {
     
     @State var axis: Axis?

@@ -1,6 +1,5 @@
 // RootViewModel+Td.swift
 
-import SwiftUI
 import TDLibKit
 
 extension RootViewModel {

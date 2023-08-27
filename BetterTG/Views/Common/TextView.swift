@@ -1,6 +1,5 @@
 // TextView.swift
 
-import SwiftUI
 import TDLibKit
 import Lottie
 import Gzip

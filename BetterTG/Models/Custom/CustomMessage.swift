@@ -1,8 +1,6 @@
 // CustomMessage.swift
 
-import Foundation
 import TDLibKit
-import Lottie
 
 struct CustomMessage: Identifiable, Equatable {
     let id = UUID()

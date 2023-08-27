@@ -1,6 +1,5 @@
 // ReplyMessageView+Content.swift
 
-import SwiftUI
 import TDLibKit
 
 extension ReplyMessageView {

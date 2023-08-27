@@ -1,7 +1,5 @@
 // LoginView+SelectCountry.swift
 
-import SwiftUI
-
 extension LoginView {
     @ViewBuilder var selectCountryView: some View {
         NavigationStack {

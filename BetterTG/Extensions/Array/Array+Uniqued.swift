@@ -1,7 +1,5 @@
 // Array+Uniqued.swift
 
-import Foundation
-
 extension Array where Element: Equatable {
     func uniqued() -> [Element] {
         var result = [Element]()

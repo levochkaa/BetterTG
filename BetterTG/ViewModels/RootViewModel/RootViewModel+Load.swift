@@ -1,7 +1,5 @@
 // RootViewModel+Load.swift
 
-import SwiftUI
-
 extension RootViewModel {
     func loadMainChats() {
         Task {

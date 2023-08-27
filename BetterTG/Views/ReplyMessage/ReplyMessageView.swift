@@ -1,6 +1,5 @@
 // ReplyMessageView.swift
 
-import SwiftUI
 import TDLibKit
 
 struct ReplyMessageView: View {

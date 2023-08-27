@@ -1,7 +1,5 @@
 // chevron.swift
 
-import SwiftUI
-
 extension MessageView {
     @ViewBuilder func voiceNoteChevron(expanded: Bool, path: String? = nil, duration: Int) -> some View {
         Image(systemName: (isOutgoing && expanded) || (!isOutgoing && !expanded) ? "chevron.right" : "chevron.left")

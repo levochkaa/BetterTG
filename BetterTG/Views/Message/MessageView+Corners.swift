@@ -1,7 +1,5 @@
 // MessageView+Corners.swift
 
-import SwiftUI
-
 extension MessageView {
     
     enum MessagePart {

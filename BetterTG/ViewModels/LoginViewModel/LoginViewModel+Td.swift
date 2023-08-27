@@ -1,6 +1,5 @@
 // LoginViewModel+Td.swift
 
-import SwiftUI
 import TDLibKit
 
 extension LoginViewModel {

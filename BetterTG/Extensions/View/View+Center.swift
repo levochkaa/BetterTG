@@ -1,7 +1,5 @@
 // View+Center.swift
 
-import SwiftUI
-
 enum CustomAxis {
     case horizontally, vertically, both
 }

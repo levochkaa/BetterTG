@@ -1,7 +1,5 @@
 // ChatBottomArea+TextField.swift
 
-import SwiftUI
-
 extension ChatBottomArea {
     @ViewBuilder var textField: some View {
         @Bindable var viewModel = viewModel

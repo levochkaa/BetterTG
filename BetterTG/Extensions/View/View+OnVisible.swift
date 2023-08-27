@@ -1,7 +1,5 @@
 // View+OnVisible.swift
 
-import SwiftUI
-
 private struct OnVisible: ViewModifier {
     
     @State var action: (() -> Void)?

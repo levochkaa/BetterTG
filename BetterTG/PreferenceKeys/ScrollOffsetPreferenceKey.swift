@@ -1,7 +1,5 @@
 // ScrollOffsetPreferenceKey.swift
 
-import SwiftUI
-
 struct ScrollOffsetPreferenceKey: PreferenceKey {
     typealias Value = CGRect
     static var defaultValue: Value = .zero
