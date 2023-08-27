@@ -68,7 +68,7 @@ struct ChatBottomArea: View {
                     Image(systemName: "mic.fill")
                         .foregroundColor(.white)
                         .font(.title2)
-                        .matchedGeometryEffect(id: micId, in: namespace, isSource: false)
+                        .matchedGeometryEffect(id: micId, in: namespace)
                 }
                 .disabled(!viewModel.recordingVoiceNote)
                 .opacity(viewModel.recordingVoiceNote ? 1 : 0)
