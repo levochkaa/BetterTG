@@ -58,7 +58,7 @@ func startTdLibUpdateHandler() {
 private func check(_ update: Update) {
     switch update {
     case .updateAuthorizationState(let authorizationState):
-        updateAuthorizationState(authorizationState.authorizationState)
+        Task.main { updateAuthorizationState(authorizationState.authorizationState) }
     case .updateNewMessage(let updateNewMessage):
         Task.main { nc.post(name: .newMessage, object: updateNewMessage) }
     case .updateMessageSendAcknowledged(let updateMessageSendAcknowledged):
