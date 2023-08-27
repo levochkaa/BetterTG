@@ -33,7 +33,8 @@ extension ChatBottomArea {
     }
     
     func setShowSendButton() {
-        // swiftlint:disable:next line_length
-        showSendButton = !viewModel.displayedImages.isEmpty || !viewModel.editMessageText.characters.isEmpty || !viewModel.text.characters.isEmpty
+        showSendButton = !viewModel.displayedImages.isEmpty 
+            || !viewModel.editMessageText.characters.isEmpty
+            || !viewModel.text.characters.isEmpty
     }
 }

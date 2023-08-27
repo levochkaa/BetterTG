@@ -1,6 +1,5 @@
 // CustomLayout.swift
 
-// swiftlint:disable identifier_name
 struct CustomLayout: Layout {
     
     let width: CGFloat
@@ -60,4 +59,3 @@ struct CustomLayout: Layout {
         }
     }
 }
-// swiftlint:enable identifier_name

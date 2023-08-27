@@ -6,7 +6,7 @@ extension MessageView {
         case reply, text, content, edit, forwarded
     }
     
-    // swiftlint:disable function_body_length
+    // swiftlint:disable:next function_body_length
     func corners(for type: MessagePart) -> UIRectCorner {
         func shouldRoundCorners(for comparingWidth: Int) -> Bool {
             var value = 0
@@ -93,5 +93,4 @@ extension MessageView {
         }
         return corners
     }
-    // swiftlint:enable function_body_length
 }

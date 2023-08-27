@@ -2,7 +2,7 @@
 // Source:
 // https://github.com/mock-foundation/moc/blob/master/Shared/Layouts/MediaAlbum.swift
 
-// swiftlint:disable line_length type_body_length file_length cyclomatic_complexity function_body_length
+// swiftlint:disable line_length type_body_length file_length function_body_length
 
 /// This layout works (at least it should) and functions the same as in the
 /// Telegram iOS client, just because the layout logic was sto- i mean
@@ -13,7 +13,6 @@
 struct MediaAlbum: Layout {
     typealias AlbumLayout = ([(CGRect, ItemPosition)], CGSize)
     
-    // swiftlint:enable line_length
     func sizeThatFits(
         proposal: ProposedViewSize,
         subviews: Subviews,
@@ -121,7 +120,6 @@ struct MediaAlbum: Layout {
                     itemInfos[1].layoutFrame = CGRect(x: width + spacing, y: 0.0, width: width, height: height)
                     itemInfos[1].position = [.top, .right, .bottom]
                 } else {
-                    // swiftlint:disable line_length
                     let secondWidth = floor(min(0.5 * (maxSize.width - spacing), round((maxSize.width - spacing) / itemInfos[0].aspectRatio / (1.0 / itemInfos[0].aspectRatio + 1.0 / itemInfos[1].aspectRatio))))
                     let firstWidth = maxSize.width - secondWidth - spacing
                     let height = floor(min(maxSize.height, round(min(firstWidth / itemInfos[0].aspectRatio, secondWidth / itemInfos[1].aspectRatio))))
@@ -441,4 +439,4 @@ extension MediaAlbum {
     }
 }
 
-// swiftlint:enable line_length type_body_length file_length cyclomatic_complexity function_body_length
+// swiftlint:enable line_length type_body_length file_length function_body_length
