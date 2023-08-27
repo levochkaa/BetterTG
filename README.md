@@ -59,7 +59,7 @@ or [AltStore (suggested)](https://altstore.io).
 
 # Important
 
-- Performance with animoji's is terrible, I recommend disabling them in settings sheet
+- Performance with animoji's is terrible, I recommend disabling them in settings
 
 # Contributing
 
