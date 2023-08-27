@@ -158,6 +158,7 @@
 		DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter.swift */; };
 		DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */; };
 		DFFA98852A9B52900037460A /* Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFA98842A9B52900037460A /* Tab.swift */; };
+		DFFA98872A9B546C0037460A /* Array+ChatPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -342,6 +343,7 @@
 		DFECD759292A99FE002A4BAD /* NotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenter.swift; sourceTree = "<group>"; };
 		DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+ContextMenu.swift"; sourceTree = "<group>"; };
 		DFFA98842A9B52900037460A /* Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tab.swift; sourceTree = "<group>"; };
+		DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+ChatPosition.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -428,6 +430,7 @@
 				DF7AC2792970ADA900D77ACB /* Array+Add.swift */,
 				DF1717BF2971F6410085E698 /* Array+GetSize.swift */,
 				DFA214B0297D9BEF00758617 /* Array+Uniqued.swift */,
+				DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */,
 			);
 			path = Array;
 			sourceTree = "<group>";
@@ -1019,6 +1022,7 @@
 				1A21DEB0AEA5264CCA4C99D4 /* ChatView+MessagesScroll.swift in Sources */,
 				1A21DC64C76CD45E513C8669 /* View+ReadSize.swift in Sources */,
 				DF2AE70B295118C800FF7850 /* ChatViewModel+Load.swift in Sources */,
+				DFFA98872A9B546C0037460A /* Array+ChatPosition.swift in Sources */,
 				1A21DCADE88829359F41E2F2 /* SizePreferenceKey.swift in Sources */,
 				DFEB06C52959EB980099E2B2 /* voiceNoteViewExpanded.swift in Sources */,
 				DF9C81732998F6D6008989B0 /* View+Animation.swift in Sources */,

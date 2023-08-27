@@ -8,7 +8,8 @@ extension RootView {
         for customChat: CustomChat
     ) -> some View {
         HStack {
-            if let isPinned = customChat.positions.first(where: { $0.list == .chatListMain })?.isPinned, isPinned {
+            let isPinned = customChat.positions.main.isPinned
+            if isPinned {
                 Button(systemImage: "pin.fill") {
                     viewModel.togglePinned(chatId: customChat.chat.id, value: !isPinned)
                 }
