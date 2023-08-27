@@ -9,13 +9,9 @@ extension RootView {
         chatList: ChatList = .chatListMain
     ) -> some View {
         ForEach(customChats) { customChat in
-            NavigationLink {
-                ChatView(customChat: customChat)
-            } label: {
-                chatsListItem(for: customChat, redacted: redacted, chatList: chatList)
-                    .if(!redacted) {
-                        $0.matchedGeometryEffect(id: customChat.chat.id, in: namespace)
-                    }
+            NavigationLink(value: customChat) {
+                chatsListItem(for: customChat, chatList: chatList)
+                    .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
             }
             .contextMenu {
                 contextMenu(for: customChat, chatList: chatList)

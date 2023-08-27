@@ -7,20 +7,22 @@ extension RootView {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    switch viewModel.searchScope {
-                        case .chats:
-                            chatsList(viewModel.filteredSortedChats(query.lowercased()), chatList: .chatListMain)
-                        case .global:
-                            chatsList(viewModel.searchedGlobalChats)
+                    ForEach(viewModel.filteredSortedChats(query, for: .chatListMain)) { customChat in
+                        NavigationLink(value: customChat) {
+                            chatsListItem(for: customChat, chatList: .chatListMain)
+                                .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
+                        }
                     }
                 }
                 .padding(.top, 8)
                 .animation(value: viewModel.mainChats)
-                .animation(value: viewModel.searchedGlobalChats)
             }
             .navigationTitle("BetterTG")
             .navigationDestination(isPresented: $showArchivedChats) {
                 archivedChatsView
+            }
+            .navigationDestination(for: CustomChat.self) { customChat in
+                ChatView(customChat: customChat)
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
@@ -49,28 +51,6 @@ extension RootView {
             }
         }
         .searchable(text: $query, prompt: "Search chats...")
-        .searchScopes($viewModel.searchScope) {
-            ForEach(SearchScope.allCases, id: \.self) { scope in
-                Text(scope.rawValue)
-            }
-        }
-        .onSubmit(of: .search) {
-            viewModel.searchGlobalChats(query.lowercased())
-        }
-        .onChange(of: viewModel.searchScope) { _, scope in
-            guard scope == .global else { return }
-            
-            if query.isEmpty {
-                viewModel.searchScope = .chats
-            } else {
-                viewModel.searchGlobalChats(query)
-            }
-        }
-        .onChange(of: query) {
-            if query.isEmpty {
-                viewModel.searchScope = .chats
-            }
-        }
         .onChange(of: scenePhase) { _, newPhase in
             viewModel.handleScenePhase(newPhase)
         }

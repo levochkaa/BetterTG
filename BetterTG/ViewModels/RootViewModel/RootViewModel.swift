@@ -7,9 +7,7 @@ import Observation
 
 @Observable final class RootViewModel {
     var mainChats = [CustomChat]()
-    var searchedGlobalChats = [CustomChat]()
     var archivedChats = [CustomChat]()
-    var searchScope: SearchScope = .chats
     var openedItem: OpenedItem? = nil
     @ObservationIgnored var namespace: Namespace.ID! = nil
     
@@ -45,21 +43,11 @@ import Observation
         }
     }
     
-    func searchGlobalChats(_ query: String) {
-        Task {
-            let chatIds = await tdSearchPublicChats(query: query)
-            let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
-            await MainActor.run {
-                searchedGlobalChats = customChats
-            }
-        }
-    }
-    
     func filteredSortedChats(_ query: String, for list: ChatList = .chatListMain) -> [CustomChat] {
+        let query = query.lowercased()
         var customChats = [CustomChat]()
         switch list {
             case .chatListMain:
-                guard searchScope == .chats else { return [] }
                 customChats = mainChats
             case .chatListArchive:
                 customChats = archivedChats
