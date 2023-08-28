@@ -48,7 +48,7 @@ import Observation
                 if let firstOrder = $0.positions.main?.order, let secondOrder = $1.positions.main?.order {
                     return firstOrder > secondOrder
                 } else {
-                    return $0.chat.id < $1.chat.id
+                    return $0.chat.id > $1.chat.id
                 }
             }
             .filter {
