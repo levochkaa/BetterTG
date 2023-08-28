@@ -28,8 +28,6 @@ struct MessageView: View {
     
     @State var textSize: CGSize = .zero
     
-    @State var showContextMenu = false
-    
     let recognizedTextId = "recognizedTextId"
     let playId = "playId"
     let currentTimeId = "currentTimeId"
@@ -101,11 +99,7 @@ struct MessageView: View {
                     .readSize { editWidth = Int($0.width) }
             }
         }
-        .onTapGesture {}
-        .onLongPressGesture {
-            showContextMenu = true
-        }
-        .confirmationDialog(text, isPresented: $showContextMenu) {
+        .contextMenu {
             menu
         }
         .onAppear {

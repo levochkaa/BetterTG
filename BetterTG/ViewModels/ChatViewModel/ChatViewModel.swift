@@ -18,6 +18,9 @@ import Observation
     var editMessageText: AttributedString = ""
     var showSendButton = false
     
+    @ObservationIgnored var lastAppearedMessageId: Int64? = nil
+    @ObservationIgnored var shouldWaitForMessageId: Int64? = nil
+    
     @ObservationIgnored var loadedAlbums = Set<Int64>()
     @ObservationIgnored var sentPhotosCount = 0
     @ObservationIgnored var toBeSentPhotosCount = 0
@@ -36,8 +39,8 @@ import Observation
     var messages = [CustomMessage]()
     var highlightedMessageId: Int64? = nil
     
-    var loadingMessages = false
-    var initLoadingMessages = false
+    @ObservationIgnored var loadingMessages = false
+    @ObservationIgnored var initLoadingMessages = false
     
     @ObservationIgnored var offset = 0
     @ObservationIgnored var limit = 30

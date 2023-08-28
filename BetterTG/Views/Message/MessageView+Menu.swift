@@ -46,7 +46,7 @@ extension MessageView {
         
         Divider()
         
-        if customMessage.message.canBeDeletedOnlyForSelf { // , !customMessage.message.canBeDeletedForAllUsers {
+        if customMessage.message.canBeDeletedOnlyForSelf, !customMessage.message.canBeDeletedForAllUsers {
             Button("Delete", systemImage: "trash", role: .destructive) {
                 Task {
                     await viewModel.deleteMessage(
@@ -57,7 +57,7 @@ extension MessageView {
             }
         }
         
-        if customMessage.message.canBeDeletedForAllUsers { // , !customMessage.message.canBeDeletedOnlyForSelf {
+        if customMessage.message.canBeDeletedForAllUsers, !customMessage.message.canBeDeletedOnlyForSelf {
             Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
                 Task {
                     await viewModel.deleteMessage(
@@ -68,26 +68,26 @@ extension MessageView {
             }
         }
         
-//        if customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
-//            Menu("Delete") {
-//                Button("Delete only for me", systemImage: "trash", role: .destructive) {
-//                    Task {
-//                        await viewModel.deleteMessage(
-//                            id: customMessage.message.id,
-//                            deleteForBoth: false
-//                        )
-//                    }
-//                }
-//
-//                Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
-//                    Task {
-//                        await viewModel.deleteMessage(
-//                            id: customMessage.message.id,
-//                            deleteForBoth: true
-//                        )
-//                    }
-//                }
-//            }
-//        }
+        if customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
+            Menu("Delete") {
+                Button("Delete only for me", systemImage: "trash", role: .destructive) {
+                    Task {
+                        await viewModel.deleteMessage(
+                            id: customMessage.message.id,
+                            deleteForBoth: false
+                        )
+                    }
+                }
+
+                Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
+                    Task {
+                        await viewModel.deleteMessage(
+                            id: customMessage.message.id,
+                            deleteForBoth: true
+                        )
+                    }
+                }
+            }
+        }
     }
 }

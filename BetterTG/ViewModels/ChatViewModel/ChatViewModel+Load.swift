@@ -22,17 +22,17 @@ extension ChatViewModel {
     }
     
     func loadMessages(isInit: Bool = false) async {
-        await MainActor.run {
-            self.loadingMessages = true
-            
-            if isInit {
-                self.initLoadingMessages = true
-            }
+        guard !loadingMessages, shouldWaitForMessageId == lastAppearedMessageId else { return }
+        
+        self.loadingMessages = true
+        
+        if isInit {
+            self.initLoadingMessages = true
         }
         
         guard let chatHistory = await tdGetChatHistory() else { return }
         
-        let customMessages = await chatHistory.asyncMap { chatMessage in
+        let customMessages = await chatHistory.reversed().asyncMap { chatMessage in
             await self.getCustomMessage(from: chatMessage)
         }
         
@@ -61,12 +61,12 @@ extension ChatViewModel {
         }
         
         await MainActor.run {
-            self.messages += filteredSavedMessages
-            self.offset = self.messages.count
-            self.loadingMessages = false
+            shouldWaitForMessageId = filteredSavedMessages.first?.id
+            messages.insert(contentsOf: filteredSavedMessages, at: 0)
             
+            loadingMessages = false
             if isInit {
-                self.initLoadingMessages = false
+                initLoadingMessages = false
             }
         }
     }
