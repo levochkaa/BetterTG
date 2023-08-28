@@ -2,7 +2,7 @@
 
 import Combine
 
-let nc: NotificationCenter = .default
+let nc = NotificationCenter()
 var cancellables = Set<AnyCancellable>()
 
 extension NotificationCenter {
