@@ -132,4 +132,5 @@ extension Foundation.Notification.Name {
     
     static let localIsListeningVoice = Self("localIsListeningVoice")
     static let localRecognizeSpeech = Self("localRecognizeSpeech")
+    static let localScrollToLastOnFocus = Self("localScrollToLastOnFocus")
 }
