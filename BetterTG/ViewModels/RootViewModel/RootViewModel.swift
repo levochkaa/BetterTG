@@ -44,7 +44,13 @@ import Observation
     func filteredSortedChats(_ query: String) -> [CustomChat] {
         let query = query.lowercased()
         return mainChats
-            .sorted { $0.positions.main.order > $1.positions.main.order }
+            .sorted {
+                if let firstOrder = $0.positions.main?.order, let secondOrder = $1.positions.main?.order {
+                    return firstOrder > secondOrder
+                } else {
+                    return $0.chat.id < $1.chat.id
+                }
+            }
             .filter {
                 query.isEmpty
                 || $0.user.firstName.lowercased().contains(query)
