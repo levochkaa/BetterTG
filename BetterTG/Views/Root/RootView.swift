@@ -15,7 +15,7 @@ struct RootView: View {
     
     @Namespace var namespace
     
-    @AppStorage("showAnimojis") var showAnimojis = true
+//    @AppStorage("showAnimojis") var showAnimojis = true
     @AppStorage("loggedIn") var loggedIn = false
     
     let chatId = "chatId"
@@ -128,7 +128,7 @@ struct RootView: View {
     var settings: some View {
         List {
             Section {
-                Toggle("Animojis", isOn: $showAnimojis)
+//                Toggle("Animojis", isOn: $showAnimojis)
             } header: {
                 Text("BetterTG")
             }
