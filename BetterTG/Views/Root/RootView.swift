@@ -111,7 +111,6 @@ struct RootView: View {
                     await viewModel.tdDeleteChatHistory(chatId: id, forAll: deleteChatForAllUsers)
                 }
             }
-            .preferredColorScheme(.dark)
         }
         .overlay {
             if let openedItem = viewModel.openedItem {
