@@ -29,7 +29,7 @@ struct TextView: UIViewRepresentable {
         textView.isScrollEnabled = false
         textView.dataDetectorTypes = .all
         textView.isEditable = false
-        textView.isSelectable = false
+        textView.isSelectable = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainerInset = .zero
@@ -89,6 +89,8 @@ struct TextView: UIViewRepresentable {
                 attributedString.addAttribute(.link, value: getUrl(from: raw) as Any, range: range)
             case .textEntityTypeTextUrl(let textUrl):
                 attributedString.addAttribute(.link, value: getUrl(from: textUrl.url) as Any, range: range)
+            case .textEntityTypeSpoiler:
+                attributedString.addAttribute(.backgroundColor, value: UIColor.gray, range: range)
 //            case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
 //                guard showAnimojis else { break }
 //                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)

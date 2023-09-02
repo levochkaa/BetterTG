@@ -11,31 +11,47 @@ private class CustomUITextView: UITextView {
         let formatMenu = UIMenu(title: "Format", children: [
             UIAction(title: "Bold") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.font, value: UIFont.bold, range: selectedRange)
+                textStorage.addAttribute(.font, value: UIFont.bold, range: selectedRange)
+                delegate?.textViewDidChange?(self)
             },
             UIAction(title: "Italic") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.font, value: UIFont.italic, range: selectedRange)
+                textStorage.addAttribute(.font, value: UIFont.italic, range: selectedRange)
+                delegate?.textViewDidChange?(self)
             },
             UIAction(title: "Monospace") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.font, value: UIFont.monospaced, range: selectedRange)
+                textStorage.addAttribute(.font, value: UIFont.monospaced, range: selectedRange)
+                delegate?.textViewDidChange?(self)
             },
             UIAction(title: "Link") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.link, value: URL(string: "https://google.com")!, range: selectedRange)
+                let alert = UIAlertController(title: "Enter URL", message: nil, preferredStyle: .alert)
+                alert.addTextField { textField in
+                    textField.placeholder = "https://google.com/"
+                }
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert, weak self] _ in
+                    guard let self, let text = alert?.textFields?.first?.text else { return }
+                    textStorage.addAttribute(.link, value: URL(string: text)!, range: selectedRange)
+                    delegate?.textViewDidChange?(self)
+                })
+                alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                UIApplication.currentKeyWindow?.rootViewController?.present(alert, animated: true)
             },
             UIAction(title: "Strikethrough") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.strikethroughStyle, value: 1, range: selectedRange)
+                textStorage.addAttribute(.strikethroughStyle, value: 1, range: selectedRange)
+                delegate?.textViewDidChange?(self)
             },
             UIAction(title: "Underline") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.underlineStyle, value: 1, range: selectedRange)
+                textStorage.addAttribute(.underlineStyle, value: 1, range: selectedRange)
+                delegate?.textViewDidChange?(self)
             },
             UIAction(title: "Spoiler") { [weak self] _ in
                 guard let self else { return }
-                self.textStorage.addAttribute(.backgroundColor, value: UIColor.gray, range: selectedRange)
+                textStorage.addAttribute(.backgroundColor, value: UIColor.gray, range: selectedRange)
+                delegate?.textViewDidChange?(self)
             }
         ])
         

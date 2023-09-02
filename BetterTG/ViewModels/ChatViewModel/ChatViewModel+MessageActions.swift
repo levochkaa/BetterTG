@@ -46,13 +46,49 @@ extension ChatViewModel {
     }
     
     func sendMessageText() async {
+        var entities = [TextEntity]()
+        var range = NSRange(location: 0, length: text.string.count - 1)
+        let attributedText = NSAttributedString(text)
+        attributedText.enumerateAttributes(in: range) { attributes, range, _ in
+            let attributes = attributes
+            print(attributes)
+            for attribute in attributes {
+                switch attribute.key {
+                    case .font:
+                        guard let uiFont = attribute.value as? UIFont else { return }
+                        switch uiFont {
+                            case UIFont.bold:
+                                entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeBold))
+                            case UIFont.italic:
+                                entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeItalic))
+                            case UIFont.monospaced:
+                                entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeCode))
+                            default:
+                                break
+                        }
+                    case .link:
+                        guard let url = attribute.value as? URL else { return }
+                        entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeTextUrl(
+                            .init(url: url.absoluteString)
+                        )))
+                    case .strikethroughStyle:
+                        entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeStrikethrough))
+                    case .underlineStyle:
+                        entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeUnderline))
+                    case .backgroundColor:
+                        entities.append(.init(length: range.length + 1, offset: range.location, type: .textEntityTypeSpoiler))
+                    default:
+                        break
+                }
+            }
+        }
         await tdSendMessage(with:
                 .inputMessageText(
                     .init(
                         clearDraft: true,
                         disableWebPagePreview: true,
                         text: FormattedText(
-                            entities: [],
+                            entities: entities,
                             text: text.string
                         )
                     )
