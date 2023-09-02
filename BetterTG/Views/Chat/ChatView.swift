@@ -25,9 +25,7 @@ struct ChatView: View {
     
     var body: some View {
         Group {
-            if isPreview {
-                bodyView
-            } else if viewModel.customChat.lastMessage == nil {
+            if viewModel.customChat.lastMessage == nil {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
