@@ -59,7 +59,8 @@ struct ChatView: View {
         ScrollViewReader { scrollViewProxy in
             ScrollView(showsIndicators: false) {
                 ZStack {
-                    LazyVStack(spacing: 5) {
+                    // Temporary removing `Lazy`, because iOS 17 has huge problems with scroll
+                    VStack(spacing: 5) {
                         ForEach(viewModel.messages) { customMessage in
                             HStack {
                                 if customMessage.message.isOutgoing { Spacer() }
@@ -69,9 +70,9 @@ struct ChatView: View {
                                         maxWidth: Utils.size.width * 0.8,
                                         alignment: customMessage.message.isOutgoing ? .trailing : .leading
                                     )
-                                    .onAppear {
-                                        viewModel.lastAppearedMessageId = customMessage.id
-                                    }
+//                                    .onAppear {
+//                                        viewModel.lastAppearedMessageId = customMessage.id
+//                                    }
                                 
                                 if !customMessage.message.isOutgoing { Spacer() }
                             }
