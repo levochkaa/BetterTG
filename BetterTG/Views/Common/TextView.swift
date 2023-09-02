@@ -23,7 +23,7 @@ struct TextView: UIViewRepresentable {
     }
     
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView(frame: .zero)
+        let textView = UITextView(usingTextLayoutManager: false)
         textView.font = .body
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
@@ -33,17 +33,17 @@ struct TextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainerInset = .zero
-        setText(textView)
+        setText(textView, isInit: true)
         return textView
     }
     
     func updateUIView(_ textView: UITextView, context: Context) {
         if textView.attributedText != NSAttributedString(string: formattedText.text) {
-            setText(textView)
+            setText(textView, isInit: false)
         }
     }
     
-    func setText(_ textView: UITextView) {
+    func setText(_ textView: UITextView, isInit: Bool) {
         let attributedString = NSMutableAttributedString(
             string: formattedText.text,
             attributes: [
@@ -59,8 +59,8 @@ struct TextView: UIViewRepresentable {
         textView.attributedText = attributedString
         
         if showAnimojis {
-            Task {
-                await setAnimojis(textView, isInit: true)
+            Task { @MainActor in
+                setAnimojis(textView, isInit: isInit)
             }
         }
     }
@@ -106,24 +106,30 @@ struct TextView: UIViewRepresentable {
         attributedString.append(dateAttributedString)
     }
     
-    func setAnimojis(_ textView: UITextView, isInit: Bool = false) async {
-        var emojiIndex = 0
-        let animojis = await viewModel.getAnimojis(from: formattedText.entities)
-        for animoji in animojis {
-            let entity = filteredEntities[emojiIndex]
-            let frame = getFrame(textView, from: entity)
-            
-            await MainActor.run { [emojiIndex] in
-                if isInit {
+    @State var shouldSetAnimojis = true
+    
+    func setAnimojis(_ textView: UITextView, isInit: Bool) {
+        guard shouldSetAnimojis else { return }
+        shouldSetAnimojis = false
+        Task {
+            let animojis = await viewModel.getAnimojis(from: formattedText.entities)
+            await MainActor.run {
+                var emojiIndex = 0
+                animojis.forEach { animoji in
+                    let entity = filteredEntities[emojiIndex]
+                    let frame = getFrame(textView, from: entity)
                     renderAnimoji(textView, animoji: animoji, with: frame)
-                } else {
-                    UIView.animate(withDuration: Utils.defaultAnimationDuration) {
-                        textView.subviews[emojiIndex].frame = frame
-                    }
+//                    if isInit {
+//                        renderAnimoji(textView, animoji: animoji, with: frame)
+//                    } else {
+//                        UIView.animate(withDuration: Utils.defaultAnimationDuration) {
+//                            textView.subviews[emojiIndex].frame = frame
+//                        }
+//                    }
+                    emojiIndex += 1
                 }
+                shouldSetAnimojis = true
             }
-            
-            emojiIndex += 1
         }
     }
     
