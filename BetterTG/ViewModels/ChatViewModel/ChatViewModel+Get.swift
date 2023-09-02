@@ -176,4 +176,48 @@ extension ChatViewModel {
                 return nil
         }
     }
+    
+    func getEntities(from text: AttributedString) -> [TextEntity] {
+        var entities = [TextEntity]()
+        let attributedText = NSAttributedString(text)
+        let textRange = NSRange(location: 0, length: text.string.count)
+        attributedText.enumerateAttributes(in: textRange) { attributes, range, _ in
+            for attribute in attributes {
+                guard let entity = getEntity(from: attribute, using: range) else { continue }
+                entities.append(entity)
+            }
+        }
+        return entities
+    }
+    
+    func getEntity(from attribute: (key: NSAttributedString.Key, value: Any), using range: NSRange) -> TextEntity? {
+        switch attribute.key {
+            case .font:
+                guard let uiFont = attribute.value as? UIFont else { return nil }
+                switch uiFont {
+                    case UIFont.bold:
+                        return .init(length: range.length, offset: range.location, type: .textEntityTypeBold)
+                    case UIFont.italic:
+                        return .init(length: range.length, offset: range.location, type: .textEntityTypeItalic)
+                    case UIFont.monospaced:
+                        return .init(length: range.length, offset: range.location, type: .textEntityTypeCode)
+                    default:
+                        break
+                }
+            case .link:
+                guard let url = attribute.value as? URL else { return nil }
+                return .init(length: range.length, offset: range.location, type: .textEntityTypeTextUrl(
+                    .init(url: url.absoluteString)
+                ))
+            case .strikethroughStyle:
+                return .init(length: range.length, offset: range.location, type: .textEntityTypeStrikethrough)
+            case .underlineStyle:
+                return .init(length: range.length, offset: range.location, type: .textEntityTypeUnderline)
+            case .backgroundColor:
+                return .init(length: range.length, offset: range.location, type: .textEntityTypeSpoiler)
+            default:
+                return nil
+        }
+        return nil
+    }
 }

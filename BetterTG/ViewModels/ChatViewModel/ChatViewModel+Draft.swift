@@ -8,7 +8,7 @@ extension ChatViewModel {
         
         if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
             await MainActor.run {
-                text = inputMessageText.text.text.attributedString
+                text = getAttributedString(from: inputMessageText.text)
             }
         }
         
@@ -29,7 +29,7 @@ extension ChatViewModel {
                     clearDraft: true,
                     disableWebPagePreview: true,
                     text: FormattedText(
-                        entities: [],
+                        entities: getEntities(from: text),
                         text: text.string
                     )
                 )

@@ -13,7 +13,7 @@ extension ChatViewModel {
         return .inputMessagePhoto(
             InputMessagePhoto(
                 addedStickerFileIds: [],
-                caption: FormattedText(entities: [], text: text.string),
+                caption: FormattedText(entities: getEntities(from: text), text: text.string),
                 hasSpoiler: false,
                 height: Int(image.size.height),
                 photo: input,

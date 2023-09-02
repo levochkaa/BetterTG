@@ -5,7 +5,7 @@ import TDLibKit
 extension MessageView {
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
         TextView(formattedText: formattedText)
-            .frame(size: getTextViewSize(for: formattedText.text))
+            .frame(size: getTextViewSize(for: formattedText))
             .overlay(alignment: .bottomTrailing) {
                 messageDate
                     .offset(y: 3)
@@ -13,8 +13,8 @@ extension MessageView {
     }
     
     /// SwiftUI is fucked.
-    private func getTextViewSize(for text: String) -> CGSize {
-        let attributedString = NSMutableAttributedString(string: text, attributes: [.font: UIFont.body as Any])
+    private func getTextViewSize(for formattedText: FormattedText) -> CGSize {
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
         attributedString.append(NSAttributedString(string: " 00:00", attributes: [.font: UIFont.caption as Any]))
         let textStorage = NSTextStorage(attributedString: attributedString)
         let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)

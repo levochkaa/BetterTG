@@ -48,7 +48,7 @@ extension ChatViewModel {
                                 clearDraft: true,
                                 disableWebPagePreview: true,
                                 text: FormattedText(
-                                    entities: [],
+                                    entities: getEntities(from: editMessageText),
                                     text: editMessageText.string
                                 )
                             )
@@ -93,7 +93,7 @@ extension ChatViewModel {
         do {
             _ = try await td.editMessageCaption(
                 caption: FormattedText(
-                    entities: [],
+                    entities: getEntities(from: editMessageText),
                     text: editMessageText.string
                 ),
                 chatId: customChat.chat.id,
