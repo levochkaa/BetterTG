@@ -49,6 +49,7 @@ extension ChatView {
                     image
                         .resizable()
                         .scaledToFit()
+                        .contentShape(.contextMenuPreview, Circle())
                         .contextMenu {
                             Button("Save", systemImage: "square.and.arrow.down") {
                                 guard let uiImage = UIImage(contentsOfFile: chatPhoto.big.local.path)
