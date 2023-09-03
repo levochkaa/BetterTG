@@ -75,7 +75,7 @@ struct ChatView: View {
                                 
                                 if !customMessage.message.isOutgoing { Spacer() }
                             }
-                            .padding(customMessage.message.isOutgoing ? .trailing : .leading)
+                            .padding(customMessage.message.isOutgoing ? .trailing : .leading, 16)
                             .transition(
                                 .asymmetric(
                                     insertion: .move(edge: .bottom),
