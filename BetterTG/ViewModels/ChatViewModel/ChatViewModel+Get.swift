@@ -196,25 +196,23 @@ extension ChatViewModel {
                 guard let uiFont = attribute.value as? UIFont else { return nil }
                 switch uiFont {
                     case UIFont.bold:
-                        return .init(length: range.length, offset: range.location, type: .textEntityTypeBold)
+                        return .init(.textEntityTypeBold, range: range)
                     case UIFont.italic:
-                        return .init(length: range.length, offset: range.location, type: .textEntityTypeItalic)
+                        return .init(.textEntityTypeItalic, range: range)
                     case UIFont.monospaced:
-                        return .init(length: range.length, offset: range.location, type: .textEntityTypeCode)
+                        return .init(.textEntityTypeCode, range: range)
                     default:
                         break
                 }
             case .link:
                 guard let url = attribute.value as? URL else { return nil }
-                return .init(length: range.length, offset: range.location, type: .textEntityTypeTextUrl(
-                    .init(url: url.absoluteString)
-                ))
+                return .init(.textEntityTypeTextUrl(.init(url: url.absoluteString)), range: range)
             case .strikethroughStyle:
-                return .init(length: range.length, offset: range.location, type: .textEntityTypeStrikethrough)
+                return .init(.textEntityTypeStrikethrough, range: range)
             case .underlineStyle:
-                return .init(length: range.length, offset: range.location, type: .textEntityTypeUnderline)
+                return .init(.textEntityTypeUnderline, range: range)
             case .backgroundColor:
-                return .init(length: range.length, offset: range.location, type: .textEntityTypeSpoiler)
+                return .init(.textEntityTypeSpoiler, range: range)
             default:
                 return nil
         }

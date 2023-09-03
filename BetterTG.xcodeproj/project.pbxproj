@@ -71,6 +71,7 @@
 		DF69FA8C2AA4CEB9009180D4 /* UIPasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */; };
 		DF69FA8F2AA4D4FA009180D4 /* Menlo.ttf in Resources */ = {isa = PBXBuildFile; fileRef = DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */; };
 		DF69FA912AA4ED2D009180D4 /* Image.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA902AA4ED2D009180D4 /* Image.swift */; };
+		DF69FA932AA51A7D009180D4 /* TextEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA922AA51A7D009180D4 /* TextEntity.swift */; };
 		DF763B082971BE5B00334615 /* Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
@@ -255,6 +256,7 @@
 		DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIPasteboard.swift; sourceTree = "<group>"; };
 		DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Menlo.ttf; sourceTree = "<group>"; };
 		DF69FA902AA4ED2D009180D4 /* Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Image.swift; sourceTree = "<group>"; };
+		DF69FA922AA51A7D009180D4 /* TextEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEntity.swift; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Task.swift; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
@@ -730,6 +732,7 @@
 				DF27AD242A9B65B7001A3FFF /* Color.swift */,
 				DF69FA872AA38622009180D4 /* UIApplication.swift */,
 				DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */,
+				DF69FA922AA51A7D009180D4 /* TextEntity.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -896,6 +899,7 @@
 				DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */,
 				DFE026622951144B004C8C83 /* ReplyMessageView+Photo.swift in Sources */,
 				DF9AC6CF29A2884300D6EC76 /* ChatView+ScrollToBottomButton.swift in Sources */,
+				DF69FA932AA51A7D009180D4 /* TextEntity.swift in Sources */,
 				DF96BAE2298BE120003936AC /* View+Equatable.swift in Sources */,
 				DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */,
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
