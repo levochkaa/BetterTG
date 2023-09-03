@@ -144,7 +144,9 @@ extension ChatViewModel {
             Task {
                 let customMessage = await self.getCustomMessage(from: message)
                 await MainActor.run {
-                    self.messages[index] = customMessage
+                    withAnimation {
+                        messages[index] = customMessage
+                    }
                 }
             }
             return
@@ -173,7 +175,9 @@ extension ChatViewModel {
                     }
                     
                     await MainActor.run { [customMessage] in
-                        self.messages[index] = customMessage
+                        withAnimation {
+                            messages[index] = customMessage
+                        }
                     }
                     
                     self.sentPhotosCount = 0
@@ -192,7 +196,7 @@ extension ChatViewModel {
         
         Task.main {
             withAnimation {
-                self.messages[index].update(sendFailed: true)
+                messages[index].update(sendFailed: true)
             }
         }
     }
@@ -212,7 +216,7 @@ extension ChatViewModel {
                             $0.message.mediaAlbumId == message.mediaAlbumId
                         }) else { return }
                         
-                        self.messages[index].appendAlbum(message)
+                        messages[index].appendAlbum(message)
                     }
                     nc.post(name: .localScrollToLastOnFocus)
                 }
@@ -239,10 +243,12 @@ extension ChatViewModel {
                 else { return }
                 
                 await MainActor.run {
-                    messages[index] = customMessage
-                    
-                    if messageEdited.messageId == replyMessage?.message.id {
-                        replyMessage = customMessage
+                    withAnimation {
+                        messages[index] = customMessage
+                        
+                        if messageEdited.messageId == replyMessage?.message.id {
+                            replyMessage = customMessage
+                        }
                     }
                 }
             }
@@ -256,7 +262,9 @@ extension ChatViewModel {
             let reply = await self.tdGetMessage(id: messageEdited.messageId)
             for index in indices {
                 await MainActor.run {
-                    messages[index].update(replyToMessage: reply)
+                    withAnimation {
+                        messages[index].update(replyToMessage: reply)
+                    }
                 }
             }
         }
