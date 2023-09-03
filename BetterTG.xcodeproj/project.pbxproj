@@ -69,6 +69,7 @@
 		DF5D2CA92951D02500A1498B /* VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5D2CA82951D02500A1498B /* VoiceNote.swift */; };
 		DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */; };
 		DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA872AA38622009180D4 /* UIApplication.swift */; };
+		DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA892AA4C899009180D4 /* Text.swift */; };
 		DF763B082971BE5B00334615 /* Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
@@ -251,6 +252,7 @@
 		DF63537229B68F180054F0A0 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomLayout.swift; sourceTree = "<group>"; };
 		DF69FA872AA38622009180D4 /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
+		DF69FA892AA4C899009180D4 /* Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Text.swift; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Task.swift; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
@@ -561,6 +563,7 @@
 				DF4A5FFA2A350EC900ABD5D1 /* Debouncer.swift */,
 				DFFA98882A9B55610037460A /* Imports.swift */,
 				DF0F9D5028CCADB300BCA763 /* TdApi.swift */,
+				DF69FA892AA4C899009180D4 /* Text.swift */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -921,6 +924,7 @@
 				DFD7D4892942426D0006CF85 /* LoginViewModel+Td.swift in Sources */,
 				DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */,
 				DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */,
+				DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */,
 				DF4A5FFB2A350EC900ABD5D1 /* Debouncer.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DFCC2A412950EF2800281EF8 /* MessageView+Content.swift in Sources */,
