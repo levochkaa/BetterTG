@@ -1,5 +1,7 @@
 // MessageView+Text.swift
 
+import TDLibKit
+
 extension MessageView {
     @ViewBuilder var messageText: some View {
         Group {
@@ -20,5 +22,26 @@ extension MessageView {
                     Text("BTG not supported")
             }
         }
+    }
+    
+    @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
+        TextView(formattedText: formattedText, appendingDate: true)
+            .overlay(alignment: .bottomTrailing) {
+                messageDate
+                    .offset(y: 3)
+            }
+    }
+    
+    @ViewBuilder var messageDate: some View {
+        Text(formatted(customMessage.message.date))
+            .font(.caption)
+            .foregroundColor(.white).opacity(0.5)
+    }
+    
+    private func formatted(_ time: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(time))
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "HH:mm"
+        return dateFormatter.string(from: date)
     }
 }

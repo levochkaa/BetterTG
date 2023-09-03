@@ -26,7 +26,7 @@ extension RootView {
             
             switch draftMessage.inputMessageText {
                 case .inputMessageText(let inputMessageText):
-                    Text(inputMessageText.text.text)
+                    TextView(formattedText: inputMessageText.text)
                 default:
                     Text("BTG not supported")
             }
@@ -39,7 +39,11 @@ extension RootView {
                 HStack(alignment: .center, spacing: 5) {
                     makePhotoPreview(from: messagePhoto)
                     
-                    Text(messagePhoto.caption.text.isEmpty ? "Photo" : messagePhoto.caption.text)
+                    if messagePhoto.caption.text.isEmpty {
+                        Text("Photo")
+                    } else {
+                        TextView(formattedText: messagePhoto.caption)
+                    }
                 }
             case .messageVoiceNote(let messageVoiceNote):
                 HStack(alignment: .bottom, spacing: 0) {
@@ -49,9 +53,9 @@ extension RootView {
                     if !messageVoiceNote.caption.text.isEmpty {
                         Text(": ")
                             .foregroundColor(.white)
+                        
+                        TextView(formattedText: messageVoiceNote.caption)
                     }
-                    
-                    Text(messageVoiceNote.caption.text)
                 }
             case .messageText(let messageText):
                 Text(messageText.text.text)

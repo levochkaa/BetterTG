@@ -6,11 +6,38 @@ import Gzip
 import MobileVLCKit
 import SDWebImage
 
-struct TextView: UIViewRepresentable {
+struct TextView: View {
+    @State var formattedText: FormattedText
+    var appendingDate: Bool = false
+    
+    var body: some View {
+        _TextView(formattedText: formattedText)
+            .frame(size: getTextViewSize(for: formattedText, appendingDate: appendingDate))
+    }
+    
+    /// SwiftUI is fucked.
+    func getTextViewSize(for formattedText: FormattedText, appendingDate: Bool) -> CGSize {
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
+        if appendingDate {
+            attributedString.append(NSAttributedString(string: " 00:00", attributes: [.font: UIFont.caption as Any]))
+        }
+        let textStorage = NSTextStorage(attributedString: attributedString)
+        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
+        let boundingRect = CGRect(origin: .zero, size: size)
+        let textContainer = NSTextContainer(size: size)
+        textContainer.lineFragmentPadding = 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
+        let rect = layoutManager.usedRect(for: textContainer)
+        return rect.integral.size
+    }
+}
+
+private struct _TextView: UIViewRepresentable {
     
     let formattedText: FormattedText
-    
-    @Environment(ChatViewModel.self) var viewModel
     
 //    @AppStorage("showAnimojis") var showAnimojis = true
     

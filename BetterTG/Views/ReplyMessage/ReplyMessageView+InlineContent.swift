@@ -6,9 +6,13 @@ extension ReplyMessageView {
     @ViewBuilder func inlineMessageContentText(from message: Message) -> some View {
         switch message.content {
             case .messageText(let messageText):
-                Text(messageText.text.text)
+                TextView(formattedText: messageText.text)
             case .messagePhoto(let messagePhoto):
-                Text(messagePhoto.caption.text.isEmpty ? "Photo" : messagePhoto.caption.text)
+                if messagePhoto.caption.text.isEmpty {
+                    Text("Photo")
+                } else {
+                    TextView(formattedText: messagePhoto.caption)
+                }
             case .messageVoiceNote(let messageVoiceNote):
                 HStack(alignment: .bottom) {
                     Text("Voice")
@@ -17,9 +21,9 @@ extension ReplyMessageView {
                     if !messageVoiceNote.caption.text.isEmpty {
                         Text(": ")
                             .foregroundColor(.white)
+                        
+                        TextView(formattedText: messageVoiceNote.caption)
                     }
-                    
-                    Text(messageVoiceNote.caption.text)
                 }
             case .messageUnsupported:
                 Text("TDLib not supported")

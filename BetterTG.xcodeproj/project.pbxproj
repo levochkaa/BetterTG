@@ -35,14 +35,12 @@
 		DF2AE7112951198400FF7850 /* ChatViewModel+Draft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE7102951198400FF7850 /* ChatViewModel+Draft.swift */; };
 		DF2AE713295119AA00FF7850 /* ChatViewModel+MessageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE712295119AA00FF7850 /* ChatViewModel+MessageContent.swift */; };
 		DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */; };
-		DF346448296B72D4001BE888 /* MessageView+FormattedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346447296B72D4001BE888 /* MessageView+FormattedText.swift */; };
 		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
 		DF34C38929A2A43600EA2606 /* CustomTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF34C38829A2A43600EA2606 /* CustomTextField.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF3A714F29AB66B200A7EC22 /* String.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A714E29AB66B200A7EC22 /* String.swift */; };
 		DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715029AB702E00A7EC22 /* AttributedString.swift */; };
 		DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715229AB705900A7EC22 /* UIFont.swift */; };
-		DF3BC41A2974142F002F207B /* MessageView+Date.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3BC4192974142F002F207B /* MessageView+Date.swift */; };
 		DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF40F14F298F01CC00383AE1 /* CameraView.swift */; };
 		DF4A5FFB2A350EC900ABD5D1 /* Debouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4A5FFA2A350EC900ABD5D1 /* Debouncer.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
@@ -218,14 +216,12 @@
 		DF2AE7102951198400FF7850 /* ChatViewModel+Draft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Draft.swift"; sourceTree = "<group>"; };
 		DF2AE712295119AA00FF7850 /* ChatViewModel+MessageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+MessageContent.swift"; sourceTree = "<group>"; };
 		DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+MessageActions.swift"; sourceTree = "<group>"; };
-		DF346447296B72D4001BE888 /* MessageView+FormattedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+FormattedText.swift"; sourceTree = "<group>"; };
 		DF346449296B787D001BE888 /* MainActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActor.swift; sourceTree = "<group>"; };
 		DF34C38829A2A43600EA2606 /* CustomTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomTextField.swift; sourceTree = "<group>"; };
 		DF3A159428D838C500789C32 /* Secret.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Secret.swift; sourceTree = "<group>"; };
 		DF3A714E29AB66B200A7EC22 /* String.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = String.swift; sourceTree = "<group>"; };
 		DF3A715029AB702E00A7EC22 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
 		DF3A715229AB705900A7EC22 /* UIFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIFont.swift; sourceTree = "<group>"; };
-		DF3BC4192974142F002F207B /* MessageView+Date.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+Date.swift"; sourceTree = "<group>"; };
 		DF40F14F298F01CC00383AE1 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		DF4A5FFA2A350EC900ABD5D1 /* Debouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debouncer.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -685,8 +681,6 @@
 				DFCC2A422950EFA600281EF8 /* MessageView+Text.swift */,
 				DFCC2A442950F02C00281EF8 /* MessageView+Menu.swift */,
 				DFE02665295114AB004C8C83 /* MessageView+Photo.swift */,
-				DF346447296B72D4001BE888 /* MessageView+FormattedText.swift */,
-				DF3BC4192974142F002F207B /* MessageView+Date.swift */,
 				DF99C02B2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift */,
 			);
 			path = Message;
@@ -917,7 +911,6 @@
 				DFA214B1297D9BEF00758617 /* Array+Uniqued.swift in Sources */,
 				DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */,
-				DF3BC41A2974142F002F207B /* MessageView+Date.swift in Sources */,
 				DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */,
 				DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */,
 				DFD7D49D294280E20006CF85 /* View+FullScreenBackground.swift in Sources */,
@@ -936,7 +929,6 @@
 				DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */,
 				DFB5CC18294A512A00BE749C /* View+HideKeyboard.swift in Sources */,
-				DF346448296B72D4001BE888 /* MessageView+FormattedText.swift in Sources */,
 				DF1717BD2971F3B60085E698 /* View+FlippedUpsideDown.swift in Sources */,
 				DF9C817729993AAF008989B0 /* ChatView+Toolbar.swift in Sources */,
 				DFE8407C298AFA9100C3A7F8 /* View+CornerRadius.swift in Sources */,
