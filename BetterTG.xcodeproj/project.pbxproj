@@ -453,7 +453,7 @@
 			isa = PBXGroup;
 			children = (
 				DF3A159328D838C500789C32 /* Secret */,
-				DFBFB86728CE48110076895C /* Utilities */,
+				DFBFB86728CE48110076895C /* Utils */,
 				DFDFC6D32938DA2C00A5919E /* PreferenceKeys */,
 				DFD2DE6E29B00CEF00D531F4 /* EnvironmentValues */,
 				DFECD755292A92F7002A4BAD /* Extensions */,
@@ -553,7 +553,7 @@
 			path = AsyncTd;
 			sourceTree = "<group>";
 		};
-		DFBFB86728CE48110076895C /* Utilities */ = {
+		DFBFB86728CE48110076895C /* Utils */ = {
 			isa = PBXGroup;
 			children = (
 				DFBFB86828CE48290076895C /* Utils.swift */,
@@ -562,7 +562,7 @@
 				DFFA98882A9B55610037460A /* Imports.swift */,
 				DF0F9D5028CCADB300BCA763 /* TdApi.swift */,
 			);
-			path = Utilities;
+			path = Utils;
 			sourceTree = "<group>";
 		};
 		DFD2DE6E29B00CEF00D531F4 /* EnvironmentValues */ = {
