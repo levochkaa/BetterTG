@@ -192,7 +192,7 @@ extension ChatViewModel {
         
         Task.main {
             withAnimation {
-                self.messages[index].sendFailed = true
+                self.messages[index].update(sendFailed: true)
             }
         }
     }
@@ -212,7 +212,7 @@ extension ChatViewModel {
                             $0.message.mediaAlbumId == message.mediaAlbumId
                         }) else { return }
                         
-                        self.messages[index].album.append(message)
+                        self.messages[index].appendAlbum(message)
                     }
                     nc.post(name: .localScrollToLastOnFocus)
                 }
@@ -239,7 +239,11 @@ extension ChatViewModel {
                 else { return }
                 
                 await MainActor.run {
-                    self.messages[index] = customMessage
+                    messages[index] = customMessage
+                    
+                    if messageEdited.messageId == replyMessage?.message.id {
+                        replyMessage = customMessage
+                    }
                 }
             }
         }
@@ -252,7 +256,7 @@ extension ChatViewModel {
             let reply = await self.tdGetMessage(id: messageEdited.messageId)
             for index in indices {
                 await MainActor.run {
-                    self.messages[index].replyToMessage = reply
+                    messages[index].update(replyToMessage: reply)
                 }
             }
         }

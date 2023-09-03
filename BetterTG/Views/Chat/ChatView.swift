@@ -70,7 +70,7 @@ struct ChatView: View {
                                         alignment: customMessage.message.isOutgoing ? .trailing : .leading
                                     )
 //                                    .onAppear {
-//                                        viewModel.lastAppearedMessageId = customMessage.id
+//                                        viewModel.lastAppearedMessageId = customMessage.message.id
 //                                    }
                                 
                                 if !customMessage.message.isOutgoing { Spacer() }

@@ -18,6 +18,7 @@ extension ChatBottomArea {
                 .padding(5)
                 .background(.gray6)
                 .cornerRadius(15)
+                .id(customMessage.id)
             
             Image(systemName: "xmark")
                 .onTapGesture {

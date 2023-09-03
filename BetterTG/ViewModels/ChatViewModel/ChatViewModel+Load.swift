@@ -61,7 +61,7 @@ extension ChatViewModel {
         }
         
         await MainActor.run {
-            shouldWaitForMessageId = filteredSavedMessages.first?.id
+            shouldWaitForMessageId = filteredSavedMessages.first?.message.id
             messages.insert(contentsOf: filteredSavedMessages, at: 0)
             
             loadingMessages = false

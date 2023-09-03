@@ -62,21 +62,5 @@ struct ReplyMessageView: View {
                 }
             }
         }
-        .onReceive(nc.publisher(for: .messageEdited)) { notification in
-            guard let messageEdited = notification.object as? UpdateMessageEdited,
-                  messageEdited.chatId == customMessage.message.chatId,
-                  messageEdited.messageId == customMessage.replyToMessage?.id
-            else { return }
-            
-            Task {
-                let customMessage = await viewModel.getCustomMessage(from: customMessage.message)
-                
-                await MainActor.run {
-                    withAnimation {
-                        self.customMessage = customMessage
-                    }
-                }
-            }
-        }
     }
 }

@@ -107,23 +107,6 @@ struct MessageView: View {
             defer { canBeRead = false }
             viewModel.viewMessage(id: customMessage.message.id)
         }
-        .onReceive(nc.publisher(for: .messageEdited)) { notification in
-            guard let messageEdited = notification.object as? UpdateMessageEdited,
-                  messageEdited.chatId == customMessage.message.chatId,
-                  messageEdited.messageId == customMessage.message.id
-            else { return }
-            
-            Task {
-                guard let customMessage = await viewModel.getCustomMessage(fromId: messageEdited.messageId)
-                else { return }
-                
-                await MainActor.run {
-                    withAnimation {
-                        self.customMessage = customMessage
-                    }
-                }
-            }
-        }
     }
     
     func backgroundColor(for type: MessagePart) -> Color {
