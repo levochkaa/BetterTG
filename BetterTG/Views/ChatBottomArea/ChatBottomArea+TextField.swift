@@ -6,6 +6,14 @@ extension ChatBottomArea {
         Group {
             if viewModel.editCustomMessage == nil {
                 CustomTextField("Message...", text: $viewModel.text)
+                    .onReceive(nc.publisher(for: .localPasteImage)) { notification in
+                        guard let image = notification.object as? SelectedImage,
+                              viewModel.displayedImages.count < 10
+                        else { return }
+                        withAnimation {
+                            viewModel.displayedImages.add(image)
+                        }
+                    }
             } else {
                 CustomTextField("Edit...", text: $viewModel.editMessageText, focus: true)
             }

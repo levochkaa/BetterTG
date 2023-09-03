@@ -144,7 +144,7 @@ struct ChatView: View {
         }
         .background(.black)
         .dropDestination(for: SelectedImage.self) { items, _ in
-            viewModel.displayedImages = Array(items.prefix(10))
+            viewModel.displayedImages.add(contentsOf: Array(items.prefix(10 - viewModel.displayedImages.count)))
             return true
         }
         .onReceive(nc.publisher(for: .chatReadInbox)) { notification in

@@ -27,7 +27,7 @@
 		DF180BD8299D8C0F008174A4 /* OpenedItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF180BD7299D8C0F008174A4 /* OpenedItem.swift */; };
 		DF180BDA299D8F3C008174A4 /* ItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF180BD9299D8F3C008174A4 /* ItemView.swift */; };
 		DF236749294148290076B821 /* View+Center.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF236748294148290076B821 /* View+Center.swift */; };
-		DF27AD232A9B641F001A3FFF /* Image.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF27AD222A9B641F001A3FFF /* Image.swift */; };
+		DF27AD232A9B641F001A3FFF /* Image+.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF27AD222A9B641F001A3FFF /* Image+.swift */; };
 		DF27AD252A9B65B7001A3FFF /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF27AD242A9B65B7001A3FFF /* Color.swift */; };
 		DF2AE70B295118C800FF7850 /* ChatViewModel+Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE70A295118C800FF7850 /* ChatViewModel+Load.swift */; };
 		DF2AE70D2951192800FF7850 /* ChatViewModel+Get.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE70C2951192800FF7850 /* ChatViewModel+Get.swift */; };
@@ -72,6 +72,7 @@
 		DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA892AA4C899009180D4 /* Text.swift */; };
 		DF69FA8C2AA4CEB9009180D4 /* UIPasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */; };
 		DF69FA8F2AA4D4FA009180D4 /* Menlo.ttf in Resources */ = {isa = PBXBuildFile; fileRef = DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */; };
+		DF69FA912AA4ED2D009180D4 /* Image.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA902AA4ED2D009180D4 /* Image.swift */; };
 		DF763B082971BE5B00334615 /* Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
@@ -209,7 +210,7 @@
 		DF180BD7299D8C0F008174A4 /* OpenedItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedItem.swift; sourceTree = "<group>"; };
 		DF180BD9299D8F3C008174A4 /* ItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemView.swift; sourceTree = "<group>"; };
 		DF236748294148290076B821 /* View+Center.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Center.swift"; sourceTree = "<group>"; };
-		DF27AD222A9B641F001A3FFF /* Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Image.swift; sourceTree = "<group>"; };
+		DF27AD222A9B641F001A3FFF /* Image+.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Image+.swift"; sourceTree = "<group>"; };
 		DF27AD242A9B65B7001A3FFF /* Color.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Color.swift; sourceTree = "<group>"; };
 		DF2AE70A295118C800FF7850 /* ChatViewModel+Load.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Load.swift"; sourceTree = "<group>"; };
 		DF2AE70C2951192800FF7850 /* ChatViewModel+Get.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Get.swift"; sourceTree = "<group>"; };
@@ -257,6 +258,7 @@
 		DF69FA892AA4C899009180D4 /* Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Text.swift; sourceTree = "<group>"; };
 		DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIPasteboard.swift; sourceTree = "<group>"; };
 		DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Menlo.ttf; sourceTree = "<group>"; };
+		DF69FA902AA4ED2D009180D4 /* Image.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Image.swift; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Task.swift; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
@@ -577,6 +579,7 @@
 				DFFA98882A9B55610037460A /* Imports.swift */,
 				DF0F9D5028CCADB300BCA763 /* TdApi.swift */,
 				DF69FA892AA4C899009180D4 /* Text.swift */,
+				DF69FA902AA4ED2D009180D4 /* Image.swift */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -729,7 +732,7 @@
 				DF3A714E29AB66B200A7EC22 /* String.swift */,
 				DF3A715029AB702E00A7EC22 /* AttributedString.swift */,
 				DF3A715229AB705900A7EC22 /* UIFont.swift */,
-				DF27AD222A9B641F001A3FFF /* Image.swift */,
+				DF27AD222A9B641F001A3FFF /* Image+.swift */,
 				DF27AD242A9B65B7001A3FFF /* Color.swift */,
 				DF69FA872AA38622009180D4 /* UIApplication.swift */,
 				DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */,
@@ -853,7 +856,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DF27AD232A9B641F001A3FFF /* Image.swift in Sources */,
+				DF27AD232A9B641F001A3FFF /* Image+.swift in Sources */,
 				DF0F9D4E28CCACE500BCA763 /* RootViewModel.swift in Sources */,
 				DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */,
 				DFCC2A452950F02C00281EF8 /* MessageView+Menu.swift in Sources */,
@@ -950,6 +953,7 @@
 				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
 				DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */,
+				DF69FA912AA4ED2D009180D4 /* Image.swift in Sources */,
 				DFBFB86928CE48290076895C /* Utils.swift in Sources */,
 				DFEB06C72959EE5C0099E2B2 /* chevron.swift in Sources */,
 				DF9D516C298D1340009AFE7F /* ImageAsset.swift in Sources */,

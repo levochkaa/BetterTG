@@ -45,22 +45,13 @@ struct CameraView: UIViewControllerRepresentable {
         ) {
             hideCameraView()
             
-            guard let uiImage = info[.originalImage] as? UIImage,
-                  let data = uiImage.jpegData(compressionQuality: 1)
+            guard parent.viewModel.displayedImages.count < 10,
+                  let uiImage = info[.originalImage] as? UIImage,
+                  let image = writeImage(uiImage, withSaving: true)
             else { return }
             
-            UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
-            
-            let imageUrl = URL(filePath: NSTemporaryDirectory())
-                .appending(path: "\(UUID().uuidString).png")
-            
-            do {
-                try data.write(to: imageUrl, options: .atomic)
-                withAnimation {
-                    parent.viewModel.displayedImages = [SelectedImage(image: Image(uiImage: uiImage), url: imageUrl)]
-                }
-            } catch {
-                log("Error getting data for an image: \(error)")
+            withAnimation {
+                parent.viewModel.displayedImages.add(image)
             }
         }
     }
