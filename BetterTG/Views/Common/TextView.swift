@@ -11,25 +11,35 @@ struct TextView: View {
     var appendingDate: Bool = false
     var lineLimit: Int = 0
     var foregroundColor: Color = .white
+    @State var maxWidth: CGFloat?
     
     var body: some View {
-        _TextView(
-            formattedText: formattedText,
-            appendingDate: appendingDate,
-            lineLimit: lineLimit,
-            foregroundColor: foregroundColor
-        )
-        .frame(size: getTextViewSize(for: formattedText, appendingDate: appendingDate))
+        if let maxWidth {
+            _TextView(
+                formattedText: formattedText,
+                appendingDate: appendingDate,
+                lineLimit: lineLimit,
+                foregroundColor: foregroundColor
+            )
+            .frame(size: size(using: maxWidth))
+        } else {
+            Text(formattedText.text)
+                .lineLimit(lineLimit)
+                .hidden()
+                .readSize {
+                    maxWidth = $0.width
+                }
+        }
     }
     
     /// SwiftUI is fucked.
-    func getTextViewSize(for formattedText: FormattedText, appendingDate: Bool) -> CGSize {
+    func size(using maxWidth: CGFloat) -> CGSize {
         let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
         if appendingDate {
             attributedString.append(NSAttributedString(string: " 00:00", attributes: [.font: UIFont.caption as Any]))
         }
         let textStorage = NSTextStorage(attributedString: attributedString)
-        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
+        let size = CGSize(width: maxWidth, height: .greatestFiniteMagnitude)
         let boundingRect = CGRect(origin: .zero, size: size)
         let textContainer = NSTextContainer(size: size)
         textContainer.maximumNumberOfLines = lineLimit
@@ -64,9 +74,7 @@ private struct _TextView: UIViewRepresentable {
         textView.font = .body
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
-        textView.dataDetectorTypes = .all
         textView.isEditable = false
-        textView.isSelectable = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.maximumNumberOfLines = lineLimit

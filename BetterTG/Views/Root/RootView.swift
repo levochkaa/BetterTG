@@ -11,7 +11,6 @@ struct RootView: View {
     @State var confirmedChat: Chat?
     
     @State var query = ""
-    @State var selectedTab: Tab = .chats
     
     @Namespace var namespace
     

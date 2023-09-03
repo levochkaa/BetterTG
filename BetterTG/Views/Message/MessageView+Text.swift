@@ -25,7 +25,7 @@ extension MessageView {
     }
     
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        TextView(formattedText: formattedText, appendingDate: true)
+        TextView(formattedText: formattedText, appendingDate: true, maxWidth: Utils.maxMessageContentWidth)
             .overlay(alignment: .bottomTrailing) {
                 messageDate
                     .offset(y: 3)
