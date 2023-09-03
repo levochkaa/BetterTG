@@ -9,10 +9,17 @@ import SDWebImage
 struct TextView: View {
     @State var formattedText: FormattedText
     var appendingDate: Bool = false
+    var lineLimit: Int = 0
+    var foregroundColor: Color = .white
     
     var body: some View {
-        _TextView(formattedText: formattedText)
-            .frame(size: getTextViewSize(for: formattedText, appendingDate: appendingDate))
+        _TextView(
+            formattedText: formattedText,
+            appendingDate: appendingDate,
+            lineLimit: lineLimit,
+            foregroundColor: foregroundColor
+        )
+        .frame(size: getTextViewSize(for: formattedText, appendingDate: appendingDate))
     }
     
     /// SwiftUI is fucked.
@@ -25,6 +32,7 @@ struct TextView: View {
         let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
         let boundingRect = CGRect(origin: .zero, size: size)
         let textContainer = NSTextContainer(size: size)
+        textContainer.maximumNumberOfLines = lineLimit
         textContainer.lineFragmentPadding = 0
         let layoutManager = NSLayoutManager()
         layoutManager.addTextContainer(textContainer)
@@ -38,16 +46,18 @@ struct TextView: View {
 private struct _TextView: UIViewRepresentable {
     
     let formattedText: FormattedText
+    let appendingDate: Bool
+    let lineLimit: Int
+    let foregroundColor: Color
     
 //    @AppStorage("showAnimojis") var showAnimojis = true
-    
-    var filteredEntities: [TextEntity] {
-        formattedText.entities
-            .filter {
-                if case .textEntityTypeCustomEmoji = $0.type { return true }
-                return false
-            }
-    }
+//    var filteredEntities: [TextEntity] {
+//        formattedText.entities
+//            .filter {
+//                if case .textEntityTypeCustomEmoji = $0.type { return true }
+//                return false
+//            }
+//    }
     
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView(usingTextLayoutManager: false)
@@ -59,6 +69,7 @@ private struct _TextView: UIViewRepresentable {
         textView.isSelectable = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.maximumNumberOfLines = lineLimit
         textView.textContainerInset = .zero
         setText(textView, isInit: true)
         return textView
@@ -71,24 +82,22 @@ private struct _TextView: UIViewRepresentable {
     }
     
     func setText(_ textView: UITextView, isInit: Bool) {
-        let attributedString = NSMutableAttributedString(
-            string: formattedText.text,
-            attributes: defaultAttributes
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
+        attributedString.addAttribute(
+            .foregroundColor,
+            value: UIColor(foregroundColor),
+            range: NSRange(location: 0, length: attributedString.length)
         )
-        
-        for entity in formattedText.entities {
-            setEntity(entity, base: formattedText.text, for: attributedString)
+        if appendingDate {
+            let dateAttributedString = NSMutableAttributedString(
+                string: " 00:00",
+                attributes: [
+                    .font: UIFont.caption,
+                    .foregroundColor: UIColor.clear
+                ]
+            )
+            attributedString.append(dateAttributedString)
         }
-        
-        let dateAttributedString = NSMutableAttributedString(
-            string: " 00:00",
-            attributes: [
-                .font: UIFont.caption,
-                .foregroundColor: UIColor.clear
-            ]
-        )
-        attributedString.append(dateAttributedString)
-        
         textView.attributedText = attributedString
         
 //        if showAnimojis {

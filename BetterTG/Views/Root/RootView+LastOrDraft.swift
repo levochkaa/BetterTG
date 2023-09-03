@@ -26,7 +26,7 @@ extension RootView {
             
             switch draftMessage.inputMessageText {
                 case .inputMessageText(let inputMessageText):
-                    TextView(formattedText: inputMessageText.text)
+                    TextView(formattedText: inputMessageText.text, lineLimit: 1, foregroundColor: .gray)
                 default:
                     Text("BTG not supported")
             }
@@ -42,7 +42,7 @@ extension RootView {
                     if messagePhoto.caption.text.isEmpty {
                         Text("Photo")
                     } else {
-                        TextView(formattedText: messagePhoto.caption)
+                        TextView(formattedText: messagePhoto.caption, lineLimit: 1, foregroundColor: .gray)
                     }
                 }
             case .messageVoiceNote(let messageVoiceNote):
@@ -54,11 +54,11 @@ extension RootView {
                         Text(": ")
                             .foregroundColor(.white)
                         
-                        TextView(formattedText: messageVoiceNote.caption)
+                        TextView(formattedText: messageVoiceNote.caption, lineLimit: 1, foregroundColor: .gray)
                     }
                 }
             case .messageText(let messageText):
-                TextView(formattedText: messageText.text)
+                TextView(formattedText: messageText.text, lineLimit: 1, foregroundColor: .gray)
             case .messageUnsupported:
                 Text("TDLib not supported")
             default:
