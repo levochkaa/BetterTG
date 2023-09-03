@@ -3,20 +3,20 @@
 import TDLibKit
 
 extension ChatViewModel {
-    func setDraft(_ draftMessage: DraftMessage) async {
-        if !text.characters.isEmpty || replyMessage != nil { return }
+    func setDraft(_ draftMessage: DraftMessage) {
+        guard text.characters.isEmpty, replyMessage == nil else { return }
         
         if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
-            await MainActor.run {
-                text = getAttributedString(from: inputMessageText.text)
-            }
+            text = getAttributedString(from: inputMessageText.text)
         }
         
-        let customMessage = await getCustomMessage(fromId: draftMessage.replyToMessageId)
-        
-        await MainActor.run {
-            withAnimation {
-                replyMessage = customMessage
+        Task {
+            let customMessage = await getCustomMessage(fromId: draftMessage.replyToMessageId)
+            
+            await MainActor.run {
+                withAnimation {
+                    replyMessage = customMessage
+                }
             }
         }
     }

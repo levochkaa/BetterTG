@@ -65,16 +65,13 @@ import Observation
     
     init(customChat: CustomChat) {
         self.customChat = customChat
-        
-        self.userStatus(customChat.user.status)
-        
         setPublishers()
+    }
+    
+    func onAppear() {
+        userStatus(customChat.user.status)
         
-        Task {
-            await self.loadMessages(isInit: true)
-            
-            guard let draftMessage = customChat.chat.draftMessage else { return }
-            await self.setDraft(draftMessage)
-        }
+        guard let draftMessage = customChat.draftMessage else { return }
+        setDraft(draftMessage)
     }
 }

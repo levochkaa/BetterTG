@@ -24,11 +24,8 @@ extension RootView {
                     .foregroundColor(.white)
             }
             
-            switch draftMessage.inputMessageText {
-                case .inputMessageText(let inputMessageText):
-                    TextView(formattedText: inputMessageText.text, lineLimit: 1, foregroundColor: .gray)
-                default:
-                    Text("BTG not supported")
+            if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
+                TextView(formattedText: inputMessageText.text, lineLimit: 1, foregroundColor: .gray)
             }
         }
     }

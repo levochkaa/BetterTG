@@ -156,6 +156,10 @@ struct ChatView: View {
                 scrollToBottomButton
             }
         }
+        .task {
+            await viewModel.loadMessages(isInit: true)
+        }
+        .onAppear(perform: viewModel.onAppear)
         .onDisappear {
             viewModel.mediaPlayer.stop()
             Task {
