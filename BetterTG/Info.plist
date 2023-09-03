@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Menlo.ttf</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>We would like to access your Microphone to let you send Voice messages in chats.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

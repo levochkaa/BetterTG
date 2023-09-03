@@ -18,7 +18,6 @@ struct MessageView: View {
     
     @State var canBeRead = true
     @State var isOutgoing = true
-    @State var text = ""
     
     @State var forwardedWidth: Int = 0
     @State var replyWidth: Int = 0
@@ -34,8 +33,6 @@ struct MessageView: View {
     let durationId = "durationId"
     let chevronId = "chevronId"
     let speechId = "speechId"
-    
-    @Environment(\.isPreview) var isPreview
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {

@@ -1,6 +1,8 @@
 // CustomTextField.swift
 
-import Combine
+import UniformTypeIdentifiers
+
+private var isPasting = false
 
 private class CustomUITextView: UITextView {
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
@@ -59,6 +61,11 @@ private class CustomUITextView: UITextView {
         actions.insert(formatMenu, at: 1)
         
         return UIMenu(children: actions)
+    }
+    
+    override func paste(_ sender: Any?) {
+        isPasting = true
+        super.paste(sender)
     }
 }
 
@@ -133,6 +140,20 @@ private struct UITextViewWrapper: UIViewRepresentable {
         
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             textView.typingAttributes = defaultAttributes
+            
+            if isPasting {
+                if let item = UIPasteboard.general.items.first,
+                   let data = (item[UTType.rtf.identifier] as? String)?.data(using: .utf8),
+                   let attributedString = try? NSAttributedString(data: data, documentAttributes: nil) {
+                    let mutableAttributedString = NSMutableAttributedString(attributedString: textView.attributedText)
+                    mutableAttributedString.replaceCharacters(in: range, with: attributedString)
+                    textView.attributedText = mutableAttributedString
+                    textView.delegate?.textViewDidChange?(textView)
+                    return false
+                }
+                isPasting = false
+            }
+            
             return true
         }
     }

@@ -38,9 +38,9 @@ extension MessageView {
             }
         }
         
-        if !text.isEmpty {
+        if let formattedText = viewModel.getFormattedText(from: customMessage.message.content) {
             Button("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
-                UIPasteboard.general.string = text
+                UIPasteboard.setFormattedText(formattedText)
             }
         }
         

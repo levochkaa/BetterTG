@@ -46,9 +46,9 @@ func setEntity(_ entity: TextEntity, base text: String, for attributedString: NS
             attributedString.addAttribute(.link, value: getUrl(from: textUrl.url) as Any, range: range)
         case .textEntityTypeSpoiler:
             attributedString.addAttribute(.backgroundColor, value: UIColor.gray, range: range)
-            //        case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
-            //            guard showAnimojis else { break }
-            //            attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
+//        case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
+//            guard showAnimojis else { break }
+//            attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
         default:
             break
     }

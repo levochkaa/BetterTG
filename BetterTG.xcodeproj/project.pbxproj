@@ -70,6 +70,8 @@
 		DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */; };
 		DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA872AA38622009180D4 /* UIApplication.swift */; };
 		DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA892AA4C899009180D4 /* Text.swift */; };
+		DF69FA8C2AA4CEB9009180D4 /* UIPasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */; };
+		DF69FA8F2AA4D4FA009180D4 /* Menlo.ttf in Resources */ = {isa = PBXBuildFile; fileRef = DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */; };
 		DF763B082971BE5B00334615 /* Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
@@ -253,6 +255,8 @@
 		DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomLayout.swift; sourceTree = "<group>"; };
 		DF69FA872AA38622009180D4 /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
 		DF69FA892AA4C899009180D4 /* Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Text.swift; sourceTree = "<group>"; };
+		DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIPasteboard.swift; sourceTree = "<group>"; };
+		DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Menlo.ttf; sourceTree = "<group>"; };
 		DF763B072971BE5B00334615 /* Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Task.swift; sourceTree = "<group>"; };
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
@@ -454,6 +458,7 @@
 		DF4B998028C3F3F50087C1B9 /* BetterTG */ = {
 			isa = PBXGroup;
 			children = (
+				DF69FA8D2AA4D4F3009180D4 /* Fonts */,
 				DF3A159328D838C500789C32 /* Secret */,
 				DFBFB86728CE48110076895C /* Utils */,
 				DFDFC6D32938DA2C00A5919E /* PreferenceKeys */,
@@ -532,6 +537,14 @@
 				DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */,
 			);
 			path = Layouts;
+			sourceTree = "<group>";
+		};
+		DF69FA8D2AA4D4F3009180D4 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				DF69FA8E2AA4D4FA009180D4 /* Menlo.ttf */,
+			);
+			path = Fonts;
 			sourceTree = "<group>";
 		};
 		DF7B5916292937F1001900D1 /* Login */ = {
@@ -719,6 +732,7 @@
 				DF27AD222A9B641F001A3FFF /* Image.swift */,
 				DF27AD242A9B65B7001A3FFF /* Color.swift */,
 				DF69FA872AA38622009180D4 /* UIApplication.swift */,
+				DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -803,6 +817,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DF69FA8F2AA4D4FA009180D4 /* Menlo.ttf in Resources */,
 				DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */,
 				DF4B998928C3F3F60087C1B9 /* Preview Assets.xcassets in Resources */,
 				DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */,
@@ -849,6 +864,7 @@
 				DF2AE713295119AA00FF7850 /* ChatViewModel+MessageContent.swift in Sources */,
 				DFE84078298AF0E300C3A7F8 /* View+Background.swift in Sources */,
 				DF820B6228D76563007DD293 /* Logger.swift in Sources */,
+				DF69FA8C2AA4CEB9009180D4 /* UIPasteboard.swift in Sources */,
 				DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */,
 				DF763B082971BE5B00334615 /* Task.swift in Sources */,
 				DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */,
