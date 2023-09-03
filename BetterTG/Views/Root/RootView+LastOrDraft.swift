@@ -58,7 +58,7 @@ extension RootView {
                     }
                 }
             case .messageText(let messageText):
-                Text(messageText.text.text)
+                TextView(formattedText: messageText.text)
             case .messageUnsupported:
                 Text("TDLib not supported")
             default:

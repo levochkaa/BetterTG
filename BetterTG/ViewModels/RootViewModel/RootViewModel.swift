@@ -14,24 +14,6 @@ import Observation
         setPublishers()
     }
     
-    func handleScenePhase(_ scenePhase: ScenePhase) {
-        switch scenePhase {
-            case .active:
-                log("App is Active")
-                Task {
-                    await mainChats.asyncForEach { customChat in
-                        await tdGetChatHistory(chatId: customChat.chat.id)
-                    }
-                }
-            case .inactive:
-                log("App is Inactive")
-            case .background:
-                log("App is in a Background")
-            @unknown default:
-                log("Unknown state of an App")
-        }
-    }
-    
     func togglePinned(chatId: Int64, value: Bool) {
         Task {
             await tdToggleChatIsPinned(

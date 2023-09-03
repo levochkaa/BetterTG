@@ -3,9 +3,7 @@
 import TDLibKit
 
 extension RootView {
-    @ViewBuilder func chatsListItem(
-        for customChat: CustomChat
-    ) -> some View {
+    @ViewBuilder func chatsListItem(for customChat: CustomChat) -> some View {
         HStack {
             if let isPinned = customChat.positions.main?.isPinned, isPinned {
                 Button(systemImage: "pin.fill") {

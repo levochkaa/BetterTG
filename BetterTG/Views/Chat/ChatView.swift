@@ -33,7 +33,6 @@ struct ChatView: View {
                 bodyView
             }
         }
-        .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom) {
             if !isPreview {
                 ChatBottomArea(focused: $focused)
@@ -60,7 +59,7 @@ struct ChatView: View {
             ScrollView(showsIndicators: false) {
                 ZStack {
                     // Temporary removing `Lazy`, because iOS 17 has huge problems with scroll
-                    VStack(spacing: 5) {
+                    /*Lazy*/VStack(spacing: 5) {
                         ForEach(viewModel.messages) { customMessage in
                             HStack {
                                 if customMessage.message.isOutgoing { Spacer() }
@@ -144,6 +143,7 @@ struct ChatView: View {
         }
         .background(.black)
         .dropDestination(for: SelectedImage.self) { items, _ in
+            guard viewModel.displayedImages.count < 10 else { return false }
             viewModel.displayedImages.add(contentsOf: Array(items.prefix(10 - viewModel.displayedImages.count)))
             return true
         }
@@ -165,8 +165,7 @@ struct ChatView: View {
     }
     
     func scrollToLastOnFocus() {
-        if scrollOnFocus {
-            viewModel.scrollToLast()
-        }
+        guard scrollOnFocus else { return }
+        viewModel.scrollToLast()
     }
 }

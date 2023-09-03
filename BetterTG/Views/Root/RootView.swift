@@ -24,29 +24,60 @@ struct RootView: View {
     var body: some View {
         Group {
             if loggedIn {
-                TabView(selection: $selectedTab) {
-                    NavigationStack {
-                        channels
+                NavigationStack {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(viewModel.filteredSortedChats(query)) { customChat in
+                                NavigationLink(value: customChat) {
+                                    chatsListItem(for: customChat)
+                                        .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
+                                }
+                                .contextMenu {
+                                    contextMenu(for: customChat)
+                                } preview: {
+                                    NavigationStack {
+                                        ChatView(customChat: customChat)
+                                            .environment(viewModel)
+                                            .environment(\.isPreview, true)
+                                    }
+                                }
+                                .task {
+                                    await viewModel.tdGetChatHistory(chatId: customChat.chat.id)
+                                }
+                            }
+                        }
+                        .padding(.top, 8)
                     }
-                    .tag(Tab.channels)
-                    .tabItem {
-                        Label("Channels", systemImage: "stop")
+                    .animation(value: viewModel.mainChats)
+                    .searchable(text: $query, prompt: "Search chats...")
+                    .navigationTitle("BetterTG")
+                    .navigationDestination(for: CustomChat.self) { customChat in
+                        ChatView(customChat: customChat)
                     }
-                    
-                    NavigationStack {
-                        bodyView
+                    .confirmationDialog(
+                        "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
+                        isPresented: $showConfirmChatDelete
+                    ) {
+                        Button("Delete", role: .destructive) {
+                            guard let id = confirmedChat?.id else { return }
+                            Task {
+                                await viewModel.tdDeleteChatHistory(chatId: id, forAll: deleteChatForAllUsers)
+                            }
+                        }
                     }
-                    .tag(Tab.chats)
-                    .tabItem {
-                        Label("Chats", systemImage: "message")
+                    .onChange(of: scenePhase) { _, newPhase in
+                        guard case .active = newPhase else { return }
+                        Task {
+                            await viewModel.mainChats.asyncForEach { customChat in
+                                await viewModel.tdGetChatHistory(chatId: customChat.chat.id)
+                            }
+                        }
                     }
-                    
-                    NavigationStack {
-                        settings
-                    }
-                    .tag(Tab.settings)
-                    .tabItem {
-                        Label("Settings", systemImage: "gear")
+                }
+                .overlay {
+                    if let openedItem = viewModel.openedItem {
+                        ItemView(item: openedItem)
+                            .zIndex(1)
                     }
                 }
             } else {
@@ -54,76 +85,15 @@ struct RootView: View {
             }
         }
         .transition(.opacity)
-        .animation(value: loggedIn)
         .environment(viewModel)
         .onAppear {
-            if viewModel.namespace == nil {
-                viewModel.namespace = namespace
-            }
+            guard viewModel.namespace == nil else { return }
+            viewModel.namespace = namespace
         }
+        .animation(value: loggedIn)
         .onReceive(nc.publisher(for: .ready)) { _ in loggedIn = true }
         .onReceive(nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword])) { _ in
             loggedIn = false
         }
-    }
-    
-    var bodyView: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(viewModel.filteredSortedChats(query)) { customChat in
-                    NavigationLink(value: customChat) {
-                        chatsListItem(for: customChat)
-                            .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
-                    }
-                    .contextMenu {
-                        contextMenu(for: customChat)
-                    } preview: {
-                        NavigationStack {
-                            ChatView(customChat: customChat)
-                                .environment(viewModel)
-                                .environment(\.isPreview, true)
-                        }
-                    }
-                    .task {
-                        await viewModel.tdGetChatHistory(chatId: customChat.chat.id)
-                    }
-                }
-            }
-            .padding(.top, 8)
-            .animation(value: viewModel.mainChats)
-        }
-        .searchable(text: $query, prompt: "Search chats...")
-        .navigationTitle("BetterTG")
-        .navigationDestination(for: CustomChat.self) { customChat in
-            ChatView(customChat: customChat)
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            viewModel.handleScenePhase(newPhase)
-        }
-        .confirmationDialog(
-            "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
-            isPresented: $showConfirmChatDelete
-        ) {
-            Button("Delete", role: .destructive) {
-                guard let id = confirmedChat?.id else { return }
-                Task {
-                    await viewModel.tdDeleteChatHistory(chatId: id, forAll: deleteChatForAllUsers)
-                }
-            }
-        }
-        .overlay {
-            if let openedItem = viewModel.openedItem {
-                ItemView(item: openedItem)
-                    .zIndex(1)
-            }
-        }
-    }
-    
-    var channels: some View {
-        Text("Channels")
-    }
-    
-    var settings: some View {
-        Text("Settings")
     }
 }
