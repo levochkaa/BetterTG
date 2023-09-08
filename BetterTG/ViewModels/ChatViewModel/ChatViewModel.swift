@@ -9,8 +9,6 @@ import Observation
 @Observable final class ChatViewModel {
     @ObservationIgnored var customChat: CustomChat
     
-    @ObservationIgnored var currentLiveActivityId: String = ""
-    
     var onlineStatus = ""
     var actionStatus = ""
     
@@ -18,8 +16,8 @@ import Observation
     var editMessageText: AttributedString = ""
     var showSendButton = false
     
-    @ObservationIgnored var lastAppearedMessageId: Int64? = nil
-    @ObservationIgnored var shouldWaitForMessageId: Int64? = nil
+//    @ObservationIgnored var lastAppearedMessageId: Int64? = nil
+//    @ObservationIgnored var shouldWaitForMessageId: Int64? = nil
     
     @ObservationIgnored var loadedAlbums = Set<Int64>()
     @ObservationIgnored var sentPhotosCount = 0
@@ -33,14 +31,12 @@ import Observation
     var showBottomSheet = false
     var showCameraView = false
     
-    var scrollViewProxy: ScrollViewProxy? = nil
+    @ObservationIgnored var scrollViewProxy: ScrollViewProxy? = nil
     
-    var savedNewMessages = [Message]()
     var messages = [CustomMessage]()
     var highlightedMessageId: Int64? = nil
     
     @ObservationIgnored var loadingMessages = false
-    @ObservationIgnored var initLoadingMessages = false
     
     @ObservationIgnored var offset = 0
     @ObservationIgnored var limit = 30

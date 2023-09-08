@@ -21,14 +21,10 @@ extension ChatViewModel {
         }
     }
     
-    func loadMessages(isInit: Bool = false) async {
-        guard !loadingMessages, shouldWaitForMessageId == lastAppearedMessageId else { return }
+    func loadMessages() async {
+        guard !loadingMessages /* , shouldWaitForMessageId == lastAppearedMessageId */ else { return }
         
         self.loadingMessages = true
-        
-        if isInit {
-            self.initLoadingMessages = true
-        }
         
         guard let chatHistory = await tdGetChatHistory() else { return }
         
@@ -61,13 +57,10 @@ extension ChatViewModel {
         }
         
         await MainActor.run {
-            shouldWaitForMessageId = filteredSavedMessages.first?.message.id
+            // shouldWaitForMessageId = filteredSavedMessages.first?.message.id
             messages.insert(contentsOf: filteredSavedMessages, at: 0)
             
             loadingMessages = false
-            if isInit {
-                initLoadingMessages = false
-            }
         }
     }
 }

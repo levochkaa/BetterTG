@@ -6,8 +6,8 @@ import Observation
 
 @Observable final class RootViewModel {
     var mainChats = [CustomChat]()
-    var archivedChats = [CustomChat]()
     var openedItem: OpenedItem? = nil
+    
     @ObservationIgnored var namespace: Namespace.ID! = nil
     
     init() {
@@ -34,10 +34,40 @@ import Observation
                 }
             }
             .filter {
-                query.isEmpty
-                || $0.user.firstName.lowercased().contains(query)
-                || $0.user.lastName.lowercased().contains(query)
-                || $0.chat.title.lowercased().contains(query)
+                query.isEmpty || $0.chat.title.lowercased().contains(query)
+                    || $0.user.firstName.lowercased().contains(query)
+                    || $0.user.lastName.lowercased().contains(query)
             }
+    }
+    
+    func loadMainChats() {
+        Task {
+            let chatIds = await tdGetChats()
+            let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
+            await MainActor.run {
+                mainChats = customChats
+            }
+        }
+    }
+    
+    func getCustomChat(from id: Int64) async -> CustomChat? {
+        guard let chat = await tdGetChat(id: id) else { return nil }
+        
+        if case .chatTypePrivate(let chatTypePrivate) = chat.type {
+            guard let user = await tdGetUser(id: chatTypePrivate.userId) else { return nil }
+            
+            if case .userTypeRegular = user.type {
+                return CustomChat(
+                    chat: chat,
+                    positions: chat.positions,
+                    unreadCount: chat.unreadCount,
+                    user: user,
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage
+                )
+            }
+        }
+        
+        return nil
     }
 }

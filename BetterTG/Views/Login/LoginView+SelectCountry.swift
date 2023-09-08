@@ -3,8 +3,7 @@
 extension LoginView {
     @ViewBuilder var selectCountryView: some View {
         NavigationStack {
-            let countries = viewModel.getFilteredCountries(query: searchCountries)
-            List(countries, id: \.self) { info in
+            List(viewModel.getFilteredCountries(query: searchCountries), id: \.self) { info in
                 Button {
                     viewModel.selectedCountryNum = info
                     showSelectCountryView.toggle()

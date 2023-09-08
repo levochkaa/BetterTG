@@ -8,7 +8,8 @@ extension ChatViewModel {
         commandCenter.skipBackwardCommand.preferredIntervals = [5.0]
         commandCenter.skipForwardCommand.preferredIntervals = [5.0]
         
-        commandCenter.playCommand.addTarget { [unowned self] _ in
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, mediaPlayer.media != nil, !isPlaying {
                 mediaPlay()
                 return .success
@@ -16,7 +17,8 @@ extension ChatViewModel {
             return .commandFailed
         }
         
-        commandCenter.pauseCommand.addTarget { [unowned self] _ in
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, mediaPlayer.media != nil, isPlaying {
                 mediaPause()
                 return .success
@@ -24,7 +26,8 @@ extension ChatViewModel {
             return .commandFailed
         }
         
-        commandCenter.togglePlayPauseCommand.addTarget { [unowned self] _ in
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, mediaPlayer.media != nil {
                 mediaToggle()
                 return .success
@@ -32,7 +35,8 @@ extension ChatViewModel {
             return .commandFailed
         }
         
-        commandCenter.changePlaybackPositionCommand.addTarget { [unowned self] event in
+        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self else { return .commandFailed }
             if let positionEvent = event as? MPChangePlaybackPositionCommandEvent {
                 timeSliderValue = positionEvent.positionTime
                 mediaSeekTo()
@@ -41,7 +45,8 @@ extension ChatViewModel {
             return .commandFailed
         }
         
-        commandCenter.skipForwardCommand.addTarget { [unowned self] _ in
+        commandCenter.skipForwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, mediaPlayer.media != nil {
                 mediaSeekForward()
                 return .success
@@ -49,7 +54,8 @@ extension ChatViewModel {
             return .commandFailed
         }
         
-        commandCenter.skipBackwardCommand.addTarget { [unowned self] _ in
+        commandCenter.skipBackwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, mediaPlayer.media != nil {
                 mediaSeekBackward()
                 return .success

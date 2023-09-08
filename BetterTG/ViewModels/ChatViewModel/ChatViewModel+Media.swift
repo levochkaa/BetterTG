@@ -12,25 +12,22 @@ extension ChatViewModel {
         
         mediaPlayer
             .publisher(for: \.time, options: [.new])
-            .sink { time in
-                self.currentTime = time.intValue / 1000
-                self.changeCurrentTime()
+            .sink { [weak self] time in
+                guard let self else { return }
+                currentTime = time.intValue / 1000
+                changeCurrentTime()
                 
-                if !self.isSeeking {
-                    self.timeSliderValue = Double(time.intValue) / 1000
+                if !isSeeking {
+                    timeSliderValue = Double(time.intValue) / 1000
                 }
             }
             .store(in: &cancellables)
         
         mediaPlayer
             .publisher(for: \.state, options: [.new])
-            .sink { state in
-                switch state {
-                    case .ended:
-                        self.mediaStop()
-                    default:
-                        break
-                }
+            .sink { [weak self] state in
+                guard let self, case .ended = state else { return }
+                mediaStop()
             }
             .store(in: &cancellables)
     }

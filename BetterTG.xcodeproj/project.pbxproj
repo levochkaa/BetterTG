@@ -95,7 +95,6 @@
 		DF9C817729993AAF008989B0 /* ChatView+Toolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817629993AAF008989B0 /* ChatView+Toolbar.swift */; };
 		DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817A29994AF6008989B0 /* DividerAround.swift */; };
 		DF9C817D29994BC8008989B0 /* View+Frame.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817C29994BC8008989B0 /* View+Frame.swift */; };
-		DF9C817F29994CFF008989B0 /* RootViewModel+Get.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817E29994CFF008989B0 /* RootViewModel+Get.swift */; };
 		DF9D516A298D1102009AFE7F /* ChatBottomArea+BottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D5169298D1102009AFE7F /* ChatBottomArea+BottomSheet.swift */; };
 		DF9D516C298D1340009AFE7F /* ImageAsset.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D516B298D1340009AFE7F /* ImageAsset.swift */; };
 		DF9D5170298D19A8009AFE7F /* Shape.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D516F298D19A8009AFE7F /* Shape.swift */; };
@@ -113,7 +112,6 @@
 		DFCC2A432950EFA600281EF8 /* MessageView+Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A422950EFA600281EF8 /* MessageView+Text.swift */; };
 		DFCC2A452950F02C00281EF8 /* MessageView+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A442950F02C00281EF8 /* MessageView+Menu.swift */; };
 		DFD2DE7029B00D0300D531F4 /* IsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */; };
-		DFD3304F298C20F2004622B0 /* RootViewModel+Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD3304E298C20F2004622B0 /* RootViewModel+Load.swift */; };
 		DFD7D4892942426D0006CF85 /* LoginViewModel+Td.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D4882942426D0006CF85 /* LoginViewModel+Td.swift */; };
 		DFD7D48B294243620006CF85 /* LoginViewModel+Publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D48A294243620006CF85 /* LoginViewModel+Publishers.swift */; };
 		DFD7D48D2942443D0006CF85 /* RootViewModel+Publishers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D48C2942443D0006CF85 /* RootViewModel+Publishers.swift */; };
@@ -276,7 +274,6 @@
 		DF9C817629993AAF008989B0 /* ChatView+Toolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatView+Toolbar.swift"; sourceTree = "<group>"; };
 		DF9C817A29994AF6008989B0 /* DividerAround.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DividerAround.swift; sourceTree = "<group>"; };
 		DF9C817C29994BC8008989B0 /* View+Frame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Frame.swift"; sourceTree = "<group>"; };
-		DF9C817E29994CFF008989B0 /* RootViewModel+Get.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Get.swift"; sourceTree = "<group>"; };
 		DF9D5169298D1102009AFE7F /* ChatBottomArea+BottomSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatBottomArea+BottomSheet.swift"; sourceTree = "<group>"; };
 		DF9D516B298D1340009AFE7F /* ImageAsset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAsset.swift; sourceTree = "<group>"; };
 		DF9D516F298D19A8009AFE7F /* Shape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shape.swift; sourceTree = "<group>"; };
@@ -293,7 +290,6 @@
 		DFCC2A422950EFA600281EF8 /* MessageView+Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+Text.swift"; sourceTree = "<group>"; };
 		DFCC2A442950F02C00281EF8 /* MessageView+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+Menu.swift"; sourceTree = "<group>"; };
 		DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsPreview.swift; sourceTree = "<group>"; };
-		DFD3304E298C20F2004622B0 /* RootViewModel+Load.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Load.swift"; sourceTree = "<group>"; };
 		DFD7D4882942426D0006CF85 /* LoginViewModel+Td.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginViewModel+Td.swift"; sourceTree = "<group>"; };
 		DFD7D48A294243620006CF85 /* LoginViewModel+Publishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginViewModel+Publishers.swift"; sourceTree = "<group>"; };
 		DFD7D48C2942443D0006CF85 /* RootViewModel+Publishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViewModel+Publishers.swift"; sourceTree = "<group>"; };
@@ -640,8 +636,6 @@
 				DF0F9D4D28CCACE500BCA763 /* RootViewModel.swift */,
 				DFD7D48E294246230006CF85 /* RootViewModel+Td.swift */,
 				DFD7D48C2942443D0006CF85 /* RootViewModel+Publishers.swift */,
-				DFD3304E298C20F2004622B0 /* RootViewModel+Load.swift */,
-				DF9C817E29994CFF008989B0 /* RootViewModel+Get.swift */,
 			);
 			path = RootViewModel;
 			sourceTree = "<group>";
@@ -905,7 +899,6 @@
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DFE0265D2951133A004C8C83 /* RootView+LastOrDraft.swift in Sources */,
 				DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */,
-				DFD3304F298C20F2004622B0 /* RootViewModel+Load.swift in Sources */,
 				DF236749294148290076B821 /* View+Center.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
 				DFD7D493294256B90006CF85 /* ChatViewModel+Publishers.swift in Sources */,
@@ -929,7 +922,6 @@
 				DFEB06C32959EB860099E2B2 /* voiceNoteView.swift in Sources */,
 				DF27AD252A9B65B7001A3FFF /* Color.swift in Sources */,
 				DFCB65A42998340200835E9E /* View+ErrorAlert.swift in Sources */,
-				DF9C817F29994CFF008989B0 /* RootViewModel+Get.swift in Sources */,
 				DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */,
 				DFB5CC18294A512A00BE749C /* View+HideKeyboard.swift in Sources */,

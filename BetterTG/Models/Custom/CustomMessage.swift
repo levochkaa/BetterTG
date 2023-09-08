@@ -3,7 +3,7 @@
 import TDLibKit
 
 struct CustomMessage: Identifiable, Equatable {
-    private(set) var id = UUID()
+    var id = UUID()
     var message: Message
     var senderUser: User?
     var replyUser: User?
