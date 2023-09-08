@@ -11,7 +11,8 @@ extension RootView {
                 lastMessageView(for: lastMessage)
             }
         }
-        .foregroundColor(.gray)
+        .foregroundStyle(.gray)
+        .lineLimit(1)
     }
     
     @ViewBuilder func draftMessageView(for draftMessage: DraftMessage) -> some View {
@@ -25,7 +26,7 @@ extension RootView {
             }
             
             if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
-                TextView(formattedText: inputMessageText.text, lineLimit: 1, foregroundColor: .gray)
+                Text(getAttributedString(from: inputMessageText.text, .gray))
             }
         }
     }
@@ -39,7 +40,7 @@ extension RootView {
                     if messagePhoto.caption.text.isEmpty {
                         Text("Photo")
                     } else {
-                        TextView(formattedText: messagePhoto.caption, lineLimit: 1, foregroundColor: .gray)
+                        Text(getAttributedString(from: messagePhoto.caption, .gray))
                     }
                 }
             case .messageVoiceNote(let messageVoiceNote):
@@ -51,11 +52,11 @@ extension RootView {
                         Text(": ")
                             .foregroundColor(.white)
                         
-                        TextView(formattedText: messageVoiceNote.caption, lineLimit: 1, foregroundColor: .gray)
+                        Text(getAttributedString(from: messageVoiceNote.caption, .gray))
                     }
                 }
             case .messageText(let messageText):
-                TextView(formattedText: messageText.text, lineLimit: 1, foregroundColor: .gray)
+                Text(getAttributedString(from: messageText.text, .gray))
             case .messageUnsupported:
                 Text("TDLib not supported")
             default:

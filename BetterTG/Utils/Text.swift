@@ -2,15 +2,17 @@
 
 import TDLibKit
 
-let defaultAttributes: [NSAttributedString.Key: Any] = [
-    .font: UIFont.body as Any,
-    .foregroundColor: UIColor.white
-]
+func defaultAttributes(_ foregroundColor: Color = .white) -> [NSAttributedString.Key: Any] {
+    [
+        .font: UIFont.body as Any,
+        .foregroundColor: UIColor(foregroundColor)
+    ]
+}
 
-func getAttributedString(from formattedText: FormattedText) -> AttributedString {
+func getAttributedString(from formattedText: FormattedText, _ foregroundColor: Color = .white) -> AttributedString {
     let attributedString = NSMutableAttributedString(
         string: formattedText.text,
-        attributes: defaultAttributes
+        attributes: defaultAttributes(foregroundColor)
     )
     
     for entity in formattedText.entities {

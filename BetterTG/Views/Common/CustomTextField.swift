@@ -96,14 +96,14 @@ private struct UITextViewWrapper: UIViewRepresentable {
     
     func makeUIView(context: Context) -> UIViewType {
         textView.delegate = context.coordinator
-        textView.attributedText = NSMutableAttributedString(string: text.string, attributes: defaultAttributes)
+        textView.attributedText = NSMutableAttributedString(string: text.string, attributes: defaultAttributes())
         textView.font = .body
         textView.isEditable = true
         textView.isSelectable = true
         textView.isUserInteractionEnabled = true
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
-        textView.typingAttributes = defaultAttributes
+        textView.typingAttributes = defaultAttributes()
         
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
@@ -154,7 +154,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
         }
         
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            textView.typingAttributes = defaultAttributes
+            textView.typingAttributes = defaultAttributes()
             
             if isPastingText {
                 if let item = UIPasteboard.general.items.first,

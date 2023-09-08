@@ -23,11 +23,29 @@ extension MessageView {
     }
     
     @ViewBuilder func formattedTextView(_ formattedText: FormattedText) -> some View {
-        TextView(formattedText: formattedText, appendingDate: true, maxWidth: Utils.maxMessageContentWidth)
+        TextView(formattedText: formattedText)
+            .frame(size: getFormattedTextViewSize(from: formattedText))
             .overlay(alignment: .bottomTrailing) {
                 messageDate
                     .offset(y: 3)
             }
+    }
+    
+    /// SwiftUI is fucked.
+    func getFormattedTextViewSize(from formattedText: FormattedText) -> CGSize {
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
+        attributedString.append(NSAttributedString(string: " 00:00", attributes: [.font: UIFont.caption as Any]))
+        let textStorage = NSTextStorage(attributedString: attributedString)
+        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
+        let boundingRect = CGRect(origin: .zero, size: size)
+        let textContainer = NSTextContainer(size: size)
+        textContainer.lineFragmentPadding = 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
+        let rect = layoutManager.usedRect(for: textContainer)
+        return rect.integral.size
     }
     
     @ViewBuilder var messageDate: some View {
