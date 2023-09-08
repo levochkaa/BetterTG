@@ -4,49 +4,49 @@ struct ItemView: View {
     
     @State var item: OpenedItem
     
-    @State private var offsetY: CGFloat = 0
-    @State private var opacity: Double = 1
+    @State private var showSaveConfirmationDialog = false
     
     @Environment(RootViewModel.self) var viewModel
-    
-    var hideGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                let height = value.translation.height
-                offsetY = height
-                opacity = 1 - abs(Double(height)) / 200
-            }
-            .onEnded { value in
-                withAnimation {
-                    if abs(value.translation.height) > 200 {
-                        viewModel.openedItem = nil
-                        opacity = 0
-                    } else {
-                        offsetY = 0
-                        opacity = 1
-                    }
-                }
-            }
-    }
     
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-                .opacity(opacity)
-                .onTapGesture {
-                    withAnimation {
-                        viewModel.openedItem = nil
-                    }
-                }
             
-            item.image
-                .resizable()
-                .scaledToFit()
-                .matchedGeometryEffect(id: item.id, in: viewModel.namespace)
-                .offset(y: offsetY)
-                .gesture(hideGesture)
+            ZoomableScrollView {
+                item.image
+                    .resizable()
+                    .scaledToFit()
+            }
+            .matchedGeometryEffect(id: item.id, in: viewModel.namespace)
         }
+        .ignoresSafeArea()
+        .overlay(alignment: .topTrailing) {
+            makeButton(with: "xmark.circle") {
+                withAnimation {
+                    viewModel.openedItem = nil
+                }
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            makeButton(with: "square.and.arrow.up") {
+                showSaveConfirmationDialog = true
+            }
+        }
+        .confirmationDialog("", isPresented: $showSaveConfirmationDialog) {
+            Button("Save") {
+                guard let uiImage = UIImage(contentsOfFile: item.url.path()) else { return }
+                UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
+            }
+        }
+    }
+    
+    func makeButton(with systemName: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.title)
+                .foregroundStyle(.white)
+        }
+        .padding()
     }
 }

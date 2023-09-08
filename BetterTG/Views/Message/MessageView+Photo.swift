@@ -13,7 +13,11 @@ extension MessageView {
                     .onTapGesture {
                         withAnimation {
                             hideKeyboard()
-                            rootViewModel.openedItem = OpenedItem(id: "\(size.photo.id)", image: image)
+                            rootViewModel.openedItem = OpenedItem(
+                                id: "\(size.photo.id)", 
+                                image: image,
+                                url: URL(string: size.photo.local.path)!
+                            )
                         }
                     }
             } placeholder: {
