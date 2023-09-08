@@ -33,7 +33,7 @@ import Observation
     @ObservationIgnored var scrollViewProxy: ScrollViewProxy? = nil
     
     var messages = [CustomMessage]()
-    var highlightedMessageId: Int64? = nil
+    var highlightedMessageId: UUID? = nil
     
     @ObservationIgnored var loadingMessages = false
     

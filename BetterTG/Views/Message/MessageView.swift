@@ -112,7 +112,7 @@ struct MessageView: View {
     func backgroundColor(for type: MessagePart) -> Color {
         switch type {
             case .text, .content:
-                if viewModel.highlightedMessageId == customMessage.message.id {
+                if viewModel.highlightedMessageId == customMessage.id {
                     return .white.opacity(0.5)
                 }
                 fallthrough

@@ -54,11 +54,13 @@ struct ReplyMessageView: View {
             withAnimation {
                 switch type {
                     case .edit:
-                        viewModel.scrollTo(id: viewModel.editCustomMessage?.message.id)
+                        viewModel.scrollTo(id: viewModel.editCustomMessage?.id)
                     case .reply:
-                        viewModel.scrollTo(id: viewModel.replyMessage?.message.id)
+                        viewModel.scrollTo(id: viewModel.replyMessage?.id)
                     case .replied:
-                        viewModel.scrollTo(id: customMessage.replyToMessage?.id)
+                        viewModel.scrollTo(id: viewModel.messages.first(where: {
+                            $0.message.id == customMessage.replyToMessage?.id
+                        })?.id)
                 }
             }
         }
