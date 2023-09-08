@@ -74,9 +74,8 @@ private class CustomUITextView: UITextView {
     }
     
     override func paste(_ sender: Any?) {
-        if let uiImage = UIPasteboard.general.image {
-            let image = writeImage(uiImage)
-            nc.post(name: .localPasteImage, object: image)
+        if let images = UIPasteboard.general.images {
+            nc.post(name: .localPasteImages, object: images.compactMap { writeImage($0) })
         } else {
             isPastingText = true
         }
