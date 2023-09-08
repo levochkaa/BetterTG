@@ -95,16 +95,16 @@ struct ChatView: View {
                     }
                 }
             }
-            .scrollPosition(id: $chatPosition, anchor: .top)
+//            .scrollPosition(id: $chatPosition, anchor: .top)
             .coordinateSpace(name: scroll)
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.always)
             .defaultScrollAnchor(.bottom)
-            .onChange(of: chatPosition) {
-                Task {
-                    await viewModel.loadMessages(isInit: false)
-                }
-            }
+//            .onChange(of: chatPosition) {
+//                Task {
+//                    await viewModel.loadMessages(isInit: false)
+//                }
+//            }
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                 let maxY = Int(value.maxY)
                 if maxY > 670 {
