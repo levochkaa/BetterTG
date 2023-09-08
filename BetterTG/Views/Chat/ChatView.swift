@@ -147,10 +147,6 @@ struct ChatView: View {
             viewModel.displayedImages.add(contentsOf: Array(items.prefix(10 - viewModel.displayedImages.count)))
             return true
         }
-        .onReceive(nc.publisher(for: .chatReadInbox)) { notification in
-            guard let chatReadInbox = notification.object as? UpdateChatReadInbox else { return }
-            viewModel.customChat.unreadCount = chatReadInbox.unreadCount
-        }
         .overlay(alignment: .bottomTrailing) {
             if isScrollToBottomButtonShown {
                 scrollToBottomButton
@@ -160,12 +156,7 @@ struct ChatView: View {
             await viewModel.loadMessages(isInit: true)
         }
         .onAppear(perform: viewModel.onAppear)
-        .onDisappear {
-            viewModel.mediaPlayer.stop()
-            Task {
-                await viewModel.updateDraft()
-            }
-        }
+        .onDisappear(perform: viewModel.onDisappear)
     }
     
     func scrollToLastOnFocus() {

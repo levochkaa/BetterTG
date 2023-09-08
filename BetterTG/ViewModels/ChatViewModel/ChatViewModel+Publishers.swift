@@ -56,6 +56,17 @@ extension ChatViewModel {
             else { return }
             self.userStatus(userStatus.status)
         }
+        
+        nc.publisher(for: .chatReadInbox) { notification in
+            guard let chatReadInbox = notification.object as? UpdateChatReadInbox,
+                    chatReadInbox.chatId == viewModel.customChat.id
+            else { return }
+            self.chatReadInbox(chatReadInbox)
+        }
+    }
+    
+    func chatReadInbox(_ chatReadInbox: UpdateChatReadInbox) {
+        viewModel.customChat.unreadCount = chatReadInbox.unreadCount
     }
     
     func userStatus(_ status: UserStatus) {

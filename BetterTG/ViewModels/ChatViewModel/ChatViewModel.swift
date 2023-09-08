@@ -74,4 +74,9 @@ import Observation
         guard let draftMessage = customChat.draftMessage else { return }
         setDraft(draftMessage)
     }
+    
+    func onDisappear() {
+        viewModel.mediaPlayer.stop()
+        Task { await viewModel.updateDraft() }
+    }
 }
