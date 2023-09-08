@@ -1,5 +1,7 @@
 // ChatBottomArea+TextField.swift
 
+import Combine
+
 extension ChatBottomArea {
     @ViewBuilder var textField: some View {
         @Bindable var viewModel = viewModel
@@ -23,16 +25,21 @@ extension ChatBottomArea {
         .padding(.horizontal, 5)
         .background(.gray6)
         .cornerRadius(15)
-        .onChange(of: viewModel.text) { _, text in
-            textDebouncer.call(delay: 2) {
-                Task { [viewModel] in
-                    await viewModel.updateDraft()
-                    
-                    if !text.characters.isEmpty {
-                        await viewModel.tdSendChatAction(.chatActionTyping)
-                    } else {
-                        await viewModel.tdSendChatAction(.chatActionCancel)
-                    }
+        .onReceive(
+            Just(viewModel.text)
+                .throttle(
+                    for: 2,
+                    scheduler: DispatchQueue.global(qos: .background),
+                    latest: true
+                )
+        ) { text in
+            Task { [viewModel] in
+                await viewModel.updateDraft()
+                
+                if !text.characters.isEmpty {
+                    await viewModel.tdSendChatAction(.chatActionTyping)
+                } else {
+                    await viewModel.tdSendChatAction(.chatActionCancel)
                 }
             }
         }

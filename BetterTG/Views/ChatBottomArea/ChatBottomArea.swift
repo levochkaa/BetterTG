@@ -22,8 +22,6 @@ struct ChatBottomArea: View {
     let micId = "micId"
     let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     
-    let textDebouncer = Debouncer()
-    
     var body: some View {
         @Bindable var viewModel = viewModel
         VStack(alignment: .center, spacing: 5) {
