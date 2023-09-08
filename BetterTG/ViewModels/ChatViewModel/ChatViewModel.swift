@@ -76,7 +76,7 @@ import Observation
     }
     
     func onDisappear() {
-        viewModel.mediaPlayer.stop()
-        Task { await viewModel.updateDraft() }
+        mediaPlayer.stop()
+        Task { await updateDraft() }
     }
 }
