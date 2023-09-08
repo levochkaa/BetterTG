@@ -10,7 +10,7 @@ extension NotificationCenter {
         for name: Notification.Name,
         @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
     ) {
-        self.publisher(for: name)
+        publisher(for: name)
             .receive(on: RunLoop.main)
             .sink { notification in
                 perform(notification)
@@ -19,24 +19,22 @@ extension NotificationCenter {
     }
     
     func post(name: Notification.Name) {
-        self.post(name: name, object: nil)
+        post(name: name, object: nil)
     }
     
     func publisher(for name: Notification.Name) -> NotificationCenter.Publisher {
-        self.publisher(for: name, object: nil)
+        publisher(for: name, object: nil)
     }
     
     func mergeMany(_ names: [Notification.Name]) -> Publishers.MergeMany<NotificationCenter.Publisher> {
-        let publishers = names.map { self.publisher(for: $0) }
-        return Publishers.MergeMany(publishers)
+        Publishers.MergeMany(names.map { publisher(for: $0) })
     }
     
     func mergeMany(
         _ names: [Notification.Name],
         @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
     ) {
-        let publishers = names.map { self.publisher(for: $0) }
-        Publishers.MergeMany(publishers)
+        Publishers.MergeMany(names.map { publisher(for: $0) })
             .receive(on: RunLoop.main)
             .sink { notification in
                 perform(notification)
