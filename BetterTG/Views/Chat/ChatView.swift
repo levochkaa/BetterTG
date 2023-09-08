@@ -153,7 +153,7 @@ struct ChatView: View {
             }
         }
         .task {
-            await viewModel.loadMessages(isInit: true)
+            await viewModel.loadMessages()
         }
         .onAppear(perform: viewModel.onAppear)
         .onDisappear(perform: viewModel.onDisappear)
