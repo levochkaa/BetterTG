@@ -4,13 +4,18 @@ import PhotosUI
 
 struct ImageAsset: Identifiable {
     let id = UUID()
-    var asset: PHAsset
-    var uiImage: UIImage?
-    var thumbnail: Image?
-    var url: URL?
-    var selected: Bool = false
+    let image: Image
+    let url: URL
+    var selected = false
     
     func deselected() -> ImageAsset {
-        ImageAsset(asset: asset, thumbnail: thumbnail, url: url, selected: false)
+        ImageAsset(image: image, url: url, selected: false)
+    }
+}
+
+extension ImageAsset {
+    init(from selectedImage: SelectedImage) {
+        self.image = selectedImage.image
+        self.url = selectedImage.url
     }
 }

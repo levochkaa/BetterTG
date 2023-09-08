@@ -24,8 +24,7 @@ extension ChatViewModel {
     }
     
     func sendMessagePhoto(imageAsset: ImageAsset) {
-        guard let url = imageAsset.url else { return }
-        Task { await tdSendMessage(with: makeInputMessageContent(for: url)) }
+        Task { await tdSendMessage(with: makeInputMessageContent(for: imageAsset.url)) }
     }
     
     func sendMessagePhotos() async {

@@ -10,8 +10,6 @@ struct ChatBottomArea: View {
     @State var timer: Timer?
     @State var wave = [Float]()
     
-    @State var selectedImagesCount = 0
-    
     @State var showSendButton = false
     
     @Namespace var namespace

@@ -6,9 +6,7 @@ extension ChatBottomArea {
     @ViewBuilder var leftSide: some View {
         Button {
             viewModel.showBottomSheet = true
-            Task {
-                await viewModel.getImages()
-            }
+            Task { await viewModel.getImages() }
         } label: {
             Image(systemName: "paperclip")
                 .font(.title3)

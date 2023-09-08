@@ -8,18 +8,8 @@ extension ChatBottomArea {
             @Bindable var viewModel = viewModel
             ScrollView(showsIndicators: false) {
                 LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
-                    ForEach(Array(viewModel.fetchedImages.enumerated()), id: \.offset) { index, imageAsset in
-                        if let thummbail = imageAsset.thumbnail {
-                            fetchedImageView(index, for: imageAsset, with: thummbail)
-                        } else {
-                            RoundedRectangle(cornerRadius: 15)
-                                .fill(.gray6)
-                                .frame(width: Utils.bottomSheetPhotoWidth, height: Utils.bottomSheetPhotoWidth)
-                                .overlay {
-                                    Image(systemName: "exclamationmark.square")
-                                        .font(.largeTitle)
-                                }
-                        }
+                    ForEach(viewModel.fetchedImages) { imageAsset in
+                        fetchedImageView(for: imageAsset)
                     }
                 }
                 .padding(10)
@@ -51,12 +41,11 @@ extension ChatBottomArea {
                     Button("Cancel") {
                         viewModel.showBottomSheet = false
                         viewModel.fetchedImages = viewModel.fetchedImages.map { $0.deselected() }
-                        viewModel.selectedImagesCount = 0
                     }
                 }
                 
                 ToolbarItem(placement: .bottomBar) {
-                    Text("\(viewModel.selectedImagesCount)/10 items selected")
+                    Text("\(viewModel.fetchedImages.filter(\.selected).count)/10 items selected")
                 }
             }
             .toolbarTitleMenu {
@@ -67,8 +56,8 @@ extension ChatBottomArea {
         }
     }
     
-    @ViewBuilder func fetchedImageView(_ index: Int, for imageAsset: ImageAsset, with thumbnail: Image) -> some View {
-        thumbnail
+    @ViewBuilder func fetchedImageView(for imageAsset: ImageAsset) -> some View {
+        imageAsset.image
             .resizable()
             .scaledToFill()
             .frame(width: Utils.bottomSheetPhotoWidth, height: Utils.bottomSheetPhotoWidth)
@@ -88,41 +77,33 @@ extension ChatBottomArea {
                 .foregroundStyle(.white, .blue)
                 .padding(5)
             }
-            .onTapGesture { [imageAsset] in
+            .onTapGesture {
                 withAnimation {
-                    viewModel.toggleSelectedImage(index, for: imageAsset)
+                    viewModel.toggleSelectedImage(for: imageAsset)
                 }
             }
             .contextMenu {
-                imageContextMenu(index, for: imageAsset)
+                Button(
+                    imageAsset.selected ? "Deselect" : "Select",
+                    systemImage: imageAsset.selected ? "circle" : "checkmark.circle.fill"
+                ) {
+                    Task.main(delay: Utils.defaultAnimationDuration * 2) {
+                        withAnimation {
+                            viewModel.toggleSelectedImage(for: imageAsset)
+                        }
+                    }
+                }
+                
+                Divider()
+                
+                Button("Send", systemImage: "paperplane.fill") {
+                    viewModel.showBottomSheet = false
+                    viewModel.sendMessagePhoto(imageAsset: imageAsset)
+                }
             } preview: {
-                thumbnail
+                imageAsset.image
                     .resizable()
                     .scaledToFit()
             }
-    }
-    
-    @ViewBuilder func imageContextMenu(_ index: Int, for imageAsset: ImageAsset) -> some View {
-        Button(
-            imageAsset.selected ? "Deselect" : "Select",
-            systemImage: imageAsset.selected ? "circle" : "checkmark.circle.fill"
-        ) {
-            Task.main(delay: Utils.defaultAnimationDuration * 2) {
-                withAnimation {
-                    viewModel.toggleSelectedImage(index, for: imageAsset)
-                }
-            }
-        }
-        
-        DividerAround {
-            Button("Send", systemImage: "paperplane.fill") {
-                viewModel.showBottomSheet = false
-                viewModel.sendMessagePhoto(imageAsset: imageAsset)
-            }
-        }
-        
-        Button("Delete", systemImage: "trash.fill", role: .destructive) {
-            viewModel.delete(asset: imageAsset.asset)
-        }
     }
 }

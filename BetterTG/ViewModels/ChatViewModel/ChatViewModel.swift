@@ -27,7 +27,6 @@ import Observation
     @ObservationIgnored var savedPhotoMessages = [Message]()
     var fetchedImages = [ImageAsset]()
     var displayedImages = [SelectedImage]()
-    var selectedImagesCount = 0
     var showBottomSheet = false
     var showCameraView = false
     

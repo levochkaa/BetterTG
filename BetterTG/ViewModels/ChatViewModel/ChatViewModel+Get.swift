@@ -5,9 +5,7 @@ import PhotosUI
 
 extension ChatViewModel {
     func getImages() async {
-        Task.main {
-            fetchedImages.removeAll()
-        }
+        guard fetchedImages.isEmpty else { return }
         
         let fetchOptions = PHFetchOptions()
         fetchOptions.includeAssetSourceTypes = [.typeUserLibrary]
@@ -23,50 +21,27 @@ extension ChatViewModel {
         
         let imageManager = PHCachingImageManager.default()
         
-        PHAsset.fetchAssets(with: .image, options: fetchOptions).enumerateObjects { [self] asset, _, _ in
-            var imageAsset = ImageAsset(asset: asset)
-            
+        PHAsset.fetchAssets(with: .image, options: fetchOptions).enumerateObjects { [weak self] asset, _, _ in
             imageManager.requestImage(
-                for: imageAsset.asset,
+                for: asset,
                 targetSize: PHImageManagerMaximumSize,
                 contentMode: .aspectFit,
                 options: imageOptions
-            ) { uiImage, _ in
-                if let uiImage {
-                    imageAsset.uiImage = uiImage
-                    imageAsset.thumbnail = Image(uiImage: uiImage)
-                    if let data = uiImage.jpegData(compressionQuality: 1) {
-                        let imageUrl = URL(filePath: NSTemporaryDirectory())
-                            .appending(path: "\(UUID().uuidString).png")
-                        do {
-                            try data.write(to: imageUrl, options: .atomic)
-                            imageAsset.url = imageUrl
-                        } catch {
-                            log("Error getting data for an image: \(error)")
-                        }
-                    }
+            ) { [weak self] uiImage, _ in
+                guard let self, let selectedImage = writeImage(uiImage) else { return }
+                Task.main { [weak self] in
+                    self?.fetchedImages.append(ImageAsset(from: selectedImage))
                 }
             }
-            
-            Task.main { [imageAsset] in
-                fetchedImages.append(imageAsset)
-            }
         }
     }
     
-    func toggleSelectedImage(_ index: Int, for imageAsset: ImageAsset) {
+    func toggleSelectedImage(for imageAsset: ImageAsset) {
+        guard let index = fetchedImages.firstIndex(where: { $0.id == imageAsset.id }) else { return }
         if imageAsset.selected {
             fetchedImages[index].selected = false
-            selectedImagesCount -= 1
-        } else if selectedImagesCount < 10 {
+        } else if fetchedImages.filter(\.selected).count < 10 {
             fetchedImages[index].selected = true
-            selectedImagesCount += 1
-        }
-    }
-    
-    func delete(asset: PHAsset) {
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
         }
     }
     

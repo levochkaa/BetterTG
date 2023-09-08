@@ -4,20 +4,12 @@ import TDLibKit
 
 extension ChatViewModel {
     func loadPhotos() {
-        let processedImages = fetchedImages
-            .filter { $0.selected }
-            .compactMap {
-                if let image = $0.thumbnail, let url = $0.url {
-                    return SelectedImage(image: image, url: url)
-                }
-                return nil
-            }
-        
         fetchedImages = fetchedImages.map { $0.deselected() }
-        selectedImagesCount = 0
         
         withAnimation {
-            displayedImages = processedImages
+            displayedImages = fetchedImages
+                .filter { $0.selected }
+                .map { SelectedImage(from: $0) }
         }
     }
     

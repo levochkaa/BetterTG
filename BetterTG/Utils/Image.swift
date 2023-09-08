@@ -1,7 +1,7 @@
 // Image.swift
 
-func writeImage(_ uiImage: UIImage, withSaving saving: Bool = false) -> SelectedImage? {
-    guard let data = uiImage.jpegData(compressionQuality: 1) else { return nil }
+func writeImage(_ uiImage: UIImage?, withSaving saving: Bool = false) -> SelectedImage? {
+    guard let uiImage, let data = uiImage.jpegData(compressionQuality: 1) else { return nil }
     
     if saving {
         UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)

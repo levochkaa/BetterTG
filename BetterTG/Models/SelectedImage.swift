@@ -8,6 +8,13 @@ struct SelectedImage: Identifiable {
     var url: URL
 }
 
+extension SelectedImage {
+    init(from imageAsset: ImageAsset) {
+        self.image = imageAsset.image
+        self.url = imageAsset.url
+    }
+}
+
 extension SelectedImage: Equatable {
     static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {
         lhs.url == rhs.url
