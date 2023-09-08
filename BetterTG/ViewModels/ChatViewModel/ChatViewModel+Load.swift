@@ -4,13 +4,12 @@ import TDLibKit
 
 extension ChatViewModel {
     func loadPhotos() {
-        fetchedImages = fetchedImages.map { $0.deselected() }
-        
         withAnimation {
             displayedImages = fetchedImages
                 .filter { $0.selected }
                 .map { SelectedImage(from: $0) }
         }
+        fetchedImages = fetchedImages.map { $0.deselected() }
     }
     
     func loadMessages() async {
