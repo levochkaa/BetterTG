@@ -6,6 +6,7 @@ struct LoginView: View {
     
     @State var showSelectCountryView = false
     @State var searchCountries = ""
+    
     @FocusState var focused: LoginState?
     
     var body: some View {
@@ -13,11 +14,46 @@ struct LoginView: View {
             Group {
                 switch viewModel.loginState {
                     case .phoneNumber:
-                        phoneNumberView
+                        loginStateView(next: .code) {
+                            GroupBox {
+                                HStack {
+                                    Text("+\(viewModel.selectedCountryNum.phoneNumberPrefix)")
+                                    
+                                    TextField("Phone Number", text: $viewModel.phoneNumber)
+                                        .focused($focused, equals: .phoneNumber)
+                                        .keyboardType(.numberPad)
+                                }
+                            } label: {
+                                Button(viewModel.selectedCountryNum.name) {
+                                    showSelectCountryView.toggle()
+                                }
+                            }
+                        }
+                        .task { await viewModel.loadCountries() }
+                        .sheet(isPresented: $showSelectCountryView) {
+                            selectCountryView
+                                .presentationDetents([.medium, .large])
+                                .presentationDragIndicator(.hidden)
+                        }
                     case .code:
-                        codeView
+                        loginStateView(next: .twoFactor) {
+                            TextField("Code", text: $viewModel.code)
+                                .focused($focused, equals: .code)
+                                .keyboardType(.numberPad)
+                                .padding()
+                                .background(.gray6)
+                                .cornerRadius(10)
+                        }
                     case .twoFactor:
-                        twoFactorView
+                        loginStateView(next: nil) {
+                            SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
+                                .focused($focused, equals: .twoFactor)
+                                .textContentType(.password)
+                                .keyboardType(.alphabet)
+                                .padding()
+                                .background(.gray6)
+                                .cornerRadius(10)
+                        }
                 }
             }
             .transition(
@@ -27,29 +63,72 @@ struct LoginView: View {
                 )
                 .combined(with: .opacity)
             )
-            .animation(value: viewModel.loginState)
             .navigationTitle("Login")
-            .errorAlert(
-                show: $viewModel.errorShown,
-                text: "There was an error with Authorization state. Please, restart the app."
-            )
         }
+        .animation(value: viewModel.loginState)
+        .animation(value: focused)
+        .errorAlert(
+            show: $viewModel.errorShown,
+            text: "There was an error with Authorization state. Please, restart the app."
+        )
     }
     
-    @ViewBuilder func bottomButton(_ action: @escaping () -> Void) -> some View {
-        Spacer()
-        
-        Button {
-            action()
-            Task {
-                await viewModel.handleAuthorizationState()
+    func loginStateView(next state: LoginState?, _ content: () -> some View) -> some View {
+        VStack(spacing: 10) {
+            SpacingAround {
+                Text(viewModel.loginState.title)
+                    .font(.system(.largeTitle, weight: .bold))
             }
-        } label: {
-            Text("Continue")
-                .padding(.vertical, 5)
-                .frame(maxWidth: .infinity)
+            
+            content()
+            
+            Spacer()
+            
+            Button {
+                focused = state
+                Task {
+                    await viewModel.handleAuthorizationState()
+                }
+            } label: {
+                Text("Continue")
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.bottom, 10)
         }
-        .buttonStyle(.borderedProminent)
-        .padding(.bottom, 10)
+        .padding()
+    }
+    
+    @ViewBuilder var selectCountryView: some View {
+        NavigationStack {
+            List(viewModel.getFilteredCountries(query: searchCountries), id: \.self) { info in
+                Button {
+                    viewModel.selectedCountryNum = info
+                    showSelectCountryView.toggle()
+                } label: {
+                    HStack {
+                        Text(info.name)
+                        
+                        Spacer()
+                        
+                        Text("+\(info.phoneNumberPrefix)")
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .background(.black)
+            .padding(.top, -20)
+            .navigationTitle("Country")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchCountries, placement: .navigationBarDrawer(displayMode: .always))
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        showSelectCountryView.toggle()
+                    }
+                }
+            }
+        }
     }
 }

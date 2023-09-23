@@ -56,34 +56,32 @@ import Observation
         }
     }
     
-    func loadCountries() {
-        Task {
-            guard let countries = await tdGetCountries(),
-                  let countryCode = await tdGetCountryCode(),
-                  let country = countries.first(where: { $0.countryCode == countryCode })
-            else { return }
-            
-            let selectedCountryNum = PhoneNumberInfo(
-                country: country.countryCode,
-                phoneNumberPrefix: country.callingCodes[0],
-                name: country.englishName
-            )
-            let countryNums = countries
-                .map {
-                    PhoneNumberInfo(
-                        country: $0.countryCode,
-                        phoneNumberPrefix: $0.callingCodes[0],
-                        name: $0.englishName
-                    )
-                }
-                .sorted {
-                    $0.name < $1.name
-                }
-            
-            await MainActor.run {
-                self.selectedCountryNum = selectedCountryNum
-                self.countryNums = countryNums
+    func loadCountries() async {
+        guard let countries = await tdGetCountries(),
+              let countryCode = await tdGetCountryCode(),
+              let country = countries.first(where: { $0.countryCode == countryCode })
+        else { return }
+        
+        let selectedCountryNum = PhoneNumberInfo(
+            country: country.countryCode,
+            phoneNumberPrefix: country.callingCodes[0],
+            name: country.englishName
+        )
+        let countryNums = countries
+            .map {
+                PhoneNumberInfo(
+                    country: $0.countryCode,
+                    phoneNumberPrefix: $0.callingCodes[0],
+                    name: $0.englishName
+                )
             }
+            .sorted {
+                $0.name < $1.name
+            }
+        
+        await MainActor.run {
+            self.selectedCountryNum = selectedCountryNum
+            self.countryNums = countryNums
         }
     }
     

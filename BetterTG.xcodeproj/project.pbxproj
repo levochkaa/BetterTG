@@ -140,10 +140,6 @@
 		DFEB06C92959EE740099E2B2 /* speech.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06C82959EE740099E2B2 /* speech.swift */; };
 		DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */; };
 		DFEB06CD295A00C10099E2B2 /* speechResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06CC295A00C10099E2B2 /* speechResult.swift */; };
-		DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */; };
-		DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */; };
-		DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74B292A2286002A4BAD /* LoginView+Code.swift */; };
-		DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */; };
 		DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NotificationName.swift */; };
 		DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter.swift */; };
 		DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */; };
@@ -316,10 +312,6 @@
 		DFEB06C82959EE740099E2B2 /* speech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = speech.swift; sourceTree = "<group>"; };
 		DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacingAround.swift; sourceTree = "<group>"; };
 		DFEB06CC295A00C10099E2B2 /* speechResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = speechResult.swift; sourceTree = "<group>"; };
-		DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+PhoneNumber.swift"; sourceTree = "<group>"; };
-		DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+TwoFactor.swift"; sourceTree = "<group>"; };
-		DFECD74B292A2286002A4BAD /* LoginView+Code.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+Code.swift"; sourceTree = "<group>"; };
-		DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView+SelectCountry.swift"; sourceTree = "<group>"; };
 		DFECD756292A938B002A4BAD /* NotificationName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationName.swift; sourceTree = "<group>"; };
 		DFECD759292A99FE002A4BAD /* NotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenter.swift; sourceTree = "<group>"; };
 		DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+ContextMenu.swift"; sourceTree = "<group>"; };
@@ -545,10 +537,6 @@
 			isa = PBXGroup;
 			children = (
 				DF16E6EE28DA4AE900281C7B /* LoginView.swift */,
-				DFECD74729293FEE002A4BAD /* LoginView+PhoneNumber.swift */,
-				DFECD749292A227C002A4BAD /* LoginView+TwoFactor.swift */,
-				DFECD74B292A2286002A4BAD /* LoginView+Code.swift */,
-				DFECD74D292A3328002A4BAD /* LoginView+SelectCountry.swift */,
 			);
 			path = Login;
 			sourceTree = "<group>";
@@ -880,7 +868,6 @@
 				DF1717C02971F6410085E698 /* Array+GetSize.swift in Sources */,
 				DFD7D491294248DB0006CF85 /* ChatViewModel+Td.swift in Sources */,
 				DF9D5170298D19A8009AFE7F /* Shape.swift in Sources */,
-				DFECD74C292A2286002A4BAD /* LoginView+Code.swift in Sources */,
 				DF2AE70F2951195C00FF7850 /* ChatViewModel+Scroll.swift in Sources */,
 				DFD7D49B29427B450006CF85 /* RootView+ChatsListItem.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
@@ -903,7 +890,6 @@
 				DF5261D7294F4FAD00FB7C73 /* ChatBottomArea+RightSide.swift in Sources */,
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
 				DFA214B1297D9BEF00758617 /* Array+Uniqued.swift in Sources */,
-				DFECD74829293FEE002A4BAD /* LoginView+PhoneNumber.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */,
 				DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */,
 				DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */,
@@ -934,7 +920,6 @@
 				DF9AC6CD29A2620800D6EC76 /* View+OnVisible.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DF34644A296B787D001BE888 /* MainActor.swift in Sources */,
-				DFECD74E292A3328002A4BAD /* LoginView+SelectCountry.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
 				DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */,
 				DF69FA912AA4ED2D009180D4 /* Image.swift in Sources */,
@@ -943,7 +928,6 @@
 				DF9D516C298D1340009AFE7F /* ImageAsset.swift in Sources */,
 				DF5261DB294F50A000FB7C73 /* ChatBottomArea+TextField.swift in Sources */,
 				DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */,
-				DFECD74A292A227C002A4BAD /* LoginView+TwoFactor.swift in Sources */,
 				DFE026602951142D004C8C83 /* ReplyMessageView+Content.swift in Sources */,
 				DF99C02C2976B97F00D7C1DE /* MessageView+VoiceNoteSide.swift in Sources */,
 				DF5261DF294F602600FB7C73 /* MessageView.swift in Sources */,

@@ -296,26 +296,26 @@ private func updateAuthorizationState(_ authorizationState: AuthorizationState) 
     case .authorizationStateWaitTdlibParameters:
         nc.post(name: .waitTdlibParameters)
     case .authorizationStateWaitPhoneNumber:
-        nc.post(name: .waitPhoneNumber)
+        Task.main { nc.post(name: .waitPhoneNumber) }
     case .authorizationStateWaitEmailAddress(let authorizationStateWaitEmailAddress):
         nc.post(name: .waitEmailAddress, object: authorizationStateWaitEmailAddress)
     case .authorizationStateWaitEmailCode(let authorizationStateWaitEmailCode):
         nc.post(name: .waitEmailCode, object: authorizationStateWaitEmailCode)
     case .authorizationStateWaitCode(let authorizationStateWaitCode):
-        nc.post(name: .waitCode, object: authorizationStateWaitCode)
+        Task.main { nc.post(name: .waitCode, object: authorizationStateWaitCode) }
     case .authorizationStateWaitOtherDeviceConfirmation(let authorizationStateWaitOtherDeviceConfirmation):
         nc.post(name: .waitOtherDeviceConfirmation, object: authorizationStateWaitOtherDeviceConfirmation)
     case .authorizationStateWaitRegistration(let authorizationStateWaitRegistration):
         nc.post(name: .waitRegistration, object: authorizationStateWaitRegistration)
     case .authorizationStateWaitPassword(let authorizationStateWaitPassword):
-        nc.post(name: .waitPassword, object: authorizationStateWaitPassword)
+        Task.main { nc.post(name: .waitPassword, object: authorizationStateWaitPassword) }
     case .authorizationStateReady:
-        nc.post(name: .ready)
+        Task.main { nc.post(name: .ready) }
     case .authorizationStateLoggingOut:
-        nc.post(name: .loggingOut)
+        Task.main { nc.post(name: .loggingOut) }
     case .authorizationStateClosing:
-        nc.post(name: .closing)
+        Task.main { nc.post(name: .closing) }
     case .authorizationStateClosed:
-        nc.post(name: .closed)
+        Task.main { nc.post(name: .closed) }
     }
 }
