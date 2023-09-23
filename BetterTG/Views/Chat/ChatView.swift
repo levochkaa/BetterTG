@@ -9,7 +9,7 @@ struct ChatView: View {
     @FocusState var focused
     
     @State var isScrollToBottomButtonShown = false
-    @State var chatPosition: Int64?
+    @State var chatPosition: UUID?
     
     var scroll = "chatScroll"
     @State var scrollOnFocus = true
@@ -95,14 +95,14 @@ struct ChatView: View {
                     }
                 }
             }
-//            .scrollPosition(id: $chatPosition, anchor: .top)
+            .scrollPosition(id: $chatPosition, anchor: .top)
             .coordinateSpace(name: scroll)
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.always)
             .defaultScrollAnchor(.bottom)
 //            .onChange(of: chatPosition) {
 //                Task {
-//                    await viewModel.loadMessages(isInit: false)
+//                    await viewModel.loadMessages()
 //                }
 //            }
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
