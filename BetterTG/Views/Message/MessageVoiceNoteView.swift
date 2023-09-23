@@ -2,6 +2,8 @@
 
 import TDLibKit
 
+// TODO: redesign and refactor in single block
+
 // swiftlint:disable:next type_body_length
 struct MessageVoiceNoteView: View {
     let voiceNote: VoiceNote
