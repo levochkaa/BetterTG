@@ -17,7 +17,7 @@ extension ChatViewModel {
                 hasSpoiler: false,
                 height: Int(image.size.height),
                 photo: input,
-                selfDestructType: .messageSelfDestructTypeTimer(.init(selfDestructTime: 0)),
+                selfDestructType: nil,
                 thumbnail: InputThumbnail(
                     height: Int(image.size.height),
                     thumbnail: input,
