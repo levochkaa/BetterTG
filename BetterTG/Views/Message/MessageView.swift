@@ -73,9 +73,7 @@ struct MessageView: View {
                     .width($editWidth)
             }
         }
-        .contextMenu {
-            menu
-        }
+        .contextMenu { contextMenu }
         .onVisible {
             guard canBeRead else { return }
             defer { canBeRead = false }

@@ -1,7 +1,7 @@
 // MessageView+Menu.swift
 
 extension MessageView {
-    @ViewBuilder var menu: some View {
+    @ViewBuilder var contextMenu: some View {
         Button("Reply", systemImage: "arrowshape.turn.up.left") {
             if viewModel.replyMessage != nil {
                 withAnimation {
