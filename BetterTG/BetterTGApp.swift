@@ -21,7 +21,6 @@ struct BetterTGApp: App {
         SDImageCodersManager.shared.addCoder(SDImageWebPCoder.shared)
         
         LottieConfiguration.shared.renderingEngine = .specific(.coreAnimation)
-        LottieLogger.shared = .printToConsole
     }
     
     var body: some Scene {
