@@ -9,9 +9,9 @@ struct ChatView: View {
     @FocusState var focused
     
     @State var isScrollToBottomButtonShown = false
-    @State var chatPosition: UUID?
+//    @State var chatPosition: UUID?
     
-    var scroll = "chatScroll"
+    let scroll = "chatScroll"
     @State var scrollOnFocus = true
     
     @Environment(\.isPreview) var isPreview
@@ -95,7 +95,7 @@ struct ChatView: View {
                     }
                 }
             }
-            .scrollPosition(id: $chatPosition, anchor: .top)
+//            .scrollPosition(id: $chatPosition, anchor: .top)
             .coordinateSpace(name: scroll)
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.always)
