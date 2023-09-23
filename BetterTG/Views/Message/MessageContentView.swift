@@ -22,7 +22,7 @@ struct MessageContentView: View {
                 }
             } else {
                 MediaAlbum {
-                    ForEach(customMessage.album, id: \.id) { albumMessage in
+                    ForEach(customMessage.album) { albumMessage in
                         if case .messagePhoto(let messagePhoto) = albumMessage.content {
                             makeMessagePhoto(from: messagePhoto)
                         }
@@ -41,27 +41,30 @@ struct MessageContentView: View {
     }
     
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto) -> some View {
-        let size = messagePhoto.photo.sizes.forceSize(.wBox)
-        AsyncTdImage(id: size.photo.id) { image in
-            image
-                .resizable()
-                .scaledToFill()
-                .matchedGeometryEffect(id: "\(size.photo.id)", in: rootViewModel.namespace)
-                .onTapGesture {
-                    withAnimation {
-                        hideKeyboard()
-                        rootViewModel.openedItem = OpenedItem(
-                            id: "\(size.photo.id)",
-                            image: image,
-                            url: URL(string: size.photo.local.path)!
-                        )
+        if let size = messagePhoto.photo.sizes.getSize(.wBox) {
+            AsyncTdImage(id: size.photo.id) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .matchedGeometryEffect(id: "\(size.photo.id)", in: rootViewModel.namespace)
+                    .onTapGesture {
+                        withAnimation {
+                            hideKeyboard()
+                            rootViewModel.openedItem = OpenedItem(
+                                id: "\(size.photo.id)",
+                                image: image,
+                                url: URL(string: size.photo.local.path)!
+                            )
+                        }
                     }
+            } placeholder: {
+                if let size = messagePhoto.photo.sizes.getSize(.iString) {
+                    Image(file: size.photo)
+                        .resizable()
+                        .scaledToFill()
+                        .blur(radius: 5)
                 }
-        } placeholder: {
-            Image(file: messagePhoto.photo.sizes.forceSize(.iString).photo)
-                .resizable()
-                .scaledToFill()
-                .blur(radius: 5)
+            }
         }
     }
 }

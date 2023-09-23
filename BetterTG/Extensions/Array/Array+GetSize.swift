@@ -42,9 +42,4 @@ public extension Array where Element == PhotoSize {
             return filtered.first
         }
     }
-    
-    /// Be careful with using this, but I **think**, TDLib will always give some size.
-    func forceSize(_ type: PhotoSizeType) -> PhotoSize {
-        getSize(type)!
-    }
 }
