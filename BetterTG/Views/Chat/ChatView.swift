@@ -8,11 +8,11 @@ struct ChatView: View {
     
     @FocusState var focused
     
-    @State var isScrollToBottomButtonShown = false
 //    @State var chatPosition: UUID?
     
     let scroll = "chatScroll"
     @State var scrollOnFocus = true
+    @State var showScrollToBottomButton = false
     
     @Environment(\.isPreview) var isPreview
     @Environment(\.dismiss) var dismiss
@@ -100,29 +100,8 @@ struct ChatView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.always)
             .defaultScrollAnchor(.bottom)
-//            .onChange(of: chatPosition) {
-//                Task {
-//                    await viewModel.loadMessages()
-//                }
-//            }
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                let maxY = Int(value.maxY)
-                if maxY > 670 {
-                    scrollOnFocus = false
-                    if !isScrollToBottomButtonShown {
-                        withAnimation {
-                            isScrollToBottomButtonShown = true
-                        }
-                    }
-                } else {
-                    scrollOnFocus = true
-                    if isScrollToBottomButtonShown {
-                        withAnimation {
-                            isScrollToBottomButtonShown = false
-                        }
-                    }
-                }
-            }
+//            .onChange(of: chatPosition) { Task { await viewModel.loadMessages() } }
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in Task.main { update(Int(value.maxY)) } }
             .onReceive(nc.mergeMany([.localRecognizeSpeech, .localIsListeningVoice, .localScrollToLastOnFocus])) { _ in
                 scrollToLastOnFocus()
             }
@@ -148,7 +127,7 @@ struct ChatView: View {
             return true
         }
         .overlay(alignment: .bottomTrailing) {
-            if isScrollToBottomButtonShown {
+            if showScrollToBottomButton {
                 scrollToBottomButton
             }
         }
@@ -157,6 +136,24 @@ struct ChatView: View {
         }
         .onAppear(perform: viewModel.onAppear)
         .onDisappear(perform: viewModel.onDisappear)
+    }
+    
+    @MainActor func update(_ int: Int) {
+        if int > 670 {
+            scrollOnFocus = false
+            if !showScrollToBottomButton {
+                withAnimation {
+                    showScrollToBottomButton = true
+                }
+            }
+        } else {
+            scrollOnFocus = true
+            if showScrollToBottomButton {
+                withAnimation {
+                    showScrollToBottomButton = false
+                }
+            }
+        }
     }
     
     func scrollToLastOnFocus() {
