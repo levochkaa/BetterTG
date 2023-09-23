@@ -64,5 +64,6 @@ struct ReplyMessageView: View {
                 }
             }
         }
+        .padding(5)
     }
 }

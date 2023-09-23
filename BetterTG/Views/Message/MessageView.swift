@@ -30,8 +30,6 @@ struct MessageView: View {
     @State var textWidth: Int = 0
     @State var editWidth: Int = 0
     
-    @State var textSize: CGSize = .zero
-    
     let recognizedTextId = "recognizedTextId"
     let playId = "playId"
     let currentTimeId = "currentTimeId"
@@ -42,26 +40,17 @@ struct MessageView: View {
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
             if let forwardedFrom = customMessage.forwardedFrom {
-                HStack(alignment: .center, spacing: 0) {
-                    Text("FF: ")
-                        .foregroundColor(.white.opacity(0.5))
-                    
-                    Text(forwardedFrom)
-                        .bold()
-                        .lineLimit(1)
-                }
-                .padding(5)
-                .background(backgroundColor(for: .forwarded))
-                .cornerRadius(corners(for: .forwarded))
-                .readSize { forwardedWidth = Int($0.width) }
+                ForwardedFromView(name: forwardedFrom)
+                    .background(backgroundColor(for: .forwarded))
+                    .cornerRadius(corners(for: .forwarded))
+                    .width($forwardedWidth)
             }
             
             if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
                 ReplyMessageView(customMessage: customMessage, type: .replied)
-                    .padding(5)
                     .background(backgroundColor(for: .reply))
                     .cornerRadius(corners(for: .reply))
-                    .readSize { replyWidth = Int($0.width) }
+                    .width($replyWidth)
             }
             
             HStack(alignment: .bottom, spacing: 0) {
@@ -75,30 +64,32 @@ struct MessageView: View {
                     .padding(1)
                     .background(backgroundColor(for: .content))
                     .cornerRadius(corners(for: .content))
-                    .readSize { contentWidth = Int($0.width) }
-                
+                    .width($contentWidth)
+
                 if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
                    !isOutgoing, textWidth == 0 {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
             }
             
-            messageText
-                .multilineTextAlignment(.leading)
-                .padding(8)
-                .foregroundColor(.white)
+            if let formattedText = customMessage.formattedText,
+               let formattedTextSize = customMessage.formattedTextSize {
+                MessageTextView(
+                    formattedText: formattedText,
+                    formattedTextSize: formattedTextSize,
+                    formattedMessageDate: customMessage.formattedMessageDate
+                )
                 .background(backgroundColor(for: .text))
                 .cornerRadius(corners(for: .text))
-                .readSize { textWidth = Int($0.width) }
+                .width($textWidth)
+            }
             
             if customMessage.message.editDate != 0 {
-                Text("edited")
-                    .font(.caption)
-                    .foregroundColor(.white).opacity(0.5)
+                captionText(from: "edited")
                     .padding(3)
                     .background(backgroundColor(for: .edit))
                     .cornerRadius(corners(for: .edit))
-                    .readSize { editWidth = Int($0.width) }
+                    .width($editWidth)
             }
         }
         .contextMenu {

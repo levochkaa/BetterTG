@@ -11,6 +11,9 @@ struct CustomMessage: Identifiable, Equatable {
     var album = [Message]()
     var sendFailed = false
     var forwardedFrom: String?
+    var formattedText: FormattedText?
+    var formattedTextSize: CGSize?
+    var formattedMessageDate: String
     
     mutating func update(
         message: Message? = nil,
@@ -19,7 +22,9 @@ struct CustomMessage: Identifiable, Equatable {
         album: [Message]? = nil,
         sendFailed: Bool? = nil,
         replyToMessage: Message? = nil,
-        forwardedFrom: String? = nil
+        forwardedFrom: String? = nil,
+        formattedText: FormattedText? = nil,
+        formattedMessageDate: String? = nil
     ) {
         if let message { self.message = message }
         if let senderUser { self.senderUser = senderUser }
@@ -28,6 +33,8 @@ struct CustomMessage: Identifiable, Equatable {
         if let album { self.album = album }
         if let sendFailed { self.sendFailed = sendFailed }
         if let forwardedFrom { self.forwardedFrom = forwardedFrom }
+        if let formattedText { self.formattedText = formattedText }
+        if let formattedMessageDate { self.formattedMessageDate = formattedMessageDate }
         id = UUID()
     }
     

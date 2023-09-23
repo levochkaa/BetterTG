@@ -28,7 +28,7 @@ extension MessageView {
     }
     
     @ViewBuilder var messageOverlayDate: some View {
-        messageDate
+        captionText(from: customMessage.formattedMessageDate)
             .padding(3)
             .background(.gray6)
             .cornerRadius(15)
