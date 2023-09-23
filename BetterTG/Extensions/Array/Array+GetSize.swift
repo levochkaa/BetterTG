@@ -4,11 +4,10 @@ import TDLibKit
 
 public enum PhotoSizeType: Int {
     // For info on cases, see https://core.telegram.org/api/files#image-thumbnail-types
-    case iString, sBox, mBox, xBox, yBox, wBox, aCrop, bCrop, cCrop, dCrop, jOutline
+    case sBox, mBox, xBox, yBox, wBox, aCrop, bCrop, cCrop, dCrop, iString, jOutline
     
     var td: String {
         switch self {
-            case .iString: return "i"
             case .sBox: return "s"
             case .mBox: return "m"
             case .xBox: return "x"
@@ -18,6 +17,7 @@ public enum PhotoSizeType: Int {
             case .bCrop: return "b"
             case .cCrop: return "c"
             case .dCrop: return "d"
+            case .iString: return "i"
             case .jOutline: return "j"
         }
     }
@@ -41,5 +41,10 @@ public extension Array where Element == PhotoSize {
         } else {
             return filtered.first
         }
+    }
+    
+    /// Be careful with using this, but I **think**, TDLib will always give some size.
+    func forceSize(_ type: PhotoSizeType) -> PhotoSize {
+        getSize(type)!
     }
 }
