@@ -14,6 +14,13 @@ struct CustomMessage: Identifiable, Equatable {
     var formattedText: FormattedText?
     var formattedTextSize: CGSize?
     var formattedMessageDate: String
+    var messageVoiceNote: MessageVoiceNote? {
+        if case .messageVoiceNote(let messageVoiceNote) = message.content {
+            return messageVoiceNote
+        } else {
+            return nil
+        }
+    }
     
     mutating func update(
         message: Message? = nil,

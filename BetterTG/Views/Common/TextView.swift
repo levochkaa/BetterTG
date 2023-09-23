@@ -19,17 +19,17 @@ struct TextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainerInset = .zero
-        setText(textView, isInit: true)
+        setText(textView)
         return textView
     }
     
     func updateUIView(_ textView: UITextView, context: Context) {
         if textView.attributedText != NSAttributedString(string: formattedText.text) {
-            setText(textView, isInit: false)
+            setText(textView)
         }
     }
     
-    func setText(_ textView: UITextView, isInit: Bool) {
+    func setText(_ textView: UITextView) {
         let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
         let dateAttributedString = NSMutableAttributedString(
             string: " 00:00",

@@ -5,22 +5,14 @@ import TDLibKit
 struct MessageView: View {
     
     @State var customMessage: CustomMessage
-    @State var isOutgoing: Bool
+    let isOutgoing: Bool
     
     init(customMessage: CustomMessage) {
         self._customMessage = State(initialValue: customMessage)
-        self._isOutgoing = State(initialValue: customMessage.message.isOutgoing)
+        self.isOutgoing = customMessage.message.isOutgoing
     }
     
     @Environment(ChatViewModel.self) var viewModel
-    @Environment(RootViewModel.self) var rootViewModel
-    
-    @Namespace var namespace
-    
-    @State var recognized = false
-    @State var recognizedText = "..."
-    @State var isListeningVoiceNote = false
-    @State var recognizeSpeech = false
     
     @State var canBeRead = true
     
@@ -29,13 +21,6 @@ struct MessageView: View {
     @State var contentWidth: Int = 0
     @State var textWidth: Int = 0
     @State var editWidth: Int = 0
-    
-    let recognizedTextId = "recognizedTextId"
-    let playId = "playId"
-    let currentTimeId = "currentTimeId"
-    let durationId = "durationId"
-    let chevronId = "chevronId"
-    let speechId = "speechId"
     
     var body: some View {
         VStack(alignment: customMessage.message.isOutgoing ? .trailing : .leading, spacing: 1) {
@@ -53,21 +38,17 @@ struct MessageView: View {
                     .width($replyWidth)
             }
             
-            HStack(alignment: .bottom, spacing: 0) {
-                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
-                   isOutgoing, textWidth == 0 {
+            HStack(spacing: 0) {
+                if isOutgoing, let messageVoiceNote = customMessage.messageVoiceNote, textWidth == .zero {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
                 
-                messageContent
-                    .clipShape(RoundedRectangle(cornerRadius: 15))
-                    .padding(1)
+                MessageContentView(customMessage: customMessage, textWidth: textWidth)
                     .background(backgroundColor(for: .content))
                     .cornerRadius(corners(for: .content))
                     .width($contentWidth)
 
-                if case .messageVoiceNote(let messageVoiceNote) = customMessage.message.content,
-                   !isOutgoing, textWidth == 0 {
+                if !isOutgoing, let messageVoiceNote = customMessage.messageVoiceNote, textWidth == .zero {
                     voiceNoteSide(from: messageVoiceNote.voiceNote)
                 }
             }
@@ -112,5 +93,25 @@ struct MessageView: View {
             default:
                 return customMessage.sendFailed ? .red : .gray6
         }
+    }
+    
+    func voiceNoteSide(from voiceNote: VoiceNote) -> some View {
+        VStack {
+            if !voiceNote.voice.local.path.isEmpty, voiceNote.voice.local.path == viewModel.savedMediaPath {
+                Image(systemName: "xmark")
+                    .padding(3)
+                    .background(.gray6)
+                    .cornerRadius(15)
+                    .onTapGesture {
+                        viewModel.mediaStop()
+                    }
+                    .transition(.move(edge: isOutgoing ? .trailing : .leading).combined(with: .opacity))
+            }
+            
+            Spacer()
+            
+            messageOverlayDate(customMessage.formattedMessageDate)
+        }
+        .padding(5)
     }
 }

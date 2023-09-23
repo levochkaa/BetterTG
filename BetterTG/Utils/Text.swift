@@ -2,12 +2,6 @@
 
 import TDLibKit
 
-func captionText(from dateString: String) -> some View {
-    Text(dateString)
-        .font(.caption)
-        .foregroundColor(.white).opacity(0.5)
-}
-
 func defaultAttributes(_ foregroundColor: Color = .white) -> [NSAttributedString.Key: Any] {
     [
         .font: UIFont.body as Any,
