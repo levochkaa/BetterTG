@@ -5,6 +5,12 @@ import TDLibKit
 struct MessageView: View {
     
     @State var customMessage: CustomMessage
+    @State var isOutgoing: Bool
+    
+    init(customMessage: CustomMessage) {
+        self._customMessage = State(initialValue: customMessage)
+        self._isOutgoing = State(initialValue: customMessage.message.isOutgoing)
+    }
     
     @Environment(ChatViewModel.self) var viewModel
     @Environment(RootViewModel.self) var rootViewModel
@@ -17,7 +23,6 @@ struct MessageView: View {
     @State var recognizeSpeech = false
     
     @State var canBeRead = true
-    @State var isOutgoing = true
     
     @State var forwardedWidth: Int = 0
     @State var replyWidth: Int = 0
@@ -98,9 +103,6 @@ struct MessageView: View {
         }
         .contextMenu {
             menu
-        }
-        .onAppear {
-            isOutgoing = customMessage.message.isOutgoing
         }
         .onVisible {
             guard canBeRead else { return }
