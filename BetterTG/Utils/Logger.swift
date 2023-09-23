@@ -12,5 +12,5 @@ let dateFormatter: DateFormatter = {
 func log(_ messages: Any...) {
     let date = dateFormatter.string(from: Date.now)
     let output = messages.map { "\($0)" }.joined(separator: "\n")
-    logger.log("[\(date, privacy: .public)] \(output, privacy: .public)")
+    logger.log("[Log] [\(date, privacy: .public)] \(output, privacy: .public)")
 }
