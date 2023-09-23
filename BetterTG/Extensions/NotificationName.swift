@@ -107,6 +107,7 @@ extension Foundation.Notification.Name {
     static let connectionState = Self("connectionState")
     static let termsOfService = Self("termsOfService")
     static let usersNearby = Self("usersNearby")
+    static let unconfirmedSession = Self("unconfirmedSession")
     static let attachmentMenuBots = Self("attachmentMenuBots")
     static let webAppMessageSent = Self("webAppMessageSent")
     static let activeEmojiReactions = Self("activeEmojiReactions")

@@ -244,6 +244,8 @@ private func check(_ update: Update) {
         nc.post(name: .termsOfService, object: updateTermsOfService)
     case .updateUsersNearby(let updateUsersNearby):
         nc.post(name: .usersNearby, object: updateUsersNearby)
+        case .updateUnconfirmedSession(let updateUnconfirmedSession):
+            nc.post(name: .unconfirmedSession, object: updateUnconfirmedSession)
     case .updateAttachmentMenuBots(let updateAttachmentMenuBots):
         nc.post(name: .attachmentMenuBots, object: updateAttachmentMenuBots)
     case .updateWebAppMessageSent(let updateWebAppMessageSent):
