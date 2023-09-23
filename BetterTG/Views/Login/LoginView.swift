@@ -2,7 +2,7 @@
 
 struct LoginView: View {
     
-    @Bindable var viewModel = LoginViewModel()
+    @State var viewModel = LoginViewModel()
     
     @State var showSelectCountryView = false
     @State var searchCountries = ""

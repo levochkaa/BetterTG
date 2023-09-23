@@ -4,7 +4,7 @@ import TDLibKit
 
 struct RootView: View {
     
-    @Bindable var viewModel = RootViewModel()
+    @State var viewModel = RootViewModel()
     
     @State var showConfirmChatDelete = false
     @State var deleteChatForAllUsers = false

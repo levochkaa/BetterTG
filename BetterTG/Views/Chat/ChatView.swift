@@ -4,7 +4,7 @@ import TDLibKit
 
 struct ChatView: View {
     
-    var viewModel: ChatViewModel
+    @State var viewModel: ChatViewModel
     
     @FocusState var focused
     
@@ -20,7 +20,7 @@ struct ChatView: View {
     @Environment(RootViewModel.self) var rootViewModel
     
     init(customChat: CustomChat) {
-        self.viewModel = ChatViewModel(customChat: customChat)
+        self._viewModel = State(initialValue: ChatViewModel(customChat: customChat))
     }
     
     var body: some View {
