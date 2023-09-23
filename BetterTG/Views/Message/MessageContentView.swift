@@ -48,12 +48,13 @@ struct MessageContentView: View {
                     .scaledToFill()
                     .matchedGeometryEffect(id: "\(size.photo.id)", in: rootViewModel.namespace)
                     .onTapGesture {
+                        guard let url = URL(string: size.photo.local.path) else { return }
                         withAnimation {
                             hideKeyboard()
                             rootViewModel.openedItem = OpenedItem(
                                 id: "\(size.photo.id)",
                                 image: image,
-                                url: URL(string: size.photo.local.path)!
+                                url: url
                             )
                         }
                     }
