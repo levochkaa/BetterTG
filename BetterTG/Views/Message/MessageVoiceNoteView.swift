@@ -2,6 +2,7 @@
 
 import TDLibKit
 
+// swiftlint:disable:next type_body_length
 struct MessageVoiceNoteView: View {
     let voiceNote: VoiceNote
     let message: Message

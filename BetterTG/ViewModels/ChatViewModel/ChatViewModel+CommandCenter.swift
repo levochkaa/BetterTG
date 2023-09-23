@@ -3,6 +3,7 @@
 import MediaPlayer
 
 extension ChatViewModel {
+    // swiftlint:disable:next function_body_length
     func setCommandCenterControls() {
         let commandCenter = MPRemoteCommandCenter.shared()
         commandCenter.skipBackwardCommand.preferredIntervals = [5.0]
