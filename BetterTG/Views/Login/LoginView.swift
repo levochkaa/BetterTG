@@ -65,8 +65,27 @@ struct LoginView: View {
             )
             .navigationTitle("Login")
         }
-        .animation(value: viewModel.loginState)
-        .animation(value: focused)
+        .safeAreaInset(edge: .bottom) {
+            Button {
+                withAnimation {
+                    switch focused {
+                        case .phoneNumber: focused = .code
+                        case .code: focused = .twoFactor
+                        case .twoFactor: focused = nil
+                        case nil: break
+                    }
+                }
+                Task {
+                    await viewModel.handleAuthorizationState()
+                }
+            } label: {
+                Text("Continue")
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
         .errorAlert(
             show: $viewModel.errorShown,
             text: "There was an error with Authorization state. Please, restart the app."
@@ -83,19 +102,6 @@ struct LoginView: View {
             content()
             
             Spacer()
-            
-            Button {
-                focused = state
-                Task {
-                    await viewModel.handleAuthorizationState()
-                }
-            } label: {
-                Text("Continue")
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.bottom, 10)
         }
         .padding()
     }

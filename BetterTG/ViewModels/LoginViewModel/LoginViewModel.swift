@@ -27,15 +27,14 @@ import Observation
         Task {
             let authState = await tdGetAuthorizationState()
             await MainActor.run {
-                switch authState {
-                    case .authorizationStateWaitPassword:
-                        loginState = .twoFactor
-                    case .authorizationStateWaitCode:
-                        loginState = .code
-                    case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
-                        errorShown = true
-                    default:
-                        break
+                withAnimation {
+                    switch authState {
+                        case .authorizationStateWaitPassword: loginState = .twoFactor
+                        case .authorizationStateWaitCode: loginState = .code
+                        case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
+                            errorShown = true
+                        default: break
+                    }
                 }
             }
         }
