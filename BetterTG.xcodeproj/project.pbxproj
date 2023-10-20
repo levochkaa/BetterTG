@@ -106,6 +106,7 @@
 		DFA4E5B029759BAA003B43EF /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = DFA4E5AF29759BAA003B43EF /* SDWebImageWebPCoder */; };
 		DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC15294A44F200BE749C /* MediaAlbum.swift */; };
 		DFB5CC18294A512A00BE749C /* View+HideKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC17294A512A00BE749C /* View+HideKeyboard.swift */; };
+		DFB71EB62AE33DEE00ECAC4E /* LazyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */; };
 		DFB85D09290EEAD800F66E20 /* AsyncTdFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */; };
 		DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
 		DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewModel.swift */; };
@@ -276,6 +277,7 @@
 		DFA214B0297D9BEF00758617 /* Array+Uniqued.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Uniqued.swift"; sourceTree = "<group>"; };
 		DFB5CC15294A44F200BE749C /* MediaAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAlbum.swift; sourceTree = "<group>"; };
 		DFB5CC17294A512A00BE749C /* View+HideKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+HideKeyboard.swift"; sourceTree = "<group>"; };
+		DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyView.swift; sourceTree = "<group>"; };
 		DFB85D08290EEAD800F66E20 /* AsyncTdFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdFile.swift; sourceTree = "<group>"; };
 		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
 		DFB85D10290EF92300F66E20 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
@@ -496,6 +498,7 @@
 				DF9C817A29994AF6008989B0 /* DividerAround.swift */,
 				DF180BD9299D8F3C008174A4 /* ItemView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
+				DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -877,6 +880,7 @@
 				DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */,
 				DFD7D49D294280E20006CF85 /* View+FullScreenBackground.swift in Sources */,
 				DF1717C72971F7770085E698 /* Sequence+CompactMap.swift in Sources */,
+				DFB71EB62AE33DEE00ECAC4E /* LazyView.swift in Sources */,
 				DF8DE3922956158B001D5163 /* ChatViewModel+Media.swift in Sources */,
 				DFE8407A298AFA7400C3A7F8 /* UIRectCorner.swift in Sources */,
 				DF9C817D29994BC8008989B0 /* View+Frame.swift in Sources */,
