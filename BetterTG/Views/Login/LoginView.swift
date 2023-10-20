@@ -14,7 +14,7 @@ struct LoginView: View {
             Group {
                 switch viewModel.loginState {
                     case .phoneNumber:
-                        loginStateView(next: .code) {
+                        loginStateView {
                             GroupBox {
                                 HStack {
                                     Text("+\(viewModel.selectedCountryNum.phoneNumberPrefix)")
@@ -36,7 +36,7 @@ struct LoginView: View {
                                 .presentationDragIndicator(.hidden)
                         }
                     case .code:
-                        loginStateView(next: .twoFactor) {
+                        loginStateView {
                             TextField("Code", text: $viewModel.code)
                                 .focused($focused, equals: .code)
                                 .keyboardType(.numberPad)
@@ -45,7 +45,7 @@ struct LoginView: View {
                                 .cornerRadius(10)
                         }
                     case .twoFactor:
-                        loginStateView(next: nil) {
+                        loginStateView {
                             SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
                                 .focused($focused, equals: .twoFactor)
                                 .textContentType(.password)
@@ -92,7 +92,7 @@ struct LoginView: View {
         )
     }
     
-    func loginStateView(next state: LoginState?, _ content: () -> some View) -> some View {
+    func loginStateView(_ content: () -> some View) -> some View {
         VStack(spacing: 10) {
             SpacingAround {
                 Text(viewModel.loginState.title)
