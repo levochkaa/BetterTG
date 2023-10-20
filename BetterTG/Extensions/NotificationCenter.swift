@@ -5,6 +5,8 @@ import Combine
 let nc = NotificationCenter()
 var cancellables = Set<AnyCancellable>()
 
+// TODO: fix cancellables
+
 extension NotificationCenter {
     func publisher(
         for name: Notification.Name,
