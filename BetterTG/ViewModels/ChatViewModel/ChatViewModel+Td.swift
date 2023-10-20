@@ -13,14 +13,16 @@ extension ChatViewModel {
     }
     
     func tdDeleteMessages(ids: [Int64], deleteForBoth: Bool) async {
+        guard let customChat else { return }
         do {
-            try await td.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
+            try await td.deleteMessages(chatId: customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
         } catch {
             log("Error deleting messages: \(error)")
         }
     }
     
     func tdGetMessage(id: Int64) async -> Message? {
+        guard let customChat else { return nil }
         do {
             return try await td.getMessage(chatId: customChat.chat.id, messageId: id)
         } catch {
@@ -39,6 +41,7 @@ extension ChatViewModel {
     }
     
     func tdEditMessageText(_ editMessage: Message) async {
+        guard let customChat else { return }
         do {
             _ = try await td.editMessageText(
                 chatId: customChat.chat.id,
@@ -90,6 +93,7 @@ extension ChatViewModel {
     }
     
     func tdEditMessageCaption(_ editMessage: Message) async {
+        guard let customChat else { return }
         do {
             _ = try await td.editMessageCaption(
                 caption: FormattedText(
@@ -106,6 +110,7 @@ extension ChatViewModel {
     }
     
     func tdSetChatDraftMessage(_ draftMessage: DraftMessage) async {
+        guard let customChat else { return }
         do {
             try await td.setChatDraftMessage(
                 chatId: customChat.chat.id,
@@ -118,6 +123,7 @@ extension ChatViewModel {
     }
     
     func tdSendMessage(with inputMessageContent: InputMessageContent) async {
+        guard let customChat else { return }
         do {
             _ = try await td.sendMessage(
                 chatId: customChat.chat.id,
@@ -134,6 +140,7 @@ extension ChatViewModel {
     }
     
     func tdSendMessageAlbum(with inputMessageContents: [InputMessageContent]) async {
+        guard let customChat else { return }
         do {
             _ = try await td.sendMessageAlbum(
                 chatId: customChat.chat.id,
@@ -150,6 +157,7 @@ extension ChatViewModel {
     }
     
     func tdGetChatHistory() async -> [Message]? {
+        guard let customChat else { return nil }
         do {
             return try await td.getChatHistory(
                 chatId: customChat.chat.id,
@@ -165,6 +173,7 @@ extension ChatViewModel {
     }
     
     func tdViewMessages(ids: [Int64]) async {
+        guard let customChat else { return }
         do {
             try await td.viewMessages(
                 chatId: customChat.chat.id,
@@ -178,6 +187,7 @@ extension ChatViewModel {
     }
     
     func tdSendChatAction(_ chatAction: ChatAction) async {
+        guard let customChat else { return }
         do {
             try await td.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
         } catch {
@@ -186,6 +196,7 @@ extension ChatViewModel {
     }
     
     func tdRecognizeSpeech(for messageId: Int64) async {
+        guard let customChat else { return }
         do {
             try await td.recognizeSpeech(chatId: customChat.chat.id, messageId: messageId)
         } catch {

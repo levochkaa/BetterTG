@@ -17,7 +17,9 @@ extension ChatView {
     
     @ViewBuilder var principal: some View {
         VStack(spacing: 0) {
-            Text(viewModel.customChat.chat.title)
+            if let title = viewModel.customChat?.chat.title {
+                Text(title)
+            }
             
             Group {
                 if viewModel.actionStatus.isEmpty {
@@ -44,7 +46,7 @@ extension ChatView {
     
     @ViewBuilder var chatPhoto: some View {
         Group {
-            if let chatPhoto = viewModel.customChat.chat.photo {
+            if let chatPhoto = viewModel.customChat?.chat.photo {
                 AsyncTdImage(id: chatPhoto.big.id) { image in
                     image
                         .resizable()
@@ -62,21 +64,23 @@ extension ChatView {
                                 .scaledToFit()
                         }
                 } placeholder: {
-                    PlaceholderView(
-                        userId: viewModel.customChat.user.id,
-                        title: viewModel.customChat.user.firstName,
-                        fontSize: 20
-                    )
+                    chatPhotoPlaceholderView
                 }
             } else {
-                PlaceholderView(
-                    userId: viewModel.customChat.user.id,
-                    title: viewModel.customChat.user.firstName,
-                    fontSize: 20
-                )
+                chatPhotoPlaceholderView
             }
         }
         .frame(width: 32, height: 32)
         .clipShape(Circle())
+    }
+    
+    @ViewBuilder private var chatPhotoPlaceholderView: some View {
+        if let user = viewModel.customChat?.user {
+            PlaceholderView(
+                userId: user.id,
+                title: user.firstName,
+                fontSize: 20
+            )
+        }
     }
 }

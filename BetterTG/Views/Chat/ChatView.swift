@@ -4,7 +4,9 @@ import TDLibKit
 
 struct ChatView: View {
     
-    @State var viewModel: ChatViewModel
+    let customChat: CustomChat
+    
+    @State var viewModel = ChatViewModel()
     
     @FocusState var focused
     
@@ -19,13 +21,9 @@ struct ChatView: View {
     
     @Environment(RootViewModel.self) var rootViewModel
     
-    init(customChat: CustomChat) {
-        self._viewModel = State(initialValue: ChatViewModel(customChat: customChat))
-    }
-    
     var body: some View {
         ZStack {
-            if viewModel.customChat.lastMessage == nil {
+            if viewModel.customChat?.lastMessage == nil {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
@@ -46,6 +44,13 @@ struct ChatView: View {
         .toolbar {
             toolbar
         }
+        .task {
+            await viewModel.loadMessages()
+        }
+        .onAppear {
+            viewModel.onAppear(customChat: customChat)
+        }
+        .onDisappear(perform: viewModel.onDisappear)
         .navigationBarTitleDisplayMode(.inline)
         .environment(viewModel)
         .onChange(of: viewModel.editCustomMessage) { _, editCustomMessage in
@@ -113,11 +118,6 @@ struct ChatView: View {
                 scrollToBottomButton
             }
         }
-        .task {
-            await viewModel.loadMessages()
-        }
-        .onAppear(perform: viewModel.onAppear)
-        .onDisappear(perform: viewModel.onDisappear)
     }
     
     func itemView(for customMessage: CustomMessage) -> some View {

@@ -7,7 +7,7 @@ import MobileVLCKit
 import Observation
 
 @Observable final class ChatViewModel {
-    @ObservationIgnored var customChat: CustomChat
+    @ObservationIgnored var customChat: CustomChat?
     
     var onlineStatus = ""
     var actionStatus = ""
@@ -43,7 +43,7 @@ import Observation
     @ObservationIgnored var savedVoiceNoteUrl = URL(filePath: "")
     @ObservationIgnored var audioRecorder = AVAudioRecorder()
     @ObservationIgnored let audioSession = AVAudioSession.sharedInstance()
-    @ObservationIgnored var mediaPlayer = VLCMediaPlayer()
+    @ObservationIgnored var mediaPlayer: VLCMediaPlayer!
     var duration = 0
     var recordingVoiceNote = false
     var isPlaying = false
@@ -58,12 +58,10 @@ import Observation
     var errorMessage = ""
     var errorShown = false
     
-    init(customChat: CustomChat) {
+    func onAppear(customChat: CustomChat) {
         self.customChat = customChat
+        self.mediaPlayer = VLCMediaPlayer()
         setPublishers()
-    }
-    
-    func onAppear() {
         userStatus(customChat.user.status)
         
         guard let draftMessage = customChat.draftMessage else { return }
