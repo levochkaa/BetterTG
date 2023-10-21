@@ -1,14 +1,14 @@
 // TdApi.swift
 
 import TDLibKit
+import Combine
 
+private var cancellables = Set<AnyCancellable>()
 private let manager = TDLibClientManager()
 var td: TDLibClient!
 
 func startTdLibUpdateHandler() {
-    cancellables.forEach { $0.cancel() }
-    
-    nc.publisher(for: .waitTdlibParameters) { _ in
+    nc.publisher(&cancellables, for: .waitTdlibParameters) { _ in
         Task {
             let dir = try FileManager.default.url(
                 for: .documentDirectory,
@@ -36,10 +36,6 @@ func startTdLibUpdateHandler() {
                 useTestDc: false
             )
         }
-    }
-    
-    nc.publisher(for: .closed) { _ in
-        startTdLibUpdateHandler()
     }
     
     td = manager.createClient { data, client in

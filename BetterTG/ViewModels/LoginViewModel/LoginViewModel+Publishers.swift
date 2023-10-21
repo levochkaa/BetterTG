@@ -4,23 +4,23 @@ import TDLibKit
 
 extension LoginViewModel {
     func setPublishers() {
-        nc.publisher(for: .waitPassword) { notification in
-            guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
+        nc.publisher(&cancellables, for: .waitPassword) { [weak self] notification in
+            guard let self, let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
             withAnimation {
-                loginState = .twoFactor
-                hint = waitPassword.passwordHint
+                self.loginState = .twoFactor
+                self.hint = waitPassword.passwordHint
             }
         }
         
-        nc.publisher(for: .waitCode) { _ in
+        nc.publisher(&cancellables, for: .waitCode) { [weak self] _ in
             withAnimation {
-                loginState = .code
+                self?.loginState = .code
             }
         }
         
-        nc.mergeMany([.waitPhoneNumber, .closed, .closing, .loggingOut]) { _ in
+        nc.mergeMany(&cancellables, [.waitPhoneNumber, .closed, .closing, .loggingOut]) { [weak self] _ in
             withAnimation {
-                loginState = .phoneNumber
+                self?.loginState = .phoneNumber
             }
         }
     }

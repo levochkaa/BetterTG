@@ -3,14 +3,12 @@
 import Combine
 
 let nc = NotificationCenter()
-var cancellables = Set<AnyCancellable>()
-
-// TODO: fix cancellables
 
 extension NotificationCenter {
     func publisher(
+        _ cancellables: inout Set<AnyCancellable>,
         for name: Notification.Name,
-        @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
+        _ perform: @escaping (Publisher.Output) -> Void
     ) {
         publisher(for: name)
             .receive(on: RunLoop.main)
@@ -33,8 +31,9 @@ extension NotificationCenter {
     }
     
     func mergeMany(
+        _ cancellables: inout Set<AnyCancellable>,
         _ names: [Notification.Name],
-        @_implicitSelfCapture perform: @escaping (Publisher.Output) -> Void
+        _ perform: @escaping (Publisher.Output) -> Void
     ) {
         Publishers.MergeMany(names.map { publisher(for: $0) })
             .receive(on: RunLoop.main)

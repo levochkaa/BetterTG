@@ -58,6 +58,8 @@ import Observation
     var errorMessage = ""
     var errorShown = false
     
+    @ObservationIgnored var cancellables = Set<AnyCancellable>()
+    
     func onAppear(customChat: CustomChat) {
         self.customChat = customChat
         self.mediaPlayer = VLCMediaPlayer()

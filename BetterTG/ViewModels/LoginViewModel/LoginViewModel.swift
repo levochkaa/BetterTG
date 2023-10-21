@@ -21,6 +21,8 @@ import Observation
     
     var errorShown = false
     
+    var cancellables = Set<AnyCancellable>()
+    
     init() {
         setPublishers()
         

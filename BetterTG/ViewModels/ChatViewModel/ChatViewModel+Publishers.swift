@@ -5,60 +5,69 @@ import TDLibKit
 import Observation
 
 extension ChatViewModel {
+    // swiftlint:disable:next function_body_length
     func setPublishers() {
         setMediaPublishers()
         
-        nc.publisher(for: .messageEdited) { notification in
-            guard let messageEdited = notification.object as? UpdateMessageEdited,
+        nc.publisher(&cancellables, for: .messageEdited) { [weak self] notification in
+            guard let self,
+                  let messageEdited = notification.object as? UpdateMessageEdited,
                   messageEdited.chatId == customChat?.chat.id
             else { return }
             self.messageEdited(messageEdited)
         }
         
-        nc.publisher(for: .newMessage) { notification in
-            guard let message = (notification.object as? UpdateNewMessage)?.message,
+        nc.publisher(&cancellables, for: .newMessage) { [weak self] notification in
+            guard let self,
+                  let message = (notification.object as? UpdateNewMessage)?.message,
                   message.chatId == customChat?.chat.id
             else { return }
             self.newMessage(message)
         }
         
-        nc.publisher(for: .deleteMessages) { notification in
-            guard let deleteMessages = notification.object as? UpdateDeleteMessages,
+        nc.publisher(&cancellables, for: .deleteMessages) { [weak self] notification in
+            guard let self,
+                  let deleteMessages = notification.object as? UpdateDeleteMessages,
                   deleteMessages.chatId == customChat?.chat.id
             else { return }
             self.deleteMessages(deleteMessages)
         }
         
-        nc.publisher(for: .messageSendFailed) { notification in
-            guard let messageSendFailed = notification.object as? UpdateMessageSendFailed,
+        nc.publisher(&cancellables, for: .messageSendFailed) { [weak self] notification in
+            guard let self,
+                  let messageSendFailed = notification.object as? UpdateMessageSendFailed,
                   messageSendFailed.message.chatId == customChat?.chat.id
             else { return }
             self.messageSendFailed(messageSendFailed)
         }
         
-        nc.publisher(for: .messageSendSucceeded) { notification in
-            guard let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
+        nc.publisher(&cancellables, for: .messageSendSucceeded) { [weak self] notification in
+            guard let self,
+                  let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
                   messageSendSucceeded.message.chatId == customChat?.chat.id
             else { return }
             self.messageSendSucceeded(messageSendSucceeded)
         }
         
-        nc.publisher(for: .chatAction) { notification in
-            guard let chatAction = notification.object as? UpdateChatAction,
+        nc.publisher(&cancellables, for: .chatAction) { [weak self] notification in
+            guard let self,
+                  let chatAction = notification.object as? UpdateChatAction,
                   chatAction.chatId == customChat?.chat.id
             else { return }
             self.chatAction(chatAction)
         }
         
-        nc.publisher(for: .userStatus) { notification in
-            guard let userStatus = notification.object as? UpdateUserStatus,
+        nc.publisher(&cancellables, for: .userStatus) { [weak self] notification in
+            guard let self,
+                  let userStatus = notification.object as? UpdateUserStatus,
                   userStatus.userId == customChat?.chat.id
             else { return }
             self.userStatus(userStatus.status)
         }
         
-        nc.publisher(for: .chatReadInbox) { notification in
-            guard let chatReadInbox = notification.object as? UpdateChatReadInbox,
+        nc.publisher(&cancellables, for: .chatReadInbox) { [weak self] notification in
+            guard let self,
+                  let chatReadInbox = notification.object as? UpdateChatReadInbox,
                   chatReadInbox.chatId == customChat?.chat.id
             else { return }
             self.chatReadInbox(chatReadInbox)

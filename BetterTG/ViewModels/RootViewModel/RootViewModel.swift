@@ -10,6 +10,8 @@ import Observation
     
     @ObservationIgnored var namespace: Namespace.ID! = nil
     
+    var cancellables = Set<AnyCancellable>()
+    
     init() {
         setPublishers()
     }
