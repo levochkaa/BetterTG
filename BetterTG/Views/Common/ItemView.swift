@@ -13,7 +13,7 @@ struct ItemView: View {
             Rectangle()
                 .fill(.ultraThinMaterial)
             
-            ZoomableScrollView {
+            ZoomableContainer {
                 item.image
                     .resizable()
                     .scaledToFit()

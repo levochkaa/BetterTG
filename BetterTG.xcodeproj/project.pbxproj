@@ -83,11 +83,11 @@
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
 		DF871DD92AE4796B008CCA60 /* View+CustomContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF871DD82AE4796B008CCA60 /* View+CustomContextMenu.swift */; };
+		DF871DDB2AE48E3F008CCA60 /* ZoomableContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF871DDA2AE48E3F008CCA60 /* ZoomableContainer.swift */; };
 		DF8A42ED296E146C004774F6 /* TextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8A42EC296E146C004774F6 /* TextView.swift */; };
 		DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */; };
 		DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8ACA1C295F67D30007D5FF /* Animoji.swift */; };
 		DF8DE3922956158B001D5163 /* ChatViewModel+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8DE3912956158B001D5163 /* ChatViewModel+Media.swift */; };
-		DF95C4C22995863A005D5290 /* ZoomableScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */; };
 		DF96BAE2298BE120003936AC /* View+Equatable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF96BAE1298BE120003936AC /* View+Equatable.swift */; };
 		DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = DF99043E295CA4B100BD6FFE /* Lottie */; };
 		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
@@ -259,11 +259,11 @@
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
 		DF871DD82AE4796B008CCA60 /* View+CustomContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+CustomContextMenu.swift"; sourceTree = "<group>"; };
+		DF871DDA2AE48E3F008CCA60 /* ZoomableContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableContainer.swift; sourceTree = "<group>"; };
 		DF8A42EC296E146C004774F6 /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
 		DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimojiView.swift; sourceTree = "<group>"; };
 		DF8ACA1C295F67D30007D5FF /* Animoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Animoji.swift; sourceTree = "<group>"; };
 		DF8DE3912956158B001D5163 /* ChatViewModel+Media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Media.swift"; sourceTree = "<group>"; };
-		DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableScrollView.swift; sourceTree = "<group>"; };
 		DF96BAE1298BE120003936AC /* View+Equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Equatable.swift"; sourceTree = "<group>"; };
 		DF9AC6C629A240B800D6EC76 /* View+Modify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Modify.swift"; sourceTree = "<group>"; };
 		DF9AC6CA29A261EB00D6EC76 /* VisiblePreferenceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisiblePreferenceKey.swift; sourceTree = "<group>"; };
@@ -496,11 +496,11 @@
 				DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */,
 				DF8A42EC296E146C004774F6 /* TextView.swift */,
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
-				DF95C4C12995863A005D5290 /* ZoomableScrollView.swift */,
 				DF9C817A29994AF6008989B0 /* DividerAround.swift */,
 				DF180BD9299D8F3C008174A4 /* ItemView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 				DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */,
+				DF871DDA2AE48E3F008CCA60 /* ZoomableContainer.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -836,7 +836,6 @@
 				DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */,
 				DF763B082971BE5B00334615 /* Task.swift in Sources */,
 				DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */,
-				DF95C4C22995863A005D5290 /* ZoomableScrollView.swift in Sources */,
 				DF3A714F29AB66B200A7EC22 /* String.swift in Sources */,
 				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF9D516A298D1102009AFE7F /* ChatBottomArea+BottomSheet.swift in Sources */,
@@ -873,6 +872,7 @@
 				DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */,
 				DF236749294148290076B821 /* View+Center.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
+				DF871DDB2AE48E3F008CCA60 /* ZoomableContainer.swift in Sources */,
 				DFD7D493294256B90006CF85 /* ChatViewModel+Publishers.swift in Sources */,
 				DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */,
 				DF5261D7294F4FAD00FB7C73 /* ChatBottomArea+RightSide.swift in Sources */,
