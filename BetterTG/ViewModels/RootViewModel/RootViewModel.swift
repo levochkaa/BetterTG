@@ -28,6 +28,7 @@ import Observation
     func filteredSortedChats(_ query: String) -> [CustomChat] {
         let query = query.lowercased()
         return mainChats
+            .uniqued()
             .sorted {
                 if let firstOrder = $0.positions.main?.order, let secondOrder = $1.positions.main?.order {
                     return firstOrder > secondOrder
