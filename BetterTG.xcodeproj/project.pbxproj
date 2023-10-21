@@ -82,6 +82,7 @@
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
+		DF871DD92AE4796B008CCA60 /* View+CustomContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF871DD82AE4796B008CCA60 /* View+CustomContextMenu.swift */; };
 		DF8A42ED296E146C004774F6 /* TextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8A42EC296E146C004774F6 /* TextView.swift */; };
 		DF8ACA1B295F64F70007D5FF /* AnimojiView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */; };
 		DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8ACA1C295F67D30007D5FF /* Animoji.swift */; };
@@ -257,6 +258,7 @@
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
+		DF871DD82AE4796B008CCA60 /* View+CustomContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+CustomContextMenu.swift"; sourceTree = "<group>"; };
 		DF8A42EC296E146C004774F6 /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
 		DF8ACA1A295F64F70007D5FF /* AnimojiView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimojiView.swift; sourceTree = "<group>"; };
 		DF8ACA1C295F67D30007D5FF /* Animoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Animoji.swift; sourceTree = "<group>"; };
@@ -599,6 +601,7 @@
 				DF9AC6C629A240B800D6EC76 /* View+Modify.swift */,
 				DF9AC6CC29A2620800D6EC76 /* View+OnVisible.swift */,
 				DF0921002ABF477500B79504 /* View+Width.swift */,
+				DF871DD82AE4796B008CCA60 /* View+CustomContextMenu.swift */,
 			);
 			path = View;
 			sourceTree = "<group>";
@@ -874,6 +877,7 @@
 				DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */,
 				DF5261D7294F4FAD00FB7C73 /* ChatBottomArea+RightSide.swift in Sources */,
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
+				DF871DD92AE4796B008CCA60 /* View+CustomContextMenu.swift in Sources */,
 				DFA214B1297D9BEF00758617 /* Array+Uniqued.swift in Sources */,
 				DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */,
 				DF8ACA1D295F67D30007D5FF /* Animoji.swift in Sources */,
