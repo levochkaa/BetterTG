@@ -87,11 +87,11 @@ struct ChatView: View {
             }
         }
         // .scrollPosition(id: $chatPosition, anchor: .top)
+        // .onChange(of: chatPosition) { Task { await viewModel.loadMessages() } }
         .coordinateSpace(name: scroll)
         .scrollDismissesKeyboard(.interactively)
         .scrollBounceBehavior(.always)
         .defaultScrollAnchor(.bottom)
-        // .onChange(of: chatPosition) { Task { await viewModel.loadMessages() } }
         .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in Task.main { update(Int(value.maxY)) } }
         .onReceive(nc.mergeMany([.localRecognizeSpeech, .localIsListeningVoice, .localScrollToLastOnFocus])) { _ in
             scrollToLastOnFocus()
