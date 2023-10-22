@@ -33,8 +33,8 @@ struct CameraView: UIViewControllerRepresentable {
         }
         
         func hideCameraView() {
-            parent.viewModel.showBottomSheet = false
-            parent.viewModel.showCameraView = false
+//            parent.viewModel.showBottomSheet = false
+//            parent.viewModel.showCameraView = false
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

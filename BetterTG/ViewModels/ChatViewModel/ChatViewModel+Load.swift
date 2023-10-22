@@ -4,15 +4,6 @@ import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {
-    func loadPhotos() {
-        withAnimation {
-            displayedImages = fetchedImages
-                .filter { $0.selected }
-                .map { SelectedImage(from: $0) }
-        }
-        fetchedImages = fetchedImages.map { $0.deselected() }
-    }
-    
     func loadMessages() async {
         guard !loadingMessages /* , shouldWaitForMessageId == lastAppearedMessageId */ else { return }
         

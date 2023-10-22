@@ -5,47 +5,6 @@ import TDLibKit
 import PhotosUI
 
 extension ChatViewModel {
-    func getImages() async {
-        guard fetchedImages.isEmpty else { return }
-        
-        let fetchOptions = PHFetchOptions()
-        fetchOptions.includeAssetSourceTypes = [.typeUserLibrary]
-        fetchOptions.sortDescriptors = [.init(key: "creationDate", ascending: false)]
-        fetchOptions.fetchLimit = 51
-        
-        let imageOptions = PHImageRequestOptions()
-        imageOptions.version = .current
-        imageOptions.resizeMode = .exact
-        imageOptions.deliveryMode = .highQualityFormat
-        imageOptions.isNetworkAccessAllowed = true
-        imageOptions.isSynchronous = true
-        
-        let imageManager = PHCachingImageManager.default()
-        
-        PHAsset.fetchAssets(with: .image, options: fetchOptions).enumerateObjects { [weak self] asset, _, _ in
-            imageManager.requestImage(
-                for: asset,
-                targetSize: PHImageManagerMaximumSize,
-                contentMode: .aspectFit,
-                options: imageOptions
-            ) { [weak self] uiImage, _ in
-                guard let self, let selectedImage = writeImage(uiImage) else { return }
-                Task.main { [weak self] in
-                    self?.fetchedImages.append(ImageAsset(from: selectedImage))
-                }
-            }
-        }
-    }
-    
-    func toggleSelectedImage(for imageAsset: ImageAsset) {
-        guard let index = fetchedImages.firstIndex(where: { $0.id == imageAsset.id }) else { return }
-        if imageAsset.selected {
-            fetchedImages[index].selected = false
-        } else if fetchedImages.filter(\.selected).count < 10 {
-            fetchedImages[index].selected = true
-        }
-    }
-    
     func getMessageReplyTo(from customMessage: CustomMessage?) -> MessageReplyTo? {
         guard let customMessage else { return nil }
         return .messageReplyToMessage(

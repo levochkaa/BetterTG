@@ -2,6 +2,7 @@
 
 import SwiftUI
 import Combine
+import PhotosUI
 
 struct ChatBottomArea: View {
     
@@ -10,6 +11,7 @@ struct ChatBottomArea: View {
     @State var timerCount = 0.0
     @State var timer: Timer?
     @State var wave = [Float]()
+    @State var photosPickerItems = [PhotosPickerItem]()
     
     @State var showSendButton = false
     
@@ -46,11 +48,6 @@ struct ChatBottomArea: View {
             .frame(height: 48)
         }
         .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
-        .sheet(isPresented: $viewModel.showBottomSheet) {
-            bottomSheet
-                .presentationDragIndicator(.hidden)
-                .presentationDetents([.medium, .large])
-        }
         .animation(value: viewModel.editCustomMessage)
         .animation(value: viewModel.replyMessage)
         .animation(value: showSendButton)

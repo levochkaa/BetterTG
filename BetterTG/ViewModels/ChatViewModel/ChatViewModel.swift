@@ -26,10 +26,7 @@ import Observation
     @ObservationIgnored var savedAlbumMainMessageId: Int64 = 0
     @ObservationIgnored var savedAlbumMainMessageIdTemp: Int64 = 0
     @ObservationIgnored var savedPhotoMessages = [Message]()
-    var fetchedImages = [ImageAsset]()
     var displayedImages = [SelectedImage]()
-    var showBottomSheet = false
-    var showCameraView = false
     
     @ObservationIgnored var scrollViewProxy: ScrollViewProxy? = nil
     
