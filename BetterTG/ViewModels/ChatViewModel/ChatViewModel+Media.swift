@@ -28,28 +28,26 @@ extension ChatViewModel {
             .store(in: &cancellables)
     }
     
-    func mediaStartRecordingVoice() {
+    @MainActor func mediaStartRecordingVoice() async {
         setAudioSessionRecord()
-        savedMediaPath = ""
         mediaStop()
         
-        AVAudioApplication.requestRecordPermission { granted in
-            if granted {
-                log("Access to Microphone for Voice messages is granted")
-            } else {
-                log("Access to Microphone for Voice messages is not granted")
-                self.errorMessage = """
-                Access to Microphone isn't granted.
-                Go to Settings -> BetterTG -> Microphone
-                if you want to record Voice
-                """
-                self.errorShown = true
-            }
+        let granted = await AVAudioApplication.requestRecordPermission()
+        if granted {
+            log("Access to Microphone for Voice messages is granted")
+        } else {
+            log("Access to Microphone for Voice messages is not granted")
+            self.errorMessage = """
+            Access to Microphone isn't granted.
+            Go to Settings -> BetterTG -> Microphone
+            if you want to record Voice
+            """
+            self.errorShown = true
         }
         
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 16000.0,
+            AVSampleRateKey: 16000,
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.min.rawValue
         ]
@@ -63,9 +61,7 @@ extension ChatViewModel {
             audioRecorder.prepareToRecord()
             audioRecorder.record()
             recordingVoiceNote = true
-            Task {
-                await tdSendChatAction(.chatActionRecordingVoiceNote)
-            }
+            await tdSendChatAction(.chatActionRecordingVoiceNote)
         } catch {
             log("Error creating AudioRecorder: \(error)")
         }

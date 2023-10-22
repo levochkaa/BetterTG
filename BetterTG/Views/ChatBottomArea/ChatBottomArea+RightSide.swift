@@ -23,8 +23,10 @@ extension ChatBottomArea {
             }
         }
         .onLongPressGesture(minimumDuration: 0.1, maximumDistance: 1000) {
-            withAnimation {
-                viewModel.mediaStartRecordingVoice()
+            Task { @MainActor in
+                withAnimation {
+                    viewModel.mediaStartRecordingVoice()
+                }
             }
         }
         .onChange(of: viewModel.editMessageText, setShowSendButton)
