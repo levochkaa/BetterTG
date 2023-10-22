@@ -30,17 +30,20 @@ struct ChatBottomArea: View {
                 photosScroll
             }
             
-            if !viewModel.recordingVoiceNote {
-                HStack(alignment: .center, spacing: 10) {
-                    leftSide
-                    
-                    textField
-                    
-                    rightSide
+            Group {
+                if !viewModel.recordingVoiceNote {
+                    HStack(alignment: .center, spacing: 10) {
+                        leftSide
+                        
+                        textField
+                        
+                        rightSide
+                    }
+                } else {
+                    voiceNoteRecording
                 }
-            } else {
-                voiceNoteRecording
             }
+            .frame(height: 48)
         }
         .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
         .sheet(isPresented: $viewModel.showBottomSheet) {
@@ -51,7 +54,6 @@ struct ChatBottomArea: View {
         .animation(value: viewModel.editCustomMessage)
         .animation(value: viewModel.replyMessage)
         .animation(value: showSendButton)
-        .frame(height: 48)
         .padding(.horizontal, 10)
         .background(.bar)
         .cornerRadius(15)
