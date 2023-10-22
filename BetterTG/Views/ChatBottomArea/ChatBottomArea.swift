@@ -45,7 +45,6 @@ struct ChatBottomArea: View {
                     voiceNoteRecording
                 }
             }
-            .frame(height: 48)
         }
         .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
         .animation(value: viewModel.editCustomMessage)
