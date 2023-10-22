@@ -7,7 +7,7 @@
 
 import Foundation
 
-import ArgumentParser
+import ArgumentParser // apple/swift-argument-parser ~> 1.0.0
 
 enum ScriptError: Error {
     case parseError(String)
