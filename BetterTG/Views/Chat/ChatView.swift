@@ -93,7 +93,7 @@ struct ChatView: View {
         .scrollBounceBehavior(.always)
         .defaultScrollAnchor(.bottom)
         .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in Task.main { update(Int(value.maxY)) } }
-        .onReceive(nc.mergeMany([.localRecognizeSpeech, .localIsListeningVoice, .localScrollToLastOnFocus])) { _ in
+        .onReceive(nc.publisher(for: .localScrollToLastOnFocus)) { _ in
             scrollToLastOnFocus()
         }
         .onChange(of: focused) { scrollToLastOnFocus() }

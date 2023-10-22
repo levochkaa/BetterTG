@@ -131,8 +131,6 @@ extension Foundation.Notification.Name {
     static let chatMember = Self("chatMember")
     static let newChatJoinRequest = Self("newChatJoinRequest")
     
-    static let localIsListeningVoice = Self("localIsListeningVoice")
-    static let localRecognizeSpeech = Self("localRecognizeSpeech")
     static let localScrollToLastOnFocus = Self("localScrollToLastOnFocus")
     static let localPasteImages = Self("localPasteImages")
 }

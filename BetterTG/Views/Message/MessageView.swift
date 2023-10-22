@@ -38,20 +38,10 @@ struct MessageView: View {
                     .width($replyWidth)
             }
             
-            HStack(spacing: 0) {
-                if isOutgoing, let messageVoiceNote = customMessage.messageVoiceNote, textWidth == .zero {
-                    voiceNoteSide(from: messageVoiceNote.voiceNote)
-                }
-                
-                MessageContentView(customMessage: customMessage, textWidth: textWidth)
-                    .background(backgroundColor(for: .content))
-                    .cornerRadius(corners(for: .content))
-                    .width($contentWidth)
-
-                if !isOutgoing, let messageVoiceNote = customMessage.messageVoiceNote, textWidth == .zero {
-                    voiceNoteSide(from: messageVoiceNote.voiceNote)
-                }
-            }
+            MessageContentView(customMessage: customMessage, textWidth: textWidth)
+                .background(backgroundColor(for: .content))
+                .cornerRadius(corners(for: .content))
+                .width($contentWidth)
             
             if let formattedText = customMessage.formattedText,
                let formattedTextSize = customMessage.formattedTextSize {
@@ -91,25 +81,5 @@ struct MessageView: View {
             default:
                 return customMessage.sendFailed ? .red : .gray6
         }
-    }
-    
-    func voiceNoteSide(from voiceNote: VoiceNote) -> some View {
-        VStack {
-            if !voiceNote.voice.local.path.isEmpty, voiceNote.voice.local.path == viewModel.savedMediaPath {
-                Image(systemName: "xmark")
-                    .padding(3)
-                    .background(.gray6)
-                    .cornerRadius(15)
-                    .onTapGesture {
-                        viewModel.mediaStop()
-                    }
-                    .transition(.move(edge: isOutgoing ? .trailing : .leading).combined(with: .opacity))
-            }
-            
-            Spacer()
-            
-            messageOverlayDate(customMessage.formattedMessageDate)
-        }
-        .padding(5)
     }
 }

@@ -49,8 +49,6 @@ import Observation
     var isPlaying = false
     var savedMediaPath = ""
     var currentTime: Int32 = 0
-    var timeSliderValue = 0.0
-    var isSeeking = false
     
     var editCustomMessage: CustomMessage? = nil
     var replyMessage: CustomMessage? = nil

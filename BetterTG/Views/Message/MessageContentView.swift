@@ -16,7 +16,7 @@ struct MessageContentView: View {
                         makeMessagePhoto(from: messagePhoto)
                             .scaledToFit()
                     case .messageVoiceNote(let messageVoiceNote):
-                        MessageVoiceNoteView(voiceNote: messageVoiceNote.voiceNote, message: customMessage.message)
+                        MessageVoiceNoteView(voiceNote: messageVoiceNote.voiceNote)
                     default:
                         EmptyView()
                 }
@@ -32,9 +32,19 @@ struct MessageContentView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if textWidth == .zero, customMessage.messageVoiceNote == nil {
-                messageOverlayDate(customMessage.formattedMessageDate)
-                    .padding(5)
+            if textWidth == .zero {
+                if customMessage.messageVoiceNote == nil {
+                    captionText(from: customMessage.formattedMessageDate)
+                        .padding(3)
+                        .background(.gray6)
+                        .cornerRadius(15)
+                        .padding(5)
+                } else {
+                    captionText(from: customMessage.formattedMessageDate)
+                        .padding(.horizontal, 3)
+                        .padding(.bottom, 2)
+                        .opacity(0.8)
+                }
             }
         }
         .padding(1)

@@ -16,10 +16,6 @@ extension ChatViewModel {
                 guard let self else { return }
                 currentTime = time.intValue / 1000
                 changeCurrentTime()
-                
-                if !isSeeking {
-                    timeSliderValue = Double(time.intValue) / 1000
-                }
             }
             .store(in: &cancellables)
         
@@ -164,15 +160,11 @@ extension ChatViewModel {
         }
     }
     
-    /// seeking to `(timeSliderValue * 1000)`
-    func mediaSeekTo() {
+    func mediaSeekTo(_ timeInterval: TimeInterval) {
         // swiftlint:disable:next compiler_protocol_init
-        let number = NSNumber(floatLiteral: timeSliderValue * 1000)
+        let number = NSNumber(floatLiteral: timeInterval * 1000)
         let time = VLCTime(number: number)
         mediaPlayer.time = time
-        Task.main(delay: 0.1) {
-            self.isSeeking = false
-        }
     }
     
     func mediaSeekForward() {
@@ -199,9 +191,6 @@ extension ChatViewModel {
         withAnimation {
             isPlaying = false
             currentTime = 0
-            timeSliderValue = 0
-            isSeeking = false
-            nc.post(name: .localIsListeningVoice, object: (false, savedMediaPath))
             savedMediaPath = ""
             mediaPlayer.media = nil
             mediaPlayer.stop()

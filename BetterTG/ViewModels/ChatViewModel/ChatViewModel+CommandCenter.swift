@@ -39,8 +39,7 @@ extension ChatViewModel {
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self else { return .commandFailed }
             if let positionEvent = event as? MPChangePlaybackPositionCommandEvent {
-                timeSliderValue = positionEvent.positionTime
-                mediaSeekTo()
+                mediaSeekTo(positionEvent.positionTime)
                 return .success
             }
             return .commandFailed
