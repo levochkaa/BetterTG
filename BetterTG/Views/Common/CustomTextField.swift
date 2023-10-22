@@ -176,7 +176,7 @@ struct CustomTextField: View {
     @Binding private var text: AttributedString
     private var focus: Bool
     
-    @State private var dynamicHeight: CGFloat = 38
+    @State private var dynamicHeight: CGFloat = 36.333333333333336
     @State private var showingPlaceholder = true
     
     init(_ placeholder: String = "", text: Binding<AttributedString>, focus: Bool = false) {
