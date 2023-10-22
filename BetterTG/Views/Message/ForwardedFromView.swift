@@ -6,7 +6,7 @@ struct ForwardedFromView: View {
     var body: some View {
         HStack(spacing: 0) {
             Text("FF: ")
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundStyle(.white.opacity(0.5))
             
             Text(name)
                 .bold()

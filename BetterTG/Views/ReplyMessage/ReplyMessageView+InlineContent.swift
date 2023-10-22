@@ -16,11 +16,11 @@ extension ReplyMessageView {
             case .messageVoiceNote(let messageVoiceNote):
                 HStack(alignment: .bottom) {
                     Text("Voice")
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     
                     if !messageVoiceNote.caption.text.isEmpty {
                         Text(": ")
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                         
                         Text(getAttributedString(from: messageVoiceNote.caption))
                     }

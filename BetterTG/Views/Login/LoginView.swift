@@ -120,7 +120,7 @@ struct LoginView: View {
                         
                         Text("+\(info.phoneNumberPrefix)")
                     }
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                 }
             }
             .background(.black)

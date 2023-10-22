@@ -18,11 +18,11 @@ extension RootView {
     @ViewBuilder func draftMessageView(for draftMessage: DraftMessage) -> some View {
         HStack(alignment: .bottom, spacing: 0) {
             Text("Draft: ")
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
             
             if draftMessage.replyToMessageId != 0 {
                 Text("reply ")
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
             
             if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
@@ -46,11 +46,11 @@ extension RootView {
             case .messageVoiceNote(let messageVoiceNote):
                 HStack(alignment: .bottom, spacing: 0) {
                     Text("Voice")
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     
                     if !messageVoiceNote.caption.text.isEmpty {
                         Text(": ")
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                         
                         Text(getAttributedString(from: messageVoiceNote.caption, .gray))
                     }

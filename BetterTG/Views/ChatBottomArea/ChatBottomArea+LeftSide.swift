@@ -10,7 +10,7 @@ extension ChatBottomArea {
         } label: {
             Image(systemName: "paperclip")
                 .font(.title3)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .contentShape(Rectangle())
         }
     }

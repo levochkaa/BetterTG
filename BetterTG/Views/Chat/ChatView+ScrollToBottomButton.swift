@@ -20,7 +20,7 @@ extension ChatView {
                         .overlay {
                             Text("\(unreadCount)")
                                 .font(.caption)
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                                 .minimumScaleFactor(0.5)
                         }
                         .offset(y: -5)

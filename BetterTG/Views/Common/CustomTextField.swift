@@ -194,7 +194,7 @@ struct CustomTextField: View {
             .background(alignment: .topLeading) {
                 if showingPlaceholder {
                     Text(placeholder)
-                        .foregroundColor(.gray)
+                        .foregroundStyle(.gray)
                         .padding(.leading, 4)
                         .padding(.top, 8)
                 }

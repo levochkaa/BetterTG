@@ -9,7 +9,7 @@ struct PlaceholderView: View {
     var body: some View {
         Text(String(title.prefix(1).capitalized))
             .font(.system(size: fontSize, design: .rounded))
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(userId: userId).gradient)
     }

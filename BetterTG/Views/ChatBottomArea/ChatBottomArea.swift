@@ -61,7 +61,7 @@ struct ChatBottomArea: View {
                 .frame(width: 96, height: 96)
                 .overlay(alignment: .center) {
                     Image(systemName: "mic.fill")
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .font(.title2)
                         .matchedGeometryEffect(id: micId, in: namespace)
                 }

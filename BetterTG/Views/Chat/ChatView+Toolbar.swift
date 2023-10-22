@@ -36,7 +36,7 @@ extension ChatView {
                 .combined(with: .opacity)
             )
             .font(.caption)
-            .foregroundColor(
+            .foregroundStyle(
                 !viewModel.actionStatus.isEmpty || viewModel.onlineStatus == "online" ? .blue : .gray
             )
             .animation(value: viewModel.actionStatus)

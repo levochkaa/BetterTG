@@ -16,6 +16,6 @@ struct MessageTextView: View {
             }
             .multilineTextAlignment(.leading)
             .padding(8)
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
     }
 }

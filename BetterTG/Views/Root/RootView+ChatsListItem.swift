@@ -10,7 +10,7 @@ extension RootView {
                     viewModel.togglePinned(chatId: customChat.chat.id, value: !isPinned)
                 }
                 .font(.title2)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding(.leading, 10)
             }
             
@@ -19,7 +19,7 @@ extension RootView {
             VStack(alignment: .leading, spacing: 0) {
                 Text(customChat.chat.title)
                     .font(.title2)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                 
                 lastOrDraftMessage(for: customChat)
             }
@@ -34,7 +34,7 @@ extension RootView {
                     .overlay {
                         Text("\(customChat.unreadCount)")
                             .font(.callout)
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .minimumScaleFactor(0.5)
                     }
                     .padding(.trailing, 10)

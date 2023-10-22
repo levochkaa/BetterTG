@@ -10,7 +10,7 @@ extension ChatBottomArea {
                     .frame(width: 32, height: 32)
             } else {
                 Image(systemName: "mic.fill")
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .matchedGeometryEffect(id: micId, in: namespace)
             }
         }
