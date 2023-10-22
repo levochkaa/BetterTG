@@ -37,8 +37,6 @@ extension ChatBottomArea {
                 )
         ) { text in
             Task { [viewModel] in
-                await viewModel.updateDraft()
-                
                 if !text.characters.isEmpty {
                     await viewModel.tdSendChatAction(.chatActionTyping)
                 } else {
