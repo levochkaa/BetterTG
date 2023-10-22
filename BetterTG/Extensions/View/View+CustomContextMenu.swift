@@ -1,5 +1,7 @@
 // View+CustomContextMenu.swift
 
+import SwiftUI
+
 extension View {
     func customContextMenu<Content: View>(
         cornerRadius: CGFloat = 0,

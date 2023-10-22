@@ -1,5 +1,7 @@
 // Animoji.swift
 
+import SwiftUI
+
 struct Animoji: Identifiable {
     let id = UUID()
     var type: AnimojiType

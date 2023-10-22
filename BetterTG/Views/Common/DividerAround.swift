@@ -1,5 +1,7 @@
 // DividerAround.swift
 
+import SwiftUI
+
 struct DividerAround<Content: View>: View {
     
     @ViewBuilder var content: () -> Content

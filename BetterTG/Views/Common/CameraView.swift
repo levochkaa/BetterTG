@@ -1,5 +1,7 @@
 // CameraView.swift
 
+import SwiftUI
+
 struct CameraView: UIViewControllerRepresentable {
     
     @Environment(ChatViewModel.self) var viewModel

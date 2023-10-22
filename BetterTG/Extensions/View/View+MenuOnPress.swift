@@ -1,5 +1,7 @@
 // View+MenuOnPress.swift
 
+import SwiftUI
+
 extension View {
     func menuOnPress<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         Menu(content: content) {

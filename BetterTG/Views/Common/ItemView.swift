@@ -1,5 +1,7 @@
 // ItemView.swift
 
+import SwiftUI
+
 struct ItemView: View {
     
     @State var item: OpenedItem

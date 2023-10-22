@@ -1,5 +1,6 @@
 // MessageVoiceNoteView.swift
 
+import SwiftUI
 import TDLibKit
 
 struct MessageVoiceNoteView: View {

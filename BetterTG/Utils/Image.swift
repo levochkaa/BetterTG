@@ -1,5 +1,7 @@
 // Image.swift
 
+import SwiftUI
+
 func writeImage(_ uiImage: UIImage?, withSaving saving: Bool = false) -> SelectedImage? {
     guard let uiImage, let data = uiImage.jpegData(compressionQuality: 1) else { return nil }
     

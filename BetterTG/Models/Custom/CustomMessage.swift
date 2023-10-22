@@ -1,5 +1,6 @@
 // CustomMessage.swift
 
+import SwiftUI
 import TDLibKit
 
 struct CustomMessage: Identifiable, Equatable {

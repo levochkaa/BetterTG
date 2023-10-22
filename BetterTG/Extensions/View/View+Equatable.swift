@@ -1,5 +1,7 @@
 // View+Equatable.swift
 
+import SwiftUI
+
 extension View {
     func equatable<V: Equatable>(by value: V) -> some View {
         EquatableView(content: self, value: value)

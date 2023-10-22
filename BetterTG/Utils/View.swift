@@ -1,5 +1,7 @@
 // View.swift
 
+import SwiftUI
+
 func captionText(from dateString: String) -> some View {
     Text(dateString)
         .font(.caption)

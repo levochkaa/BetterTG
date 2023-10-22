@@ -1,5 +1,6 @@
 // Logger.swift
 
+import SwiftUI
 import os.log
 
 let logger = os.Logger(subsystem: "BetterTG", category: "BetterTG")

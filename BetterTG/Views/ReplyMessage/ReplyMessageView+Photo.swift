@@ -1,5 +1,6 @@
 // ReplyMessageView+Photo.swift
 
+import SwiftUI
 import TDLibKit
 
 extension ReplyMessageView {

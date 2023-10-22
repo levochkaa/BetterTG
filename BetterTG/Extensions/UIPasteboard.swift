@@ -1,5 +1,6 @@
 // UIPasteboard.swift
 
+import SwiftUI
 import MobileCoreServices
 import UniformTypeIdentifiers
 import TDLibKit

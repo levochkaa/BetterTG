@@ -1,5 +1,7 @@
 // UIApplication.swift
 
+import SwiftUI
+
 extension UIApplication {
     static var currentKeyWindow: UIWindow? {
         UIApplication.shared.connectedScenes

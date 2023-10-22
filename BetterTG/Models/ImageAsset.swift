@@ -1,5 +1,6 @@
 // ImageAsset.swift
 
+import SwiftUI
 import PhotosUI
 
 struct ImageAsset: Identifiable {

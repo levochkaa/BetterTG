@@ -1,5 +1,6 @@
 // Text.swift
 
+import SwiftUI
 import TDLibKit
 
 func defaultAttributes(_ foregroundColor: Color = .white) -> [NSAttributedString.Key: Any] {

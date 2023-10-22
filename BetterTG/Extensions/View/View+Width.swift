@@ -1,5 +1,7 @@
 // View+Width.swift
 
+import SwiftUI
+
 extension View {
     func width(_ width: Binding<Int>) -> some View {
         background {

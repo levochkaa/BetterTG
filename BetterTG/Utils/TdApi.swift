@@ -1,5 +1,6 @@
 // TdApi.swift
 
+import SwiftUI
 import TDLibKit
 import Combine
 

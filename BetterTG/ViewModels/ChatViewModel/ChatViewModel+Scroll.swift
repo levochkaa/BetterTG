@@ -1,5 +1,7 @@
 // ChatViewModel+Scroll.swift
 
+import SwiftUI
+
 extension ChatViewModel {
     func scrollToLast() {
         guard let lastId = messages.last?.id, let scrollViewProxy else { return }

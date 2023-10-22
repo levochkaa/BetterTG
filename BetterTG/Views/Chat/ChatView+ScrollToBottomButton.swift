@@ -1,5 +1,7 @@
 // ChatView+ScrollToBottomButton.swift
 
+import SwiftUI
+
 extension ChatView {
     @ViewBuilder var scrollToBottomButton: some View {
         Image(systemName: "chevron.down")

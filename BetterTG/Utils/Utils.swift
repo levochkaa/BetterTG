@@ -1,5 +1,7 @@
 // Utils.swift
 
+import SwiftUI
+
 enum Utils {
     static var size = UIScreen.main.bounds.size
     static let bottomSheetPhotoWidth = size.width / 3 - 10

@@ -1,5 +1,6 @@
 // TextEntity.swift
 
+import SwiftUI
 import TDLibKit
 
 extension TextEntity {

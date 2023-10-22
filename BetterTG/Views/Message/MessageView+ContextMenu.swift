@@ -1,5 +1,7 @@
 // MessageView+Menu.swift
 
+import SwiftUI
+
 extension MessageView {
     @ViewBuilder var contextMenu: some View {
         Button("Reply", systemImage: "arrowshape.turn.up.left") {

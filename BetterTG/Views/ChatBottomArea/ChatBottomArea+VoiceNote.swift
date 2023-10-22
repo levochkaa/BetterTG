@@ -1,5 +1,7 @@
 // ChatBottomArea+VoiceNote.swift
 
+import SwiftUI
+
 extension ChatBottomArea {
     @ViewBuilder var voiceNoteRecording: some View {
         HStack(alignment: .center, spacing: 0) {

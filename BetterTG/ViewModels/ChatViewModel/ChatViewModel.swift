@@ -1,5 +1,6 @@
 // ChatViewModel.swift
 
+import SwiftUI
 import Combine
 import TDLibKit
 import PhotosUI

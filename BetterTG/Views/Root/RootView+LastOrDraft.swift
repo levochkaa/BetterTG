@@ -1,5 +1,6 @@
 // RootView+LastOrDraft.swift
 
+import SwiftUI
 import TDLibKit
 
 extension RootView {

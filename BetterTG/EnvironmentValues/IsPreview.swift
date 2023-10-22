@@ -1,5 +1,7 @@
 // IsPreview.swift
 
+import SwiftUI
+
 private struct IsPreview: EnvironmentKey {
     static let defaultValue = false
 }

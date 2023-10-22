@@ -1,5 +1,7 @@
 // LazyView.swift
 
+import SwiftUI
+
 struct LazyView<Content: View>: View {
     private let build: () -> Content
     

@@ -1,5 +1,6 @@
 // NotificationCenter.swift
 
+import SwiftUI
 import Combine
 
 let nc = NotificationCenter()

@@ -1,5 +1,7 @@
 // CustomLayout.swift
 
+import SwiftUI
+
 struct CustomLayout: Layout {
     
     let width: CGFloat

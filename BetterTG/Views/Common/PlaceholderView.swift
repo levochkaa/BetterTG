@@ -1,5 +1,7 @@
 // PlaceholderView.swift
 
+import SwiftUI
+
 struct PlaceholderView: View {
     
     @State var userId: Int64

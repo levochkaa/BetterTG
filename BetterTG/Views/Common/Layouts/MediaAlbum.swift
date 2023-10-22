@@ -4,6 +4,8 @@
 
 // swiftlint:disable line_length type_body_length file_length function_body_length
 
+import SwiftUI
+
 /// This layout works (at least it should) and functions the same as in the
 /// Telegram iOS client, just because the layout logic was sto- i mean
 /// borrowed from it's code

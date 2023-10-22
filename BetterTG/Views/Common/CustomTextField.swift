@@ -1,5 +1,6 @@
 // CustomTextField.swift
 
+import SwiftUI
 import UniformTypeIdentifiers
 
 private var isPastingText = false

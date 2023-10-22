@@ -1,5 +1,7 @@
 // WidthPreferenceKey.swift
 
+import SwiftUI
+
 struct WidthPreferenceKey: PreferenceKey {
     typealias Value = Int
     static var defaultValue: Value = .zero

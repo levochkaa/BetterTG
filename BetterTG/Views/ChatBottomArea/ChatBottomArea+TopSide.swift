@@ -1,5 +1,7 @@
 // ChatBottomArea+TopSide.swift
 
+import SwiftUI
+
 extension ChatBottomArea {
     @ViewBuilder var topSide: some View {
         Group {

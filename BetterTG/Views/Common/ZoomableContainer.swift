@@ -1,5 +1,7 @@
 // ZoomableContainer.swift
 
+import SwiftUI
+
 private let maxAllowedScale = 3.0
 
 struct ZoomableContainer<Content: View>: View {

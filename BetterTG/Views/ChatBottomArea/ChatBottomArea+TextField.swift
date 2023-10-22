@@ -1,5 +1,6 @@
 // ChatBottomArea+TextField.swift
 
+import SwiftUI
 import Combine
 
 extension ChatBottomArea {

@@ -144,7 +144,6 @@
 		DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */; };
 		DFFA98852A9B52900037460A /* Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFA98842A9B52900037460A /* Tab.swift */; };
 		DFFA98872A9B546C0037460A /* Array+ChatPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */; };
-		DFFA98892A9B55610037460A /* Imports.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFA98882A9B55610037460A /* Imports.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -315,7 +314,6 @@
 		DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+ContextMenu.swift"; sourceTree = "<group>"; };
 		DFFA98842A9B52900037460A /* Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tab.swift; sourceTree = "<group>"; };
 		DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+ChatPosition.swift"; sourceTree = "<group>"; };
-		DFFA98882A9B55610037460A /* Imports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Imports.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -553,7 +551,6 @@
 			children = (
 				DFBFB86828CE48290076895C /* Utils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
-				DFFA98882A9B55610037460A /* Imports.swift */,
 				DF0F9D5028CCADB300BCA763 /* TdApi.swift */,
 				DF69FA892AA4C899009180D4 /* Text.swift */,
 				DF69FA902AA4ED2D009180D4 /* Image.swift */,
@@ -841,7 +838,6 @@
 				DF9D516A298D1102009AFE7F /* ChatBottomArea+BottomSheet.swift in Sources */,
 				DF2AE70D2951192800FF7850 /* ChatViewModel+Get.swift in Sources */,
 				DFE8407E298AFAA400C3A7F8 /* View+MenuOnPress.swift in Sources */,
-				DFFA98892A9B55610037460A /* Imports.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF2AE7112951198400FF7850 /* ChatViewModel+Draft.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewModel.swift in Sources */,

@@ -1,5 +1,6 @@
 // AsyncTdFile.swift
 
+import SwiftUI
 import TDLibKit
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {

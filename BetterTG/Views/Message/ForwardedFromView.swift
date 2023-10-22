@@ -1,5 +1,7 @@
 // ForwardedFromView.swift
 
+import SwiftUI
+
 struct ForwardedFromView: View {
     let name: String
     
