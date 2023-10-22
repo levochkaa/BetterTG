@@ -27,6 +27,7 @@ import Observation
     @ObservationIgnored var savedAlbumMainMessageIdTemp: Int64 = 0
     @ObservationIgnored var savedPhotoMessages = [Message]()
     var displayedImages = [SelectedImage]()
+    var showCameraView = false
     
     @ObservationIgnored var scrollViewProxy: ScrollViewProxy? = nil
     

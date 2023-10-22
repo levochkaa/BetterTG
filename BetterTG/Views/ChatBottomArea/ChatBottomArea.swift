@@ -11,8 +11,10 @@ struct ChatBottomArea: View {
     @State var timerCount = 0.0
     @State var timer: Timer?
     @State var wave = [Float]()
-    @State var photosPickerItems = [PhotosPickerItem]()
     
+    @State var setDisplayedImagesTask: Task<Void, Never>?
+    @State var photosPickerItems = [PhotosPickerItem]()
+    @State var showDetail = false
     @State var showSendButton = false
     
     @Namespace var namespace
@@ -25,7 +27,7 @@ struct ChatBottomArea: View {
     
     var body: some View {
         @Bindable var viewModel = viewModel
-        VStack(alignment: .center, spacing: 5) {
+        VStack(spacing: 5) {
             topSide
             
             if !viewModel.displayedImages.isEmpty {
@@ -34,8 +36,10 @@ struct ChatBottomArea: View {
             
             Group {
                 if !viewModel.recordingVoiceNote {
-                    HStack(alignment: .center, spacing: 10) {
+                    HStack(spacing: 10) {
                         leftSide
+                            .font(.system(size: 25))
+                            .foregroundStyle(.white)
                         
                         textField
                         
@@ -72,6 +76,64 @@ struct ChatBottomArea: View {
                 .onTapGesture {
                     viewModel.mediaStopRecordingVoice(duration: Int(timerCount), wave: wave)
                 }
+        }
+        .onChange(of: focused.wrappedValue) {
+            withAnimation {
+                showDetail = false
+            }
+        }
+    }
+    
+    @ViewBuilder var leftSide: some View {
+        @Bindable var viewModel = viewModel
+        HStack(spacing: 10) {
+            Button {
+                withAnimation {
+                    showDetail.toggle()
+                }
+            } label: {
+                Group {
+                    if showDetail {
+                        Image(systemName: "xmark.circle")
+                    } else {
+                        Image(systemName: "plus.circle")
+                    }
+                }
+                .transition(.scale)
+            }
+            
+            if showDetail {
+                PhotosPicker(
+                    selection: $photosPickerItems,
+                    maxSelectionCount: 10,
+                    selectionBehavior: .continuousAndOrdered,
+                    matching: .images
+                ) {
+                    Image(systemName: "paperclip.circle")
+                }
+                .onChange(of: photosPickerItems) { _, photosPickerItems in
+                    viewModel.displayedImages.removeAll()
+                    setDisplayedImagesTask?.cancel()
+                    setDisplayedImagesTask = Task { @MainActor [viewModel] in
+                        viewModel.displayedImages = await photosPickerItems.asyncCompactMap {
+                            try? await $0.loadTransferable(type: SelectedImage.self)
+                        }
+                    }
+                }
+                
+                Button {
+                    viewModel.showCameraView = true
+                } label: {
+                    Image(systemName: "camera.circle")
+                }
+                .fullScreenCover(isPresented: $viewModel.showCameraView) {
+                    NavigationStack {
+                        CameraView()
+                            .navigationTitle("Camera")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                }
+            }
         }
     }
 }

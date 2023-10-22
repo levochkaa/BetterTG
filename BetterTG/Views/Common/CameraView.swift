@@ -10,6 +10,7 @@ struct CameraView: UIViewControllerRepresentable {
         let controller = UIImagePickerController()
         controller.sourceType = .camera
         controller.allowsEditing = false
+        controller.cameraCaptureMode = .photo
         controller.cameraDevice = .rear
         controller.cameraFlashMode = .auto
         controller.showsCameraControls = true
@@ -33,8 +34,7 @@ struct CameraView: UIViewControllerRepresentable {
         }
         
         func hideCameraView() {
-//            parent.viewModel.showBottomSheet = false
-//            parent.viewModel.showCameraView = false
+            parent.viewModel.showCameraView = false
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
