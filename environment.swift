@@ -14,11 +14,6 @@ enum ScriptError: Error {
     case runCommandFail(String)
 }
 
-enum UserChoice {
-    case yes
-    case no
-}
-
 struct EnvironmentScript: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "environment.swift",
@@ -49,11 +44,7 @@ struct EnvironmentScript: ParsableCommand {
     }
 
     func sectionStart(_ message: String) {
-        print("\n" + "--- " + message + " ---" + "\n")
-    }
-
-    func sectionEnd() {
-        print("\n------\n")
+        
     }
 
     /// Installs a specified command if not available
@@ -66,10 +57,26 @@ struct EnvironmentScript: ParsableCommand {
             log("\(display) is installed")
         } else {
             log("\(display) was not found, installing...")
-            sectionStart("Homebrew output")
+            print("\n--- Homebrew output ---\n")
             try run(command: "brew", with: ["install", brew])
-            sectionEnd()
+            print("\n------\n")
         }
+    }
+
+    /// Runs a supplied shell command.
+    /// - Parameters:
+    ///   - command: A command to run.
+    ///   - args: Args supplied to it
+    /// - Throws: Any error, like being unable to parse command's response or a run failure.
+    /// - Returns: Command's output
+    @discardableResult
+    func run(command: String, with args: [String]) throws -> Int32 {
+        let task = Process()
+        task.launchPath = "/usr/bin/env"
+        task.arguments = [command] + args
+        task.launch()
+        task.waitUntilExit()
+        return task.terminationStatus
     }
 
     /// Runs a supplied shell command.
