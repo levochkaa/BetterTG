@@ -77,16 +77,11 @@ struct ChatBottomArea: View {
                     viewModel.mediaStopRecordingVoice(duration: Int(timerCount), wave: wave)
                 }
         }
-        .onChange(of: focused.wrappedValue) {
-            withAnimation {
-                showDetail = false
-            }
-        }
     }
     
     @ViewBuilder var leftSide: some View {
         @Bindable var viewModel = viewModel
-        HStack(spacing: 10) {
+        HStack(spacing: 5) {
             Button {
                 withAnimation {
                     showDetail.toggle()
@@ -114,9 +109,12 @@ struct ChatBottomArea: View {
                 .onChange(of: photosPickerItems) { _, photosPickerItems in
                     viewModel.displayedImages.removeAll()
                     setDisplayedImagesTask?.cancel()
-                    setDisplayedImagesTask = Task { @MainActor [viewModel] in
-                        viewModel.displayedImages = await photosPickerItems.asyncCompactMap {
+                    setDisplayedImagesTask = Task { [viewModel] in
+                        let displayedImages = await photosPickerItems.asyncCompactMap {
                             try? await $0.loadTransferable(type: SelectedImage.self)
+                        }
+                        await MainActor.run {
+                            viewModel.displayedImages = displayedImages
                         }
                     }
                 }
