@@ -50,7 +50,7 @@ struct ChatBottomArea: View {
         .animation(value: viewModel.editCustomMessage)
         .animation(value: viewModel.replyMessage)
         .animation(value: showSendButton)
-        .padding(.vertical, 5)
+        .frame(height: 48)
         .padding(.horizontal, 10)
         .background(.bar)
         .cornerRadius(15)
