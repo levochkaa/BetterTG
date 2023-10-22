@@ -60,7 +60,9 @@ extension ChatViewModel {
             audioRecorder.isMeteringEnabled = true
             audioRecorder.prepareToRecord()
             audioRecorder.record()
-            recordingVoiceNote = true
+            withAnimation {
+                recordingVoiceNote = true
+            }
             await tdSendChatAction(.chatActionRecordingVoiceNote)
         } catch {
             log("Error creating AudioRecorder: \(error)")
@@ -69,7 +71,9 @@ extension ChatViewModel {
     
     func mediaStopRecordingVoice(duration: Int, wave: [Float]) {
         audioRecorder.stop()
-        recordingVoiceNote = false
+        withAnimation {
+            recordingVoiceNote = false
+        }
         Task {
             await tdSendChatAction(.chatActionCancel)
         }
