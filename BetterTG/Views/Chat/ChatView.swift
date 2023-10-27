@@ -66,7 +66,7 @@ struct ChatView: View {
     }
     
     var bodyView: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView {
             ZStack {
                 // Temporary removing `Lazy`, because iOS 17 has huge problems with scroll
                 /*Lazy*/VStack(spacing: 5) {
@@ -93,7 +93,25 @@ struct ChatView: View {
         .scrollDismissesKeyboard(.interactively)
         .scrollBounceBehavior(.always)
         .defaultScrollAnchor(.bottom)
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in Task.main { update(Int(value.maxY)) } }
+        .scrollIndicators(.hidden)
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+            let maxY = Int(value.maxY)
+            if maxY > 670 {
+                scrollOnFocus = false
+                if !showScrollToBottomButton {
+                    withAnimation {
+                        showScrollToBottomButton = true
+                    }
+                }
+            } else {
+                scrollOnFocus = true
+                if showScrollToBottomButton {
+                    withAnimation {
+                        showScrollToBottomButton = false
+                    }
+                }
+            }
+        }
         .onReceive(nc.publisher(for: .localScrollToLastOnFocus)) { _ in
             scrollToLastOnFocus()
         }
@@ -141,24 +159,6 @@ struct ChatView: View {
             )
             .combined(with: .opacity)
         )
-    }
-    
-    @MainActor func update(_ int: Int) {
-        if int > 670 {
-            scrollOnFocus = false
-            if !showScrollToBottomButton {
-                withAnimation {
-                    showScrollToBottomButton = true
-                }
-            }
-        } else {
-            scrollOnFocus = true
-            if showScrollToBottomButton {
-                withAnimation {
-                    showScrollToBottomButton = false
-                }
-            }
-        }
     }
     
     func scrollToLastOnFocus() {
