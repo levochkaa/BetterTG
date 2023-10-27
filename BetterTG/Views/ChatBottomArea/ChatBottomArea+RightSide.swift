@@ -10,10 +10,11 @@ extension ChatBottomArea {
                     .resizable()
                     .clipShape(Circle())
                     .frame(width: 32, height: 32)
+                    .padding(.bottom, 3)
             } else {
                 Image(systemName: "mic.fill")
                     .foregroundStyle(.white)
-                    .matchedGeometryEffect(id: micId, in: namespace)
+                    .padding(.bottom, 5)
             }
         }
         .font(.title2)

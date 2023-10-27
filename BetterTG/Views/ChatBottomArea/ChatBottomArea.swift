@@ -22,7 +22,6 @@ struct ChatBottomArea: View {
     @Environment(ChatViewModel.self) var viewModel
     @Environment(RootViewModel.self) var rootViewModel
     
-    let micId = "micId"
     let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     
     var body: some View {
@@ -36,10 +35,8 @@ struct ChatBottomArea: View {
             
             Group {
                 if !viewModel.recordingVoiceNote {
-                    HStack(spacing: 10) {
+                    HStack(alignment: .bottom, spacing: 10) {
                         leftSide
-                            .font(.system(size: 25))
-                            .foregroundStyle(.white)
                         
                         textField
                         
@@ -67,7 +64,6 @@ struct ChatBottomArea: View {
                     Image(systemName: "mic.fill")
                         .foregroundStyle(.white)
                         .font(.title2)
-                        .matchedGeometryEffect(id: micId, in: namespace)
                 }
                 .disabled(!viewModel.recordingVoiceNote)
                 .opacity(viewModel.recordingVoiceNote ? 1 : 0)
@@ -81,20 +77,18 @@ struct ChatBottomArea: View {
     
     @ViewBuilder var leftSide: some View {
         @Bindable var viewModel = viewModel
-        HStack(spacing: 5) {
-            Button {
-                withAnimation {
-                    showDetail.toggle()
-                }
-            } label: {
-                Group {
-                    if showDetail {
-                        Image(systemName: "xmark.circle")
-                    } else {
-                        Image(systemName: "plus.circle")
+        HStack(spacing: 10) {
+            if !showDetail {
+                Button {
+                    withAnimation {
+                        showDetail = true
                     }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(.white, Color.gray6)
+                        .font(.system(size: 30))
                 }
-                .transition(.scale)
+                .padding(.bottom, 2)
             }
             
             if showDetail {
@@ -104,7 +98,7 @@ struct ChatBottomArea: View {
                     selectionBehavior: .continuousAndOrdered,
                     matching: .images
                 ) {
-                    Image(systemName: "paperclip.circle")
+                    Image(systemName: "photo")
                 }
                 .onChange(of: photosPickerItems) { _, photosPickerItems in
                     viewModel.displayedImages.removeAll()
@@ -118,11 +112,15 @@ struct ChatBottomArea: View {
                         }
                     }
                 }
-                
+                .transition(.opacity.combined(with: .scale))
+                .padding(.bottom, 7)
+            }
+            
+            if showDetail {
                 Button {
                     viewModel.showCameraView = true
                 } label: {
-                    Image(systemName: "camera.circle")
+                    Image(systemName: "camera.fill")
                 }
                 .fullScreenCover(isPresented: $viewModel.showCameraView) {
                     NavigationStack {
@@ -131,7 +129,16 @@ struct ChatBottomArea: View {
                             .navigationBarTitleDisplayMode(.inline)
                     }
                 }
+                .transition(.opacity.combined(with: .scale).combined(with: .move(edge: .leading)))
+                .padding(.bottom, 7)
             }
+        }
+        .font(.system(size: 22))
+        .onChange(of: viewModel.text) { withAnimation { showDetail = false } }
+        .onChange(of: viewModel.editMessageText) { withAnimation { showDetail = false } }
+        .onChange(of: focused.wrappedValue) { _, focused in
+            guard focused else { return }
+            withAnimation { showDetail = false }
         }
     }
 }
