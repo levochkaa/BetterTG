@@ -134,6 +134,7 @@ struct ChatBottomArea: View {
             }
         }
         .font(.system(size: 22))
+        .foregroundStyle(.white)
         .onChange(of: viewModel.text) { withAnimation { showDetail = false } }
         .onChange(of: viewModel.editMessageText) { withAnimation { showDetail = false } }
         .onChange(of: focused.wrappedValue) { _, focused in
