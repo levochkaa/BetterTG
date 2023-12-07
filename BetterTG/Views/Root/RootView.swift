@@ -54,10 +54,12 @@ struct RootView: View {
                         .contextMenu {
                             contextMenu(for: customChat)
                         } preview: {
-                            NavigationStack {
-                                ChatView(customChat: customChat)
-                                    .environment(viewModel)
-                                    .environment(\.isPreview, true)
+                            LazyView {
+                                NavigationStack {
+                                    ChatView(customChat: customChat)
+                                        .environment(viewModel)
+                                        .environment(\.isPreview, true)
+                                }
                             }
                         }
                         .task {
