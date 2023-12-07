@@ -34,6 +34,7 @@ import Observation
     var messages = [CustomMessage]()
     var highlightedMessageId: UUID? = nil
     
+    @ObservationIgnored var loadingMessagesTask: Task<Void, Never>? = nil
     @ObservationIgnored var loadingMessages = false
     
     @ObservationIgnored var offset = 0

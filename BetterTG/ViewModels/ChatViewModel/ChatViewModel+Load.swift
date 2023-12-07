@@ -4,8 +4,15 @@ import SwiftUI
 import TDLibKit
 
 extension ChatViewModel {
-    func loadMessages() async {
-        guard !loadingMessages /* , shouldWaitForMessageId == lastAppearedMessageId */ else { return }
+    func loadMessages() {
+        guard loadingMessagesTask == nil else { return }
+        loadingMessagesTask = Task(priority: .high) {
+            await _loadMessages()
+        }
+    }
+    
+    private func _loadMessages() async {
+        guard !loadingMessages else { return }
         
         self.loadingMessages = true
         
@@ -40,10 +47,12 @@ extension ChatViewModel {
         }
         
         await MainActor.run {
-            // shouldWaitForMessageId = filteredSavedMessages.first?.message.id
             messages.insert(contentsOf: filteredSavedMessages, at: 0)
             
-            loadingMessages = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.loadingMessages = false
+                self.loadingMessagesTask = nil
+            }
         }
     }
 }

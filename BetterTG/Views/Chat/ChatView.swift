@@ -11,7 +11,7 @@ struct ChatView: View {
     
     @FocusState var focused
     
-    // @State var chatPosition: UUID?
+    @State var chatPosition: UUID?
     
     let scroll = "chatScroll"
     @State var scrollOnFocus = true
@@ -45,11 +45,9 @@ struct ChatView: View {
         .toolbar {
             toolbar
         }
-        .task {
-            await viewModel.loadMessages()
-        }
         .onAppear {
             viewModel.onAppear(customChat: customChat)
+            viewModel.loadMessages()
         }
         .onDisappear(perform: viewModel.onDisappear)
         .navigationBarTitleDisplayMode(.inline)
@@ -67,18 +65,13 @@ struct ChatView: View {
     
     var bodyView: some View {
         ScrollView {
-            ZStack {
-                // Temporary removing `Lazy`, because iOS 17 has huge problems with scroll
-                /*Lazy*/VStack(spacing: 5) {
-                    ForEach(viewModel.messages) { customMessage in
-                        itemView(for: customMessage)
-                            // .onAppear {
-                            //     viewModel.lastAppearedMessageId = customMessage.message.id
-                            // }
-                    }
+            LazyVStack(spacing: 5) {
+                ForEach(viewModel.messages) { customMessage in
+                    itemView(for: customMessage)
                 }
-                // .scrollTargetLayout()
-                
+            }
+            .scrollTargetLayout()
+            .overlay {
                 GeometryReader { geometryProxy in
                     Color.clear.preference(
                         key: ScrollOffsetPreferenceKey.self,
@@ -87,8 +80,7 @@ struct ChatView: View {
                 }
             }
         }
-        // .scrollPosition(id: $chatPosition, anchor: .top)
-        // .onChange(of: chatPosition) { Task { await viewModel.loadMessages() } }
+        .scrollPosition(id: $chatPosition, anchor: .top)
         .coordinateSpace(name: scroll)
         .scrollDismissesKeyboard(.interactively)
         .scrollBounceBehavior(.always)
@@ -111,6 +103,12 @@ struct ChatView: View {
                     }
                 }
             }
+            
+            let minY = abs(Int(value.minY))
+            guard !viewModel.loadingMessages, viewModel.loadingMessagesTask == nil,
+                  minY != 0, minY < 500
+            else { return }
+            viewModel.loadMessages()
         }
         .onReceive(nc.publisher(for: .localScrollToLastOnFocus)) { _ in
             scrollToLastOnFocus()
@@ -163,6 +161,6 @@ struct ChatView: View {
     
     func scrollToLastOnFocus() {
         guard scrollOnFocus else { return }
-        viewModel.scrollToLast()
+        chatPosition = viewModel.messages.last?.id
     }
 }
