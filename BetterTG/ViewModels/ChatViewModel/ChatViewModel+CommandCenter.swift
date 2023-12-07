@@ -71,7 +71,7 @@ extension ChatViewModel {
     
     func setNowPlaying() {
         var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = customChat?.user.firstName
+        info[MPMediaItemPropertyTitle] = customChat.user.firstName
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(currentTime)
         info[MPMediaItemPropertyPlaybackDuration] = Double(duration)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info

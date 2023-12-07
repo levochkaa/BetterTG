@@ -8,7 +8,7 @@ import MobileVLCKit
 import Observation
 
 @Observable final class ChatViewModel {
-    @ObservationIgnored var customChat: CustomChat?
+    @ObservationIgnored var customChat: CustomChat
     
     var onlineStatus = ""
     var actionStatus = ""
@@ -16,9 +16,6 @@ import Observation
     var text: AttributedString = ""
     var editMessageText: AttributedString = ""
     var showSendButton = false
-    
-    // @ObservationIgnored var lastAppearedMessageId: Int64? = nil
-    // @ObservationIgnored var shouldWaitForMessageId: Int64? = nil
     
     @ObservationIgnored var loadedAlbums = Set<Int64>()
     @ObservationIgnored var sentPhotosCount = 0
@@ -58,8 +55,11 @@ import Observation
     
     @ObservationIgnored var cancellables = Set<AnyCancellable>()
     
-    func onAppear(customChat: CustomChat) {
+    init(customChat: CustomChat) {
         self.customChat = customChat
+    }
+    
+    func onAppear() {
         self.mediaPlayer = VLCMediaPlayer()
         setPublishers()
         userStatus(customChat.user.status)

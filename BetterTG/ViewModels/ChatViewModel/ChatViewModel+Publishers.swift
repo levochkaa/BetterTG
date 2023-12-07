@@ -13,7 +13,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .messageEdited) { [weak self] notification in
             guard let self,
                   let messageEdited = notification.object as? UpdateMessageEdited,
-                  messageEdited.chatId == customChat?.chat.id
+                  messageEdited.chatId == customChat.chat.id
             else { return }
             self.messageEdited(messageEdited)
         }
@@ -21,7 +21,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .newMessage) { [weak self] notification in
             guard let self,
                   let message = (notification.object as? UpdateNewMessage)?.message,
-                  message.chatId == customChat?.chat.id
+                  message.chatId == customChat.chat.id
             else { return }
             self.newMessage(message)
         }
@@ -29,7 +29,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .deleteMessages) { [weak self] notification in
             guard let self,
                   let deleteMessages = notification.object as? UpdateDeleteMessages,
-                  deleteMessages.chatId == customChat?.chat.id
+                  deleteMessages.chatId == customChat.chat.id
             else { return }
             self.deleteMessages(deleteMessages)
         }
@@ -37,7 +37,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .messageSendFailed) { [weak self] notification in
             guard let self,
                   let messageSendFailed = notification.object as? UpdateMessageSendFailed,
-                  messageSendFailed.message.chatId == customChat?.chat.id
+                  messageSendFailed.message.chatId == customChat.chat.id
             else { return }
             self.messageSendFailed(messageSendFailed)
         }
@@ -45,7 +45,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .messageSendSucceeded) { [weak self] notification in
             guard let self,
                   let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
-                  messageSendSucceeded.message.chatId == customChat?.chat.id
+                  messageSendSucceeded.message.chatId == customChat.chat.id
             else { return }
             self.messageSendSucceeded(messageSendSucceeded)
         }
@@ -53,7 +53,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .chatAction) { [weak self] notification in
             guard let self,
                   let chatAction = notification.object as? UpdateChatAction,
-                  chatAction.chatId == customChat?.chat.id
+                  chatAction.chatId == customChat.chat.id
             else { return }
             self.chatAction(chatAction)
         }
@@ -61,7 +61,7 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .userStatus) { [weak self] notification in
             guard let self,
                   let userStatus = notification.object as? UpdateUserStatus,
-                  userStatus.userId == customChat?.chat.id
+                  userStatus.userId == customChat.chat.id
             else { return }
             self.userStatus(userStatus.status)
         }
@@ -69,14 +69,14 @@ extension ChatViewModel {
         nc.publisher(&cancellables, for: .chatReadInbox) { [weak self] notification in
             guard let self,
                   let chatReadInbox = notification.object as? UpdateChatReadInbox,
-                  chatReadInbox.chatId == customChat?.chat.id
+                  chatReadInbox.chatId == customChat.chat.id
             else { return }
             self.chatReadInbox(chatReadInbox)
         }
     }
     
     func chatReadInbox(_ chatReadInbox: UpdateChatReadInbox) {
-        customChat?.unreadCount = chatReadInbox.unreadCount
+        customChat.unreadCount = chatReadInbox.unreadCount
     }
     
     func userStatus(_ status: UserStatus) {
@@ -118,7 +118,7 @@ extension ChatViewModel {
     
     func chatAction(_ chatAction: UpdateChatAction) {
         guard case .messageSenderUser(let messageSenderUser) = chatAction.senderId,
-              messageSenderUser.userId == customChat?.chat.id
+              messageSenderUser.userId == customChat.chat.id
         else { return }
         
         switch chatAction.action {

@@ -4,10 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct ChatView: View {
-    
-    let customChat: CustomChat
-    
-    @State var viewModel = ChatViewModel()
+    @State var viewModel: ChatViewModel
     
     @FocusState var focused
     
@@ -22,9 +19,13 @@ struct ChatView: View {
     
     @Environment(RootViewModel.self) var rootViewModel
     
+    init(customChat: CustomChat) {
+        self._viewModel = State(initialValue: ChatViewModel(customChat: customChat))
+    }
+    
     var body: some View {
         ZStack {
-            if viewModel.customChat?.lastMessage == nil {
+            if viewModel.customChat.lastMessage == nil {
                 Text("No messages")
                     .center(.vertically)
                     .fullScreenBackground(color: .black)
@@ -45,10 +46,8 @@ struct ChatView: View {
         .toolbar {
             toolbar
         }
-        .onAppear {
-            viewModel.onAppear(customChat: customChat)
-            viewModel.loadMessages()
-        }
+        .onAppear(perform: viewModel.onAppear)
+        .onAppear(perform: viewModel.loadMessages)
         .onDisappear(perform: viewModel.onDisappear)
         .navigationBarTitleDisplayMode(.inline)
         .environment(viewModel)

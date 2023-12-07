@@ -18,9 +18,7 @@ extension ChatView {
     
     @ViewBuilder var principal: some View {
         VStack(spacing: 0) {
-            if let title = viewModel.customChat?.chat.title {
-                Text(title)
-            }
+            Text(viewModel.customChat.chat.title)
             
             Group {
                 if viewModel.actionStatus.isEmpty {
@@ -47,7 +45,7 @@ extension ChatView {
     
     @ViewBuilder var chatPhoto: some View {
         Group {
-            if let chatPhoto = viewModel.customChat?.chat.photo {
+            if let chatPhoto = viewModel.customChat.chat.photo {
                 AsyncTdImage(id: chatPhoto.big.id) { image in
                     image
                         .resizable()
@@ -76,12 +74,10 @@ extension ChatView {
     }
     
     @ViewBuilder private var chatPhotoPlaceholderView: some View {
-        if let user = viewModel.customChat?.user {
-            PlaceholderView(
-                userId: user.id,
-                title: user.firstName,
-                fontSize: 20
-            )
-        }
+        PlaceholderView(
+            userId: viewModel.customChat.user.id,
+            title: viewModel.customChat.user.firstName,
+            fontSize: 20
+        )
     }
 }

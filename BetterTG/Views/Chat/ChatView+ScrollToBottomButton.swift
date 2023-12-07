@@ -15,12 +15,12 @@ extension ChatView {
                     .stroke(.blue, lineWidth: 1)
             }
             .overlay(alignment: .top) {
-                if let unreadCount = viewModel.customChat?.unreadCount, unreadCount != 0 {
+                if viewModel.customChat.unreadCount != 0 {
                     Circle()
                         .fill(.blue)
                         .frame(width: 16, height: 16)
                         .overlay {
-                            Text("\(unreadCount)")
+                            Text("\(viewModel.customChat.unreadCount)")
                                 .font(.caption)
                                 .foregroundStyle(.white)
                                 .minimumScaleFactor(0.5)
