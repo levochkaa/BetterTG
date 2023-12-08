@@ -142,7 +142,7 @@ struct ChatView: View {
             
             MessageView(customMessage: customMessage)
                 .frame(
-                    maxWidth: Utils.size.width * 0.8,
+                    maxWidth: Utils.maxMessageContentWidth,
                     alignment: customMessage.message.isOutgoing ? .trailing : .leading
                 )
             

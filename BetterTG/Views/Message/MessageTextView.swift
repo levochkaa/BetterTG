@@ -4,19 +4,26 @@ import SwiftUI
 import TDLibKit
 
 struct MessageTextView: View {
-    let formattedText: FormattedText
-    let formattedTextSize: CGSize
-    let formattedMessageDate: String
+    @State var formattedText: FormattedText
+    @State private var dynamicHeight: CGFloat = 0
     
     var body: some View {
         TextView(formattedText: formattedText)
-            .frame(size: formattedTextSize)
-            .overlay(alignment: .bottomTrailing) {
-                captionText(from: formattedMessageDate)
-                    .offset(y: 3)
-            }
-            .multilineTextAlignment(.leading)
-            .padding(8)
-            .foregroundStyle(.white)
+            .frame(size: size)
+    }
+    
+    var size: CGSize {
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
+        let textStorage = NSTextStorage(attributedString: attributedString)
+        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
+        let boundingRect = CGRect(origin: .zero, size: size)
+        let textContainer = NSTextContainer(size: size)
+        textContainer.lineFragmentPadding = 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
+        let rect = layoutManager.usedRect(for: textContainer)
+        return rect.integral.size
     }
 }

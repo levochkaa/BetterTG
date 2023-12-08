@@ -31,15 +31,6 @@ struct TextView: UIViewRepresentable {
     }
     
     func setText(_ textView: UITextView) {
-        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
-        let dateAttributedString = NSMutableAttributedString(
-            string: " 00:00",
-            attributes: [
-                .font: UIFont.caption,
-                .foregroundColor: UIColor.clear
-            ]
-        )
-        attributedString.append(dateAttributedString)
-        textView.attributedText = attributedString
+        textView.attributedText = NSMutableAttributedString(getAttributedString(from: formattedText))
     }
 }

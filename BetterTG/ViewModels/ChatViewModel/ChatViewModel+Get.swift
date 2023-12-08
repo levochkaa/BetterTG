@@ -63,10 +63,6 @@ extension ChatViewModel {
                 customMessage.formattedText = FormattedText(entities: [], text: "BTG not supported")
         }
         
-        if let formattedText = customMessage.formattedText {
-            customMessage.formattedTextSize = getFormattedTextViewSize(from: formattedText)
-        }
-        
         return customMessage
     }
     
@@ -75,22 +71,6 @@ extension ChatViewModel {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm"
         return dateFormatter.string(from: date)
-    }
-    
-    func getFormattedTextViewSize(from formattedText: FormattedText) -> CGSize {
-        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
-        attributedString.append(NSAttributedString(string: " 00:00", attributes: [.font: UIFont.caption as Any]))
-        let textStorage = NSTextStorage(attributedString: attributedString)
-        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
-        let boundingRect = CGRect(origin: .zero, size: size)
-        let textContainer = NSTextContainer(size: size)
-        textContainer.lineFragmentPadding = 0
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
-        let rect = layoutManager.usedRect(for: textContainer)
-        return rect.integral.size
     }
     
     func getForwardedFrom(_ origin: MessageForwardOrigin?) async -> String? {

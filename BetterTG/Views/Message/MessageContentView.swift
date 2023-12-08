@@ -4,8 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct MessageContentView: View {
-    let customMessage: CustomMessage
-    let textWidth: Int
+    @Binding var customMessage: CustomMessage
     
     @Environment(RootViewModel.self) var rootViewModel
     
@@ -30,22 +29,6 @@ struct MessageContentView: View {
                     }
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 15))
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if textWidth == .zero {
-                if customMessage.messageVoiceNote == nil {
-                    captionText(from: customMessage.formattedMessageDate)
-                        .padding(3)
-                        .background(.gray6)
-                        .cornerRadius(15)
-                        .padding(5)
-                } else {
-                    captionText(from: customMessage.formattedMessageDate)
-                        .padding(.horizontal, 3)
-                        .padding(.bottom, 2)
-                        .opacity(0.8)
-                }
             }
         }
         .padding(1)

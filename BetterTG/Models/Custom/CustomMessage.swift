@@ -13,7 +13,6 @@ struct CustomMessage: Identifiable, Equatable {
     var sendFailed = false
     var forwardedFrom: String?
     var formattedText: FormattedText?
-    var formattedTextSize: CGSize?
     var formattedMessageDate: String
     var messageVoiceNote: MessageVoiceNote? {
         if case .messageVoiceNote(let messageVoiceNote) = message.content {

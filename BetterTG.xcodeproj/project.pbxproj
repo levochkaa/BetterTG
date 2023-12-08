@@ -113,7 +113,6 @@
 		DFB85D11290EF92300F66E20 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D10290EF92300F66E20 /* ChatViewModel.swift */; };
 		DFBFB86928CE48290076895C /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* Utils.swift */; };
 		DFCB65A42998340200835E9E /* View+ErrorAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCB65A32998340200835E9E /* View+ErrorAlert.swift */; };
-		DFCC2A3B2950EEA300281EF8 /* MessageView+Corners.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A3A2950EEA300281EF8 /* MessageView+Corners.swift */; };
 		DFCC2A452950F02C00281EF8 /* MessageView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A442950F02C00281EF8 /* MessageView+ContextMenu.swift */; };
 		DFD2DE7029B00D0300D531F4 /* IsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */; };
 		DFD7D4892942426D0006CF85 /* LoginViewModel+Td.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D4882942426D0006CF85 /* LoginViewModel+Td.swift */; };
@@ -284,7 +283,6 @@
 		DFB85D10290EF92300F66E20 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		DFBFB86828CE48290076895C /* Utils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils.swift; sourceTree = "<group>"; };
 		DFCB65A32998340200835E9E /* View+ErrorAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+ErrorAlert.swift"; sourceTree = "<group>"; };
-		DFCC2A3A2950EEA300281EF8 /* MessageView+Corners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+Corners.swift"; sourceTree = "<group>"; };
 		DFCC2A442950F02C00281EF8 /* MessageView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+ContextMenu.swift"; sourceTree = "<group>"; };
 		DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsPreview.swift; sourceTree = "<group>"; };
 		DFD7D4882942426D0006CF85 /* LoginViewModel+Td.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginViewModel+Td.swift"; sourceTree = "<group>"; };
@@ -654,7 +652,6 @@
 			isa = PBXGroup;
 			children = (
 				DF5261DE294F602600FB7C73 /* MessageView.swift */,
-				DFCC2A3A2950EEA300281EF8 /* MessageView+Corners.swift */,
 				DFCC2A442950F02C00281EF8 /* MessageView+ContextMenu.swift */,
 				DF0921042ABF492600B79504 /* MessageTextView.swift */,
 				DF0921062ABF494C00B79504 /* ForwardedFromView.swift */,
@@ -939,7 +936,6 @@
 				DFE0265B295112F4004C8C83 /* RootView+Photo.swift in Sources */,
 				DF1F8CC72ABF58A2000E62BD /* View.swift in Sources */,
 				1A21D83CE04AB792BC7926AC /* CustomMessage.swift in Sources */,
-				DFCC2A3B2950EEA300281EF8 /* MessageView+Corners.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

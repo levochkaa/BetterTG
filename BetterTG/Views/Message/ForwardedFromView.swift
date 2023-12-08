@@ -3,7 +3,7 @@
 import SwiftUI
 
 struct ForwardedFromView: View {
-    let name: String
+    @State var name: String
     
     var body: some View {
         HStack(spacing: 0) {

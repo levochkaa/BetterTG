@@ -5,7 +5,7 @@ import TDLibKit
 
 struct ReplyMessageView: View {
     
-    @State var customMessage: CustomMessage
+    @Binding var customMessage: CustomMessage
     @State var type: ReplyMessageType
     
     @Environment(ChatViewModel.self) var viewModel
@@ -51,6 +51,7 @@ struct ReplyMessageView: View {
         }
         .padding(.horizontal, 5)
         .contentShape(RoundedRectangle(cornerRadius: 15))
+        .padding(5)
         .onTapGesture {
             withAnimation {
                 switch type {
@@ -65,6 +66,5 @@ struct ReplyMessageView: View {
                 }
             }
         }
-        .padding(5)
     }
 }
