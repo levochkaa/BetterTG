@@ -5,12 +5,12 @@ import TDLibKit
 
 struct MessageView: View {
     
-    @State var customMessage: CustomMessage
+    @Binding var customMessage: CustomMessage
     let isOutgoing: Bool
     
-    init(customMessage: CustomMessage) {
-        self._customMessage = State(initialValue: customMessage)
-        self.isOutgoing = customMessage.message.isOutgoing
+    init(customMessage: Binding<CustomMessage>) {
+        self._customMessage = customMessage
+        self.isOutgoing = customMessage.wrappedValue.message.isOutgoing
     }
     
     @Environment(ChatViewModel.self) var viewModel

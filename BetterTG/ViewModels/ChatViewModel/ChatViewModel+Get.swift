@@ -33,8 +33,7 @@ extension ChatViewModel {
         var customMessage = CustomMessage(
             message: message,
             replyToMessage: replyToMessage,
-            forwardedFrom: await getForwardedFrom(message.forwardInfo?.origin),
-            formattedMessageDate: getFormattedMessageDate(message.date)
+            forwardedFrom: await getForwardedFrom(message.forwardInfo?.origin)
         )
         if message.mediaAlbumId != 0 { customMessage.album.append(message) }
         
@@ -64,13 +63,6 @@ extension ChatViewModel {
         }
         
         return customMessage
-    }
-    
-    func getFormattedMessageDate(_ time: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(time))
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "HH:mm"
-        return dateFormatter.string(from: date)
     }
     
     func getForwardedFrom(_ origin: MessageForwardOrigin?) async -> String? {

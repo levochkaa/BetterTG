@@ -65,8 +65,8 @@ struct ChatView: View {
     var bodyView: some View {
         ScrollView {
             LazyVStack(spacing: 5) {
-                ForEach(viewModel.messages) { customMessage in
-                    itemView(for: customMessage)
+                ForEach($viewModel.messages) { $customMessage in
+                    itemView(for: $customMessage)
                 }
             }
             .scrollTargetLayout()
@@ -136,23 +136,23 @@ struct ChatView: View {
         }
     }
     
-    func itemView(for customMessage: CustomMessage) -> some View {
+    func itemView(for customMessage: Binding<CustomMessage>) -> some View {
         HStack {
-            if customMessage.message.isOutgoing { Spacer() }
+            if customMessage.wrappedValue.message.isOutgoing { Spacer() }
             
             MessageView(customMessage: customMessage)
                 .frame(
                     maxWidth: Utils.maxMessageContentWidth,
-                    alignment: customMessage.message.isOutgoing ? .trailing : .leading
+                    alignment: customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading
                 )
             
-            if !customMessage.message.isOutgoing { Spacer() }
+            if !customMessage.wrappedValue.message.isOutgoing { Spacer() }
         }
-        .padding(customMessage.message.isOutgoing ? .trailing : .leading, 16)
+        .padding(customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading, 16)
         .transition(
             .asymmetric(
                 insertion: .move(edge: .bottom),
-                removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading)
+                removal: .move(edge: customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading)
             )
             .combined(with: .opacity)
         )
