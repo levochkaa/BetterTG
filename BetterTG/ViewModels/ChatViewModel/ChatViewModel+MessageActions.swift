@@ -24,10 +24,6 @@ extension ChatViewModel {
         }
     }
     
-    func sendMessagePhoto(imageAsset: ImageAsset) {
-        Task { await tdSendMessage(with: makeInputMessageContent(for: imageAsset.url)) }
-    }
-    
     func sendMessagePhotos() async {
         await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
         

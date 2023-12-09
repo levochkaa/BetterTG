@@ -96,32 +96,6 @@ extension ChatViewModel {
         }
     }
     
-    func getAnimojis(from entities: [TextEntity]) async -> [Animoji] {
-        var animojis = [Animoji]()
-        
-        for entity in entities {
-            guard case .textEntityTypeCustomEmoji(let textEntityTypeCustomEmoji) = entity.type,
-                  let customEmoji = await tdGetCustomEmojiSticker(id: textEntityTypeCustomEmoji.customEmojiId),
-                  case .stickerFullTypeCustomEmoji = customEmoji.fullType,
-                  let file = await tdDownloadFile(id: customEmoji.sticker.id, synchronous: true)
-            else { continue }
-            
-            let url = URL(filePath: file.local.path)
-            let animoji: Animoji
-            switch customEmoji.format {
-                case .stickerFormatTgs:
-                    animoji = Animoji(type: .tgs(url), realEmoji: customEmoji.emoji)
-                case .stickerFormatWebp:
-                    animoji = Animoji(type: .webp(url), realEmoji: customEmoji.emoji)
-                case .stickerFormatWebm:
-                    animoji = Animoji(type: .webm(url), realEmoji: customEmoji.emoji)
-            }
-            animojis.append(animoji)
-        }
-        
-        return animojis
-    }
-    
     func getFormattedText(from content: MessageContent) -> FormattedText? {
         switch content {
             case .messageText(let messageText):
