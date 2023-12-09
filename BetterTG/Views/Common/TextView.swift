@@ -2,10 +2,6 @@
 
 import SwiftUI
 import TDLibKit
-import Lottie
-import Gzip
-import MobileVLCKit
-import SDWebImage
 
 struct TextView: UIViewRepresentable {
     

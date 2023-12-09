@@ -3,8 +3,6 @@
 import SwiftUI
 import TDLibKit
 import AVKit
-import SDWebImageWebPCoder
-import Lottie
 
 @main
 struct BetterTGApp: App {
@@ -18,10 +16,6 @@ struct BetterTGApp: App {
 //        UINavigationBar.appearance().compactAppearance = appearance
 //        UINavigationBar.appearance().standardAppearance = appearance
 //        UINavigationBar.appearance().compactScrollEdgeAppearance = appearance
-        
-        SDImageCodersManager.shared.addCoder(SDImageWebPCoder.shared)
-        
-        LottieConfiguration.shared.renderingEngine = .specific(.coreAnimation)
     }
     
     var body: some Scene {
