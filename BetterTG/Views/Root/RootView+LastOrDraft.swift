@@ -21,7 +21,7 @@ extension RootView {
             Text("Draft: ")
                 .foregroundStyle(.red)
             
-            if draftMessage.replyToMessageId != 0 {
+            if draftMessage.replyTo != nil {
                 Text("reply ")
                     .foregroundStyle(.white)
             }

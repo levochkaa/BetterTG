@@ -85,6 +85,10 @@ private func check(_ update: Update) {
             nc.post(name: .chatTitle, object: updateChatTitle)
         case .updateChatPhoto(let updateChatPhoto):
             nc.post(name: .chatPhoto, object: updateChatPhoto)
+        case .updateChatAccentColor(let updateChatAccentColor):
+            nc.post(name: .chatAccentColor, object: updateChatAccentColor)
+        case .updateChatBackgroundCustomEmoji(let updateChatBackgroundCustomEmoji):
+            nc.post(name: .chatBackgroundCustomEmoji, object: updateChatBackgroundCustomEmoji)
         case .updateChatPermissions(let updateChatPermissions):
             nc.post(name: .chatPermissions, object: updateChatPermissions)
         case .updateChatLastMessage(let updateChatLastMessage):
@@ -129,6 +133,8 @@ private func check(_ update: Update) {
             nc.post(name: .chatIsTranslatable, object: updateChatIsTranslatable)
         case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
             nc.post(name: .chatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
+        case .updateChatViewAsTopics(let updateChatViewAsTopics):
+            nc.post(name: .chatViewAsTopics, object: updateChatViewAsTopics)
         case .updateChatBlockList(let updateChatBlockList):
             nc.post(name: .chatBlockList, object: updateChatBlockList)
         case .updateChatHasScheduledMessages(let updateChatHasScheduledMessages):
@@ -233,6 +239,10 @@ private func check(_ update: Update) {
             nc.post(name: .selectedBackground, object: updateSelectedBackground)
         case .updateChatThemes(let updateChatThemes):
             nc.post(name: .chatThemes, object: updateChatThemes)
+        case .updateAccentColors(let updateAccentColors):
+            nc.post(name: .accentColors, object: updateAccentColors)
+        case .updateProfileAccentColors(let updateProfileAccentColors):
+            nc.post(name: .profileAccentColors, object: updateProfileAccentColors)
         case .updateLanguagePackStrings(let updateLanguagePackStrings):
             nc.post(name: .languagePackStrings, object: updateLanguagePackStrings)
         case .updateConnectionState(let updateConnectionState):
@@ -251,6 +261,8 @@ private func check(_ update: Update) {
             nc.post(name: .activeEmojiReactions, object: updateActiveEmojiReactions)
         case .updateDefaultReactionType(let updateDefaultReactionType):
             nc.post(name: .defaultReactionType, object: updateDefaultReactionType)
+        case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):
+            nc.post(name: .speechRecognitionTrial, object: updateSpeechRecognitionTrial)
         case .updateDiceEmojis(let updateDiceEmojis):
             nc.post(name: .diceEmojis, object: updateDiceEmojis)
         case .updateAnimatedEmojiMessageClicked(let updateAnimatedEmojiMessageClicked):
@@ -287,6 +299,8 @@ private func check(_ update: Update) {
             nc.post(name: .chatMember, object: updateChatMember)
         case .updateNewChatJoinRequest(let updateNewChatJoinRequest):
             nc.post(name: .newChatJoinRequest, object: updateNewChatJoinRequest)
+        case .updateChatBoost(let updateChatBoost):
+            nc.post(name: .chatBoost, object: updateChatBoost)
     }
 }
 

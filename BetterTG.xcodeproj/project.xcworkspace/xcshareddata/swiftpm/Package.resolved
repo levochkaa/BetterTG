@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1024jp/GzipSwift",
       "state" : {
-        "revision" : "7a7f17761c76a932662ab77028a4329f67d645a4",
-        "version" : "5.2.0"
+        "branch" : "main",
+        "revision" : "731037f6cc2be2ec01562f6597c1d0aa3fe6fd05"
       }
     },
     {
@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/airbnb/lottie-ios",
       "state" : {
-        "revision" : "1760543c6e48e13fc76e9343f7006bcaee498a78",
-        "version" : "4.3.1"
+        "branch" : "master",
+        "revision" : "e7ed4b7f5c92408c3ff7714fcc1bbd51170b156b"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImage.git",
       "state" : {
-        "revision" : "936f1c7067728d16c362ba4fb93c17df78b5fd79",
-        "version" : "5.18.2"
+        "revision" : "0383fd49fe4d9ae43f150f24693550ebe6ef0d14",
+        "version" : "5.18.6"
       }
     },
     {
@@ -50,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImageWebPCoder.git",
       "state" : {
-        "revision" : "3819cb70faa2454b54d8364779bfacd8c216a6e2",
-        "version" : "0.13.0"
+        "branch" : "master",
+        "revision" : "db4603921b31a6ce0f8c26d36d6a3fffc2dba481"
       }
     },
     {
@@ -59,8 +59,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
-        "revision" : "8f4d2753f0e4778c76d5f05ad16c74f707390531",
-        "version" : "1.2.3"
+        "branch" : "main",
+        "revision" : "f031c79ee3367ddf7f1a9811a3fd1577991b4025"
       }
     },
     {
@@ -68,8 +68,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/siteline/SwiftUI-Introspect.git",
       "state" : {
-        "revision" : "121c146fe591b1320238d054ae35c81ffa45f45a",
-        "version" : "0.12.0"
+        "branch" : "main",
+        "revision" : "9e1cc02a65b22e09a8251261cccbccce02731fc5"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "e5e63cf70ab36f8f1184b93784681aadee46c506",
-        "version" : "1.8.18-daf48013"
+        "revision" : "129831eb7364a9d8e13990c01f010bfb8f2d84b0",
+        "version" : "1.8.22-85c8c19b"
       }
     },
     {
@@ -87,7 +87,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "98786f0fc26a278e6a4dfdbbb1214e0de97ced5a"
+        "revision" : "0ea6cf7d8e7a51ae165d5598ea4730c044b0ea6a"
       }
     }
   ],

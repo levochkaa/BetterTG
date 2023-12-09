@@ -47,7 +47,7 @@ extension ChatViewModel {
                 .inputMessageText(
                     .init(
                         clearDraft: true,
-                        disableWebPagePreview: true,
+                        linkPreviewOptions: nil,
                         text: FormattedText(
                             entities: getEntities(from: text),
                             text: text.string

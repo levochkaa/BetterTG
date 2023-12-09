@@ -5,12 +5,13 @@ import TDLibKit
 import PhotosUI
 
 extension ChatViewModel {
-    func getMessageReplyTo(from customMessage: CustomMessage?) -> MessageReplyTo? {
+    func getMessageReplyTo(from customMessage: CustomMessage?) -> InputMessageReplyTo? {
         guard let customMessage else { return nil }
-        return .messageReplyToMessage(
+        return .inputMessageReplyToMessage(
             .init(
                 chatId: customMessage.message.chatId,
-                messageId: customMessage.message.id
+                messageId: customMessage.message.id,
+                quote: nil
             )
         )
     }
@@ -18,6 +19,13 @@ extension ChatViewModel {
     func getReplyToMessage(_ replyTo: MessageReplyTo?) async -> Message? {
         if case .messageReplyToMessage(let messageReplyToMessage) = replyTo {
             return messageReplyToMessage.messageId != 0 ? await tdGetMessage(id: messageReplyToMessage.messageId) : nil
+        }
+        return nil
+    }
+    
+    func getInputReplyToMessage(_ inputMessageReplyTo: InputMessageReplyTo?) async -> CustomMessage? {
+        if case .inputMessageReplyToMessage(let message) = inputMessageReplyTo {
+            return message.chatId == 0 ? await getCustomMessage(fromId: message.messageId) : nil
         }
         return nil
     }
@@ -65,28 +73,26 @@ extension ChatViewModel {
         return customMessage
     }
     
-    func getForwardedFrom(_ origin: MessageForwardOrigin?) async -> String? {
+    func getForwardedFrom(_ origin: MessageOrigin?) async -> String? {
         guard let origin else { return nil }
         
         switch origin {
-            case .messageForwardOriginChat(let chat):
+            case .messageOriginChat(let chat):
                 if let title = await tdGetChat(id: chat.senderChatId)?.title {
                     return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
                 } else {
                     return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
                 }
-            case .messageForwardOriginChannel(let channel):
+            case .messageOriginChannel(let channel):
                 if let title = await tdGetChat(id: channel.chatId)?.title {
                     return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
                 } else {
                     return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
                 }
-            case .messageForwardOriginHiddenUser(let messageForwardOriginHiddenUser):
-                return messageForwardOriginHiddenUser.senderName
-            case .messageForwardOriginMessageImport(let messageForwardOriginMessageImport):
-                return messageForwardOriginMessageImport.senderName
-            case .messageForwardOriginUser(let messageForwardOriginUser):
-                return await tdGetUser(id: messageForwardOriginUser.senderUserId)?.firstName
+            case .messageOriginHiddenUser(let messageOriginHiddenUser):
+                return messageOriginHiddenUser.senderName
+            case .messageOriginUser(let messageOriginUser):
+                return await tdGetUser(id: messageOriginUser.senderUserId)?.firstName
         }
     }
     

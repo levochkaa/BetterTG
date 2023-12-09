@@ -12,7 +12,7 @@ extension ChatViewModel {
         }
         
         Task {
-            let customMessage = await getCustomMessage(fromId: draftMessage.replyToMessageId)
+            let customMessage = await getInputReplyToMessage(draftMessage.replyTo)
             
             await MainActor.run {
                 withAnimation {
@@ -28,14 +28,14 @@ extension ChatViewModel {
             inputMessageText: .inputMessageText(
                 .init(
                     clearDraft: true,
-                    disableWebPagePreview: true,
+                    linkPreviewOptions: nil,
                     text: FormattedText(
                         entities: getEntities(from: text),
                         text: text.string
                     )
                 )
             ),
-            replyToMessageId: replyMessage?.message.id ?? 0
+            replyTo: getMessageReplyTo(from: replyMessage)
         )
         
         await tdSetChatDraftMessage(draftMessage)

@@ -47,7 +47,7 @@ extension ChatViewModel {
                         .inputMessageText(
                             .init(
                                 clearDraft: true,
-                                disableWebPagePreview: true,
+                                linkPreviewOptions: nil,
                                 text: FormattedText(
                                     entities: getEntities(from: editMessageText),
                                     text: editMessageText.string
@@ -140,7 +140,6 @@ extension ChatViewModel {
                 chatId: customChat.chat.id,
                 inputMessageContents: inputMessageContents,
                 messageThreadId: nil,
-                onlyPreview: nil,
                 options: nil,
                 replyTo: getMessageReplyTo(from: replyMessage)
             )
