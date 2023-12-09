@@ -69,7 +69,6 @@
 		DF540682296C7ED700492867 /* CustomChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF540681296C7ED700492867 /* CustomChat.swift */; };
 		DF55E2CF295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */; };
 		DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF55E2D1295B783F00A30C76 /* MobileVLCKit */; };
-		DF61B0CA2B24BEDD0051EDE6 /* SwiftUIIntrospect in Frameworks */ = {isa = PBXBuildFile; productRef = DF61B0C92B24BEDD0051EDE6 /* SwiftUIIntrospect */; };
 		DF68DB0129B92AE80010ADE9 /* CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF68DB0029B92AE80010ADE9 /* CustomLayout.swift */; };
 		DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA872AA38622009180D4 /* UIApplication.swift */; };
 		DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA892AA4C899009180D4 /* Text.swift */; };
@@ -90,8 +89,6 @@
 		DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */; };
 		DF8DE3922956158B001D5163 /* ChatViewModel+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8DE3912956158B001D5163 /* ChatViewModel+Media.swift */; };
 		DF96BAE2298BE120003936AC /* View+Equatable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF96BAE1298BE120003936AC /* View+Equatable.swift */; };
-		DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = DF99043E295CA4B100BD6FFE /* Lottie */; };
-		DF990442295CA63F00BD6FFE /* Gzip in Frameworks */ = {isa = PBXBuildFile; productRef = DF990441295CA63F00BD6FFE /* Gzip */; };
 		DF9AC6C729A240B800D6EC76 /* View+Modify.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C629A240B800D6EC76 /* View+Modify.swift */; };
 		DF9AC6CB29A261EB00D6EC76 /* VisiblePreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6CA29A261EB00D6EC76 /* VisiblePreferenceKey.swift */; };
 		DF9AC6CD29A2620800D6EC76 /* View+OnVisible.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6CC29A2620800D6EC76 /* View+OnVisible.swift */; };
@@ -319,13 +316,10 @@
 			files = (
 				DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */,
 				DFA4E5B029759BAA003B43EF /* SDWebImageWebPCoder in Frameworks */,
-				DF990442295CA63F00BD6FFE /* Gzip in Frameworks */,
 				DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */,
 				DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */,
-				DF61B0CA2B24BEDD0051EDE6 /* SwiftUIIntrospect in Frameworks */,
 				DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */,
 				DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */,
-				DF99043F295CA4B100BD6FFE /* Lottie in Frameworks */,
 				DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */,
 				DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */,
 			);
@@ -720,10 +714,7 @@
 				DF820B6F28D787AD007DD293 /* ArgumentParser */,
 				DF9C5CC0292698BC00ED1CA8 /* TDLibKit */,
 				DF55E2D1295B783F00A30C76 /* MobileVLCKit */,
-				DF99043E295CA4B100BD6FFE /* Lottie */,
-				DF990441295CA63F00BD6FFE /* Gzip */,
 				DFA4E5AF29759BAA003B43EF /* SDWebImageWebPCoder */,
-				DF61B0C92B24BEDD0051EDE6 /* SwiftUIIntrospect */,
 			);
 			productName = BetterTG;
 			productReference = DF4B997E28C3F3F50087C1B9 /* BetterTG.app */;
@@ -756,10 +747,7 @@
 			packageReferences = (
 				DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 				DF9C5CBF292698BC00ED1CA8 /* XCRemoteSwiftPackageReference "TDLibKit" */,
-				DFDFC6DF293905C600A5919E /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */,
 				DF55E2D0295B783F00A30C76 /* XCRemoteSwiftPackageReference "MobileVLCKit" */,
-				DF99043D295CA4B100BD6FFE /* XCRemoteSwiftPackageReference "lottie-ios" */,
-				DF990440295CA63F00BD6FFE /* XCRemoteSwiftPackageReference "GzipSwift" */,
 				DFA4E5AE29759BAA003B43EF /* XCRemoteSwiftPackageReference "SDWebImageWebPCoder" */,
 			);
 			productRefGroup = DF4B997F28C3F3F50087C1B9 /* Products */;
@@ -1187,22 +1175,6 @@
 				kind = branch;
 			};
 		};
-		DF99043D295CA4B100BD6FFE /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/airbnb/lottie-ios";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
-		};
-		DF990440295CA63F00BD6FFE /* XCRemoteSwiftPackageReference "GzipSwift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/1024jp/GzipSwift";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
 		DF9C5CBF292698BC00ED1CA8 /* XCRemoteSwiftPackageReference "TDLibKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/Swiftgram/TDLibKit";
@@ -1219,14 +1191,6 @@
 				kind = branch;
 			};
 		};
-		DFDFC6DF293905C600A5919E /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/siteline/SwiftUI-Introspect.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1235,25 +1199,10 @@
 			package = DF55E2D0295B783F00A30C76 /* XCRemoteSwiftPackageReference "MobileVLCKit" */;
 			productName = MobileVLCKit;
 		};
-		DF61B0C92B24BEDD0051EDE6 /* SwiftUIIntrospect */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DFDFC6DF293905C600A5919E /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */;
-			productName = SwiftUIIntrospect;
-		};
 		DF820B6F28D787AD007DD293 /* ArgumentParser */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
 			productName = ArgumentParser;
-		};
-		DF99043E295CA4B100BD6FFE /* Lottie */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF99043D295CA4B100BD6FFE /* XCRemoteSwiftPackageReference "lottie-ios" */;
-			productName = Lottie;
-		};
-		DF990441295CA63F00BD6FFE /* Gzip */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF990440295CA63F00BD6FFE /* XCRemoteSwiftPackageReference "GzipSwift" */;
-			productName = Gzip;
 		};
 		DF9C5CC0292698BC00ED1CA8 /* TDLibKit */ = {
 			isa = XCSwiftPackageProductDependency;
