@@ -53,10 +53,6 @@
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
 		DF4B998928C3F3F60087C1B9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */; };
-		DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */; };
-		DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */; };
-		DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */; };
-		DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DF4B999328C3F51C0087C1B9 /* libz.1.tbd */; };
 		DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA36290D96A400AB9E60 /* LoginState.swift */; };
 		DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
 		DF5261CA294E61BB00FB7C73 /* SelectedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */; };
@@ -215,10 +211,6 @@
 		DF4B998328C3F3F50087C1B9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		DF4B998528C3F3F60087C1B9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DF4B998828C3F3F60087C1B9 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		DF4B999328C3F51C0087C1B9 /* libz.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.1.tbd; path = usr/lib/libz.1.tbd; sourceTree = SDKROOT; };
-		DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.1.tbd"; path = "usr/lib/libc++.1.tbd"; sourceTree = SDKROOT; };
-		DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libSystem.B.tbd; path = usr/lib/libSystem.B.tbd; sourceTree = SDKROOT; };
-		DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++abi.tbd"; path = "usr/lib/libc++abi.tbd"; sourceTree = SDKROOT; };
 		DF4B999728C3F6950087C1B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DF51DA36290D96A400AB9E60 /* LoginState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginState.swift; sourceTree = "<group>"; };
 		DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberInfo.swift; sourceTree = "<group>"; };
@@ -231,8 +223,6 @@
 		DF5261DE294F602600FB7C73 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
 		DF540681296C7ED700492867 /* CustomChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomChat.swift; sourceTree = "<group>"; };
 		DF55E2CE295B1E0A00A30C76 /* ChatBottomArea+VoiceNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatBottomArea+VoiceNote.swift"; sourceTree = "<group>"; };
-		DF63537029B68F180054F0A0 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
-		DF63537229B68F180054F0A0 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		DF69FA872AA38622009180D4 /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
 		DF69FA892AA4C899009180D4 /* Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Text.swift; sourceTree = "<group>"; };
 		DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIPasteboard.swift; sourceTree = "<group>"; };
@@ -302,12 +292,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */,
-				DF4B999B28C3F8F80087C1B9 /* libz.1.tbd in Frameworks */,
 				DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */,
 				DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */,
-				DF4B999828C3F8D50087C1B9 /* libc++abi.tbd in Frameworks */,
-				DF4B999928C3F8E30087C1B9 /* libSystem.B.tbd in Frameworks */,
-				DF4B999A28C3F8EC0087C1B9 /* libc++.1.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -397,7 +383,6 @@
 			children = (
 				DF4B998028C3F3F50087C1B9 /* BetterTG */,
 				DF4B997F28C3F3F50087C1B9 /* Products */,
-				DF4B999228C3F51C0087C1B9 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -427,19 +412,6 @@
 				DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */,
 			);
 			path = BetterTG;
-			sourceTree = "<group>";
-		};
-		DF4B999228C3F51C0087C1B9 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				DF4B999628C3F62A0087C1B9 /* libc++abi.tbd */,
-				DF4B999528C3F5E10087C1B9 /* libSystem.B.tbd */,
-				DF4B999428C3F57F0087C1B9 /* libc++.1.tbd */,
-				DF4B999328C3F51C0087C1B9 /* libz.1.tbd */,
-				DF63537029B68F180054F0A0 /* WidgetKit.framework */,
-				DF63537229B68F180054F0A0 /* SwiftUI.framework */,
-			);
-			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		DF5261D1294F477700FB7C73 /* ChatBottomArea */ = {
@@ -1021,7 +993,6 @@
 		DF4B998D28C3F3F60087C1B9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "";
@@ -1070,7 +1041,6 @@
 		DF4B998E28C3F3F60087C1B9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "";
