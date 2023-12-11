@@ -16,11 +16,13 @@ extension ChatViewModel {
         }
         
         await MainActor.run {
-            displayedImages.removeAll()
-            editMessageText = ""
-            text = ""
-            replyMessage = nil
-            editCustomMessage = nil
+            withAnimation {
+                displayedImages.removeAll()
+                editMessageText = ""
+                text = ""
+                replyMessage = nil
+                editCustomMessage = nil
+            }
         }
     }
     

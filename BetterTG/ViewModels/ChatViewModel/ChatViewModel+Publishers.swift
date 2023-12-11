@@ -268,7 +268,9 @@ extension ChatViewModel {
                         messages[index] = customMessage
                         
                         if messageEdited.messageId == replyMessage?.message.id {
-                            replyMessage = customMessage
+                            withAnimation {
+                                replyMessage = customMessage
+                            }
                         }
                     }
                 }

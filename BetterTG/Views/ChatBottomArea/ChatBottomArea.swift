@@ -28,6 +28,7 @@ struct ChatBottomArea: View {
         @Bindable var viewModel = viewModel
         VStack(spacing: 5) {
             topSide
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             
             if !viewModel.displayedImages.isEmpty {
                 photosScroll
@@ -48,8 +49,6 @@ struct ChatBottomArea: View {
             }
         }
         .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
-        .animation(value: viewModel.editCustomMessage)
-        .animation(value: viewModel.replyMessage)
         .animation(value: showSendButton)
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
