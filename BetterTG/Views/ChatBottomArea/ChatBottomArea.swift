@@ -49,7 +49,6 @@ struct ChatBottomArea: View {
             }
         }
         .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
-        .animation(value: showSendButton)
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)

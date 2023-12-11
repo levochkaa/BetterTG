@@ -19,7 +19,7 @@ extension ChatBottomArea {
         }
         .font(.title2)
         .contentShape(Rectangle())
-        .transition(.scale.animation(.default))
+        .transition(.scale)
         .onTapGesture {
             Task {
                 await viewModel.sendMessage()
@@ -36,8 +36,11 @@ extension ChatBottomArea {
     }
     
     func setShowSendButton() {
-        showSendButton = !viewModel.displayedImages.isEmpty 
+        let value = !viewModel.displayedImages.isEmpty
             || !viewModel.editMessageText.characters.isEmpty
             || !viewModel.text.characters.isEmpty
+        withAnimation {
+            showSendButton = value
+        }
     }
 }

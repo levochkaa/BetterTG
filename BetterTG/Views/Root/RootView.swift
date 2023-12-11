@@ -35,10 +35,11 @@ struct RootView: View {
             guard viewModel.namespace == nil else { return }
             viewModel.namespace = namespace
         }
-        .animation(value: loggedIn)
-        .onReceive(nc.publisher(for: .ready)) { _ in loggedIn = true }
+        .onReceive(nc.publisher(for: .ready)) { _ in withAnimation { loggedIn = true } }
         .onReceive(nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword])) { _ in
-            loggedIn = false
+            withAnimation {
+                loggedIn = false
+            }
         }
     }
     
@@ -69,7 +70,6 @@ struct RootView: View {
                 }
                 .padding(.top, 8)
             }
-            .animation(value: viewModel.mainChats)
             .searchable(text: $query, prompt: "Search chats...")
             .navigationTitle("BetterTG")
             .navigationDestination(for: CustomChat.self) { customChat in

@@ -80,6 +80,7 @@ extension ChatViewModel {
     }
     
     func userStatus(_ status: UserStatus) {
+        let onlineStatus: String
         switch status {
             case .userStatusEmpty:
                 onlineStatus = "empty"
@@ -94,6 +95,7 @@ extension ChatViewModel {
             case .userStatusLastMonth:
                 onlineStatus = "last seen last month"
         }
+        self.onlineStatus = onlineStatus
     }
     
     func getLastSeenTime(from time: Int) -> String {
@@ -121,6 +123,7 @@ extension ChatViewModel {
               messageSenderUser.userId == customChat.chat.id
         else { return }
         
+        let actionStatus: String
         switch chatAction.action {
             case .chatActionTyping:
                 actionStatus = "typing..."
@@ -152,6 +155,9 @@ extension ChatViewModel {
                 actionStatus = "watching animations...\(chatActionWatchingAnimations.emoji)"
             case .chatActionCancel:
                 actionStatus = ""
+        }
+        withAnimation {
+            self.actionStatus = actionStatus
         }
     }
     

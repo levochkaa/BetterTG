@@ -12,8 +12,6 @@ struct AsyncTdImage<Content: View, Placeholder: View>: View {
     var body: some View {
         AsyncTdFile(id: id) { file in
             image(Image(file: file))
-                .transition(.opacity)
-                .animation(.easeInOut, value: file)
         } placeholder: {
             placeholder()
         }

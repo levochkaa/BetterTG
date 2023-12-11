@@ -15,7 +15,6 @@ import Observation
     
     var text: AttributedString = ""
     var editMessageText: AttributedString = ""
-    var showSendButton = false
     
     @ObservationIgnored var loadedAlbums = Set<Int64>()
     @ObservationIgnored var sentPhotosCount = 0
