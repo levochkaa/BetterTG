@@ -47,7 +47,8 @@ func startTdLibUpdateHandler() {
             log("Error TdLibUpdateHandler: \(error)")
         }
     }
-    Task { try await td.setLogStream(logStream: .logStreamEmpty) }
+    // Xcode 15 is unable to handle so many logs
+    try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
 }
 
 // swiftlint:disable:next function_body_length
