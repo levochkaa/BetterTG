@@ -44,6 +44,10 @@ enum Utils {
             case "iPhone14,8": identifier = "iPhone 14 Plus"
             case "iPhone15,2": identifier = "iPhone 14 Pro"
             case "iPhone15,3": identifier = "iPhone 14 Pro Max"
+            case "iPhone15,4": identifier = "iPhone 15"
+            case "iPhone15,5": identifier = "iPhone 15 Plus"
+            case "iPhone16,1": identifier = "iPhone 15 Pro"
+            case "iPhone16,2": identifier = "iPhone 15 Pro Max"
             default: break
         }
         
