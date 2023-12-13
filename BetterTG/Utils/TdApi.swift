@@ -9,6 +9,17 @@ private let manager = TDLibClientManager()
 var td: TDLibClient!
 
 func startTdLibUpdateHandler() {
+    td = manager.createClient { data, client in
+        do {
+            let update = try client.decoder.decode(Update.self, from: data)
+            check(update)
+        } catch {
+            log("Error TdLibUpdateHandler: \(error)")
+        }
+    }
+    // Xcode 15 is unable to handle so many logs
+    try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
+    
     nc.publisher(&cancellables, for: .waitTdlibParameters) { _ in
         Task {
             let dir = try FileManager.default.url(
@@ -38,17 +49,6 @@ func startTdLibUpdateHandler() {
             )
         }
     }
-    
-    td = manager.createClient { data, client in
-        do {
-            let update = try client.decoder.decode(Update.self, from: data)
-            check(update)
-        } catch {
-            log("Error TdLibUpdateHandler: \(error)")
-        }
-    }
-    // Xcode 15 is unable to handle so many logs
-    try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
 }
 
 // swiftlint:disable:next function_body_length
