@@ -6,15 +6,18 @@ import Combine
 
 private var cancellables = Set<AnyCancellable>()
 private let manager = TDLibClientManager()
+private let updateDecodeQueue = DispatchQueue(label: "UpdateDecodeQueue", qos: .userInitiated)
+
 var td: TDLibClient!
 
 func startTdLibUpdateHandler() {
     td = manager.createClient { data, client in
-        do {
-            let update = try client.decoder.decode(Update.self, from: data)
-            check(update)
-        } catch {
-            log("Error TdLibUpdateHandler: \(error)")
+        updateDecodeQueue.async {
+            do {
+                update(try client.decoder.decode(Update.self, from: data))
+            } catch {
+                log("Error TdLibUpdateHandler: \(error)")
+            }
         }
     }
     // Xcode 15 is unable to handle so many logs
@@ -52,7 +55,7 @@ func startTdLibUpdateHandler() {
 }
 
 // swiftlint:disable:next function_body_length
-private func check(_ update: Update) {
+private func update(_ update: Update) {
     switch update {
         case .updateAuthorizationState(let authorizationState):
             Task.main { updateAuthorizationState(authorizationState.authorizationState) }
