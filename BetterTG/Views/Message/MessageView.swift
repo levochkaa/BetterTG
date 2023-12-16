@@ -22,7 +22,8 @@ struct MessageView: View {
             
             if let formattedText = customMessage.formattedText {
                 MessageTextView(formattedText: formattedText, size: size(for: formattedText))
-                    .padding(8)
+                    .padding([.bottom, .horizontal], 8)
+                    .padding(.top, customMessage.replyToMessage != nil || customMessage.messageVoiceNote != nil ? 0 : 8)
             }
         }
         .background(viewModel.highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
