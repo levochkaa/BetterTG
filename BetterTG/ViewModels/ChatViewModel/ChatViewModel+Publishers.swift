@@ -6,7 +6,6 @@ import TDLibKit
 import Observation
 
 extension ChatViewModel {
-    // swiftlint:disable:next function_body_length
     func setPublishers() {
         setMediaPublishers()
         
@@ -32,14 +31,6 @@ extension ChatViewModel {
                   deleteMessages.chatId == customChat.chat.id
             else { return }
             self.deleteMessages(deleteMessages)
-        }
-        
-        nc.publisher(&cancellables, for: .messageSendFailed) { [weak self] notification in
-            guard let self,
-                  let messageSendFailed = notification.object as? UpdateMessageSendFailed,
-                  messageSendFailed.message.chatId == customChat.chat.id
-            else { return }
-            self.messageSendFailed(messageSendFailed)
         }
         
         nc.publisher(&cancellables, for: .messageSendSucceeded) { [weak self] notification in
@@ -212,20 +203,6 @@ extension ChatViewModel {
                     self.savedAlbumMainMessageId = 0
                     self.savedAlbumMainMessageIdTemp = 0
                     self.savedPhotoMessages = []
-                }
-            }
-        }
-    }
-    
-    func messageSendFailed(_ messageSendFailed: UpdateMessageSendFailed) {
-        guard let index = self.messages.firstIndex(where: { $0.message.id == messageSendFailed.oldMessageId })
-        else { return }
-        
-        Task {
-            let customMessage = await self.getCustomMessage(from: messageSendFailed.message)
-            await MainActor.run {
-                withAnimation {
-                    messages[index] = customMessage
                 }
             }
         }
