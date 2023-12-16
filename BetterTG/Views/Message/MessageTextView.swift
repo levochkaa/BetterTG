@@ -5,25 +5,37 @@ import TDLibKit
 
 struct MessageTextView: View {
     @State var formattedText: FormattedText
-    @State private var dynamicHeight: CGFloat = 0
+    @State var size: CGSize
     
     var body: some View {
         TextView(formattedText: formattedText)
             .frame(size: size)
     }
+}
+
+struct TextView: UIViewRepresentable {
+    let formattedText: FormattedText
     
-    var size: CGSize {
-        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
-        let textStorage = NSTextStorage(attributedString: attributedString)
-        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
-        let boundingRect = CGRect(origin: .zero, size: size)
-        let textContainer = NSTextContainer(size: size)
-        textContainer.lineFragmentPadding = 0
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
-        let rect = layoutManager.usedRect(for: textContainer)
-        return rect.integral.size
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView(usingTextLayoutManager: false)
+        textView.font = .body
+        textView.backgroundColor = .clear
+        textView.isScrollEnabled = false
+        textView.isEditable = false
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textContainerInset = .zero
+        setText(textView)
+        return textView
+    }
+    
+    func updateUIView(_ textView: UITextView, context: Context) {
+        if textView.attributedText != NSAttributedString(string: formattedText.text) {
+            setText(textView)
+        }
+    }
+    
+    func setText(_ textView: UITextView) {
+        textView.attributedText = NSMutableAttributedString(getAttributedString(from: formattedText))
     }
 }

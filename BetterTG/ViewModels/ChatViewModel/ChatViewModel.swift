@@ -10,6 +10,8 @@ import Observation
 @Observable final class ChatViewModel {
     @ObservationIgnored var customChat: CustomChat
     
+    @ObservationIgnored var cachedTextSizes = [FormattedText: CGSize]()
+    
     var onlineStatus = ""
     var actionStatus = ""
     
@@ -38,7 +40,7 @@ import Observation
     
     @ObservationIgnored var savedVoiceNoteUrl = URL(filePath: "")
     @ObservationIgnored var audioRecorder = AVAudioRecorder()
-    @ObservationIgnored let audioSession = AVAudioSession.sharedInstance()
+    @ObservationIgnored let audioSession: AVAudioSession = .sharedInstance()
     @ObservationIgnored var mediaPlayer: VLCMediaPlayer!
     var duration = 0
     var recordingVoiceNote = false
