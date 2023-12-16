@@ -25,7 +25,7 @@ struct MessageView: View {
                     .padding(8)
             }
         }
-        .background(.gray6)
+        .background(viewModel.highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .contextMenu { contextMenu }
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 20))
