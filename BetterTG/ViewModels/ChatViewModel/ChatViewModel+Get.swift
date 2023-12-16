@@ -9,7 +9,7 @@ extension ChatViewModel {
         guard let customMessage else { return nil }
         return .inputMessageReplyToMessage(
             .init(
-                chatId: customMessage.message.chatId,
+                chatId: 0,
                 messageId: customMessage.message.id,
                 quote: nil
             )
