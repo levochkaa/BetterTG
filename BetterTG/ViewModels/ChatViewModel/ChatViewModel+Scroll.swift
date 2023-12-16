@@ -3,6 +3,14 @@
 import SwiftUI
 
 extension ChatViewModel {
+    func scrollToLast() {
+        guard let lastId = messages.first?.id, let scrollViewProxy else { return }
+        
+        withAnimation {
+            scrollViewProxy.scrollTo(lastId, anchor: .bottom)
+        }
+    }
+    
     func scrollTo(id: UUID?, anchor: UnitPoint = .center) {
         guard let scrollViewProxy, let id else { return }
         

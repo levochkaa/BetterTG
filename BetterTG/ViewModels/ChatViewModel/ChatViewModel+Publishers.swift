@@ -234,9 +234,9 @@ extension ChatViewModel {
             await MainActor.run { [customMessage] in
                 withAnimation {
                     if message.mediaAlbumId == 0 {
-                        self.messages.append(customMessage)
+                        self.messages.add(customMessage)
                     } else if !self.loadedAlbums.contains(message.mediaAlbumId.rawValue) {
-                        self.messages.append(customMessage)
+                        self.messages.add(customMessage)
                         self.loadedAlbums.insert(message.mediaAlbumId.rawValue)
                     } else if self.loadedAlbums.contains(message.mediaAlbumId.rawValue) {
                         guard let index = self.messages.firstIndex(where: {

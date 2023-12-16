@@ -8,8 +8,6 @@ struct ChatView: View {
     
     @FocusState var focused
     
-    @State var chatPosition: UUID?
-    
     let scroll = "chatScroll"
     @State var scrollOnFocus = true
     @State var showScrollToBottomButton = false
@@ -67,9 +65,9 @@ struct ChatView: View {
             LazyVStack(spacing: 5) {
                 ForEach($viewModel.messages) { $customMessage in
                     itemView(for: $customMessage)
+                        .flipped()
                 }
             }
-            .scrollTargetLayout()
             .overlay {
                 GeometryReader { geometryProxy in
                     Color.clear.preference(
@@ -79,11 +77,10 @@ struct ChatView: View {
                 }
             }
         }
-        .scrollPosition(id: $chatPosition, anchor: .top)
+        .flipped()
         .coordinateSpace(name: scroll)
         .scrollDismissesKeyboard(.interactively)
         .scrollBounceBehavior(.always)
-        .defaultScrollAnchor(.bottom)
         .scrollIndicators(.hidden)
         .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
             let maxY = Int(value.maxY)
@@ -103,10 +100,7 @@ struct ChatView: View {
                 }
             }
             
-            let minY = abs(Int(value.minY))
-            guard !viewModel.loadingMessages, viewModel.loadingMessagesTask == nil,
-                  minY != 0, minY < 500
-            else { return }
+            guard Int(value.minY) > -500 else { return }
             viewModel.loadMessages()
         }
         .onReceive(nc.publisher(for: .localScrollToLastOnFocus)) { _ in
@@ -151,7 +145,7 @@ struct ChatView: View {
         .padding(customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading, 16)
         .transition(
             .asymmetric(
-                insertion: .move(edge: .bottom),
+                insertion: .move(edge: .top),
                 removal: .move(edge: customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading)
             )
             .combined(with: .opacity)
@@ -186,17 +180,11 @@ struct ChatView: View {
             .transition(.move(edge: .bottom).combined(with: .scale).combined(with: .opacity))
             .padding(.trailing)
             .padding(.bottom, 5)
-            .onTapGesture {
-                withAnimation {
-                    chatPosition = viewModel.messages.last?.id
-                }
-            }
+            .onTapGesture(perform: viewModel.scrollToLast)
     }
     
     func scrollToLastOnFocus() {
         guard scrollOnFocus else { return }
-        withAnimation {
-            chatPosition = viewModel.messages.last?.id
-        }
+        viewModel.scrollToLast()
     }
 }
