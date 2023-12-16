@@ -96,13 +96,11 @@ struct LoginView: View {
     
     func loginStateView(_ content: () -> some View) -> some View {
         VStack(spacing: 10) {
-            SpacingAround {
-                Text(viewModel.loginState.title)
-                    .font(.system(.largeTitle, weight: .bold))
-            }
-            
+            Spacer()
+            Text(viewModel.loginState.title)
+                .font(.system(.largeTitle, weight: .bold))
+            Spacer()
             content()
-            
             Spacer()
         }
         .padding()

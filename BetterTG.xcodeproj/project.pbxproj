@@ -82,7 +82,6 @@
 		DF9AC6C729A240B800D6EC76 /* View+Modify.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9AC6C629A240B800D6EC76 /* View+Modify.swift */; };
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
 		DF9C817729993AAF008989B0 /* ChatView+Toolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817629993AAF008989B0 /* ChatView+Toolbar.swift */; };
-		DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817A29994AF6008989B0 /* DividerAround.swift */; };
 		DF9C817D29994BC8008989B0 /* View+Frame.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C817C29994BC8008989B0 /* View+Frame.swift */; };
 		DF9D5170298D19A8009AFE7F /* Shape.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D516F298D19A8009AFE7F /* Shape.swift */; };
 		DFA214B1297D9BEF00758617 /* Array+Uniqued.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA214B0297D9BEF00758617 /* Array+Uniqued.swift */; };
@@ -116,7 +115,6 @@
 		DFE8407C298AFA9100C3A7F8 /* View+CornerRadius.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE8407B298AFA9100C3A7F8 /* View+CornerRadius.swift */; };
 		DFE8407E298AFAA400C3A7F8 /* View+MenuOnPress.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE8407D298AFAA400C3A7F8 /* View+MenuOnPress.swift */; };
 		DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84084298AFB9400C3A7F8 /* Button.swift */; };
-		DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */; };
 		DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NotificationName.swift */; };
 		DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter.swift */; };
 		DFF44E672978711300B0E74C /* RootView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */; };
@@ -231,7 +229,6 @@
 		DF96BAE1298BE120003936AC /* View+Equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Equatable.swift"; sourceTree = "<group>"; };
 		DF9AC6C629A240B800D6EC76 /* View+Modify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Modify.swift"; sourceTree = "<group>"; };
 		DF9C817629993AAF008989B0 /* ChatView+Toolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatView+Toolbar.swift"; sourceTree = "<group>"; };
-		DF9C817A29994AF6008989B0 /* DividerAround.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DividerAround.swift; sourceTree = "<group>"; };
 		DF9C817C29994BC8008989B0 /* View+Frame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Frame.swift"; sourceTree = "<group>"; };
 		DF9D516F298D19A8009AFE7F /* Shape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shape.swift; sourceTree = "<group>"; };
 		DFA214B0297D9BEF00758617 /* Array+Uniqued.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Uniqued.swift"; sourceTree = "<group>"; };
@@ -265,7 +262,6 @@
 		DFE8407B298AFA9100C3A7F8 /* View+CornerRadius.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+CornerRadius.swift"; sourceTree = "<group>"; };
 		DFE8407D298AFAA400C3A7F8 /* View+MenuOnPress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+MenuOnPress.swift"; sourceTree = "<group>"; };
 		DFE84084298AFB9400C3A7F8 /* Button.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Button.swift; sourceTree = "<group>"; };
-		DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacingAround.swift; sourceTree = "<group>"; };
 		DFECD756292A938B002A4BAD /* NotificationName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationName.swift; sourceTree = "<group>"; };
 		DFECD759292A99FE002A4BAD /* NotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenter.swift; sourceTree = "<group>"; };
 		DFF44E662978711200B0E74C /* RootView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+ContextMenu.swift"; sourceTree = "<group>"; };
@@ -415,12 +411,10 @@
 		DF55E2D3295B92F700A30C76 /* Common */ = {
 			isa = PBXGroup;
 			children = (
-				DF68DAFF29B92AD80010ADE9 /* Layouts */,
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
-				DFEB06CA2959EF6C0099E2B2 /* SpacingAround.swift */,
+				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
-				DF9C817A29994AF6008989B0 /* DividerAround.swift */,
 				DF180BD9299D8F3C008174A4 /* ItemView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 				DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */,
@@ -436,14 +430,6 @@
 				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
 			);
 			path = Custom;
-			sourceTree = "<group>";
-		};
-		DF68DAFF29B92AD80010ADE9 /* Layouts */ = {
-			isa = PBXGroup;
-			children = (
-				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
-			);
-			path = Layouts;
 			sourceTree = "<group>";
 		};
 		DF69FA8D2AA4D4F3009180D4 /* Fonts */ = {
@@ -744,7 +730,6 @@
 				DF763B082971BE5B00334615 /* Task.swift in Sources */,
 				DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */,
 				DF3A714F29AB66B200A7EC22 /* String.swift in Sources */,
-				DFEB06CB2959EF6C0099E2B2 /* SpacingAround.swift in Sources */,
 				DF2AE70D2951192800FF7850 /* ChatViewModel+Get.swift in Sources */,
 				DFE8407E298AFAA400C3A7F8 /* View+MenuOnPress.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
@@ -804,7 +789,6 @@
 				DFE8407C298AFA9100C3A7F8 /* View+CornerRadius.swift in Sources */,
 				DFD7D4892942426D0006CF85 /* LoginViewModel+Td.swift in Sources */,
 				DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */,
-				DF9C817B29994AF6008989B0 /* DividerAround.swift in Sources */,
 				DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,

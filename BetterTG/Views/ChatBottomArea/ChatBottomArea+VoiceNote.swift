@@ -17,9 +17,9 @@ extension ChatBottomArea {
                     .contentShape(Rectangle())
             }
             
-            SpacingAround {
-                Text(formattedTimerCount())
-            }
+            Spacer()
+            Text(formattedTimerCount())
+            Spacer()
             
             rightSide
         }
