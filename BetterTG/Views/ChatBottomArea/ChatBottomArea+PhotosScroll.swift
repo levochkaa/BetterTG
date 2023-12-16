@@ -10,7 +10,7 @@ extension ChatBottomArea {
                     photo.image
                         .resizable()
                         .scaledToFit()
-                        .cornerRadius(10)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                         .transition(.scale.combined(with: .opacity))
                         .matchedGeometryEffect(id: photo.id.uuidString, in: rootViewModel.namespace)
                         .onTapGesture {
@@ -34,10 +34,10 @@ extension ChatBottomArea {
             }
         }
         .frame(height: 120)
-        .cornerRadius(15)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
         .padding(5)
         .background(.gray6)
-        .cornerRadius(15)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

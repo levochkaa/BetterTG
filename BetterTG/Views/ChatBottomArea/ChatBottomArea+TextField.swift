@@ -27,7 +27,7 @@ extension ChatBottomArea {
         .lineLimit(10)
         .padding(.horizontal, 5)
         .background(.gray6)
-        .cornerRadius(15)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
         .onReceive(
             Just(viewModel.text)
                 .throttle(

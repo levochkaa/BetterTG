@@ -4,14 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct MessageView: View {
-    
     @Binding var customMessage: CustomMessage
-    let isOutgoing: Bool
-    
-    init(customMessage: Binding<CustomMessage>) {
-        self._customMessage = customMessage
-        self.isOutgoing = customMessage.wrappedValue.message.isOutgoing
-    }
     
     @Environment(ChatViewModel.self) var viewModel
     
@@ -33,8 +26,9 @@ struct MessageView: View {
             }
         }
         .background(.gray6)
-        .cornerRadius(20)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .contextMenu { contextMenu }
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 20))
     }
     
     func size(for formattedText: FormattedText) -> CGSize {

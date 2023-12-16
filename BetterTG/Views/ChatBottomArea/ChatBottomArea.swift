@@ -52,7 +52,7 @@ struct ChatBottomArea: View {
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)
-        .cornerRadius(15)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
         .padding([.bottom, .horizontal], 5)
         .overlay(alignment: .bottomTrailing) {
             Circle()

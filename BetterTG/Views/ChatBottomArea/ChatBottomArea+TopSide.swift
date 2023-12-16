@@ -15,7 +15,7 @@ extension ChatBottomArea {
         HStack {
             ReplyMessageView(customMessage: .constant(customMessage), type: type)
                 .background(.gray6)
-                .cornerRadius(15)
+                .clipShape(RoundedRectangle(cornerRadius: 15))
                 .id(customMessage.id)
             
             Image(systemName: "xmark")

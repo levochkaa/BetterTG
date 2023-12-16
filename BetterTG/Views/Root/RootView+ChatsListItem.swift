@@ -44,7 +44,7 @@ extension RootView {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(5)
         .background(.gray6)
-        .cornerRadius(20)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .padding(.horizontal, 10)
     }
 }
