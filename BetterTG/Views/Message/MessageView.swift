@@ -27,7 +27,7 @@ struct MessageView: View {
         }
         .background(.gray6)
         .clipShape(RoundedRectangle(cornerRadius: 20))
-        .contextMenu { contextMenu }
+        .contextMenu { contextMenu.id(customMessage.id) }
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 20))
     }
     

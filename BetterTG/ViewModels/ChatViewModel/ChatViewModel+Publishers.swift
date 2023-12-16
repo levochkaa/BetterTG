@@ -221,9 +221,12 @@ extension ChatViewModel {
         guard let index = self.messages.firstIndex(where: { $0.message.id == messageSendFailed.oldMessageId })
         else { return }
         
-        Task.main {
-            withAnimation {
-                messages[index].sendFailed = true
+        Task {
+            let customMessage = await self.getCustomMessage(from: messageSendFailed.message)
+            await MainActor.run {
+                withAnimation {
+                    messages[index] = customMessage
+                }
             }
         }
     }
