@@ -12,9 +12,6 @@ extension ChatViewModel {
     }
     
     private func _loadMessages() async {
-        guard !loadingMessages else { return }
-        loadingMessages = true
-        
         guard let chatHistory = await tdGetChatHistory() else { return }
         
         let customMessages = await chatHistory.asyncMap { chatMessage in
@@ -49,7 +46,6 @@ extension ChatViewModel {
             messages.append(contentsOf: filteredSavedMessages)
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.loadingMessages = false
                 self.loadingMessagesTask = nil
             }
         }
