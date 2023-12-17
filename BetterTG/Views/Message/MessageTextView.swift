@@ -18,6 +18,7 @@ struct TextView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView(usingTextLayoutManager: false)
+        textView.delegate = context.coordinator
         textView.font = .body
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
@@ -37,5 +38,15 @@ struct TextView: UIViewRepresentable {
     
     func setText(_ textView: UITextView) {
         textView.attributedText = NSMutableAttributedString(getAttributedString(from: formattedText))
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator: NSObject, UITextViewDelegate {
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            textView.selectedTextRange = nil
+        }
     }
 }

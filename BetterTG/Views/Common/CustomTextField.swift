@@ -36,7 +36,7 @@ private class CustomUITextView: UITextView {
                 }
                 alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert, weak self] _ in
                     guard let self, let text = alert?.textFields?.first?.text else { return }
-                    textStorage.addAttribute(.link, value: URL(string: text)!, range: selectedRange)
+                    textStorage.addAttribute(.link, value: URL(string: text) as Any, range: selectedRange)
                     delegate?.textViewDidChange?(self)
                 })
                 alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -67,15 +67,13 @@ private class CustomUITextView: UITextView {
     
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {
-            return UIPasteboard.general.hasImages
-        } else if action == #selector(captureTextFromCamera) {
-            return false
+            return UIPasteboard.general.hasImages || UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
         }
         return super.canPerformAction(action, withSender: sender)
     }
     
     override func paste(_ sender: Any?) {
-        if let images = UIPasteboard.general.images {
+        if UIPasteboard.general.hasImages, let images = UIPasteboard.general.images {
             nc.post(name: .localPasteImages, object: images.compactMap { writeImage($0) })
         } else {
             isPastingText = true
@@ -85,8 +83,6 @@ private class CustomUITextView: UITextView {
 }
 
 private struct UITextViewWrapper: UIViewRepresentable {
-    typealias UIViewType = CustomUITextView
-    
     @Binding var text: AttributedString
     @Binding var calculatedHeight: CGFloat
     
@@ -94,7 +90,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
     
     let textView = CustomUITextView()
     
-    func makeUIView(context: Context) -> UIViewType {
+    func makeUIView(context: Context) -> CustomUITextView {
         textView.delegate = context.coordinator
         textView.attributedText = NSMutableAttributedString(string: text.string, attributes: defaultAttributes())
         textView.font = .body
@@ -114,7 +110,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
         return textView
     }
     
-    func updateUIView(_ uiView: UIViewType, context: Context) {
+    func updateUIView(_ uiView: CustomUITextView, context: Context) {
         if AttributedString(uiView.attributedText) != text {
             uiView.attributedText = NSAttributedString(text)
         }
@@ -153,6 +149,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
             textView.typingAttributes = defaultAttributes()
             
             if isPastingText {
+                defer { isPastingText = false }
                 if let item = UIPasteboard.general.items.first,
                    let data = (item[UTType.rtf.identifier] as? String)?.data(using: .utf8),
                    let attributedString = try? NSAttributedString(data: data, documentAttributes: nil) {
@@ -162,7 +159,6 @@ private struct UITextViewWrapper: UIViewRepresentable {
                     textView.delegate?.textViewDidChange?(textView)
                     return false
                 }
-                isPastingText = false
             }
             
             return true
