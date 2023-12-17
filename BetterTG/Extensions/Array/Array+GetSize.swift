@@ -29,17 +29,22 @@ public extension Array where Element == PhotoSize {
     /// searches for the nearest smaller image.
     /// - Parameter type: Size type of the photo. See https://core.telegram.org/api/files#image-thumbnail-types
     /// - Returns: Found photo, or nil if it can not be found
-    func getSize(_ type: PhotoSizeType) -> PhotoSize? {
+    func getSize(_ type: PhotoSizeType?) -> PhotoSize? {
+        guard let type else { return first }
         let filtered = self.filter { $0.type == type.td }
         
         if filtered.isEmpty {
             if type.rawValue == 0 {
                 return nil
             } else {
-                return getSize(PhotoSizeType(rawValue: type.rawValue - 1)!)
+                return getSize(PhotoSizeType(rawValue: type.rawValue - 1))
             }
         } else {
             return filtered.first
         }
+    }
+    
+    func first(_ type: PhotoSizeType) -> PhotoSize? {
+        first { $0.type == type.td }
     }
 }

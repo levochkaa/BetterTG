@@ -75,7 +75,7 @@ extension ChatViewModel {
         }
     }
     
-    func tdDownloadFile(id: Int, synchronous: Bool, priority: Int = 4) async -> File? {
+    func tdDownloadFile(id: Int, synchronous: Bool = true, priority: Int = 1) async -> File? {
         do {
             return try await td.downloadFile(
                 fileId: id,

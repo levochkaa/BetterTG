@@ -15,8 +15,6 @@ struct ChatView: View {
     @Environment(\.isPreview) var isPreview
     @Environment(\.dismiss) var dismiss
     
-    @Environment(RootViewModel.self) var rootViewModel
-    
     init(customChat: CustomChat) {
         self._viewModel = State(initialValue: ChatViewModel(customChat: customChat))
     }
@@ -43,6 +41,9 @@ struct ChatView: View {
         }
         .toolbar {
             toolbar
+        }
+        .sheet(item: $viewModel.shownAlbum) { album in
+            ChatViewAlbum(album: album.photos, selection: album.selection)
         }
         .onAppear(perform: viewModel.onAppear)
         .onAppear(perform: viewModel.loadMessages)

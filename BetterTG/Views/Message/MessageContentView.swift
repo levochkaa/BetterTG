@@ -6,7 +6,7 @@ import TDLibKit
 struct MessageContentView: View {
     @Binding var customMessage: CustomMessage
     
-    @Environment(RootViewModel.self) var rootViewModel
+    @Environment(ChatViewModel.self) var viewModel
     
     var body: some View {
         Group {
@@ -24,7 +24,7 @@ struct MessageContentView: View {
                 MediaAlbum {
                     ForEach(customMessage.album) { albumMessage in
                         if case .messagePhoto(let messagePhoto) = albumMessage.content {
-                            makeMessagePhoto(from: messagePhoto)
+                            makeMessagePhoto(from: messagePhoto, albumMessage: albumMessage)
                         }
                     }
                 }
@@ -34,32 +34,29 @@ struct MessageContentView: View {
         .padding(1)
     }
     
-    @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto) -> some View {
-        if let size = messagePhoto.photo.sizes.getSize(.wBox) {
+    @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto, albumMessage: Message? = nil) -> some View {
+        if let size = messagePhoto.photo.sizes.getSize(.yBox) {
             AsyncTdImage(id: size.photo.id) { image in
                 image
                     .resizable()
                     .scaledToFill()
-                    .matchedGeometryEffect(id: "\(size.photo.id)", in: rootViewModel.namespace)
                     .onTapGesture {
-                        guard let url = URL(string: size.photo.local.path) else { return }
-                        withAnimation {
-                            hideKeyboard()
-                            rootViewModel.openedItem = OpenedItem(
-                                id: "\(size.photo.id)",
-                                image: image,
-                                url: url
-                            )
-                        }
+                        viewModel.shownAlbum = .init(photos: customMessage.album, selection: albumMessage?.id ?? 0)
                     }
             } placeholder: {
-                if let size = messagePhoto.photo.sizes.getSize(.iString) {
-                    Image(file: size.photo)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 5)
-                }
+                makeMessagePhotoPlaceholder(from: messagePhoto)
             }
+        } else {
+            makeMessagePhotoPlaceholder(from: messagePhoto)
+        }
+    }
+    
+    @ViewBuilder func makeMessagePhotoPlaceholder(from messagePhoto: MessagePhoto) -> some View {
+        if let size = messagePhoto.photo.sizes.first(.iString) {
+            Image(file: size.photo)
+                .resizable()
+                .scaledToFill()
+                .blur(radius: 5)
         }
     }
 }

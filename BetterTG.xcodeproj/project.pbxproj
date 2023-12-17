@@ -26,7 +26,6 @@
 		DF1717C72971F7770085E698 /* Sequence+CompactMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1717C62971F7770085E698 /* Sequence+CompactMap.swift */; };
 		DF1717C92971F77F0085E698 /* Sequence+ForEach.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1717C82971F77F0085E698 /* Sequence+ForEach.swift */; };
 		DF180BD8299D8C0F008174A4 /* OpenedItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF180BD7299D8C0F008174A4 /* OpenedItem.swift */; };
-		DF180BDA299D8F3C008174A4 /* ItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF180BD9299D8F3C008174A4 /* ItemView.swift */; };
 		DF1F8CC32ABF55C1000E62BD /* MessageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8CC22ABF55C1000E62BD /* MessageContentView.swift */; };
 		DF1F8CC52ABF573F000E62BD /* MessageVoiceNoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8CC42ABF573F000E62BD /* MessageVoiceNoteView.swift */; };
 		DF1F8CC72ABF58A2000E62BD /* View.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1F8CC62ABF58A2000E62BD /* View.swift */; };
@@ -46,6 +45,11 @@
 		DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715029AB702E00A7EC22 /* AttributedString.swift */; };
 		DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715229AB705900A7EC22 /* UIFont.swift */; };
 		DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF40F14F298F01CC00383AE1 /* CameraView.swift */; };
+		DF429D4A2B2FA0970038614B /* URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D492B2FA0970038614B /* URL.swift */; };
+		DF429D4C2B2FA0B70038614B /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D4B2B2FA0B70038614B /* ShareSheet.swift */; };
+		DF429D4E2B2FA0C60038614B /* ChatViewAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D4D2B2FA0C60038614B /* ChatViewAlbum.swift */; };
+		DF429D502B2FA3B80038614B /* CustomMessageAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D4F2B2FA3B80038614B /* CustomMessageAlbum.swift */; };
+		DF429D522B2FA53C0038614B /* ZoomableContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D512B2FA53C0038614B /* ZoomableContainer.swift */; };
 		DF4B998228C3F3F50087C1B9 /* BetterTGApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */; };
 		DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4B998328C3F3F50087C1B9 /* RootView.swift */; };
 		DF4B998628C3F3F60087C1B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4B998528C3F3F60087C1B9 /* Assets.xcassets */; };
@@ -74,7 +78,6 @@
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
-		DF871DDB2AE48E3F008CCA60 /* ZoomableContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF871DDA2AE48E3F008CCA60 /* ZoomableContainer.swift */; };
 		DF8B42402AEC59960081E821 /* UIEdgeInsets.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */; };
 		DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */; };
 		DF8DE3922956158B001D5163 /* ChatViewModel+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8DE3912956158B001D5163 /* ChatViewModel+Media.swift */; };
@@ -174,7 +177,6 @@
 		DF1717C62971F7770085E698 /* Sequence+CompactMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sequence+CompactMap.swift"; sourceTree = "<group>"; };
 		DF1717C82971F77F0085E698 /* Sequence+ForEach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sequence+ForEach.swift"; sourceTree = "<group>"; };
 		DF180BD7299D8C0F008174A4 /* OpenedItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenedItem.swift; sourceTree = "<group>"; };
-		DF180BD9299D8F3C008174A4 /* ItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemView.swift; sourceTree = "<group>"; };
 		DF1F8CC22ABF55C1000E62BD /* MessageContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageContentView.swift; sourceTree = "<group>"; };
 		DF1F8CC42ABF573F000E62BD /* MessageVoiceNoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageVoiceNoteView.swift; sourceTree = "<group>"; };
 		DF1F8CC62ABF58A2000E62BD /* View.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = View.swift; sourceTree = "<group>"; };
@@ -194,6 +196,11 @@
 		DF3A715029AB702E00A7EC22 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
 		DF3A715229AB705900A7EC22 /* UIFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIFont.swift; sourceTree = "<group>"; };
 		DF40F14F298F01CC00383AE1 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
+		DF429D492B2FA0970038614B /* URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URL.swift; sourceTree = "<group>"; };
+		DF429D4B2B2FA0B70038614B /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
+		DF429D4D2B2FA0C60038614B /* ChatViewAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewAlbum.swift; sourceTree = "<group>"; };
+		DF429D4F2B2FA3B80038614B /* CustomMessageAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMessageAlbum.swift; sourceTree = "<group>"; };
+		DF429D512B2FA53C0038614B /* ZoomableContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableContainer.swift; sourceTree = "<group>"; };
 		DF4B997E28C3F3F50087C1B9 /* BetterTG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterTG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF4B998128C3F3F50087C1B9 /* BetterTGApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterTGApp.swift; sourceTree = "<group>"; };
 		DF4B998328C3F3F50087C1B9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -222,7 +229,6 @@
 		DF7AC2792970ADA900D77ACB /* Array+Add.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Add.swift"; sourceTree = "<group>"; };
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
-		DF871DDA2AE48E3F008CCA60 /* ZoomableContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableContainer.swift; sourceTree = "<group>"; };
 		DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIEdgeInsets.swift; sourceTree = "<group>"; };
 		DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvironmentValues.swift; sourceTree = "<group>"; };
 		DF8DE3912956158B001D5163 /* ChatViewModel+Media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Media.swift"; sourceTree = "<group>"; };
@@ -287,6 +293,7 @@
 			children = (
 				1A21D6E4B3EE6D349DB55696 /* ChatView.swift */,
 				DF9C817629993AAF008989B0 /* ChatView+Toolbar.swift */,
+				DF429D4D2B2FA0C60038614B /* ChatViewAlbum.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -314,6 +321,7 @@
 				DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */,
 				DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */,
 				DF180BD7299D8C0F008174A4 /* OpenedItem.swift */,
+				DF429D4F2B2FA3B80038614B /* CustomMessageAlbum.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -415,10 +423,10 @@
 				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
-				DF180BD9299D8F3C008174A4 /* ItemView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 				DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */,
-				DF871DDA2AE48E3F008CCA60 /* ZoomableContainer.swift */,
+				DF429D4B2B2FA0B70038614B /* ShareSheet.swift */,
+				DF429D512B2FA53C0038614B /* ZoomableContainer.swift */,
 			);
 			path = Common;
 			sourceTree = "<group>";
@@ -603,6 +611,7 @@
 				DF69FA922AA51A7D009180D4 /* TextEntity.swift */,
 				DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */,
 				DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */,
+				DF429D492B2FA0970038614B /* URL.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -733,12 +742,12 @@
 				DF2AE70D2951192800FF7850 /* ChatViewModel+Get.swift in Sources */,
 				DFE8407E298AFAA400C3A7F8 /* View+MenuOnPress.swift in Sources */,
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
+				DF429D522B2FA53C0038614B /* ZoomableContainer.swift in Sources */,
 				DF2AE7112951198400FF7850 /* ChatViewModel+Draft.swift in Sources */,
 				DF16E6ED28DA4ACB00281C7B /* LoginViewModel.swift in Sources */,
 				DFD2DE7029B00D0300D531F4 /* IsPreview.swift in Sources */,
 				DF180BD8299D8C0F008174A4 /* OpenedItem.swift in Sources */,
 				DFD7D48D2942443D0006CF85 /* RootViewModel+Publishers.swift in Sources */,
-				DF180BDA299D8F3C008174A4 /* ItemView.swift in Sources */,
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
 				DF9AC6C729A240B800D6EC76 /* View+Modify.swift in Sources */,
 				DF1717C02971F6410085E698 /* Array+GetSize.swift in Sources */,
@@ -747,6 +756,7 @@
 				DF8B42402AEC59960081E821 /* UIEdgeInsets.swift in Sources */,
 				DF2AE70F2951195C00FF7850 /* ChatViewModel+Scroll.swift in Sources */,
 				DFD7D49B29427B450006CF85 /* RootView+ChatsListItem.swift in Sources */,
+				DF429D4A2B2FA0970038614B /* URL.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,
 				DF09693F2976E4E4004F1EE4 /* ChatViewModel+CommandCenter.swift in Sources */,
 				DFE026622951144B004C8C83 /* ReplyMessageView+Photo.swift in Sources */,
@@ -759,7 +769,6 @@
 				DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */,
 				DF236749294148290076B821 /* View+Center.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
-				DF871DDB2AE48E3F008CCA60 /* ZoomableContainer.swift in Sources */,
 				DFD7D493294256B90006CF85 /* ChatViewModel+Publishers.swift in Sources */,
 				DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */,
 				DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */,
@@ -770,6 +779,7 @@
 				DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */,
 				DFD7D49D294280E20006CF85 /* View+FullScreenBackground.swift in Sources */,
 				DF1717C72971F7770085E698 /* Sequence+CompactMap.swift in Sources */,
+				DF429D4E2B2FA0C60038614B /* ChatViewAlbum.swift in Sources */,
 				DFB71EB62AE33DEE00ECAC4E /* LazyView.swift in Sources */,
 				DF7434DF2B2E32730094EA0D /* View+Flipped.swift in Sources */,
 				DF8DE3922956158B001D5163 /* ChatViewModel+Media.swift in Sources */,
@@ -777,6 +787,7 @@
 				DF5261D3294F47B200FB7C73 /* ChatBottomArea.swift in Sources */,
 				DFE026642951146E004C8C83 /* ReplyMessageView+InlineContent.swift in Sources */,
 				DF1717C32971F6AB0085E698 /* Sequence+Map.swift in Sources */,
+				DF429D502B2FA3B80038614B /* CustomMessageAlbum.swift in Sources */,
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF27AD252A9B65B7001A3FFF /* Color.swift in Sources */,
 				DF0921052ABF492600B79504 /* MessageTextView.swift in Sources */,
@@ -792,6 +803,7 @@
 				DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
+				DF429D4C2B2FA0B70038614B /* ShareSheet.swift in Sources */,
 				DF34644A296B787D001BE888 /* MainActor.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
 				DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */,
@@ -964,6 +976,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We would like to access your Camera to let you send photos in chats.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We would like to access your Microphone to let you send Voice messages in chats.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We would like to access Photos to save images you request.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We would like to access your Photos to let you send them in chats.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -1012,6 +1025,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We would like to access your Camera to let you send photos in chats.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We would like to access your Microphone to let you send Voice messages in chats.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We would like to access Photos to save images you request.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We would like to access your Photos to let you send them in chats.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

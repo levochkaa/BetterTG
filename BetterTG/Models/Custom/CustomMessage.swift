@@ -17,8 +17,7 @@ struct CustomMessage: Identifiable, Equatable, Hashable {
     var messageVoiceNote: MessageVoiceNote? {
         if case .messageVoiceNote(let messageVoiceNote) = message.content {
             return messageVoiceNote
-        } else {
-            return nil
         }
+        return nil
     }
 }

@@ -154,80 +154,52 @@ extension ChatViewModel {
     
     func messageSendSucceeded(_ messageSendSucceeded: UpdateMessageSendSucceeded) {
         let message = messageSendSucceeded.message
+        let oldMessageId = messageSendSucceeded.oldMessageId
         
         if message.mediaAlbumId == 0 {
-            guard let index = self.messages.firstIndex(where: {
-                $0.message.id == messageSendSucceeded.oldMessageId
-            }) else { return }
+            guard let index = messages.firstIndex(where: { $0.message.id == oldMessageId  }) else { return }
             Task {
-                let customMessage = await self.getCustomMessage(from: message)
+                let customMessage = await getCustomMessage(from: message)
                 await MainActor.run {
                     withAnimation {
                         messages[index] = customMessage
                     }
                 }
             }
-            return
-        }
-        
-        if self.sentPhotosCount == 0 {
-            self.savedAlbumMainMessageIdTemp = messageSendSucceeded.oldMessageId
-            self.savedAlbumMainMessageId = message.id
-            self.sentPhotosCount += 1
-        } else if self.sentPhotosCount != self.toBeSentPhotosCount {
-            self.sentPhotosCount += 1
-            self.savedPhotoMessages.append(message)
-            
-            if self.sentPhotosCount == self.toBeSentPhotosCount {
-                guard let index = self.messages.firstIndex(where: {
-                    $0.message.id == self.savedAlbumMainMessageIdTemp
-                })
-                else { return }
-                
-                Task {
-                    guard var customMessage = await self.getCustomMessage(fromId: self.savedAlbumMainMessageId)
-                    else { return }
-                    
-                    self.savedPhotoMessages.forEach {
-                        customMessage.album.append($0)
+        } else {
+            messages.enumerated().forEach { outerIndex, outerMessage in
+                outerMessage.album.enumerated().forEach { innerIndex, innerMessage in
+                    guard innerMessage.id == oldMessageId else { return }
+                    withAnimation {
+                        messages[outerIndex].album[innerIndex] = message
                     }
-                    
-                    await MainActor.run { [customMessage] in
-                        withAnimation {
-                            messages[index] = customMessage
-                        }
-                    }
-                    
-                    self.sentPhotosCount = 0
-                    self.toBeSentPhotosCount = 0
-                    self.savedAlbumMainMessageId = 0
-                    self.savedAlbumMainMessageIdTemp = 0
-                    self.savedPhotoMessages = []
+                    nc.post(name: .localScrollToLastOnFocus)
                 }
             }
         }
     }
     
     func newMessage(_ message: Message) {
-        Task {
+        Task { @MainActor in
             let customMessage = await self.getCustomMessage(from: message)
-            await MainActor.run { [customMessage] in
+            if message.mediaAlbumId == 0 {
                 withAnimation {
-                    if message.mediaAlbumId == 0 {
-                        self.messages.add(customMessage)
-                    } else if !self.loadedAlbums.contains(message.mediaAlbumId.rawValue) {
-                        self.messages.add(customMessage)
-                        self.loadedAlbums.insert(message.mediaAlbumId.rawValue)
-                    } else if self.loadedAlbums.contains(message.mediaAlbumId.rawValue) {
-                        guard let index = self.messages.firstIndex(where: {
-                            $0.message.mediaAlbumId == message.mediaAlbumId
-                        }) else { return }
-                        
-                        messages[index].album.append(message)
+                    self.messages.add(customMessage)
+                }
+            } else {
+                if let index = messages.firstIndex(where: {
+                    $0.message.mediaAlbumId == message.mediaAlbumId
+                }) {
+                    withAnimation {
+                        messages[index].album.append(customMessage.message)
                     }
-                    nc.post(name: .localScrollToLastOnFocus)
+                } else {
+                    withAnimation {
+                        messages.add(customMessage)
+                    }
                 }
             }
+            nc.post(name: .localScrollToLastOnFocus)
         }
     }
     

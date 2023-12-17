@@ -31,10 +31,6 @@ struct RootView: View {
         }
         .transition(.opacity)
         .environment(viewModel)
-        .onAppear {
-            guard viewModel.namespace == nil else { return }
-            viewModel.namespace = namespace
-        }
         .onReceive(nc.publisher(for: .ready)) { _ in withAnimation { loggedIn = true } }
         .onReceive(nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword])) { _ in
             withAnimation {
@@ -93,12 +89,6 @@ struct RootView: View {
                         await viewModel.tdGetChatHistory(chatId: customChat.chat.id)
                     }
                 }
-            }
-        }
-        .overlay {
-            if let openedItem = viewModel.openedItem {
-                ItemView(item: openedItem)
-                    .zIndex(1)
             }
         }
     }

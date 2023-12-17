@@ -18,21 +18,17 @@ import Observation
     var text: AttributedString = ""
     var editMessageText: AttributedString = ""
     
-    @ObservationIgnored var loadedAlbums = Set<Int64>()
-    @ObservationIgnored var sentPhotosCount = 0
-    @ObservationIgnored var toBeSentPhotosCount = 0
-    @ObservationIgnored var savedAlbumMainMessageId: Int64 = 0
-    @ObservationIgnored var savedAlbumMainMessageIdTemp: Int64 = 0
-    @ObservationIgnored var savedPhotoMessages = [Message]()
     var displayedImages = [SelectedImage]()
     var showCameraView = false
     
-    @ObservationIgnored var scrollViewProxy: ScrollViewProxy? = nil
+    var shownAlbum: CustomMessageAlbum?
+    
+    @ObservationIgnored var scrollViewProxy: ScrollViewProxy?
     
     var messages = [CustomMessage]()
     var highlightedMessageId: UUID? = nil
     
-    @ObservationIgnored var loadingMessagesTask: Task<Void, Never>? = nil
+    @ObservationIgnored var loadingMessagesTask: Task<Void, Never>?
     
     @ObservationIgnored var offset = 0
     @ObservationIgnored var limit = 30
@@ -47,8 +43,8 @@ import Observation
     var savedMediaPath = ""
     var currentTime: Int32 = 0
     
-    var editCustomMessage: CustomMessage? = nil
-    var replyMessage: CustomMessage? = nil
+    var editCustomMessage: CustomMessage?
+    var replyMessage: CustomMessage?
     
     var errorMessage = ""
     var errorShown = false

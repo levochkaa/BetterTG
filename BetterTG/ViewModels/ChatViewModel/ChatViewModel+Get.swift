@@ -32,8 +32,7 @@ extension ChatViewModel {
     
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
         guard let message = await tdGetMessage(id: id) else { return nil }
-        let customMessage = await getCustomMessage(from: message)
-        return customMessage
+        return await getCustomMessage(from: message)
     }
     
     func getCustomMessage(from message: Message) async -> CustomMessage {
@@ -43,7 +42,10 @@ extension ChatViewModel {
             replyToMessage: replyToMessage,
             forwardedFrom: await getForwardedFrom(message.forwardInfo?.origin)
         )
-        if message.mediaAlbumId != 0 { customMessage.album.append(message) }
+        
+        if message.mediaAlbumId != 0 {
+            customMessage.album.append(message)
+        }
         
         if case .messageSenderUser(let messageSenderUser) = message.senderId {
             customMessage.senderUser = await tdGetUser(id: messageSenderUser.userId)

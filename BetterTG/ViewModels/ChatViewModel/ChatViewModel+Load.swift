@@ -21,10 +21,9 @@ extension ChatViewModel {
         var savedMessages = [CustomMessage]()
         for customMessage in customMessages {
             if customMessage.message.mediaAlbumId != 0 {
-                let index = savedMessages.firstIndex(where: {
+                if let index = savedMessages.firstIndex(where: {
                     $0.message.mediaAlbumId == customMessage.message.mediaAlbumId
-                })
-                if let index {
+                }) {
                     savedMessages[index].album.append(customMessage.message)
                 } else {
                     var newMessage = customMessage
@@ -36,14 +35,8 @@ extension ChatViewModel {
             }
         }
         
-        let filteredSavedMessages = savedMessages.filter { savedMessage in
-            !messages.contains(where: {
-                $0.message.id == savedMessage.message.id
-            })
-        }
-        
-        await MainActor.run {
-            messages.append(contentsOf: filteredSavedMessages)
+        await MainActor.run { [savedMessages] in
+            messages.append(contentsOf: savedMessages)
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.loadingMessagesTask = nil

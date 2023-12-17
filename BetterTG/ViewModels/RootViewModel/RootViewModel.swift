@@ -7,9 +7,6 @@ import Observation
 
 @Observable final class RootViewModel {
     var mainChats = [CustomChat]()
-    var openedItem: OpenedItem? = nil
-    
-    @ObservationIgnored var namespace: Namespace.ID! = nil
     
     var cancellables = Set<AnyCancellable>()
     

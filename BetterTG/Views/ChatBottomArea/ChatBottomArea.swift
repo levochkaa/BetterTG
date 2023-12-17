@@ -20,7 +20,6 @@ struct ChatBottomArea: View {
     @Namespace var namespace
     
     @Environment(ChatViewModel.self) var viewModel
-    @Environment(RootViewModel.self) var rootViewModel
     
     let columns = Array(repeating: GridItem(.fixed(Utils.bottomSheetPhotoWidth)), count: 3)
     

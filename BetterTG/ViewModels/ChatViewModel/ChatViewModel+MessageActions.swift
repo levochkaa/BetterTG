@@ -35,7 +35,6 @@ extension ChatViewModel {
             let messageContents = displayedImages.map {
                 makeInputMessageContent(for: $0.url)
             }
-            toBeSentPhotosCount = displayedImages.count
             await tdSendMessageAlbum(with: messageContents)
         }
     }
