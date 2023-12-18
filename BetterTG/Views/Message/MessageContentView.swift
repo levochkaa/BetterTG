@@ -41,7 +41,14 @@ struct MessageContentView: View {
                     .resizable()
                     .scaledToFill()
                     .onTapGesture {
-                        viewModel.shownAlbum = .init(photos: customMessage.album, selection: albumMessage?.id ?? 0)
+                        if customMessage.album.isEmpty {
+                            viewModel.shownAlbum = .init(
+                                photos: [customMessage.message],
+                                selection: customMessage.message.id
+                            )
+                        } else if let albumMessage {
+                            viewModel.shownAlbum = .init(photos: customMessage.album, selection: albumMessage.id)
+                        }
                     }
             } placeholder: {
                 makeMessagePhotoPlaceholder(from: messagePhoto)
