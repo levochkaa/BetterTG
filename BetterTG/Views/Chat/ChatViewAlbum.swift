@@ -8,6 +8,7 @@ struct ChatViewAlbum: View {
     @State var selection: Int64
     
     @State private var shareUrl: URL?
+    @State private var photos = [Int: String]()
     
     @Environment(\.safeAreaInsets) var safeAreaInsets
     @Environment(\.dismiss) var dismiss
@@ -55,9 +56,10 @@ struct ChatViewAlbum: View {
             if let albumMessage = album.first(where: { $0.id == selection }),
                case .messagePhoto(let messagePhoto) = albumMessage.content,
                let size = messagePhoto.photo.sizes.getSize(.yBox),
-               FileManager.default.fileExists(atPath: size.photo.local.path) {
+               let path = photos[size.photo.id],
+               FileManager.default.fileExists(atPath: path) {
                 Button(systemImage: "square.and.arrow.up.circle.fill") {
-                    shareUrl = URL(filePath: size.photo.local.path)
+                    shareUrl = URL(filePath: path)
                 }
             }
         }
@@ -67,10 +69,11 @@ struct ChatViewAlbum: View {
     
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto) -> some View {
         if let size = messagePhoto.photo.sizes.getSize(.yBox) {
-            AsyncTdImage(id: size.photo.id) { image in
-                image
+            AsyncTdFile(id: size.photo.id) { file in
+                Image(file: file)
                     .resizable()
                     .scaledToFit()
+                    .onAppear { photos[size.photo.id] = file.local.path }
             } placeholder: {
                 makeMessagePhotoPlaceholder(from: messagePhoto)
             }
