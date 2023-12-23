@@ -15,7 +15,7 @@ extension ReplyMessageView {
                     Text(getAttributedString(from: messagePhoto.caption))
                 }
             case .messageVoiceNote(let messageVoiceNote):
-                HStack(alignment: .bottom) {
+                HStack(alignment: .bottom, spacing: 0) {
                     Text("Voice")
                         .foregroundStyle(.white)
                     

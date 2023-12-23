@@ -14,6 +14,7 @@ extension RootView {
         }
         .foregroundStyle(.gray)
         .lineLimit(1)
+        .allowsHitTesting(false)
     }
     
     @ViewBuilder func draftMessageView(for draftMessage: DraftMessage) -> some View {
