@@ -13,26 +13,22 @@ extension ChatBottomArea {
                 }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.title2)
+                    .font(.system(size: 22))
                     .contentShape(Rectangle())
             }
             
             Spacer()
-            Text(formattedTimerCount())
+            Text(formattedTimerCount)
             Spacer()
             
             rightSide
         }
-        .padding(.vertical, 3)
-        .onAppear {
-            startTime()
-        }
-        .onDisappear {
-            stopTimer()
-        }
+        .padding(.vertical, 2)
+        .onAppear(perform: startTimer)
+        .onDisappear(perform: stopTimer)
     }
     
-    func formattedTimerCount() -> String {
+    var formattedTimerCount: String {
         let time = String(format: "%.2f", timerCount).split(separator: ".", maxSplits: 2)
         let seconds = Int(time[0]) ?? 0
         var resultString = ""
@@ -47,7 +43,7 @@ extension ChatBottomArea {
         return resultString
     }
     
-    func startTime() {
+    func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { timer in
             viewModel.audioRecorder.updateMeters()
             wave.append(viewModel.audioRecorder.peakPower(forChannel: 0))
