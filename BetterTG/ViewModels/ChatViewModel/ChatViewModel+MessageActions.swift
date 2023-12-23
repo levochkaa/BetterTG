@@ -29,7 +29,7 @@ extension ChatViewModel {
     
     var canEditMessage: Bool {
         guard let editCustomMessage else { return false }
-        switch editCustomMessage.content {
+        switch editCustomMessage.message.content {
             case .messagePhoto, .messageVoiceNote:
                 return true
             case .messageText:
