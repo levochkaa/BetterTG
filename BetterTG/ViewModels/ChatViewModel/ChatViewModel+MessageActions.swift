@@ -7,7 +7,7 @@ extension ChatViewModel {
     func sendMessage() async {
         if !displayedImages.isEmpty {
             await sendMessagePhotos()
-        } else if !editMessageText.characters.isEmpty {
+        } else if canEditMessage {
             await editMessage()
         } else if !text.characters.isEmpty {
             await sendMessageText()
@@ -24,6 +24,18 @@ extension ChatViewModel {
                 replyMessage = nil
                 editCustomMessage = nil
             }
+        }
+    }
+    
+    var canEditMessage: Bool {
+        guard let editCustomMessage else { return false }
+        switch editCustomMessage.content {
+            case .messagePhoto, .messageVoiceNote:
+                return true
+            case .messageText:
+                return !editMessageText.characters.isEmpty
+            default:
+                return false
         }
     }
     

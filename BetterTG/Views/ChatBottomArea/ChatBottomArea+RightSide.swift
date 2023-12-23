@@ -33,9 +33,11 @@ extension ChatBottomArea {
         .onChange(of: viewModel.editMessageText, setShowSendButton)
         .onChange(of: viewModel.text, setShowSendButton)
         .onChange(of: viewModel.displayedImages, setShowSendButton)
+        .onChange(of: viewModel.editCustomMessage, setShowSendButton)
     }
     
     func setShowSendButton() {
+        guard viewModel.editCustomMessage == nil else { return withAnimation { showSendButton = true } }
         let value = !viewModel.displayedImages.isEmpty
             || !viewModel.editMessageText.characters.isEmpty
             || !viewModel.text.characters.isEmpty
