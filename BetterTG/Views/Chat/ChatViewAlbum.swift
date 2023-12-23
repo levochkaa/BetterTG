@@ -7,7 +7,6 @@ struct ChatViewAlbum: View {
     @State var album: [Message]
     @State var selection: Int64
     
-    @State private var shareUrl: URL?
     @State private var photos = [Int: String]()
     
     @Environment(\.safeAreaInsets) var safeAreaInsets
@@ -37,11 +36,6 @@ struct ChatViewAlbum: View {
                     .overlay(alignment: .top) { Divider() }
             }
             .ignoresSafeArea()
-            .sheet(item: $shareUrl) { url in
-                ShareSheet(items: [url])
-                    .presentationDetents([.medium])
-                    .ignoresSafeArea()
-            }
         }
     }
     
@@ -59,7 +53,7 @@ struct ChatViewAlbum: View {
                let path = photos[size.photo.id],
                FileManager.default.fileExists(atPath: path) {
                 Button(systemImage: "square.and.arrow.up.circle.fill") {
-                    shareUrl = URL(filePath: path)
+                    showShareSheet([URL(filePath: path)])
                 }
             }
         }

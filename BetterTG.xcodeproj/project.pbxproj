@@ -46,7 +46,6 @@
 		DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A715229AB705900A7EC22 /* UIFont.swift */; };
 		DF40F150298F01CC00383AE1 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF40F14F298F01CC00383AE1 /* CameraView.swift */; };
 		DF429D4A2B2FA0970038614B /* URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D492B2FA0970038614B /* URL.swift */; };
-		DF429D4C2B2FA0B70038614B /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D4B2B2FA0B70038614B /* ShareSheet.swift */; };
 		DF429D4E2B2FA0C60038614B /* ChatViewAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D4D2B2FA0C60038614B /* ChatViewAlbum.swift */; };
 		DF429D502B2FA3B80038614B /* CustomMessageAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D4F2B2FA3B80038614B /* CustomMessageAlbum.swift */; };
 		DF429D522B2FA53C0038614B /* ZoomableContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF429D512B2FA53C0038614B /* ZoomableContainer.swift */; };
@@ -197,7 +196,6 @@
 		DF3A715229AB705900A7EC22 /* UIFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIFont.swift; sourceTree = "<group>"; };
 		DF40F14F298F01CC00383AE1 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		DF429D492B2FA0970038614B /* URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URL.swift; sourceTree = "<group>"; };
-		DF429D4B2B2FA0B70038614B /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		DF429D4D2B2FA0C60038614B /* ChatViewAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewAlbum.swift; sourceTree = "<group>"; };
 		DF429D4F2B2FA3B80038614B /* CustomMessageAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMessageAlbum.swift; sourceTree = "<group>"; };
 		DF429D512B2FA53C0038614B /* ZoomableContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableContainer.swift; sourceTree = "<group>"; };
@@ -425,7 +423,6 @@
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 				DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */,
-				DF429D4B2B2FA0B70038614B /* ShareSheet.swift */,
 				DF429D512B2FA53C0038614B /* ZoomableContainer.swift */,
 			);
 			path = Common;
@@ -803,7 +800,6 @@
 				DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
-				DF429D4C2B2FA0B70038614B /* ShareSheet.swift in Sources */,
 				DF34644A296B787D001BE888 /* MainActor.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
 				DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */,

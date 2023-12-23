@@ -13,3 +13,14 @@ extension UIApplication {
             .first
     }
 }
+
+func showShareSheet(_ items: [Any]) {
+    guard let rootVC = UIApplication.currentKeyWindow?.rootViewController else { return }
+    let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+    vc.isModalInPresentation = false
+    if let presentedVC = rootVC.presentedViewController {
+        presentedVC.present(vc, animated: true)
+    } else {
+        rootVC.present(vc, animated: true)
+    }
+}
