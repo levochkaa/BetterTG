@@ -18,6 +18,7 @@ import Observation
     var text: AttributedString = ""
     var editMessageText: AttributedString = ""
     
+    var photosPickerItems = [PhotosPickerItem]()
     var displayedImages = [SelectedImage]()
     var showCameraView = false
     

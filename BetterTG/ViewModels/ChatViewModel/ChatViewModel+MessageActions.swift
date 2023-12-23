@@ -18,6 +18,7 @@ extension ChatViewModel {
         await MainActor.run {
             withAnimation {
                 displayedImages.removeAll()
+                photosPickerItems.removeAll()
                 editMessageText = ""
                 text = ""
                 replyMessage = nil

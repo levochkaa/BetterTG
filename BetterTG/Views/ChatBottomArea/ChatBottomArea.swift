@@ -13,7 +13,6 @@ struct ChatBottomArea: View {
     @State var wave = [Float]()
     
     @State var setDisplayedImagesTask: Task<Void, Never>?
-    @State var photosPickerItems = [PhotosPickerItem]()
     @State var showDetail = false
     @State var showSendButton = false
     
@@ -90,14 +89,14 @@ struct ChatBottomArea: View {
             
             if showDetail {
                 PhotosPicker(
-                    selection: $photosPickerItems,
+                    selection: $viewModel.photosPickerItems,
                     maxSelectionCount: 10,
                     selectionBehavior: .continuousAndOrdered,
                     matching: .images
                 ) {
                     Image(systemName: "photo")
                 }
-                .onChange(of: photosPickerItems) { _, photosPickerItems in
+                .onChange(of: viewModel.photosPickerItems) { _, photosPickerItems in
                     viewModel.displayedImages.removeAll()
                     setDisplayedImagesTask?.cancel()
                     setDisplayedImagesTask = Task { [viewModel] in
