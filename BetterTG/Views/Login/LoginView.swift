@@ -18,7 +18,7 @@ struct LoginView: View {
     @FocusState var focused: LoginState?
     
     var body: some View {
-        NavigationStack {
+        ZStack {
             Group {
                 switch loginState {
                     case .phoneNumber:
@@ -75,7 +75,6 @@ struct LoginView: View {
             )
         }
         .animation(.default, value: loginState)
-        .navigationTitle("Login")
         .safeAreaInset(edge: .bottom) {
             Button {
                 withAnimation {
