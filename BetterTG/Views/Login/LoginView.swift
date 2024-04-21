@@ -1,45 +1,53 @@
 // LoginView.swift
 
 import SwiftUI
+import TDLibKit
 
 struct LoginView: View {
-    
-    @State var viewModel = LoginViewModel()
+    @State var loginState: LoginState = .phoneNumber
     
     @State var showSelectCountryView = false
-    @State var searchCountries = ""
+    @State var selectedCountryNum = PhoneNumberInfo(country: "RU", phoneNumberPrefix: "7", name: "Russian Federation")
     
+    @State var phoneNumber = ""
+    @State var code = ""
+    @State var hint = ""
+    @State var twoFactor = ""
+    
+    @State var errorShown = false
     @FocusState var focused: LoginState?
     
     var body: some View {
         NavigationStack {
             Group {
-                switch viewModel.loginState {
+                switch loginState {
                     case .phoneNumber:
                         loginStateView {
                             GroupBox {
                                 HStack {
-                                    Text("+\(viewModel.selectedCountryNum.phoneNumberPrefix)")
+                                    Text("+\(selectedCountryNum.phoneNumberPrefix)")
                                     
-                                    TextField("Phone Number", text: $viewModel.phoneNumber)
+                                    TextField("Phone Number", text: $phoneNumber)
                                         .focused($focused, equals: .phoneNumber)
                                         .keyboardType(.numberPad)
                                 }
                             } label: {
-                                Button(viewModel.selectedCountryNum.name) {
+                                Button(selectedCountryNum.name) {
                                     showSelectCountryView.toggle()
                                 }
                             }
                         }
-                        .task { await viewModel.loadCountries() }
                         .sheet(isPresented: $showSelectCountryView) {
-                            selectCountryView
-                                .presentationDetents([.medium, .large])
-                                .presentationDragIndicator(.hidden)
+                            SelectCountryView(
+                                showSelectCountryView: $showSelectCountryView,
+                                selectedCountryNum: $selectedCountryNum
+                            )
+                            .presentationDetents([.medium, .large])
+                            .presentationDragIndicator(.hidden)
                         }
                     case .code:
                         loginStateView {
-                            TextField("Code", text: $viewModel.code)
+                            TextField("Code", text: $code)
                                 .focused($focused, equals: .code)
                                 .keyboardType(.numberPad)
                                 .padding()
@@ -48,7 +56,7 @@ struct LoginView: View {
                         }
                     case .twoFactor:
                         loginStateView {
-                            SecureField(viewModel.hint.isEmpty ? "2FA" : viewModel.hint, text: $viewModel.twoFactor)
+                            SecureField(hint.isEmpty ? "2FA" : hint, text: $twoFactor)
                                 .focused($focused, equals: .twoFactor)
                                 .textContentType(.password)
                                 .keyboardType(.alphabet)
@@ -65,20 +73,33 @@ struct LoginView: View {
                 )
                 .combined(with: .opacity)
             )
-            .navigationTitle("Login")
         }
+        .animation(.default, value: loginState)
+        .navigationTitle("Login")
         .safeAreaInset(edge: .bottom) {
             Button {
                 withAnimation {
+                    guard let focused else { return }
                     switch focused {
-                        case .phoneNumber: focused = .code
-                        case .code: focused = .twoFactor
-                        case .twoFactor: focused = nil
-                        case nil: break
+                        case .phoneNumber: self.focused = .code
+                        case .code: self.focused = .twoFactor
+                        case .twoFactor: self.focused = nil
                     }
                 }
-                Task {
-                    await viewModel.handleAuthorizationState()
+                Task.background {
+                    switch try? await td.getAuthorizationState() {
+                        case .authorizationStateWaitPassword:
+                            _ = try? await td.checkAuthenticationPassword(password: twoFactor)
+                        case .authorizationStateWaitCode:
+                            _ = try? await td.checkAuthenticationCode(code: code)
+                        case .authorizationStateWaitPhoneNumber:
+                            _ = try? await td.setAuthenticationPhoneNumber(
+                                phoneNumber: "\(selectedCountryNum.phoneNumberPrefix)\(phoneNumber)",
+                                settings: nil
+                            )
+                        default: 
+                            break
+                    }
                 }
             } label: {
                 Text("Continue")
@@ -88,53 +109,45 @@ struct LoginView: View {
             .buttonStyle(.borderedProminent)
             .padding()
         }
-        .errorAlert(
-            show: $viewModel.errorShown,
-            text: "There was an error with Authorization state. Please, restart the app."
-        )
+        .alert("Error", isPresented: $errorShown) {
+            Text("There was an error with Authorization State. Please, restart the app.")
+        }
+        .task {
+            switch try? await td.getAuthorizationState() {
+                case .authorizationStateWaitPassword: loginState = .twoFactor
+                case .authorizationStateWaitCode: loginState = .code
+                case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
+                    errorShown = true
+                default: break
+            }
+        }
+        .onReceive(nc.publisher(for: .authorizationStateWaitPassword)) { notification in
+            guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
+            self.loginState = .twoFactor
+            withAnimation {
+                self.hint = waitPassword.passwordHint
+            }
+        }
+        .onReceive(nc.publisher(for: .authorizationStateWaitCode)) { _ in loginState = .code }
+        .onReceive(nc.mergeMany([
+            .authorizationStateWaitPhoneNumber,
+            .authorizationStateClosed,
+            .authorizationStateClosing,
+            .authorizationStateLoggingOut
+        ])) { _ in
+            loginState = .phoneNumber
+        }
     }
     
     func loginStateView(_ content: () -> some View) -> some View {
         VStack(spacing: 10) {
             Spacer()
-            Text(viewModel.loginState.title)
+            Text(loginState.title)
                 .font(.system(.largeTitle, weight: .bold))
             Spacer()
             content()
             Spacer()
         }
         .padding()
-    }
-    
-    @ViewBuilder var selectCountryView: some View {
-        NavigationStack {
-            List(viewModel.getFilteredCountries(query: searchCountries), id: \.self) { info in
-                Button {
-                    viewModel.selectedCountryNum = info
-                    showSelectCountryView.toggle()
-                } label: {
-                    HStack {
-                        Text(info.name)
-                        
-                        Spacer()
-                        
-                        Text("+\(info.phoneNumberPrefix)")
-                    }
-                    .foregroundStyle(.white)
-                }
-            }
-            .background(.black)
-            .padding(.top, -20)
-            .navigationTitle("Country")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchCountries, placement: .navigationBarDrawer(displayMode: .always))
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        showSelectCountryView.toggle()
-                    }
-                }
-            }
-        }
     }
 }
