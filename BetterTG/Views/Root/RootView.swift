@@ -22,7 +22,7 @@ struct RootView: View {
     @Environment(\.scenePhase) var scenePhase
     
     var body: some View {
-        Group {
+        ZStack {
             if loggedIn {
                 bodyView
             } else {
