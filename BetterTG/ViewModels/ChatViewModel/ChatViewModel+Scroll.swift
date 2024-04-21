@@ -11,7 +11,7 @@ extension ChatViewModel {
         }
     }
     
-    func scrollTo(id: UUID?, anchor: UnitPoint = .center) {
+    func scrollTo(id: Int64?, anchor: UnitPoint = .center) {
         guard let scrollViewProxy, let id else { return }
         
         withAnimation {

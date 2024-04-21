@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct CustomMessage: Identifiable, Equatable, Hashable {
-    var id = UUID()
+    var id: Int64 { message.id }
     var message: Message
     var senderUser: User?
     var replyUser: User?

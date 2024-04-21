@@ -27,7 +27,7 @@ import Observation
     @ObservationIgnored var scrollViewProxy: ScrollViewProxy?
     
     var messages = [CustomMessage]()
-    var highlightedMessageId: UUID? = nil
+    var highlightedMessageId: Int64?
     
     @ObservationIgnored var loadingMessagesTask: Task<Void, Never>?
     
