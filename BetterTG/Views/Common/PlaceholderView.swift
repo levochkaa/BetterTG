@@ -3,16 +3,14 @@
 import SwiftUI
 
 struct PlaceholderView: View {
-    
-    @State var userId: Int64
-    @State var title: String
-    @State var fontSize: CGFloat = 40
+    @Binding var customChat: CustomChat
+    var fontSize: CGFloat = 40
     
     var body: some View {
-        Text(String(title.prefix(1).capitalized))
+        Text(String(customChat.chat.title.prefix(1).capitalized))
             .font(.system(size: fontSize, design: .rounded))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(userId: userId).gradient)
+            .background(Color(userId: customChat.chat.id).gradient)
     }
 }

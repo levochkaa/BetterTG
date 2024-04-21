@@ -61,21 +61,13 @@ extension ChatView {
                                 .scaledToFit()
                         }
                 } placeholder: {
-                    chatPhotoPlaceholderView
+                    PlaceholderView(customChat: $viewModel.customChat, fontSize: 20)
                 }
             } else {
-                chatPhotoPlaceholderView
+                PlaceholderView(customChat: $viewModel.customChat, fontSize: 20)
             }
         }
         .frame(width: 32, height: 32)
         .clipShape(Circle())
-    }
-    
-    @ViewBuilder private var chatPhotoPlaceholderView: some View {
-        PlaceholderView(
-            userId: viewModel.customChat.user.id,
-            title: viewModel.customChat.user.firstName,
-            fontSize: 20
-        )
     }
 }

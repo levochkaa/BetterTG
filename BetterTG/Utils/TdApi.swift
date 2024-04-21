@@ -79,7 +79,7 @@ private func update(_ update: Update) {
         case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
             nc.post(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed)
         case .updateNewChat(let updateNewChat):
-            nc.post(name: .updateNewChat, object: updateNewChat)
+            Task.main { nc.post(name: .updateNewChat, object: updateNewChat) }
         case .updateChatTitle(let updateChatTitle):
             nc.post(name: .updateChatTitle, object: updateChatTitle)
         case .updateChatPhoto(let updateChatPhoto):
@@ -89,9 +89,9 @@ private func update(_ update: Update) {
         case .updateChatPermissions(let updateChatPermissions):
             nc.post(name: .updateChatPermissions, object: updateChatPermissions)
         case .updateChatLastMessage(let updateChatLastMessage):
-            nc.post(name: .updateChatLastMessage, object: updateChatLastMessage)
+            Task.main { nc.post(name: .updateChatLastMessage, object: updateChatLastMessage) }
         case .updateChatPosition(let updateChatPosition):
-            nc.post(name: .updateChatPosition, object: updateChatPosition)
+            Task.main { nc.post(name: .updateChatPosition, object: updateChatPosition) }
         case .updateChatAddedToList(let updateChatAddedToList):
             nc.post(name: .updateChatAddedToList, object: updateChatAddedToList)
         case .updateChatRemovedFromList(let updateChatRemovedFromList):
@@ -105,7 +105,7 @@ private func update(_ update: Update) {
         case .updateChatAvailableReactions(let updateChatAvailableReactions):
             nc.post(name: .updateChatAvailableReactions, object: updateChatAvailableReactions)
         case .updateChatDraftMessage(let updateChatDraftMessage):
-            nc.post(name: .updateChatDraftMessage, object: updateChatDraftMessage)
+            Task.main { nc.post(name: .updateChatDraftMessage, object: updateChatDraftMessage) }
         case .updateChatEmojiStatus(let updateChatEmojiStatus):
             nc.post(name: .updateChatEmojiStatus, object: updateChatEmojiStatus)
         case .updateChatMessageSender(let updateChatMessageSender):

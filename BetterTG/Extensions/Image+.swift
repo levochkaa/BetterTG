@@ -8,8 +8,8 @@ extension Image {
         self.init(uiImage: UIImage(contentsOfFile: file.local.path) ?? UIImage())
     }
     
-    init?(data: Data) {
-        if let uiImage = UIImage(data: data) {
+    init?(data: Data?) {
+        if let data, let uiImage = UIImage(data: data) {
             self.init(uiImage: uiImage)
         } else {
             return nil

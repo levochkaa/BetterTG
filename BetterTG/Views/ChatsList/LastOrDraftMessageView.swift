@@ -1,23 +1,29 @@
-// RootView+LastOrDraft.swift
+// LastOrDraftMessageView.swift
 
 import SwiftUI
 import TDLibKit
 
-extension RootView {
-    @ViewBuilder func lastOrDraftMessage(for customChat: CustomChat) -> some View {
-        Group {
+struct LastOrDraftMessageView: View {
+    @Binding var customChat: CustomChat
+    
+    var body: some View {
+        ZStack {
             if let draftMessage = customChat.draftMessage {
-                draftMessageView(for: draftMessage)
+                DraftMessageView(draftMessage: draftMessage)
             } else if let lastMessage = customChat.lastMessage {
-                lastMessageView(for: lastMessage)
+                LastMesssageView(lastMessage: lastMessage)
             }
         }
         .foregroundStyle(.gray)
         .lineLimit(1)
         .allowsHitTesting(false)
     }
+}
+
+private struct DraftMessageView: View {
+    let draftMessage: DraftMessage
     
-    @ViewBuilder func draftMessageView(for draftMessage: DraftMessage) -> some View {
+    var body: some View {
         HStack(alignment: .bottom, spacing: 0) {
             Text("Draft: ")
                 .foregroundStyle(.red)
@@ -32,12 +38,33 @@ extension RootView {
             }
         }
     }
+}
+
+private struct LastMesssageView: View {
+    let lastMessage: Message
     
-    @ViewBuilder func lastMessageView(for lastMessage: Message) -> some View {
+    var body: some View {
         switch lastMessage.content {
             case .messagePhoto(let messagePhoto):
                 HStack(alignment: .center, spacing: 5) {
-                    makePhotoPreview(from: messagePhoto)
+                    ZStack {
+                        if let size = messagePhoto.photo.sizes.getSize(.mBox) {
+                            AsyncTdImage(id: size.photo.id) { image in
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            } placeholder: {
+                                Image(data: messagePhoto.photo.minithumbnail?.data)?
+                                    .resizable()
+                                    .scaledToFit()
+                            }
+                        } else {
+                            Image(data: messagePhoto.photo.minithumbnail?.data)?
+                                .resizable()
+                                .scaledToFit()
+                        }
+                    }
+                    .frame(width: 20, height: 20)
                     
                     if messagePhoto.caption.text.isEmpty {
                         Text("Photo")
