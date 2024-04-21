@@ -65,7 +65,7 @@ struct ChatView: View {
         ScrollView {
             LazyVStack(spacing: 5) {
                 ForEach($viewModel.messages) { $customMessage in
-                    itemView(for: $customMessage)
+                    ChatListItemView(customMessage: $customMessage)
                         .flipped()
                 }
             }
@@ -104,9 +104,7 @@ struct ChatView: View {
             guard Int(value.minY) > -500 else { return }
             viewModel.loadMessages()
         }
-        .onReceive(nc.publisher(for: .localScrollToLastOnFocus)) { _ in
-            scrollToLastOnFocus()
-        }
+        .onReceive(nc.publisher(for: .localScrollToLastOnFocus)) { _ in scrollToLastOnFocus() }
         .onChange(of: focused) { scrollToLastOnFocus() }
         .onChange(of: viewModel.displayedImages) { scrollToLastOnFocus() }
         .onChange(of: viewModel.replyMessage) { _, reply in
@@ -115,9 +113,7 @@ struct ChatView: View {
         .onChange(of: viewModel.editCustomMessage) { _, edit in
             if edit == nil { scrollToLastOnFocus() } else { focused = true }
         }
-        .onTapGesture {
-            focused = false
-        }
+        .onTapGesture { focused = false }
         .background(.black)
         .dropDestination(for: SelectedImage.self) { items, _ in
             guard viewModel.displayedImages.count < 10 else { return false }
@@ -129,28 +125,6 @@ struct ChatView: View {
                 scrollToBottomButton
             }
         }
-    }
-    
-    func itemView(for customMessage: Binding<CustomMessage>) -> some View {
-        HStack {
-            if customMessage.wrappedValue.message.isOutgoing { Spacer() }
-            
-            MessageView(customMessage: customMessage)
-                .frame(
-                    maxWidth: Utils.maxMessageContentWidth,
-                    alignment: customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading
-                )
-            
-            if !customMessage.wrappedValue.message.isOutgoing { Spacer() }
-        }
-        .padding(customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading, 16)
-        .transition(
-            .asymmetric(
-                insertion: .move(edge: .top),
-                removal: .move(edge: customMessage.wrappedValue.message.isOutgoing ? .trailing : .leading)
-            )
-            .combined(with: .opacity)
-        )
     }
     
     @ViewBuilder var scrollToBottomButton: some View {
