@@ -79,7 +79,6 @@
 		DF763B082971BE5B00334615 /* Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF763B072971BE5B00334615 /* Task.swift */; };
 		DF7AC27A2970ADA900D77ACB /* Array+Add.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7AC2792970ADA900D77ACB /* Array+Add.swift */; };
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
-		DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = DF820B6F28D787AD007DD293 /* ArgumentParser */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
 		DF8B42402AEC59960081E821 /* UIEdgeInsets.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */; };
 		DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */; };
@@ -270,7 +269,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */,
-				DF820B7028D787AD007DD293 /* ArgumentParser in Frameworks */,
 				DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -606,7 +604,6 @@
 			);
 			name = BetterTG;
 			packageProductDependencies = (
-				DF820B6F28D787AD007DD293 /* ArgumentParser */,
 				DF9C5CC0292698BC00ED1CA8 /* TDLibKit */,
 				DF55E2D1295B783F00A30C76 /* MobileVLCKit */,
 			);
@@ -1076,11 +1073,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DF55E2D0295B783F00A30C76 /* XCRemoteSwiftPackageReference "MobileVLCKit" */;
 			productName = MobileVLCKit;
-		};
-		DF820B6F28D787AD007DD293 /* ArgumentParser */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DF820B6E28D787AD007DD293 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
-			productName = ArgumentParser;
 		};
 		DF9C5CC0292698BC00ED1CA8 /* TDLibKit */ = {
 			isa = XCSwiftPackageProductDependency;
