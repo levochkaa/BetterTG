@@ -1,8 +1,8 @@
-// ChatListItemView.swift
+// MessagesListItemView.swift
 
 import SwiftUI
 
-struct ChatListItemView: View {
+struct MessagesListItemView: View {
     @Binding var customMessage: CustomMessage
     var isOutgoing: Bool { customMessage.message.isOutgoing }
     

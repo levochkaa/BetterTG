@@ -65,7 +65,7 @@ struct ChatView: View {
         ScrollView {
             LazyVStack(spacing: 5) {
                 ForEach($viewModel.messages) { $customMessage in
-                    ChatListItemView(customMessage: $customMessage)
+                    MessagesListItemView(customMessage: $customMessage)
                         .flipped()
                 }
             }
