@@ -9,7 +9,7 @@ extension ChatViewModel {
     func setPublishers() {
         setMediaPublishers()
         
-        nc.publisher(&cancellables, for: .messageEdited) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] notification in
             guard let self,
                   let messageEdited = notification.object as? UpdateMessageEdited,
                   messageEdited.chatId == customChat.chat.id
@@ -17,7 +17,7 @@ extension ChatViewModel {
             self.messageEdited(messageEdited)
         }
         
-        nc.publisher(&cancellables, for: .newMessage) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateNewMessage) { [weak self] notification in
             guard let self,
                   let message = (notification.object as? UpdateNewMessage)?.message,
                   message.chatId == customChat.chat.id
@@ -25,7 +25,7 @@ extension ChatViewModel {
             self.newMessage(message)
         }
         
-        nc.publisher(&cancellables, for: .deleteMessages) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] notification in
             guard let self,
                   let deleteMessages = notification.object as? UpdateDeleteMessages,
                   deleteMessages.chatId == customChat.chat.id
@@ -33,7 +33,7 @@ extension ChatViewModel {
             self.deleteMessages(deleteMessages)
         }
         
-        nc.publisher(&cancellables, for: .messageSendSucceeded) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] notification in
             guard let self,
                   let messageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
                   messageSendSucceeded.message.chatId == customChat.chat.id
@@ -41,7 +41,7 @@ extension ChatViewModel {
             self.messageSendSucceeded(messageSendSucceeded)
         }
         
-        nc.publisher(&cancellables, for: .chatAction) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateChatAction) { [weak self] notification in
             guard let self,
                   let chatAction = notification.object as? UpdateChatAction,
                   chatAction.chatId == customChat.chat.id
@@ -49,7 +49,7 @@ extension ChatViewModel {
             self.chatAction(chatAction)
         }
         
-        nc.publisher(&cancellables, for: .userStatus) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] notification in
             guard let self,
                   let userStatus = notification.object as? UpdateUserStatus,
                   userStatus.userId == customChat.chat.id
@@ -57,7 +57,7 @@ extension ChatViewModel {
             self.userStatus(userStatus.status)
         }
         
-        nc.publisher(&cancellables, for: .chatReadInbox) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] notification in
             guard let self,
                   let chatReadInbox = notification.object as? UpdateChatReadInbox,
                   chatReadInbox.chatId == customChat.chat.id

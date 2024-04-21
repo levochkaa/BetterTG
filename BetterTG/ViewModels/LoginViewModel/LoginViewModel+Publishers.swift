@@ -5,7 +5,7 @@ import TDLibKit
 
 extension LoginViewModel {
     func setPublishers() {
-        nc.publisher(&cancellables, for: .waitPassword) { [weak self] notification in
+        nc.publisher(&cancellables, for: .authorizationStateWaitPassword) { [weak self] notification in
             guard let self, let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
             withAnimation {
                 self.loginState = .twoFactor
@@ -13,13 +13,18 @@ extension LoginViewModel {
             }
         }
         
-        nc.publisher(&cancellables, for: .waitCode) { [weak self] _ in
+        nc.publisher(&cancellables, for: .authorizationStateWaitCode) { [weak self] _ in
             withAnimation {
                 self?.loginState = .code
             }
         }
         
-        nc.mergeMany(&cancellables, [.waitPhoneNumber, .closed, .closing, .loggingOut]) { [weak self] _ in
+        nc.mergeMany(&cancellables, [
+            .authorizationStateWaitPhoneNumber,
+            .authorizationStateClosed,
+            .authorizationStateClosing,
+            .authorizationStateLoggingOut
+        ]) { [weak self] _ in
             withAnimation {
                 self?.loginState = .phoneNumber
             }

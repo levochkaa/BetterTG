@@ -23,7 +23,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
             }
             .transition(.opacity)
         }
-        .onReceive(nc.publisher(for: .file)) { notification in
+        .onReceive(nc.publisher(for: .updateFile)) { notification in
             guard let updateFile = notification.object as? UpdateFile, updateFile.file.id == id else { return }
             withAnimation {
                 file = updateFile.file

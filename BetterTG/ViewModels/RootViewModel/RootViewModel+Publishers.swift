@@ -5,31 +5,31 @@ import TDLibKit
 
 extension RootViewModel {
     func setPublishers() {
-        nc.publisher(&cancellables, for: .ready) { [weak self] _ in
+        nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
             self?.loadMainChats()
         }
         
-        nc.publisher(&cancellables, for: .chatLastMessage) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateChatLastMessage) { [weak self] notification in
             guard let self, let chatLastMessage = notification.object as? UpdateChatLastMessage else { return }
             self.chatLastMessage(chatLastMessage)
         }
         
-        nc.publisher(&cancellables, for: .chatDraftMessage) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateChatDraftMessage) { [weak self] notification in
             guard let self, let chatDraftMessage = notification.object as? UpdateChatDraftMessage else { return }
             self.chatDraftMessage(chatDraftMessage)
         }
         
-        nc.publisher(&cancellables, for: .chatPosition) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateChatPosition) { [weak self] notification in
             guard let self, let chatPosition = notification.object as? UpdateChatPosition else { return }
             self.chatPosition(chatPosition)
         }
         
-        nc.publisher(&cancellables, for: .newChat) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateNewChat) { [weak self] notification in
             guard let self, let newChat = notification.object as? UpdateNewChat else { return }
             self.newChat(newChat)
         }
         
-        nc.publisher(&cancellables, for: .chatReadInbox) { [weak self] notification in
+        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] notification in
             guard let self, let chatReadInbox = notification.object as? UpdateChatReadInbox else { return }
             self.chatReadInbox(chatReadInbox)
         }

@@ -31,8 +31,15 @@ struct RootView: View {
         }
         .transition(.opacity)
         .environment(viewModel)
-        .onReceive(nc.publisher(for: .ready)) { _ in withAnimation { loggedIn = true } }
-        .onReceive(nc.mergeMany([.closed, .closing, .loggingOut, .waitPhoneNumber, .waitCode, .waitPassword])) { _ in
+        .onReceive(nc.publisher(for: .authorizationStateReady)) { _ in withAnimation { loggedIn = true } }
+        .onReceive(nc.mergeMany([
+            .authorizationStateClosed,
+            .authorizationStateClosing,
+            .authorizationStateLoggingOut,
+            .authorizationStateWaitPhoneNumber,
+            .authorizationStateWaitCode,
+            .authorizationStateWaitPassword
+        ])) { _ in
             withAnimation {
                 loggedIn = false
             }
