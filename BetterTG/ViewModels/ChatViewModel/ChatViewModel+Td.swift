@@ -179,7 +179,12 @@ extension ChatViewModel {
     
     func tdSendChatAction(_ chatAction: ChatAction) async {
         do {
-            try await td.sendChatAction(action: chatAction, chatId: customChat.chat.id, messageThreadId: 0)
+            try await td.sendChatAction(
+                action: chatAction,
+                businessConnectionId: nil,
+                chatId: customChat.chat.id,
+                messageThreadId: 0
+            )
         } catch {
             log("Error sending chatAction: \(error)")
         }

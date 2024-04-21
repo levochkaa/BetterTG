@@ -32,13 +32,11 @@ func startTdLibUpdateHandler() {
             try await td.setTdlibParameters(
                 apiHash: Secret.apiHash,
                 apiId: Secret.apiId,
-                applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                applicationVersion: Utils.applicationVersion,
                 databaseDirectory: dir,
                 databaseEncryptionKey: Data(),
                 deviceModel: Utils.modelName,
-                enableStorageOptimizer: true,
                 filesDirectory: dir,
-                ignoreFileNames: false,
                 systemLanguageCode: "en-US",
                 systemVersion: UIDevice.current.systemVersion,
                 useChatInfoDatabase: true,
@@ -86,10 +84,6 @@ private func update(_ update: Update) {
             nc.post(name: .chatTitle, object: updateChatTitle)
         case .updateChatPhoto(let updateChatPhoto):
             nc.post(name: .chatPhoto, object: updateChatPhoto)
-        case .updateChatAccentColor(let updateChatAccentColor):
-            nc.post(name: .chatAccentColor, object: updateChatAccentColor)
-        case .updateChatBackgroundCustomEmoji(let updateChatBackgroundCustomEmoji):
-            nc.post(name: .chatBackgroundCustomEmoji, object: updateChatBackgroundCustomEmoji)
         case .updateChatPermissions(let updateChatPermissions):
             nc.post(name: .chatPermissions, object: updateChatPermissions)
         case .updateChatLastMessage(let updateChatLastMessage):
@@ -236,8 +230,6 @@ private func update(_ update: Update) {
             nc.post(name: .savedAnimations, object: updateSavedAnimations)
         case .updateSavedNotificationSounds(let updateSavedNotificationSounds):
             nc.post(name: .savedNotificationSounds, object: updateSavedNotificationSounds)
-        case .updateSelectedBackground(let updateSelectedBackground):
-            nc.post(name: .selectedBackground, object: updateSelectedBackground)
         case .updateChatThemes(let updateChatThemes):
             nc.post(name: .chatThemes, object: updateChatThemes)
         case .updateAccentColors(let updateAccentColors):
@@ -302,6 +294,44 @@ private func update(_ update: Update) {
             nc.post(name: .newChatJoinRequest, object: updateNewChatJoinRequest)
         case .updateChatBoost(let updateChatBoost):
             nc.post(name: .chatBoost, object: updateChatBoost)
+        case .updateChatAccentColors(let updateChatAccentColors):
+            nc.post(name: .chatAccentColors, object: updateChatAccentColors)
+        case .updateChatAddedToList(let updateChatAddedToList):
+            nc.post(name: .chatAddedToList, object: updateChatAddedToList)
+        case .updateChatRemovedFromList(let updateChatRemovedFromList):
+            nc.post(name: .chatRemovedFromList, object: updateChatRemovedFromList)
+        case .updateChatEmojiStatus(let updateChatEmojiStatus):
+            nc.post(name: .chatEmojiStatus, object: updateChatEmojiStatus)
+        case .updateSavedMessagesTopic(let updateSavedMessagesTopic):
+            nc.post(name: .savedMessagesTopic, object: updateSavedMessagesTopic)
+        case .updateSavedMessagesTopicCount(let updateSavedMessagesTopicCount):
+            nc.post(name: .savedMessagesTopicCount, object: updateSavedMessagesTopicCount)
+        case .updateQuickReplyShortcut(let updateQuickReplyShortcut):
+            nc.post(name: .quickReplyShortcut, object: updateQuickReplyShortcut)
+        case .updateQuickReplyShortcutDeleted(let updateQuickReplyShortcutDeleted):
+            nc.post(name: .quickReplyShortcutDeleted, object: updateQuickReplyShortcutDeleted)
+        case .updateQuickReplyShortcuts(let updateQuickReplyShortcuts):
+            nc.post(name: .quickReplyShortcuts, object: updateQuickReplyShortcuts)
+        case .updateQuickReplyShortcutMessages(let updateQuickReplyShortcutMessages):
+            nc.post(name: .quickReplyShortcutMessages, object: updateQuickReplyShortcutMessages)
+        case .updateDefaultBackground(let updateDefaultBackground):
+            nc.post(name: .defaultBackground, object: updateDefaultBackground)
+        case .updateSavedMessagesTags(let updateSavedMessagesTags):
+            nc.post(name: .savedMessagesTags, object: updateSavedMessagesTags)
+        case .updateContactCloseBirthdays(let updateContactCloseBirthdays):
+            nc.post(name: .contactCloseBirthdays, object: updateContactCloseBirthdays)
+        case .updateBusinessConnection(let updateBusinessConnection):
+            nc.post(name: .businessConnection, object: updateBusinessConnection)
+        case .updateNewBusinessMessage(let updateNewBusinessMessage):
+            nc.post(name: .newBusinessMessage, object: updateNewBusinessMessage)
+        case .updateBusinessMessageEdited(let updateBusinessMessageEdited):
+            nc.post(name: .businessMessageEdited, object: updateBusinessMessageEdited)
+        case .updateBusinessMessagesDeleted(let updateBusinessMessagesDeleted):
+            nc.post(name: .businessMessagesDeleted, object: updateBusinessMessagesDeleted)
+        case .updateMessageReaction(let updateMessageReaction):
+            nc.post(name: .messageReaction, object: updateMessageReaction)
+        case .updateMessageReactions(let updateMessageReactions):
+            nc.post(name: .messageReactions, object: updateMessageReactions)
     }
 }
 

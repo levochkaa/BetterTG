@@ -1,4 +1,5 @@
 {
+  "originHash" : "c734d81b748cfd13bd110193c30b36a1f280694d8152e50b0f2ff27d71a885ff",
   "pins" : [
     {
       "identity" : "mobilevlckit",
@@ -15,7 +16,7 @@
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
         "branch" : "main",
-        "revision" : "a3d53a7597281ee831e034b5423c47f698a7a59c"
+        "revision" : "46989693916f56d1186bd59ac15124caef896560"
       }
     },
     {
@@ -23,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "e83d31bb100f4bc9f03a02cd5d233fb73ac3dfe3",
-        "version" : "1.8.22-1a50ec47"
+        "revision" : "bce6c5e97cbd7802a06022d0be31295b5741a390",
+        "version" : "1.8.27-d7203eb7"
       }
     },
     {
@@ -33,9 +34,9 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "a228df52786b14ff7f302c8562e18790155b5b5d"
+        "revision" : "670a939b0dc4364cb7142ea21578e2469f5b605a"
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

@@ -75,7 +75,8 @@ extension ChatViewModel {
                             entities: getEntities(from: text),
                             text: text.string
                         ),
-                        duration: duration,
+                        duration: duration, 
+                        selfDestructType: nil,
                         voiceNote: .inputFileLocal(.init(path: savedVoiceNoteUrl.path())),
                         waveform: waveform
                     )

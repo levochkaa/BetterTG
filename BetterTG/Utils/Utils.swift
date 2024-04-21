@@ -7,6 +7,7 @@ enum Utils {
     static let bottomSheetPhotoWidth = size.width / 3 - 10
     static var maxMessageContentWidth = size.width * 0.8 - 32
     static let defaultAnimationDuration = 0.35
+    static let applicationVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     
     static let modelName: String = {
         var simulator = false
