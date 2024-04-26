@@ -47,7 +47,6 @@ import Observation
     var editCustomMessage: CustomMessage?
     var replyMessage: CustomMessage?
     
-    var errorMessage = ""
     var errorShown = false
     
     @ObservationIgnored var cancellables = Set<AnyCancellable>()

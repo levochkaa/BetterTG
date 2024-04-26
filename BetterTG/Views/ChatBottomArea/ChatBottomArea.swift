@@ -46,7 +46,13 @@ struct ChatBottomArea: View {
                 }
             }
         }
-        .errorAlert(show: $viewModel.errorShown, text: viewModel.errorMessage)
+        .alert("Error", isPresented: $viewModel.errorShown) {
+            Text("""
+            Access to Microphone isn't granted.
+            Go to Settings -> BetterTG -> Microphone
+            if you want to record Voice
+            """)
+        }
         .padding(.vertical, 5)
         .padding(.horizontal, 10)
         .background(.bar)

@@ -38,11 +38,6 @@ extension ChatViewModel {
             log("Access to Microphone for Voice messages is granted")
         } else {
             log("Access to Microphone for Voice messages is not granted")
-            self.errorMessage = """
-            Access to Microphone isn't granted.
-            Go to Settings -> BetterTG -> Microphone
-            if you want to record Voice
-            """
             self.errorShown = true
         }
         
