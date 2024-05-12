@@ -102,6 +102,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateChatReadOutbox, object: updateChatReadOutbox)
         case .updateChatActionBar(let updateChatActionBar):
             nc.post(name: .updateChatActionBar, object: updateChatActionBar)
+        case .updateChatBusinessBotManageBar(let updateChatBusinessBotManageBar):
+            nc.post(name: .updateChatBusinessBotManageBar, object: updateChatBusinessBotManageBar)
         case .updateChatAvailableReactions(let updateChatAvailableReactions):
             nc.post(name: .updateChatAvailableReactions, object: updateChatAvailableReactions)
         case .updateChatDraftMessage(let updateChatDraftMessage):
@@ -162,6 +164,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateForumTopicInfo, object: updateForumTopicInfo)
         case .updateScopeNotificationSettings(let updateScopeNotificationSettings):
             nc.post(name: .updateScopeNotificationSettings, object: updateScopeNotificationSettings)
+        case .updateReactionNotificationSettings(let updateReactionNotificationSettings):
+            nc.post(name: .updateReactionNotificationSettings, object: updateReactionNotificationSettings)
         case .updateNotification(let updateNotification):
             nc.post(name: .updateNotification, object: updateNotification)
         case .updateNotificationGroup(let updateNotificationGroup):
@@ -278,6 +282,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateDefaultReactionType, object: updateDefaultReactionType)
         case .updateSavedMessagesTags(let updateSavedMessagesTags):
             nc.post(name: .updateSavedMessagesTags, object: updateSavedMessagesTags)
+        case .updateChatRevenueAmount:
+            nc.post(name: .updateChatRevenueAmount)
         case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):
             nc.post(name: .updateSpeechRecognitionTrial, object: updateSpeechRecognitionTrial)
         case .updateDiceEmojis(let updateDiceEmojis):
@@ -288,10 +294,10 @@ private func update(_ update: Update) {
             nc.post(name: .updateAnimationSearchParameters, object: updateAnimationSearchParameters)
         case .updateSuggestedActions(let updateSuggestedActions):
             nc.post(name: .updateSuggestedActions, object: updateSuggestedActions)
+        case .updateSpeedLimitNotification(let updateSpeedLimitNotification):
+            nc.post(name: .updateSpeedLimitNotification, object: updateSpeedLimitNotification)
         case .updateContactCloseBirthdays(let updateContactCloseBirthdays):
             nc.post(name: .updateContactCloseBirthdays, object: updateContactCloseBirthdays)
-        case .updateAddChatMembersPrivacyForbidden(let updateAddChatMembersPrivacyForbidden):
-            nc.post(name: .updateAddChatMembersPrivacyForbidden, object: updateAddChatMembersPrivacyForbidden)
         case .updateAutosaveSettings(let updateAutosaveSettings):
             nc.post(name: .updateAutosaveSettings, object: updateAutosaveSettings)
         case .updateBusinessConnection(let updateBusinessConnection):
