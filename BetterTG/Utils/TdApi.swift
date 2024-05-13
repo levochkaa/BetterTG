@@ -47,6 +47,10 @@ func startTdLibUpdateHandler() {
             )
         }
     }
+    
+    nc.publisher(&cancellables, for: UIApplication.willTerminateNotification) { _ in
+        manager.closeClients()
+    }
 }
 
 // swiftlint:disable:next function_body_length
