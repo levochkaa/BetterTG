@@ -108,13 +108,21 @@ struct ChatsListView: View {
             guard let chatReadInbox = notification.object as? UpdateChatReadInbox,
                   let index = chats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId })
             else { return }
-            Task.main { chats[index].unreadCount = chatReadInbox.unreadCount }
+            Task.main {
+                withAnimation {
+                    chats[index].unreadCount = chatReadInbox.unreadCount
+                }
+            }
         }
         nc.publisher(&cancellables, for: .updateNewChat) { notification in
             guard let newChat = notification.object as? UpdateNewChat else { return }
             Task.background {
                 guard let customChat = await getCustomChat(from: newChat.chat.id) else { return }
-                await main { chats.append(customChat) }
+                await main {
+                    withAnimation {
+                        chats.append(customChat)
+                    }
+                }
             }
         }
         nc.publisher(&cancellables, for: .updateChatPosition) { notification in
@@ -129,28 +137,40 @@ struct ChatsListView: View {
                       $0.list == updateChatPosition.position.list
                   })
             else { return }
-            Task.main { chats[index].positions[positionIndex] = updateChatPosition.position }
+            Task.main {
+                withAnimation {
+                    chats[index].positions[positionIndex] = updateChatPosition.position
+                }
+            }
         }
         nc.publisher(&cancellables, for: .updateChatDraftMessage) { notification in
             guard let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage,
                   let index = chats.firstIndex(where: { $0.chat.id == updateChatDraftMessage.chatId })
             else { return }
             Task.main {
-                chats[index].draftMessage = updateChatDraftMessage.draftMessage
-                chats[index].positions = updateChatDraftMessage.positions
+                withAnimation {
+                    chats[index].draftMessage = updateChatDraftMessage.draftMessage
+                    chats[index].positions = updateChatDraftMessage.positions
+                }
             }
         }
         nc.publisher(&cancellables, for: .updateChatLastMessage) { notification in
             guard let updateChatLastMessage = notification.object as? UpdateChatLastMessage else { return }
             if let index = chats.firstIndex(where: { $0.chat.id == updateChatLastMessage.chatId }) {
                 Task.main {
-                    chats[index].lastMessage = updateChatLastMessage.lastMessage
-                    chats[index].positions = updateChatLastMessage.positions
+                    withAnimation {
+                        chats[index].lastMessage = updateChatLastMessage.lastMessage
+                        chats[index].positions = updateChatLastMessage.positions
+                    }
                 }
             } else if !chats.isEmpty {
                 Task.background {
                     guard let customChat = await getCustomChat(from: updateChatLastMessage.chatId) else { return }
-                    await main { chats.append(customChat) }
+                    await main {
+                        withAnimation {
+                            chats.append(customChat)
+                        }
+                    }
                 }
             }
         }
