@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct ChatsListItemView: View {
-    @State var customChat: CustomChat
+    @Binding var customChat: CustomChat
     
     var body: some View {
         HStack {

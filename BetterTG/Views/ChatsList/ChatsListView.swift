@@ -13,8 +13,10 @@ struct ChatsListView: View {
     @State var query = ""
     @Namespace var namespace
     @Environment(\.scenePhase) var scenePhase
-    var filteredSortedChats: [CustomChat] {
-        chats
+    
+    @State var filteredSortedChats = [CustomChat]()
+    func updateChats() {
+        filteredSortedChats = chats
             .uniqued()
             .sorted {
                 if let firstOrder = $0.positions.main?.order, let secondOrder = $1.positions.main?.order {
@@ -35,9 +37,9 @@ struct ChatsListView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(filteredSortedChats) { customChat in
+                    ForEach($filteredSortedChats) { $customChat in
                         NavigationLink(value: customChat) {
-                            ChatsListItemView(customChat: customChat)
+                            ChatsListItemView(customChat: $customChat)
                                 .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
                         }
                         .contextMenu {
@@ -64,6 +66,8 @@ struct ChatsListView: View {
                 .padding(.top, 8)
             }
             .searchable(text: $query, prompt: "Search chats...")
+            .onChange(of: query, updateChats)
+            .onChange(of: chats, updateChats)
             .navigationTitle("BetterTG")
             .navigationDestination(for: CustomChat.self) { customChat in
                 ChatView(customChat: customChat)
