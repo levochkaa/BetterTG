@@ -2,10 +2,11 @@
 
 import SwiftUI
 import TDLibKit
+import Combine
 
 struct ChatsListView: View {
     @Binding var chats: [CustomChat]
-    
+    @State var cancellables = Set<AnyCancellable>()
     @State var showConfirmChatDelete = false
     @State var deleteChatForAllUsers = false
     @State var confirmedChat: Chat?
@@ -95,19 +96,24 @@ struct ChatsListView: View {
                 }
             }
         }
-        .onReceive(nc.publisher(for: .updateChatReadInbox)) { notification in
-            guard let chatReadInbox = notification.object as? UpdateChatReadInbox else { return }
-            guard let index = chats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId }) else { return }
-            chats[index].unreadCount = chatReadInbox.unreadCount
+        .onAppear(perform: setPublishers)
+    }
+    
+    private func setPublishers() {
+        nc.publisher(&cancellables, for: .updateChatReadInbox) { notification in
+            guard let chatReadInbox = notification.object as? UpdateChatReadInbox,
+                  let index = chats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId })
+            else { return }
+            Task.main { chats[index].unreadCount = chatReadInbox.unreadCount }
         }
-        .onReceive(nc.publisher(for: .updateNewChat)) { notification in
+        nc.publisher(&cancellables, for: .updateNewChat) { notification in
             guard let newChat = notification.object as? UpdateNewChat else { return }
             Task.background {
                 guard let customChat = await getCustomChat(from: newChat.chat.id) else { return }
                 await main { chats.append(customChat) }
             }
         }
-        .onReceive(nc.publisher(for: .updateChatPosition)) { notification in
+        nc.publisher(&cancellables, for: .updateChatPosition) { notification in
             guard let updateChatPosition = notification.object as? UpdateChatPosition else { return }
 //            guard chatPosition.position.order != 0 else {
 //                return Task.main {
@@ -119,19 +125,24 @@ struct ChatsListView: View {
                       $0.list == updateChatPosition.position.list
                   })
             else { return }
-            chats[index].positions[positionIndex] = updateChatPosition.position
+            Task.main { chats[index].positions[positionIndex] = updateChatPosition.position }
         }
-        .onReceive(nc.publisher(for: .updateChatDraftMessage)) { notification in
-            guard let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage else { return }
-            guard let index = chats.firstIndex(where: { $0.chat.id == updateChatDraftMessage.chatId }) else { return }
-            chats[index].draftMessage = updateChatDraftMessage.draftMessage
-            chats[index].positions = updateChatDraftMessage.positions
+        nc.publisher(&cancellables, for: .updateChatDraftMessage) { notification in
+            guard let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage,
+                  let index = chats.firstIndex(where: { $0.chat.id == updateChatDraftMessage.chatId })
+            else { return }
+            Task.main {
+                chats[index].draftMessage = updateChatDraftMessage.draftMessage
+                chats[index].positions = updateChatDraftMessage.positions
+            }
         }
-        .onReceive(nc.publisher(for: .updateChatLastMessage)) { notification in
+        nc.publisher(&cancellables, for: .updateChatLastMessage) { notification in
             guard let updateChatLastMessage = notification.object as? UpdateChatLastMessage else { return }
             if let index = chats.firstIndex(where: { $0.chat.id == updateChatLastMessage.chatId }) {
-                chats[index].lastMessage = updateChatLastMessage.lastMessage
-                chats[index].positions = updateChatLastMessage.positions
+                Task.main {
+                    chats[index].lastMessage = updateChatLastMessage.lastMessage
+                    chats[index].positions = updateChatLastMessage.positions
+                }
             } else if !chats.isEmpty {
                 Task.background {
                     guard let customChat = await getCustomChat(from: updateChatLastMessage.chatId) else { return }

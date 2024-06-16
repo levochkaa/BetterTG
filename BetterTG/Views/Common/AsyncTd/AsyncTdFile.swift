@@ -2,15 +2,16 @@
 
 import SwiftUI
 import TDLibKit
+import Combine
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {
-    
     let id: Int
     @ViewBuilder let content: (File) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
     
     @State private var file: File?
     @State private var isDownloaded = true
+    @State private var cancellables = Set<AnyCancellable>()
     
     var body: some View {
         ZStack {
@@ -23,14 +24,20 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
             }
             .transition(.opacity)
         }
-        .onReceive(nc.publisher(for: .updateFile)) { notification in
+        .task(id: id) { await download(id) }
+        .onAppear(perform: setPublishers)
+    }
+    
+    private func setPublishers() {
+        nc.publisher(&cancellables, for: .updateFile) { notification in
             guard let updateFile = notification.object as? UpdateFile, updateFile.file.id == id else { return }
-            withAnimation {
-                file = updateFile.file
-                isDownloaded = updateFile.file.local.isDownloadingCompleted
+            Task.main {
+                withAnimation {
+                    file = updateFile.file
+                    isDownloaded = updateFile.file.local.isDownloadingCompleted
+                }
             }
         }
-        .task(id: id) { await download(id) }
     }
     
     private func download(_ id: Int? = nil) async {

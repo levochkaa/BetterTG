@@ -2,12 +2,15 @@
 
 import SwiftUI
 import TDLibKit
+import Combine
 
 struct ChatToolbar: ViewModifier {
     @Binding var customChat: CustomChat
     
     @State private var actionStatus = ""
     @State private var onlineStatus = ""
+    
+    @State private var cancellables = Set<AnyCancellable>()
     
     init(customChat: Binding<CustomChat>) {
         self._customChat = customChat
@@ -25,18 +28,23 @@ struct ChatToolbar: ViewModifier {
                     topBarTrailing
                 }
             }
-            .onReceive(nc.publisher(for: .updateUserStatus)) { notification in
-                guard let updateUserStatus = notification.object as? UpdateUserStatus,
-                      updateUserStatus.userId == customChat.chat.id
-                else { return }
-                onlineStatus = self.updateUserStatus(updateUserStatus.status)
-            }
-            .onReceive(nc.publisher(for: .updateChatAction)) { notification in
-                guard let updateChatAction = notification.object as? UpdateChatAction,
-                      updateChatAction.chatId == customChat.chat.id
-                else { return }
-                self.updateChatAction(updateChatAction)
-            }
+            .onAppear(perform: setPublishers)
+    }
+    
+    private func setPublishers() {
+        nc.publisher(&cancellables, for: .updateUserStatus) { notification in
+            guard let updateUserStatus = notification.object as? UpdateUserStatus,
+                  updateUserStatus.userId == customChat.chat.id
+            else { return }
+            let onlineStatus = self.updateUserStatus(updateUserStatus.status)
+            Task.main { self.onlineStatus = onlineStatus }
+        }
+        nc.publisher(&cancellables, for: .updateChatAction) { notification in
+            guard let updateChatAction = notification.object as? UpdateChatAction,
+                  updateChatAction.chatId == customChat.chat.id
+            else { return }
+            self.updateChatAction(updateChatAction)
+        }
     }
     
     private var principal: some View {
@@ -144,6 +152,10 @@ struct ChatToolbar: ViewModifier {
             case .chatActionWatchingAnimations(let watching): "watching animations...\(watching.emoji)"
             case .chatActionCancel: ""
         }
-        withAnimation { self.actionStatus = actionStatus }
+        Task.main {
+            withAnimation {
+                self.actionStatus = actionStatus
+            }
+        }
     }
 }

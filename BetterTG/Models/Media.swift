@@ -14,14 +14,14 @@ final class Media {
     var isPlaying = false
     var currentTime: Int32 = 0
     
-    private var duration = 0
-    private var title = ""
+    @ObservationIgnored private var duration = 0
+    @ObservationIgnored private var title = ""
     
     private let player = VLCMediaPlayer()
     private let audioSession: AVAudioSession = .sharedInstance()
     private let nowPlayingCenter: MPNowPlayingInfoCenter = .default()
     private let commandCenter: MPRemoteCommandCenter = .shared()
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
     
     init() {
         setPublishers()

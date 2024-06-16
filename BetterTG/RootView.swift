@@ -2,12 +2,15 @@
 
 import SwiftUI
 import TDLibKit
+import Combine
 
 struct RootView: View {
     @AppStorage("loggedIn") var loggedIn = false
     @State private var chats = [CustomChat]()
     
     @State private var media = Media()
+    
+    @State private var cancellables = Set<AnyCancellable>()
     
     var body: some View {
         ZStack {
@@ -18,8 +21,15 @@ struct RootView: View {
             }
         }
         .transition(.opacity)
-        .onReceive(nc.publisher(for: .authorizationStateReady)) { _ in
-            withAnimation { loggedIn = true }
+        .onAppear(perform: setPublishers)
+        .environment(media)
+    }
+    
+    private func setPublishers() {
+        nc.publisher(&cancellables, for: .authorizationStateReady) { _ in
+            Task.main {
+                withAnimation { loggedIn = true }
+            }
             Task.background {
                 let chatIds = try await td.getChats(chatList: .chatListMain, limit: 200).chatIds
                 let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
@@ -30,19 +40,20 @@ struct RootView: View {
                 }
             }
         }
-        .onReceive(nc.mergeMany([
+        nc.mergeMany(&cancellables, [
             .authorizationStateClosed,
             .authorizationStateClosing,
             .authorizationStateLoggingOut,
             .authorizationStateWaitPhoneNumber,
             .authorizationStateWaitCode,
             .authorizationStateWaitPassword
-        ])) { _ in
-            withAnimation {
-                loggedIn = false
+        ]) { _ in
+            Task.main {
+                withAnimation {
+                    loggedIn = false
+                }
             }
         }
-        .environment(media)
     }
 }
 

@@ -57,9 +57,9 @@ func startTdLibUpdateHandler() {
 private func update(_ update: Update) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
-            Task.main { UpdateAuthorizationState(updateAuthorizationState.authorizationState) }
+            UpdateAuthorizationState(updateAuthorizationState.authorizationState)
         case .updateNewMessage(let updateNewMessage):
-            Task.main { nc.post(name: .updateNewMessage, object: updateNewMessage) }
+            nc.post(name: .updateNewMessage, object: updateNewMessage)
         case .updateMessageSendAcknowledged(let updateMessageSendAcknowledged):
             nc.post(name: .updateMessageSendAcknowledged, object: updateMessageSendAcknowledged)
         case .updateMessageSendSucceeded(let updateMessageSendSucceeded):
@@ -69,7 +69,7 @@ private func update(_ update: Update) {
         case .updateMessageContent(let updateMessageContent):
             nc.post(name: .updateMessageContent, object: updateMessageContent)
         case .updateMessageEdited(let updateMessageEdited):
-            Task.main { nc.post(name: .updateMessageEdited, object: updateMessageEdited) }
+            nc.post(name: .updateMessageEdited, object: updateMessageEdited)
         case .updateMessageIsPinned(let updateMessageIsPinned):
             nc.post(name: .updateMessageIsPinned, object: updateMessageIsPinned)
         case .updateMessageInteractionInfo(let updateMessageInteractionInfo):
@@ -85,7 +85,7 @@ private func update(_ update: Update) {
         case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
             nc.post(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed)
         case .updateNewChat(let updateNewChat):
-            Task.main { nc.post(name: .updateNewChat, object: updateNewChat) }
+            nc.post(name: .updateNewChat, object: updateNewChat)
         case .updateChatTitle(let updateChatTitle):
             nc.post(name: .updateChatTitle, object: updateChatTitle)
         case .updateChatPhoto(let updateChatPhoto):
@@ -95,15 +95,15 @@ private func update(_ update: Update) {
         case .updateChatPermissions(let updateChatPermissions):
             nc.post(name: .updateChatPermissions, object: updateChatPermissions)
         case .updateChatLastMessage(let updateChatLastMessage):
-            Task.main { nc.post(name: .updateChatLastMessage, object: updateChatLastMessage) }
+            nc.post(name: .updateChatLastMessage, object: updateChatLastMessage)
         case .updateChatPosition(let updateChatPosition):
-            Task.main { nc.post(name: .updateChatPosition, object: updateChatPosition) }
+            nc.post(name: .updateChatPosition, object: updateChatPosition)
         case .updateChatAddedToList(let updateChatAddedToList):
             nc.post(name: .updateChatAddedToList, object: updateChatAddedToList)
         case .updateChatRemovedFromList(let updateChatRemovedFromList):
             nc.post(name: .updateChatRemovedFromList, object: updateChatRemovedFromList)
         case .updateChatReadInbox(let updateChatReadInbox):
-            Task.main { nc.post(name: .updateChatReadInbox, object: updateChatReadInbox) }
+            nc.post(name: .updateChatReadInbox, object: updateChatReadInbox)
         case .updateChatReadOutbox(let updateChatReadOutbox):
             nc.post(name: .updateChatReadOutbox, object: updateChatReadOutbox)
         case .updateChatActionBar(let updateChatActionBar):
@@ -113,7 +113,7 @@ private func update(_ update: Update) {
         case .updateChatAvailableReactions(let updateChatAvailableReactions):
             nc.post(name: .updateChatAvailableReactions, object: updateChatAvailableReactions)
         case .updateChatDraftMessage(let updateChatDraftMessage):
-            Task.main { nc.post(name: .updateChatDraftMessage, object: updateChatDraftMessage) }
+            nc.post(name: .updateChatDraftMessage, object: updateChatDraftMessage)
         case .updateChatEmojiStatus(let updateChatEmojiStatus):
             nc.post(name: .updateChatEmojiStatus, object: updateChatEmojiStatus)
         case .updateChatMessageSender(let updateChatMessageSender):
@@ -203,7 +203,7 @@ private func update(_ update: Update) {
         case .updateServiceNotification(let updateServiceNotification):
             nc.post(name: .updateServiceNotification, object: updateServiceNotification)
         case .updateFile(let updateFile):
-            Task.main { nc.post(name: .updateFile, object: updateFile) }
+            nc.post(name: .updateFile, object: updateFile)
         case .updateFileGenerationStart(let updateFileGenerationStart):
             nc.post(name: .updateFileGenerationStart, object: updateFileGenerationStart)
         case .updateFileGenerationStop(let updateFileGenerationStop):
@@ -358,13 +358,13 @@ private func UpdateAuthorizationState(_ updateAuthorizationState: AuthorizationS
         case .authorizationStateWaitTdlibParameters:
             nc.post(name: .authorizationStateWaitTdlibParameters)
         case .authorizationStateWaitPhoneNumber:
-            Task.main { nc.post(name: .authorizationStateWaitPhoneNumber) }
+            nc.post(name: .authorizationStateWaitPhoneNumber)
         case .authorizationStateWaitEmailAddress(let authorizationStateWaitEmailAddress):
             nc.post(name: .authorizationStateWaitEmailAddress, object: authorizationStateWaitEmailAddress)
         case .authorizationStateWaitEmailCode(let authorizationStateWaitEmailCode):
             nc.post(name: .authorizationStateWaitEmailCode, object: authorizationStateWaitEmailCode)
         case .authorizationStateWaitCode(let authorizationStateWaitCode):
-            Task.main { nc.post(name: .authorizationStateWaitCode, object: authorizationStateWaitCode) }
+            nc.post(name: .authorizationStateWaitCode, object: authorizationStateWaitCode)
         case .authorizationStateWaitOtherDeviceConfirmation(let authorizationStateWaitOtherDeviceConfirmation):
             nc.post(
                 name: .authorizationStateWaitOtherDeviceConfirmation,
@@ -373,14 +373,14 @@ private func UpdateAuthorizationState(_ updateAuthorizationState: AuthorizationS
         case .authorizationStateWaitRegistration(let authorizationStateWaitRegistration):
             nc.post(name: .authorizationStateWaitRegistration, object: authorizationStateWaitRegistration)
         case .authorizationStateWaitPassword(let authorizationStateWaitPassword):
-            Task.main { nc.post(name: .authorizationStateWaitPassword, object: authorizationStateWaitPassword) }
+            nc.post(name: .authorizationStateWaitPassword, object: authorizationStateWaitPassword)
         case .authorizationStateReady:
-            Task.main { nc.post(name: .authorizationStateReady) }
+            nc.post(name: .authorizationStateReady)
         case .authorizationStateLoggingOut:
-            Task.main { nc.post(name: .authorizationStateLoggingOut) }
+            nc.post(name: .authorizationStateLoggingOut)
         case .authorizationStateClosing:
-            Task.main { nc.post(name: .authorizationStateClosing) }
+            nc.post(name: .authorizationStateClosing)
         case .authorizationStateClosed:
-            Task.main { nc.post(name: .authorizationStateClosed) }
+            nc.post(name: .authorizationStateClosed)
     }
 }

@@ -2,6 +2,7 @@
 
 import SwiftUI
 import TDLibKit
+import Combine
 
 struct LoginView: View {
     @State var loginState: LoginState = .phoneNumber
@@ -16,6 +17,8 @@ struct LoginView: View {
     
     @State var errorShown = false
     @FocusState var focused: LoginState?
+    
+    @State private var cancellables = Set<AnyCancellable>()
     
     var body: some View {
         ZStack {
@@ -120,21 +123,27 @@ struct LoginView: View {
                 default: break
             }
         }
-        .onReceive(nc.publisher(for: .authorizationStateWaitPassword)) { notification in
+        .onAppear(perform: setPublishers)
+    }
+    
+    private func setPublishers() {
+        nc.publisher(&cancellables, for: .authorizationStateWaitPassword) { notification in
             guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
-            self.loginState = .twoFactor
-            withAnimation {
-                self.hint = waitPassword.passwordHint
+            Task.main {
+                self.loginState = .twoFactor
+                withAnimation { self.hint = waitPassword.passwordHint }
             }
         }
-        .onReceive(nc.publisher(for: .authorizationStateWaitCode)) { _ in loginState = .code }
-        .onReceive(nc.mergeMany([
+        nc.publisher(&cancellables, for: .authorizationStateWaitCode) { _ in
+            Task.main { loginState = .code }
+        }
+        nc.mergeMany(&cancellables, [
             .authorizationStateWaitPhoneNumber,
             .authorizationStateClosed,
             .authorizationStateClosing,
             .authorizationStateLoggingOut
-        ])) { _ in
-            loginState = .phoneNumber
+        ]) { _ in
+            Task.main { loginState = .phoneNumber }
         }
     }
     
