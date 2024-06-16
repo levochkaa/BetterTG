@@ -1,0 +1,48 @@
+update_fastlane
+default_platform(:ios)
+
+platform :ios do
+  api_key = app_store_connect_api_key(
+    key_id: "862PNNDGT4",
+    issuer_id: "9cd25339-b106-4550-b884-5be51a5968b7",
+    key_filepath: "./AuthKey_862PNNDGT4.p8",
+    duration: 1200,
+    in_house: false
+  )
+
+  lane :beta do
+    increment_build_number(
+      build_number: latest_testflight_build_number + 1,
+      xcodeproj: "BetterTG.xcodeproj",
+    )
+    get_certificates
+    get_provisioning_profile
+    build_app(
+      scheme: "BetterTG",
+      configuration: "Debug",
+    )
+    upload_to_testflight(
+      ipa: "BetterTG.ipa",
+      api_key: api_key,
+      changelog: "First build",
+    )
+  end
+
+  lane :release do
+    increment_build_number(
+      build_number: latest_testflight_build_number + 1,
+      xcodeproj: "BetterTG.xcodeproj",
+    )
+    get_certificates
+    get_provisioning_profile
+    build_app(
+      scheme: "BetterTG",
+      configuration: "Release",
+    )
+    upload_to_app_store(
+      api_key: api_key,
+      skip_metadata: true,
+      skip_screenshots: true,
+    )
+  end
+end

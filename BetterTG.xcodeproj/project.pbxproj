@@ -950,7 +950,7 @@
 				);
 				MARKETING_VERSION = 4;
 				OTHER_LDFLAGS = "-ld_classic";
-				PRODUCT_BUNDLE_IDENTIFIER = com.levochkaa.BetterTG;
+				PRODUCT_BUNDLE_IDENTIFIER = com.levochkaaa.BetterTG;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1000,7 +1000,7 @@
 				);
 				MARKETING_VERSION = 4;
 				OTHER_LDFLAGS = "-ld_classic";
-				PRODUCT_BUNDLE_IDENTIFIER = com.levochkaa.BetterTG;
+				PRODUCT_BUNDLE_IDENTIFIER = com.levochkaaa.BetterTG;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
