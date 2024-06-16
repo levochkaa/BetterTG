@@ -3,6 +3,8 @@
 import SwiftUI
 
 extension String {
+    var data: Data { Data(utf8) }
+    
     var attributedString: AttributedString {
         let mutable = NSMutableAttributedString(string: self)
         mutable.addAttributes([

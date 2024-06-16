@@ -17,7 +17,7 @@ extension UIPasteboard {
             documentAttributes: defaultDocumentAttributes
         ) else { return }
         UIPasteboard.general.items = [[
-            UTType.rtf.identifier: String(data: data, encoding: .utf8) as Any,
+            UTType.rtf.identifier: data.string,
             UTType.utf8PlainText.identifier: formattedText.text
         ]]
     }
