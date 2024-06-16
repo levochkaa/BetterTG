@@ -6,7 +6,7 @@ import TDLibKit
 var cachedTextSizes: [FormattedText: CGSize] = [:]
 
 struct MessageTextView: View {
-    @State var formattedText: FormattedText
+    let formattedText: FormattedText
     
     var body: some View {
         TextView(formattedText: formattedText)
