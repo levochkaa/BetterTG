@@ -47,6 +47,7 @@
 		DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */; };
 		DF51E4442C1F576F00A0D46D /* Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51E4432C1F576F00A0D46D /* Media.swift */; };
 		DF51E4462C1F5E0D00A0D46D /* Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51E4452C1F5E0C00A0D46D /* Data.swift */; };
+		DF51E4482C1F80EE00A0D46D /* View+OnVisible.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF51E4472C1F80EB00A0D46D /* View+OnVisible.swift */; };
 		DF5261CA294E61BB00FB7C73 /* SelectedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */; };
 		DF5261D3294F47B200FB7C73 /* ChatBottomArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5261D2294F47B200FB7C73 /* ChatBottomArea.swift */; };
 		DF5261DF294F602600FB7C73 /* MessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5261DE294F602600FB7C73 /* MessageView.swift */; };
@@ -176,6 +177,7 @@
 		DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberInfo.swift; sourceTree = "<group>"; };
 		DF51E4432C1F576F00A0D46D /* Media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Media.swift; sourceTree = "<group>"; };
 		DF51E4452C1F5E0C00A0D46D /* Data.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Data.swift; sourceTree = "<group>"; };
+		DF51E4472C1F80EB00A0D46D /* View+OnVisible.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+OnVisible.swift"; sourceTree = "<group>"; };
 		DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectedImage.swift; sourceTree = "<group>"; };
 		DF5261D2294F47B200FB7C73 /* ChatBottomArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBottomArea.swift; sourceTree = "<group>"; };
 		DF5261DE294F602600FB7C73 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
@@ -437,6 +439,7 @@
 		DFD7D48329423C360006CF85 /* View */ = {
 			isa = PBXGroup;
 			children = (
+				DF51E4472C1F80EB00A0D46D /* View+OnVisible.swift */,
 				1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */,
 				1A21D7EDDC8AFF28411C178C /* View+If.swift */,
 				DF236748294148290076B821 /* View+Center.swift */,
@@ -644,6 +647,7 @@
 				DF1717C02971F6410085E698 /* Array+GetSize.swift in Sources */,
 				DF9D5170298D19A8009AFE7F /* Shape.swift in Sources */,
 				DF8B42402AEC59960081E821 /* UIEdgeInsets.swift in Sources */,
+				DF51E4482C1F80EE00A0D46D /* View+OnVisible.swift in Sources */,
 				DF429D4A2B2FA0970038614B /* URL.swift in Sources */,
 				DF72BC6F2BD5557D00B23124 /* UINavigationController.swift in Sources */,
 				DF51DA3D290D9D7F00AB9E60 /* PhoneNumberInfo.swift in Sources */,

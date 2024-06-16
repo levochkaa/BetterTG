@@ -91,6 +91,9 @@ struct ChatView: View {
                             maxWidth: Utils.maxMessageContentWidth,
                             alignment: customMessage.message.isOutgoing ? .trailing : .leading
                         )
+                        .onVisible {
+                            viewMessage(id: customMessage.message.id)
+                        }
                         
                         if !customMessage.message.isOutgoing { Spacer(minLength: 0) }
                     }
