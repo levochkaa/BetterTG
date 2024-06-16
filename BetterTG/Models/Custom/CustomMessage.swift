@@ -20,4 +20,11 @@ struct CustomMessage: Identifiable, Equatable, Hashable {
         }
         return nil
     }
+    
+    var messagePhoto: MessagePhoto? {
+        if case .messagePhoto(let messagePhoto) = message.content {
+            return messagePhoto
+        }
+        return nil
+    }
 }

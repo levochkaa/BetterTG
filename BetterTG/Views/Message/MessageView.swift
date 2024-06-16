@@ -25,12 +25,16 @@ struct MessageView: View {
                 )
             }
             
-            MessageContentView(customMessage: $customMessage)
+            if customMessage.messagePhoto != nil 
+                || customMessage.messageVoiceNote != nil
+                || !customMessage.album.isEmpty {
+                MessageContentView(customMessage: $customMessage)
+            }
             
             if let formattedText = customMessage.formattedText {
                 MessageTextView(formattedText: formattedText)
-                    .padding([.bottom, .horizontal], 8)
-                    .padding(.top, customMessage.replyToMessage != nil || customMessage.messageVoiceNote != nil ? 0 : 8)
+                    .padding(8)
+                    .padding(.top, customMessage.replyUser != nil && customMessage.replyToMessage != nil ? -10 : 0)
             }
         }
         .background(highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
