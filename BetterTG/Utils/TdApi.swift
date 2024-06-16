@@ -80,6 +80,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateMessageMentionRead, object: updateMessageMentionRead)
         case .updateMessageUnreadReactions(let updateMessageUnreadReactions):
             nc.post(name: .updateMessageUnreadReactions, object: updateMessageUnreadReactions)
+        case .updateMessageFactCheck(let updateMessageFactCheck):
+            nc.post(name: .updateMessageFactCheck, object: updateMessageFactCheck)
         case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
             nc.post(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed)
         case .updateNewChat(let updateNewChat):
@@ -214,6 +216,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateFileDownload, object: updateFileDownload)
         case .updateFileRemovedFromDownloads(let updateFileRemovedFromDownloads):
             nc.post(name: .updateFileRemovedFromDownloads, object: updateFileRemovedFromDownloads)
+        case .updateApplicationVerificationRequired(let updateApplicationVerificationRequired):
+            nc.post(name: .updateApplicationVerificationRequired, object: updateApplicationVerificationRequired)
         case .updateCall(let updateCall):
             nc.post(name: .updateCall, object: updateCall)
         case .updateGroupCall(let updateGroupCall):
@@ -282,10 +286,14 @@ private func update(_ update: Update) {
             nc.post(name: .updateWebAppMessageSent, object: updateWebAppMessageSent)
         case .updateActiveEmojiReactions(let updateActiveEmojiReactions):
             nc.post(name: .updateActiveEmojiReactions, object: updateActiveEmojiReactions)
+        case .updateAvailableMessageEffects(let updateAvailableMessageEffects):
+            nc.post(name: .updateAvailableMessageEffects, object: updateAvailableMessageEffects)
         case .updateDefaultReactionType(let updateDefaultReactionType):
             nc.post(name: .updateDefaultReactionType, object: updateDefaultReactionType)
         case .updateSavedMessagesTags(let updateSavedMessagesTags):
             nc.post(name: .updateSavedMessagesTags, object: updateSavedMessagesTags)
+        case .updateOwnedStarCount(let updateOwnedStarCount):
+            nc.post(name: .updateOwnedStarCount, object: updateOwnedStarCount)
         case .updateChatRevenueAmount:
             nc.post(name: .updateChatRevenueAmount)
         case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):

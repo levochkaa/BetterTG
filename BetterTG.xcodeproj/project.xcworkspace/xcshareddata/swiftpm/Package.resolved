@@ -16,7 +16,7 @@
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
         "branch" : "main",
-        "revision" : "1d191b00ea316c73d3a3948a23778deccd5f1592"
+        "revision" : "81ac87218685126f8ce971c025b68c2883bfa818"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "51b036ce6d910b195144c428fdf3b4b5d169baad",
-        "version" : "1.8.29-e4796b9b"
+        "revision" : "2bdabc10ab03a1b0405632eac4348c07b8aad4b4",
+        "version" : "1.8.30-4257a341"
       }
     },
     {
@@ -34,7 +34,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "9722ade61e82d5e5a4aac9f4dfd3fc95f42490ab"
+        "revision" : "b91110a9c7928d2d233be33855545a96ba1f7935"
       }
     }
   ],
