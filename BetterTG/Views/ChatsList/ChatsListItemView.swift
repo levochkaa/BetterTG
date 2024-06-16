@@ -50,7 +50,7 @@ struct ChatsListItemView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(5)
         .background(.gray6)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(.rect(cornerRadius: 20))
         .padding(.horizontal, 10)
     }
 }
@@ -78,7 +78,7 @@ private struct ChatsListItemPhotoView: View {
                 PlaceholderView(customChat: $customChat)
             }
         }
-        .clipShape(Circle())
+        .clipShape(.circle)
         .frame(width: 64, height: 64)
     }
 }

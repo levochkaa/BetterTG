@@ -55,7 +55,7 @@ struct LoginView: View {
                                 .keyboardType(.numberPad)
                                 .padding()
                                 .background(.gray6)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .clipShape(.rect(cornerRadius: 10))
                         }
                     case .twoFactor:
                         loginStateView {
@@ -65,7 +65,7 @@ struct LoginView: View {
                                 .keyboardType(.alphabet)
                                 .padding()
                                 .background(.gray6)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .clipShape(.rect(cornerRadius: 10))
                         }
                 }
             }

@@ -28,7 +28,7 @@ struct MessageContentView: View {
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 13))
+                .clipShape(.rect(cornerRadius: 13))
             }
         }
         .padding(1)

@@ -97,7 +97,7 @@ struct ChatToolbar: ViewModifier {
             }
         }
         .frame(width: 32, height: 32)
-        .clipShape(Circle())
+        .clipShape(.circle)
     }
     
     private func updateUserStatus(_ userStatus: UserStatus) -> String {
