@@ -211,7 +211,7 @@ struct ChatBottomArea: View {
             }
         }
         .font(.title2)
-        .contentShape(Rectangle())
+        .contentShape(.rect)
         .transition(.scale)
         .onTapGesture {
             sendMessageTask?.cancel()
@@ -347,7 +347,7 @@ struct ChatBottomArea: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 22))
-                    .contentShape(Rectangle())
+                    .contentShape(.rect)
             }
             
             Spacer()

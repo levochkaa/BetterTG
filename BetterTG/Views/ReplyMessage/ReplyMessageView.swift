@@ -48,7 +48,7 @@ struct ReplyMessageView: View {
             }
         }
         .padding(.horizontal, 5)
-        .contentShape(RoundedRectangle(cornerRadius: 15))
+        .contentShape(.rect(cornerRadius: 15))
         .padding(5)
         .onTapGesture {
             withAnimation {
