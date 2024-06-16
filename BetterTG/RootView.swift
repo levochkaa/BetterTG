@@ -18,10 +18,10 @@ struct RootView: View {
         .transition(.opacity)
         .onReceive(nc.publisher(for: .authorizationStateReady)) { _ in
             withAnimation { loggedIn = true }
-            Task {
+            Task.background {
                 let chatIds = try await td.getChats(chatList: .chatListMain, limit: 200).chatIds
                 let customChats = await chatIds.asyncCompactMap { await getCustomChat(from: $0) }
-                await MainActor.run {
+                await main {
                     withAnimation {
                         chats = customChats
                     }

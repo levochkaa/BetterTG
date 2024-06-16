@@ -121,7 +121,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
         let newSize = view.sizeThatFits(CGSize(width: view.frame.size.width, height: .greatestFiniteMagnitude))
         let newCalculatedHeight = min(newSize.height, 302)
         if calculatedHeight != newCalculatedHeight {
-            DispatchQueue.main.async {
+            Task.main {
                 textView.isScrollEnabled = newCalculatedHeight == 302
                 calculatedHeight = newCalculatedHeight
             }

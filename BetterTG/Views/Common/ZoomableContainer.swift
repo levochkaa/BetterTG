@@ -74,7 +74,7 @@ private struct ZoomableScrollView<Content: View>: UIViewRepresentable {
             uiView.zoom(to: zoomRect(for: uiView, scale: uiView.maximumZoomScale, center: tapLocation), animated: true)
             // Reset the location to prevent scaling to it in case of a negative scale (manual pinch)
             // Use the main thread to prevent unexpected behavior
-            DispatchQueue.main.async { tapLocation = .zero }
+            Task.main { tapLocation = .zero }
         }
         
         assert(context.coordinator.hostingController.view.superview == uiView)

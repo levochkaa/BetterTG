@@ -21,7 +21,7 @@ func startTdLibUpdateHandler() {
     try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
     
     nc.publisher(&cancellables, for: .authorizationStateWaitTdlibParameters) { _ in
-        Task {
+        Task.background {
             let dir = try FileManager.default.url(
                 for: .documentDirectory,
                 in: .userDomainMask,

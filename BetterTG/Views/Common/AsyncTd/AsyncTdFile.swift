@@ -30,8 +30,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                 isDownloaded = updateFile.file.local.isDownloadingCompleted
             }
         }
-        .onChange(of: id) { _, id in Task { await download(id) } }
-        .task { await download(id) }
+        .task(id: id) { await download(id) }
     }
     
     private func download(_ id: Int? = nil) async {

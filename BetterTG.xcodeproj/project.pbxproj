@@ -36,7 +36,6 @@
 		DF2AE7112951198400FF7850 /* ChatViewModel+Draft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE7102951198400FF7850 /* ChatViewModel+Draft.swift */; };
 		DF2AE713295119AA00FF7850 /* ChatViewModel+MessageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE712295119AA00FF7850 /* ChatViewModel+MessageContent.swift */; };
 		DF2AE715295119F700FF7850 /* ChatViewModel+MessageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2AE714295119F700FF7850 /* ChatViewModel+MessageActions.swift */; };
-		DF34644A296B787D001BE888 /* MainActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF346449296B787D001BE888 /* MainActor.swift */; };
 		DF34C38929A2A43600EA2606 /* CustomTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF34C38829A2A43600EA2606 /* CustomTextField.swift */; };
 		DF3A159528D838C500789C32 /* Secret.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A159428D838C500789C32 /* Secret.swift */; };
 		DF3A714F29AB66B200A7EC22 /* String.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3A714E29AB66B200A7EC22 /* String.swift */; };
@@ -564,7 +563,6 @@
 				DFECD756292A938B002A4BAD /* NotificationName.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter.swift */,
 				DF763B072971BE5B00334615 /* Task.swift */,
-				DF346449296B787D001BE888 /* MainActor.swift */,
 				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 				DF9D516F298D19A8009AFE7F /* Shape.swift */,
 				DF3A714E29AB66B200A7EC22 /* String.swift */,
@@ -764,7 +762,6 @@
 				DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */,
 				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
-				DF34644A296B787D001BE888 /* MainActor.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
 				DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */,
 				DF69FA912AA4ED2D009180D4 /* Image.swift in Sources */,
