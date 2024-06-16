@@ -3,10 +3,7 @@
 import SwiftUI
 
 enum Utils {
-    static var size = UIScreen.main.bounds.size
-    static let bottomSheetPhotoWidth = size.width / 3 - 10
-    static var maxMessageContentWidth = size.width * 0.8 - 32
-    static let defaultAnimationDuration = 0.35
+    static var maxMessageContentWidth = UIScreen.main.bounds.width * 0.8 - 32
     static let applicationVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     
     static let modelName: String = {

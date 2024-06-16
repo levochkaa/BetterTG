@@ -1,46 +1,47 @@
 // MessageView+Menu.swift
 
 import SwiftUI
+import TDLibKit
 
 extension MessageView {
     @ViewBuilder var contextMenu: some View {
         Button("Reply", systemImage: "arrowshape.turn.up.left") {
-            if viewModel.replyMessage != nil {
+            if replyMessage != nil {
                 withAnimation {
-                    viewModel.replyMessage = nil
+                    replyMessage = nil
                 }
-                Task.main(delay: Utils.defaultAnimationDuration + 0.05) {
+                Task.main(delay: 0.4) {
                     withAnimation {
-                        viewModel.replyMessage = customMessage
+                        replyMessage = customMessage
                     }
                 }
             } else {
                 withAnimation {
-                    viewModel.replyMessage = customMessage
+                    replyMessage = customMessage
                 }
             }
         }
         
         if customMessage.message.canBeEdited {
             Button("Edit", systemImage: "square.and.pencil") {
-                if viewModel.editCustomMessage != nil {
+                if editCustomMessage != nil {
                     withAnimation {
-                        viewModel.editCustomMessage = nil
+                        editCustomMessage = nil
                     }
-                    Task.main(delay: Utils.defaultAnimationDuration + 0.05) {
+                    Task.main(delay: 0.4) {
                         withAnimation {
-                            viewModel.editCustomMessage = customMessage
+                            editCustomMessage = customMessage
                         }
                     }
                 } else {
                     withAnimation {
-                        viewModel.editCustomMessage = customMessage
+                        editCustomMessage = customMessage
                     }
                 }
             }
         }
         
-        if let formattedText = viewModel.getFormattedText(from: customMessage.message.content) {
+        if let formattedText = getFormattedText(from: customMessage.message.content) {
             Button("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
                 UIPasteboard.setFormattedText(formattedText)
             }
@@ -50,46 +51,42 @@ extension MessageView {
         
         if customMessage.message.canBeDeletedOnlyForSelf, !customMessage.message.canBeDeletedForAllUsers {
             Button("Delete", systemImage: "trash", role: .destructive) {
-                Task {
-                    await viewModel.deleteMessage(
-                        id: customMessage.message.id,
-                        deleteForBoth: false
-                    )
-                }
+                deleteMessage(customMessage.message.id, false)
             }
         }
         
         if customMessage.message.canBeDeletedForAllUsers, !customMessage.message.canBeDeletedOnlyForSelf {
             Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
-                Task {
-                    await viewModel.deleteMessage(
-                        id: customMessage.message.id,
-                        deleteForBoth: true
-                    )
-                }
+                deleteMessage(customMessage.message.id, true)
             }
         }
         
         if customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
             Menu("Delete") {
                 Button("Delete only for me", systemImage: "trash", role: .destructive) {
-                    Task {
-                        await viewModel.deleteMessage(
-                            id: customMessage.message.id,
-                            deleteForBoth: false
-                        )
-                    }
+                    deleteMessage(customMessage.message.id, false)
                 }
 
                 Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
-                    Task {
-                        await viewModel.deleteMessage(
-                            id: customMessage.message.id,
-                            deleteForBoth: true
-                        )
-                    }
+                    deleteMessage(customMessage.message.id, true)
                 }
             }
+        }
+    }
+    
+    func getFormattedText(from content: MessageContent) -> FormattedText? {
+        switch content {
+            case .messageText(let messageText):
+                guard !messageText.text.text.isEmpty else { return nil }
+                return messageText.text
+            case .messagePhoto(let messagePhoto):
+                guard !messagePhoto.caption.text.isEmpty else { return nil }
+                return messagePhoto.caption
+            case .messageVoiceNote(let messageVoiceNote):
+                guard !messageVoiceNote.caption.text.isEmpty else { return nil }
+                return messageVoiceNote.caption
+            default:
+                return nil
         }
     }
 }

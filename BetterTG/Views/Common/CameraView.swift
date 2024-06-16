@@ -3,8 +3,7 @@
 import SwiftUI
 
 struct CameraView: UIViewControllerRepresentable {
-    
-    @Environment(ChatViewModel.self) var viewModel
+    let onSelection: (SelectedImage) -> Void
     
     func makeUIViewController(context: Context) -> some UIViewController {
         let controller = UIImagePickerController()
@@ -23,38 +22,27 @@ struct CameraView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIViewControllerType, context: Context) {}
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator(onSelection)
     }
     
     class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: CameraView
+        private let onSelection: (SelectedImage) -> Void
         
-        init(_ parent: CameraView) {
-            self.parent = parent
-        }
-        
-        func hideCameraView() {
-            parent.viewModel.showCameraView = false
+        init(_ onSelection: @escaping (SelectedImage) -> Void) {
+            self.onSelection = onSelection
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            hideCameraView()
+            picker.dismiss(animated: true)
         }
         
         func imagePickerController(
             _ picker: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
-            hideCameraView()
-            
-            guard parent.viewModel.displayedImages.count < 10,
-                  let uiImage = info[.originalImage] as? UIImage,
-                  let image = writeImage(uiImage, withSaving: true)
-            else { return }
-            
-            withAnimation {
-                parent.viewModel.displayedImages.add(image)
-            }
+            picker.dismiss(animated: true)
+            guard let image = writeImage(info[.originalImage] as? UIImage, withSaving: true) else { return }
+            onSelection(image)
         }
     }
 }

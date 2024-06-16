@@ -3,13 +3,32 @@
 import SwiftUI
 import TDLibKit
 
+var cachedTextSizes: [FormattedText: CGSize] = [:]
+
 struct MessageTextView: View {
     @State var formattedText: FormattedText
-    @State var size: CGSize
     
     var body: some View {
         TextView(formattedText: formattedText)
-            .frame(size: size)
+            .frame(size: size(for: formattedText))
+    }
+    
+    private func size(for formattedText: FormattedText) -> CGSize {
+        if let cached = cachedTextSizes[formattedText] { return cached }
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
+        let textStorage = NSTextStorage(attributedString: attributedString)
+        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
+        let boundingRect = CGRect(origin: .zero, size: size)
+        let textContainer = NSTextContainer(size: size)
+        textContainer.lineFragmentPadding = 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
+        let rect = layoutManager.usedRect(for: textContainer)
+        let result = rect.integral.size
+        cachedTextSizes[formattedText] = result
+        return result
     }
 }
 

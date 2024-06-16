@@ -6,10 +6,10 @@ import TDLibKit
 struct MessageContentView: View {
     @Binding var customMessage: CustomMessage
     
-    @Environment(ChatViewModel.self) var viewModel
+    @State var shownAlbum: CustomMessageAlbum?
     
     var body: some View {
-        Group {
+        ZStack {
             if customMessage.album.isEmpty {
                 switch customMessage.message.content {
                     case .messagePhoto(let messagePhoto):
@@ -32,6 +32,9 @@ struct MessageContentView: View {
             }
         }
         .padding(1)
+        .sheet(item: $shownAlbum) { album in
+            ChatViewAlbum(album: album.photos, selection: album.selection)
+        }
     }
     
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto, albumMessage: Message? = nil) -> some View {
@@ -42,12 +45,12 @@ struct MessageContentView: View {
                     .scaledToFill()
                     .onTapGesture {
                         if customMessage.album.isEmpty {
-                            viewModel.shownAlbum = .init(
+                            shownAlbum = .init(
                                 photos: [customMessage.message],
                                 selection: customMessage.message.id
                             )
                         } else if let albumMessage {
-                            viewModel.shownAlbum = .init(photos: customMessage.album, selection: albumMessage.id)
+                            shownAlbum = .init(photos: customMessage.album, selection: albumMessage.id)
                         }
                     }
             } placeholder: {

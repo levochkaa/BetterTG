@@ -4,11 +4,9 @@ import SwiftUI
 import TDLibKit
 
 struct ReplyMessageView: View {
-    
-    @Binding var customMessage: CustomMessage
-    @State var type: ReplyMessageType
-    
-    @Environment(ChatViewModel.self) var viewModel
+    let customMessage: CustomMessage
+    let type: ReplyMessageType
+    let onTap: () -> Void
     
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
@@ -54,16 +52,7 @@ struct ReplyMessageView: View {
         .padding(5)
         .onTapGesture {
             withAnimation {
-                switch type {
-                    case .edit:
-                        viewModel.scrollTo(id: viewModel.editCustomMessage?.id)
-                    case .reply:
-                        viewModel.scrollTo(id: viewModel.replyMessage?.id)
-                    case .replied:
-                        viewModel.scrollTo(id: viewModel.messages.first(where: {
-                            $0.message.id == customMessage.replyToMessage?.id
-                        })?.id)
-                }
+                onTap()
             }
         }
     }

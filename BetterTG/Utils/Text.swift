@@ -57,6 +57,48 @@ func setEntity(_ entity: TextEntity, base text: String, for attributedString: NS
     }
 }
 
+func getEntities(from text: AttributedString) -> [TextEntity] {
+    var entities = [TextEntity]()
+    let attributedText = NSAttributedString(text)
+    let textRange = NSRange(location: 0, length: text.string.count)
+    attributedText.enumerateAttributes(in: textRange) { attributes, range, _ in
+        for attribute in attributes {
+            guard let entity = getEntity(from: attribute, using: range) else { continue }
+            entities.append(entity)
+        }
+    }
+    return entities
+}
+
+func getEntity(from attribute: (key: NSAttributedString.Key, value: Any), using range: NSRange) -> TextEntity? {
+    switch attribute.key {
+        case .font:
+            guard let uiFont = attribute.value as? UIFont else { return nil }
+            switch uiFont {
+                case UIFont.bold:
+                    return .init(.textEntityTypeBold, range: range)
+                case UIFont.italic:
+                    return .init(.textEntityTypeItalic, range: range)
+                case UIFont.monospaced:
+                    return .init(.textEntityTypeCode, range: range)
+                default:
+                    break
+            }
+        case .link:
+            guard let url = attribute.value as? URL else { return nil }
+            return .init(.textEntityTypeTextUrl(.init(url: url.absoluteString)), range: range)
+        case .strikethroughStyle:
+            return .init(.textEntityTypeStrikethrough, range: range)
+        case .underlineStyle:
+            return .init(.textEntityTypeUnderline, range: range)
+        case .backgroundColor:
+            return .init(.textEntityTypeSpoiler, range: range)
+        default:
+            return nil
+    }
+    return nil
+}
+
 func getUrl(from string: String) -> URL? {
     URL(string: string.contains("://") ? string : "https://\(string)")
 }

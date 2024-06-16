@@ -7,11 +7,9 @@ struct MessageVoiceNoteView: View {
     let voiceNote: VoiceNote
     
     @State private var voiceLocalPath: String?
-    private var isCurrentVoiceActive: Bool {
-        viewModel.savedMediaPath == voiceLocalPath && viewModel.isPlaying
-    }
+    private var isCurrentVoiceActive: Bool { media.savedMediaPath == voiceLocalPath && media.isPlaying }
     
-    @Environment(ChatViewModel.self) var viewModel
+    @Environment(Media.self) var media
     
     var body: some View {
         AsyncTdFile(id: voiceNote.voice.id) { voice in
@@ -28,7 +26,7 @@ struct MessageVoiceNoteView: View {
         VStack(spacing: 5) {
             HStack(spacing: 10) {
                 Button {
-                    viewModel.mediaSeekBackward()
+                    media.seekBackward()
                 } label: {
                     Image(systemName: "gobackward.5")
                 }
@@ -36,7 +34,7 @@ struct MessageVoiceNoteView: View {
                 
                 Button {
                     guard let voiceLocalPath else { return }
-                    viewModel.mediaToggle(with: voiceLocalPath, duration: voiceNote.duration)
+                    media.toggle(with: voiceLocalPath, duration: voiceNote.duration)
                 } label: {
                     Circle()
                         .fill(.white)
@@ -57,7 +55,7 @@ struct MessageVoiceNoteView: View {
                 }
                 
                 Button {
-                    viewModel.mediaSeekForward()
+                    media.seekForward()
                 } label: {
                     Image(systemName: "goforward.5")
                 }
@@ -66,10 +64,7 @@ struct MessageVoiceNoteView: View {
             .font(.system(size: 24))
             
             HStack(spacing: 0) {
-                Text(viewModel.savedMediaPath == voiceLocalPath 
-                        ? formattedDuration(from: viewModel.currentTime)
-                        : "0:00"
-                )
+                Text(media.savedMediaPath == voiceLocalPath ? formattedDuration(from: media.currentTime) : "0:00")
                 Text(" / ")
                 Text(formattedDuration(from: voiceNote.duration))
             }

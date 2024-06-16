@@ -5,8 +5,11 @@ import TDLibKit
 
 struct MessageView: View {
     @Binding var customMessage: CustomMessage
-    
-    @Environment(ChatViewModel.self) var viewModel
+    @Binding var highlightedMessageId: Int64?
+    @Binding var replyMessage: CustomMessage?
+    @Binding var editCustomMessage: CustomMessage?
+    let scrollTo: (Int64) -> Void
+    let deleteMessage: (Int64, Bool) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -14,39 +17,25 @@ struct MessageView: View {
                 ForwardedFromView(name: forwardedFrom)
             }
             
-            if customMessage.replyUser != nil, customMessage.replyToMessage != nil {
-                ReplyMessageView(customMessage: $customMessage, type: .replied)
+            if customMessage.replyUser != nil, let replyToMessage = customMessage.replyToMessage {
+                ReplyMessageView(
+                    customMessage: customMessage,
+                    type: .replied,
+                    onTap: { scrollTo(replyToMessage.id) }
+                )
             }
             
             MessageContentView(customMessage: $customMessage)
             
             if let formattedText = customMessage.formattedText {
-                MessageTextView(formattedText: formattedText, size: size(for: formattedText))
+                MessageTextView(formattedText: formattedText)
                     .padding([.bottom, .horizontal], 8)
                     .padding(.top, customMessage.replyToMessage != nil || customMessage.messageVoiceNote != nil ? 0 : 8)
             }
         }
-        .background(viewModel.highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .background(highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
+        .clipShape(.rect(cornerRadius: 20))
         .contextMenu { contextMenu }
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 20))
-    }
-    
-    func size(for formattedText: FormattedText) -> CGSize {
-        if let cached = viewModel.cachedTextSizes[formattedText] { return cached }
-        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
-        let textStorage = NSTextStorage(attributedString: attributedString)
-        let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
-        let boundingRect = CGRect(origin: .zero, size: size)
-        let textContainer = NSTextContainer(size: size)
-        textContainer.lineFragmentPadding = 0
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-        layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
-        let rect = layoutManager.usedRect(for: textContainer)
-        let result = rect.integral.size
-        viewModel.cachedTextSizes[formattedText] = result
-        return result
+        .contentShape(.contextMenuPreview, .rect(cornerRadius: 20))
     }
 }

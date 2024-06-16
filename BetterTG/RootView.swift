@@ -7,6 +7,8 @@ struct RootView: View {
     @AppStorage("loggedIn") var loggedIn = false
     @State private var chats = [CustomChat]()
     
+    @State private var media = Media()
+    
     var body: some View {
         ZStack {
             if loggedIn {
@@ -40,6 +42,7 @@ struct RootView: View {
                 loggedIn = false
             }
         }
+        .environment(media)
     }
 }
 
