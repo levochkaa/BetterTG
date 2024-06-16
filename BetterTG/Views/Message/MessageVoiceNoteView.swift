@@ -9,7 +9,7 @@ struct MessageVoiceNoteView: View {
     @State private var voiceLocalPath: String?
     private var isCurrentVoiceActive: Bool { media.savedMediaPath == voiceLocalPath && media.isPlaying }
     
-    @Environment(Media.self) var media
+    @State var media: Media = .shared
     
     var body: some View {
         AsyncTdFile(id: voiceNote.voice.id) { voice in

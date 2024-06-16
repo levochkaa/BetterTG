@@ -7,9 +7,6 @@ import Combine
 struct RootView: View {
     @AppStorage("loggedIn") var loggedIn = false
     @State private var chats = [CustomChat]()
-    
-    @State private var media = Media()
-    
     @State private var cancellables = Set<AnyCancellable>()
     
     var body: some View {
@@ -22,7 +19,6 @@ struct RootView: View {
         }
         .transition(.opacity)
         .onAppear(perform: setPublishers)
-        .environment(media)
     }
     
     private func setPublishers() {
