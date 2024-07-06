@@ -1,5 +1,8 @@
 .DS_Store
 
+.idea
+.vscode
+
 xcuserdata/
 xcshareddata/
 
@@ -9,11 +12,7 @@ BetterTG.app
 BetterTG.dmg
 BetterTG.ipa
 
-.idea
-.vscode
-
-*.p8
-*.p12
 *.cer
-*.certSigningRequest
 *.mobileprovision
+api_key.json
+report.xml
