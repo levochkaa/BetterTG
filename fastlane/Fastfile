@@ -15,7 +15,7 @@ platform :ios do
     upload_to_testflight(
       ipa: "BetterTG.ipa",
       api_key_path: "fastlane/api_key.json",
-      changelog: "First build",
+      changelog: "",
     )
     increment_build_number(build_number: ltbn + 1, xcodeproj: "BetterTG.xcodeproj")
   end
