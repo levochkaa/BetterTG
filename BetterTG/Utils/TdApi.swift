@@ -296,6 +296,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateOwnedStarCount, object: updateOwnedStarCount)
         case .updateChatRevenueAmount:
             nc.post(name: .updateChatRevenueAmount)
+        case .updateStarRevenueStatus(let updateStarRevenueStatus):
+            nc.post(name: .updateStarRevenueStatus, object: updateStarRevenueStatus)
         case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):
             nc.post(name: .updateSpeechRecognitionTrial, object: updateSpeechRecognitionTrial)
         case .updateDiceEmojis(let updateDiceEmojis):
@@ -328,6 +330,8 @@ private func update(_ update: Update) {
             nc.post(name: .updateNewCallbackQuery, object: updateNewCallbackQuery)
         case .updateNewInlineCallbackQuery(let updateNewInlineCallbackQuery):
             nc.post(name: .updateNewInlineCallbackQuery, object: updateNewInlineCallbackQuery)
+        case .updateNewBusinessCallbackQuery(let updateNewBusinessCallbackQuery):
+            nc.post(name: .updateNewBusinessCallbackQuery, object: updateNewBusinessCallbackQuery)
         case .updateNewShippingQuery(let updateNewShippingQuery):
             nc.post(name: .updateNewShippingQuery, object: updateNewShippingQuery)
         case .updateNewPreCheckoutQuery(let updateNewPreCheckoutQuery):

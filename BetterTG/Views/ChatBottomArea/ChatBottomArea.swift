@@ -667,7 +667,8 @@ struct ChatBottomArea: View {
     
     func updateDraft() async {
         let draftMessage = DraftMessage(
-            date: Int(Date.now.timeIntervalSince1970),
+            date: Int(Date.now.timeIntervalSince1970), 
+            effectId: 0,
             inputMessageText: .inputMessageText(
                 .init(
                     clearDraft: true,
@@ -704,13 +705,7 @@ struct ChatBottomArea: View {
     
     func getMessageReplyTo(from customMessage: CustomMessage?) -> InputMessageReplyTo? {
         guard let customMessage else { return nil }
-        return .inputMessageReplyToMessage(
-            .init(
-                chatId: 0,
-                messageId: customMessage.message.id,
-                quote: nil
-            )
-        )
+        return .inputMessageReplyToMessage(.init(messageId: customMessage.message.id, quote: nil))
     }
 }
 

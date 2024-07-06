@@ -495,7 +495,7 @@ struct ChatView: View {
     
     func getInputReplyToMessage(_ inputMessageReplyTo: InputMessageReplyTo?) async -> CustomMessage? {
         if case .inputMessageReplyToMessage(let message) = inputMessageReplyTo {
-            return message.chatId == 0 ? await getCustomMessage(fromId: message.messageId) : nil
+            return await getCustomMessage(fromId: message.messageId)
         }
         return nil
     }
