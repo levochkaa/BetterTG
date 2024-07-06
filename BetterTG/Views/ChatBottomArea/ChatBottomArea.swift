@@ -53,7 +53,7 @@ struct ChatBottomArea: View {
     @State var photosPickerItems = [PhotosPickerItem]()
     @State var showCameraView = false
     @State var savedVoiceNoteUrl = URL(filePath: "")
-    @State var audioRecorder = AVAudioRecorder()
+    @State var audioRecorder: AVAudioRecorder?
     
     var body: some View {
         VStack(spacing: 5) {
@@ -341,7 +341,7 @@ struct ChatBottomArea: View {
             Button {
                 withAnimation {
                     try? FileManager.default.removeItem(at: savedVoiceNoteUrl)
-                    audioRecorder.stop()
+                    audioRecorder?.stop()
                     recordingVoiceNote = false
                 }
             } label: {
@@ -378,6 +378,7 @@ struct ChatBottomArea: View {
     
     func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { timer in
+            guard let audioRecorder else { return }
             audioRecorder.updateMeters()
             wave.append(audioRecorder.peakPower(forChannel: 0))
             timerCount += timer.timeInterval
@@ -459,9 +460,9 @@ struct ChatBottomArea: View {
         
         do {
             audioRecorder = try AVAudioRecorder(url: url, settings: settings)
-            audioRecorder.isMeteringEnabled = true
-            audioRecorder.prepareToRecord()
-            audioRecorder.record()
+            audioRecorder?.isMeteringEnabled = true
+            audioRecorder?.prepareToRecord()
+            audioRecorder?.record()
             withAnimation { recordingVoiceNote = true }
             try? await tdSendChatAction(.chatActionRecordingVoiceNote)
         } catch {
@@ -470,7 +471,7 @@ struct ChatBottomArea: View {
     }
     
     func mediaStopRecordingVoice(duration: Int, wave: [Float]) {
-        audioRecorder.stop()
+        audioRecorder?.stop()
         withAnimation { recordingVoiceNote = false }
         Task.background { try? await tdSendChatAction(.chatActionCancel) }
         
