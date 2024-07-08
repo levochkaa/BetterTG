@@ -10,13 +10,12 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
     
     @State private var file: File?
-    @State private var isDownloaded = true
     @State private var cancellables = Set<AnyCancellable>()
     
     var body: some View {
         ZStack {
             Group {
-                if let file, isDownloaded {
+                if let file, file.local.isDownloadingCompleted {
                     content(file)
                 } else {
                     placeholder()
@@ -29,12 +28,11 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     }
     
     private func setPublishers() {
-        nc.publisher(&cancellables, for: .updateFile) { notification in
-            guard let updateFile = notification.object as? UpdateFile, updateFile.file.id == id else { return }
+        nc.publisher(&cancellables, for: .updateFile) { updateFile in
+            guard updateFile.file.id == id else { return }
             Task.main {
                 withAnimation {
                     file = updateFile.file
-                    isDownloaded = updateFile.file.local.isDownloadingCompleted
                 }
             }
         }

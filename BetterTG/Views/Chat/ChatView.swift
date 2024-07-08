@@ -188,34 +188,24 @@ struct ChatView: View {
             guard scrollOnFocus else { return }
             Task.main { scrollToLast() }
         }
-        nc.publisher(&cancellables, for: .updateNewMessage) { notification in
-            guard let updateNewMessage = notification.object as? UpdateNewMessage,
-                  updateNewMessage.message.chatId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateNewMessage) { updateNewMessage in
+            guard updateNewMessage.message.chatId == customChat.chat.id else { return }
             self.updateNewMessage(updateNewMessage)
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { notification in
-            guard let updateDeleteMessages = notification.object as? UpdateDeleteMessages,
-                  updateDeleteMessages.chatId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateDeleteMessages) { updateDeleteMessages in
+            guard updateDeleteMessages.chatId == customChat.chat.id else { return }
             self.updateDeleteMessages(updateDeleteMessages)
         }
-        nc.publisher(&cancellables, for: .updateChatReadInbox) { notification in
-            guard let updateChatReadInbox = notification.object as? UpdateChatReadInbox,
-                  updateChatReadInbox.chatId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateChatReadInbox) { updateChatReadInbox in
+            guard updateChatReadInbox.chatId == customChat.chat.id else { return }
             Task.main { customChat.unreadCount = updateChatReadInbox.unreadCount }
         }
-        nc.publisher(&cancellables, for: .updateMessageEdited) { notification in
-            guard let updateMessageEdited = notification.object as? UpdateMessageEdited,
-                  updateMessageEdited.chatId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateMessageEdited) { updateMessageEdited in
+            guard updateMessageEdited.chatId == customChat.chat.id else { return }
             self.updateMessageEdited(updateMessageEdited)
         }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { notification in
-            guard let updateMessageSendSucceeded = notification.object as? UpdateMessageSendSucceeded,
-                  updateMessageSendSucceeded.message.chatId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { updateMessageSendSucceeded in
+            guard updateMessageSendSucceeded.message.chatId == customChat.chat.id else { return }
             self.updateMessageSendSucceeded(updateMessageSendSucceeded)
         }
     }

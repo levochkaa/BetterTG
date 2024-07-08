@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Swiftgram/TDLibFramework",
       "state" : {
-        "revision" : "7e37704f88abab0fa51ccfd8f706576f039effb1",
-        "version" : "1.8.32-3cd93569"
+        "revision" : "a417b84a64048a366c1a902a0086fa7f398e31ea",
+        "version" : "1.8.33-cb164927"
       }
     },
     {
@@ -34,7 +34,7 @@
       "location" : "https://github.com/Swiftgram/TDLibKit",
       "state" : {
         "branch" : "main",
-        "revision" : "77f24511314c53e04c97ce443abb8f1785d43f8b"
+        "revision" : "0d29874824feb68181927e4e877bba0e1791ba74"
       }
     }
   ],

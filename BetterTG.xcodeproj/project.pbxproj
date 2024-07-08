@@ -53,6 +53,8 @@
 		DF5261DF294F602600FB7C73 /* MessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5261DE294F602600FB7C73 /* MessageView.swift */; };
 		DF540682296C7ED700492867 /* CustomChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF540681296C7ED700492867 /* CustomChat.swift */; };
 		DF55E2D2295B783F00A30C76 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF55E2D1295B783F00A30C76 /* MobileVLCKit */; };
+		DF61A48D2C3C7C2100168EC4 /* TdNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF61A48C2C3C7C1E00168EC4 /* TdNotification.swift */; };
+		DF61A48F2C3C863C00168EC4 /* Td+Generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF61A48E2C3C863600168EC4 /* Td+Generated.swift */; };
 		DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA872AA38622009180D4 /* UIApplication.swift */; };
 		DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA892AA4C899009180D4 /* Text.swift */; };
 		DF69FA8C2AA4CEB9009180D4 /* UIPasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */; };
@@ -182,6 +184,8 @@
 		DF5261D2294F47B200FB7C73 /* ChatBottomArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBottomArea.swift; sourceTree = "<group>"; };
 		DF5261DE294F602600FB7C73 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
 		DF540681296C7ED700492867 /* CustomChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomChat.swift; sourceTree = "<group>"; };
+		DF61A48C2C3C7C1E00168EC4 /* TdNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TdNotification.swift; sourceTree = "<group>"; };
+		DF61A48E2C3C863600168EC4 /* Td+Generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Td+Generated.swift"; sourceTree = "<group>"; };
 		DF69FA872AA38622009180D4 /* UIApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIApplication.swift; sourceTree = "<group>"; };
 		DF69FA892AA4C899009180D4 /* Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Text.swift; sourceTree = "<group>"; };
 		DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIPasteboard.swift; sourceTree = "<group>"; };
@@ -496,6 +500,8 @@
 				DFD7D48329423C360006CF85 /* View */,
 				DFECD756292A938B002A4BAD /* NotificationName.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter.swift */,
+				DF61A48C2C3C7C1E00168EC4 /* TdNotification.swift */,
+				DF61A48E2C3C863600168EC4 /* Td+Generated.swift */,
 				DF763B072971BE5B00334615 /* Task.swift */,
 				DFE84084298AFB9400C3A7F8 /* Button.swift */,
 				DF9D516F298D19A8009AFE7F /* Shape.swift */,
@@ -640,6 +646,7 @@
 				DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */,
 				DF429D522B2FA53C0038614B /* ZoomableContainer.swift in Sources */,
 				DF72BC732BD5854500B23124 /* ChatsListItemView.swift in Sources */,
+				DF61A48D2C3C7C2100168EC4 /* TdNotification.swift in Sources */,
 				DFD2DE7029B00D0300D531F4 /* IsPreview.swift in Sources */,
 				DF180BD8299D8C0F008174A4 /* OpenedItem.swift in Sources */,
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
@@ -669,6 +676,7 @@
 				DF1717C72971F7770085E698 /* Sequence+CompactMap.swift in Sources */,
 				DF429D4E2B2FA0C60038614B /* ChatViewAlbum.swift in Sources */,
 				DFB71EB62AE33DEE00ECAC4E /* LazyView.swift in Sources */,
+				DF61A48F2C3C863C00168EC4 /* Td+Generated.swift in Sources */,
 				DF7434DF2B2E32730094EA0D /* View+Flipped.swift in Sources */,
 				DF9C817D29994BC8008989B0 /* View+Frame.swift in Sources */,
 				DF5261D3294F47B200FB7C73 /* ChatBottomArea.swift in Sources */,

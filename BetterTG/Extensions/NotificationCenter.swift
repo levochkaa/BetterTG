@@ -6,16 +6,28 @@ import Combine
 let nc = NotificationCenter()
 
 extension NotificationCenter {
+    func publisher<T>(
+        _ cancellables: inout Set<AnyCancellable>,
+        for tdNotification: TdNotification<T>,
+        _ perform: @escaping (T) -> Void
+    ) {
+        self
+            .publisher(for: tdNotification.name)
+            .receive(on: RunLoop.main)
+            .compactMap { $0.object as? T }
+            .sink { perform($0) }
+            .store(in: &cancellables)
+    }
+    
     func publisher(
         _ cancellables: inout Set<AnyCancellable>,
         for name: Notification.Name,
         _ perform: @escaping (Publisher.Output) -> Void
     ) {
-        publisher(for: name)
+        self
+            .publisher(for: name)
             .receive(on: RunLoop.main)
-            .sink { notification in
-                perform(notification)
-            }
+            .sink { perform($0) }
             .store(in: &cancellables)
     }
     
@@ -36,11 +48,9 @@ extension NotificationCenter {
         _ names: [Notification.Name],
         _ perform: @escaping (Publisher.Output) -> Void
     ) {
-        Publishers.MergeMany(names.map { publisher(for: $0) })
+        mergeMany(names)
             .receive(on: RunLoop.main)
-            .sink { notification in
-                perform(notification)
-            }
+            .sink { perform($0) }
             .store(in: &cancellables)
     }
 }

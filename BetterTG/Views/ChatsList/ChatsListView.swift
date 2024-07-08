@@ -103,21 +103,19 @@ struct ChatsListView: View {
         .onAppear(perform: setPublishers)
     }
     
+    // swiftlint:disable:next function_body_length
     private func setPublishers() {
-        nc.publisher(&cancellables, for: .updateChatReadInbox) { notification in
-            guard let chatReadInbox = notification.object as? UpdateChatReadInbox,
-                  let index = chats.firstIndex(where: { $0.chat.id == chatReadInbox.chatId })
-            else { return }
+        nc.publisher(&cancellables, for: .updateChatReadInbox) { updateChatReadInbox in
+            guard let index = chats.firstIndex(where: { $0.chat.id == updateChatReadInbox.chatId }) else { return }
             Task.main {
                 withAnimation {
-                    chats[index].unreadCount = chatReadInbox.unreadCount
+                    chats[index].unreadCount = updateChatReadInbox.unreadCount
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateNewChat) { notification in
-            guard let newChat = notification.object as? UpdateNewChat else { return }
+        nc.publisher(&cancellables, for: .updateNewChat) { updateNewChat in
             Task.background {
-                guard let customChat = await getCustomChat(from: newChat.chat.id) else { return }
+                guard let customChat = await getCustomChat(from: updateNewChat.chat.id) else { return }
                 await main {
                     withAnimation {
                         chats.append(customChat)
@@ -125,11 +123,10 @@ struct ChatsListView: View {
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateChatPosition) { notification in
-            guard let updateChatPosition = notification.object as? UpdateChatPosition else { return }
-//            guard chatPosition.position.order != 0 else {
+        nc.publisher(&cancellables, for: .updateChatPosition) { updateChatPosition in
+//            guard updateChatPosition.position.order != 0 else {
 //                return Task.main {
-//                    chats.removeAll(where: { $0.chat.id == chatPosition.chatId })
+//                    chats.removeAll(where: { $0.chat.id == updateChatPosition.chatId })
 //                }
 //            }
             guard let index = chats.firstIndex(where: { $0.chat.id == updateChatPosition.chatId }),
@@ -143,10 +140,8 @@ struct ChatsListView: View {
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateChatDraftMessage) { notification in
-            guard let updateChatDraftMessage = notification.object as? UpdateChatDraftMessage,
-                  let index = chats.firstIndex(where: { $0.chat.id == updateChatDraftMessage.chatId })
-            else { return }
+        nc.publisher(&cancellables, for: .updateChatDraftMessage) { updateChatDraftMessage in
+            guard let index = chats.firstIndex(where: { $0.chat.id == updateChatDraftMessage.chatId }) else { return }
             Task.main {
                 withAnimation {
                     chats[index].draftMessage = updateChatDraftMessage.draftMessage
@@ -154,8 +149,7 @@ struct ChatsListView: View {
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateChatLastMessage) { notification in
-            guard let updateChatLastMessage = notification.object as? UpdateChatLastMessage else { return }
+        nc.publisher(&cancellables, for: .updateChatLastMessage) { updateChatLastMessage in
             if let index = chats.firstIndex(where: { $0.chat.id == updateChatLastMessage.chatId }) {
                 Task.main {
                     withAnimation {

@@ -32,17 +32,13 @@ struct ChatToolbar: ViewModifier {
     }
     
     private func setPublishers() {
-        nc.publisher(&cancellables, for: .updateUserStatus) { notification in
-            guard let updateUserStatus = notification.object as? UpdateUserStatus,
-                  updateUserStatus.userId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateUserStatus) { updateUserStatus in
+            guard updateUserStatus.userId == customChat.chat.id else { return }
             let onlineStatus = self.updateUserStatus(updateUserStatus.status)
             Task.main { self.onlineStatus = onlineStatus }
         }
-        nc.publisher(&cancellables, for: .updateChatAction) { notification in
-            guard let updateChatAction = notification.object as? UpdateChatAction,
-                  updateChatAction.chatId == customChat.chat.id
-            else { return }
+        nc.publisher(&cancellables, for: .updateChatAction) { updateChatAction in
+            guard updateChatAction.chatId == customChat.chat.id else { return }
             self.updateChatAction(updateChatAction)
         }
     }
