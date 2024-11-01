@@ -231,8 +231,6 @@ func update(_ update: Update) {
             nc.post(name: .updateConnectionState, object: updateConnectionState)
         case .updateTermsOfService(let updateTermsOfService):
             nc.post(name: .updateTermsOfService, object: updateTermsOfService)
-        case .updateUsersNearby(let updateUsersNearby):
-            nc.post(name: .updateUsersNearby, object: updateUsersNearby)
         case .updateUnconfirmedSession(let updateUnconfirmedSession):
             nc.post(name: .updateUnconfirmedSession, object: updateUnconfirmedSession)
         case .updateAttachmentMenuBots(let updateAttachmentMenuBots):
@@ -247,6 +245,8 @@ func update(_ update: Update) {
             nc.post(name: .updateDefaultReactionType, object: updateDefaultReactionType)
         case .updateSavedMessagesTags(let updateSavedMessagesTags):
             nc.post(name: .updateSavedMessagesTags, object: updateSavedMessagesTags)
+        case .updateActiveLiveLocationMessages(let updateActiveLiveLocationMessages):
+            nc.post(name: .updateActiveLiveLocationMessages, object: updateActiveLiveLocationMessages)
         case .updateOwnedStarCount(let updateOwnedStarCount):
             nc.post(name: .updateOwnedStarCount, object: updateOwnedStarCount)
         case .updateChatRevenueAmount(let updateChatRevenueAmount):
@@ -309,6 +309,8 @@ func update(_ update: Update) {
             nc.post(name: .updateMessageReaction, object: updateMessageReaction)
         case .updateMessageReactions(let updateMessageReactions):
             nc.post(name: .updateMessageReactions, object: updateMessageReactions)
+        case .updatePaidMediaPurchased(let updatePaidMediaPurchased):
+            nc.post(name: .updatePaidMediaPurchased, object: updatePaidMediaPurchased)
     }
 }
 
@@ -423,7 +425,6 @@ extension TdNotification {
     static var updateLanguagePackStrings: TdNotification<UpdateLanguagePackStrings> { .init(.updateLanguagePackStrings) }
     static var updateConnectionState: TdNotification<UpdateConnectionState> { .init(.updateConnectionState) }
     static var updateTermsOfService: TdNotification<UpdateTermsOfService> { .init(.updateTermsOfService) }
-    static var updateUsersNearby: TdNotification<UpdateUsersNearby> { .init(.updateUsersNearby) }
     static var updateUnconfirmedSession: TdNotification<UpdateUnconfirmedSession> { .init(.updateUnconfirmedSession) }
     static var updateAttachmentMenuBots: TdNotification<UpdateAttachmentMenuBots> { .init(.updateAttachmentMenuBots) }
     static var updateWebAppMessageSent: TdNotification<UpdateWebAppMessageSent> { .init(.updateWebAppMessageSent) }
@@ -431,6 +432,7 @@ extension TdNotification {
     static var updateAvailableMessageEffects: TdNotification<UpdateAvailableMessageEffects> { .init(.updateAvailableMessageEffects) }
     static var updateDefaultReactionType: TdNotification<UpdateDefaultReactionType> { .init(.updateDefaultReactionType) }
     static var updateSavedMessagesTags: TdNotification<UpdateSavedMessagesTags> { .init(.updateSavedMessagesTags) }
+    static var updateActiveLiveLocationMessages: TdNotification<UpdateActiveLiveLocationMessages> { .init(.updateActiveLiveLocationMessages) }
     static var updateOwnedStarCount: TdNotification<UpdateOwnedStarCount> { .init(.updateOwnedStarCount) }
     static var updateChatRevenueAmount: TdNotification<UpdateChatRevenueAmount> { .init(.updateChatRevenueAmount) }
     static var updateStarRevenueStatus: TdNotification<UpdateStarRevenueStatus> { .init(.updateStarRevenueStatus) }
@@ -462,6 +464,7 @@ extension TdNotification {
     static var updateChatBoost: TdNotification<UpdateChatBoost> { .init(.updateChatBoost) }
     static var updateMessageReaction: TdNotification<UpdateMessageReaction> { .init(.updateMessageReaction) }
     static var updateMessageReactions: TdNotification<UpdateMessageReactions> { .init(.updateMessageReactions) }
+    static var updatePaidMediaPurchased: TdNotification<UpdatePaidMediaPurchased> { .init(.updatePaidMediaPurchased) }
 }
 
 extension Foundation.Notification.Name {
@@ -575,7 +578,6 @@ extension Foundation.Notification.Name {
     static let updateLanguagePackStrings = Self("updateLanguagePackStrings")
     static let updateConnectionState = Self("updateConnectionState")
     static let updateTermsOfService = Self("updateTermsOfService")
-    static let updateUsersNearby = Self("updateUsersNearby")
     static let updateUnconfirmedSession = Self("updateUnconfirmedSession")
     static let updateAttachmentMenuBots = Self("updateAttachmentMenuBots")
     static let updateWebAppMessageSent = Self("updateWebAppMessageSent")
@@ -583,6 +585,7 @@ extension Foundation.Notification.Name {
     static let updateAvailableMessageEffects = Self("updateAvailableMessageEffects")
     static let updateDefaultReactionType = Self("updateDefaultReactionType")
     static let updateSavedMessagesTags = Self("updateSavedMessagesTags")
+    static let updateActiveLiveLocationMessages = Self("updateActiveLiveLocationMessages")
     static let updateOwnedStarCount = Self("updateOwnedStarCount")
     static let updateChatRevenueAmount = Self("updateChatRevenueAmount")
     static let updateStarRevenueStatus = Self("updateStarRevenueStatus")
@@ -614,6 +617,7 @@ extension Foundation.Notification.Name {
     static let updateChatBoost = Self("updateChatBoost")
     static let updateMessageReaction = Self("updateMessageReaction")
     static let updateMessageReactions = Self("updateMessageReactions")
+    static let updatePaidMediaPurchased = Self("updatePaidMediaPurchased")
 }
 
 // swiftlint:enable line_length

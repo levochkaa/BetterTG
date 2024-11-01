@@ -112,7 +112,7 @@ public indirect enum Update: Codable, Equatable, Hashable {
     /// A fact-check added to a message was changed
     case updateMessageFactCheck(UpdateMessageFactCheck)
 
-    /// A message with a live location was viewed. When the update is received, the application is supposed to update the live location
+    /// A message with a live location was viewed. When the update is received, the application is expected to update the live location
     case updateMessageLiveLocationViewed(UpdateMessageLiveLocationViewed)
 
     /// A new chat has been loaded/created. This update is guaranteed to come before the chat identifier is returned to the application. The chat field changes will be reported through separate updates
@@ -295,7 +295,7 @@ public indirect enum Update: Codable, Equatable, Hashable {
     /// Information about a file was updated
     case updateFile(UpdateFile)
 
-    /// The file generation process needs to be started by the application
+    /// The file generation process needs to be started by the application. Use setFileGenerationProgress and finishFileGeneration to generate the file
     case updateFileGenerationStart(UpdateFileGenerationStart)
 
     /// File generation is no longer needed
@@ -403,9 +403,6 @@ public indirect enum Update: Codable, Equatable, Hashable {
     /// New terms of service must be accepted by the user. If the terms of service are declined, then the deleteAccount method must be called with the reason "Decline ToS update"
     case updateTermsOfService(UpdateTermsOfService)
 
-    /// The list of users nearby has changed. The update is guaranteed to be sent only 60 seconds after a successful searchChatsNearby request
-    case updateUsersNearby(UpdateUsersNearby)
-
     /// The first unconfirmed session has changed
     case updateUnconfirmedSession(UpdateUnconfirmedSession)
 
@@ -427,13 +424,16 @@ public indirect enum Update: Codable, Equatable, Hashable {
     /// Tags used in Saved Messages or a Saved Messages topic have changed
     case updateSavedMessagesTags(UpdateSavedMessagesTags)
 
-    /// The number of Telegram stars owned by the current user has changed
+    /// The list of messages with active live location that need to be updated by the application has changed. The list is persistent across application restarts only if the message database is used
+    case updateActiveLiveLocationMessages(UpdateActiveLiveLocationMessages)
+
+    /// The number of Telegram Stars owned by the current user has changed
     case updateOwnedStarCount(UpdateOwnedStarCount)
 
     /// The revenue earned from sponsored messages in a chat has changed. If chat revenue screen is opened, then getChatRevenueTransactions may be called to fetch new transactions
     case updateChatRevenueAmount(UpdateChatRevenueAmount)
 
-    /// The Telegram star revenue earned by a bot or a chat has changed. If star transactions screen of the chat is opened, then getStarTransactions may be called to fetch new transactions
+    /// The Telegram Star revenue earned by a bot or a chat has changed. If Telegram Star transaction screen of the chat is opened, then getStarTransactions may be called to fetch new transactions
     case updateStarRevenueStatus(UpdateStarRevenueStatus)
 
     /// The parameters of speech recognition without Telegram Premium subscription has changed
@@ -451,7 +451,7 @@ public indirect enum Update: Codable, Equatable, Hashable {
     /// The list of suggested to the user actions has changed
     case updateSuggestedActions(UpdateSuggestedActions)
 
-    /// Download or upload file speed for the user was limited, but it can be restored by subscription to Telegram Premium. The notification can be postponed until a being downloaded or uploaded file is visible to the user Use getOption("premium_download_speedup") or getOption("premium_upload_speedup") to get expected speedup after subscription to Telegram Premium
+    /// Download or upload file speed for the user was limited, but it can be restored by subscription to Telegram Premium. The notification can be postponed until a being downloaded or uploaded file is visible to the user. Use getOption("premium_download_speedup") or getOption("premium_upload_speedup") to get expected speedup after subscription to Telegram Premium
     case updateSpeedLimitNotification(UpdateSpeedLimitNotification)
 
     /// The list of contacts that had birthdays recently or will have birthday soon has changed
@@ -519,6 +519,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
 
     /// Reactions added to a message with anonymous reactions have changed; for bots only
     case updateMessageReactions(UpdateMessageReactions)
+
+    /// Paid media were purchased by a user; for bots only
+    case updatePaidMediaPurchased(UpdatePaidMediaPurchased)
 
 
     private enum Kind: String, Codable {
@@ -632,7 +635,6 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case updateLanguagePackStrings
         case updateConnectionState
         case updateTermsOfService
-        case updateUsersNearby
         case updateUnconfirmedSession
         case updateAttachmentMenuBots
         case updateWebAppMessageSent
@@ -640,6 +642,7 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case updateAvailableMessageEffects
         case updateDefaultReactionType
         case updateSavedMessagesTags
+        case updateActiveLiveLocationMessages
         case updateOwnedStarCount
         case updateChatRevenueAmount
         case updateStarRevenueStatus
@@ -671,6 +674,7 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case updateChatBoost
         case updateMessageReaction
         case updateMessageReactions
+        case updatePaidMediaPurchased
     }
 
     public init(from decoder: Decoder) throws {
@@ -1007,9 +1011,6 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case .updateTermsOfService:
             let value = try UpdateTermsOfService(from: decoder)
             self = .updateTermsOfService(value)
-        case .updateUsersNearby:
-            let value = try UpdateUsersNearby(from: decoder)
-            self = .updateUsersNearby(value)
         case .updateUnconfirmedSession:
             let value = try UpdateUnconfirmedSession(from: decoder)
             self = .updateUnconfirmedSession(value)
@@ -1031,6 +1032,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case .updateSavedMessagesTags:
             let value = try UpdateSavedMessagesTags(from: decoder)
             self = .updateSavedMessagesTags(value)
+        case .updateActiveLiveLocationMessages:
+            let value = try UpdateActiveLiveLocationMessages(from: decoder)
+            self = .updateActiveLiveLocationMessages(value)
         case .updateOwnedStarCount:
             let value = try UpdateOwnedStarCount(from: decoder)
             self = .updateOwnedStarCount(value)
@@ -1124,6 +1128,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case .updateMessageReactions:
             let value = try UpdateMessageReactions(from: decoder)
             self = .updateMessageReactions(value)
+        case .updatePaidMediaPurchased:
+            let value = try UpdatePaidMediaPurchased(from: decoder)
+            self = .updatePaidMediaPurchased(value)
         }
     }
 
@@ -1460,9 +1467,6 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case .updateTermsOfService(let value):
             try container.encode(Kind.updateTermsOfService, forKey: .type)
             try value.encode(to: encoder)
-        case .updateUsersNearby(let value):
-            try container.encode(Kind.updateUsersNearby, forKey: .type)
-            try value.encode(to: encoder)
         case .updateUnconfirmedSession(let value):
             try container.encode(Kind.updateUnconfirmedSession, forKey: .type)
             try value.encode(to: encoder)
@@ -1483,6 +1487,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
             try value.encode(to: encoder)
         case .updateSavedMessagesTags(let value):
             try container.encode(Kind.updateSavedMessagesTags, forKey: .type)
+            try value.encode(to: encoder)
+        case .updateActiveLiveLocationMessages(let value):
+            try container.encode(Kind.updateActiveLiveLocationMessages, forKey: .type)
             try value.encode(to: encoder)
         case .updateOwnedStarCount(let value):
             try container.encode(Kind.updateOwnedStarCount, forKey: .type)
@@ -1576,6 +1583,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
             try value.encode(to: encoder)
         case .updateMessageReactions(let value):
             try container.encode(Kind.updateMessageReactions, forKey: .type)
+            try value.encode(to: encoder)
+        case .updatePaidMediaPurchased(let value):
+            try container.encode(Kind.updatePaidMediaPurchased, forKey: .type)
             try value.encode(to: encoder)
         }
     }

@@ -100,6 +100,7 @@
 		DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE84084298AFB9400C3A7F8 /* Button.swift */; };
 		DFECD757292A938B002A4BAD /* NotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD756292A938B002A4BAD /* NotificationName.swift */; };
 		DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFECD759292A99FE002A4BAD /* NotificationCenter.swift */; };
+		DFF4926A2CD51161003C1568 /* MessageProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF492692CD5115E003C1568 /* MessageProperties.swift */; };
 		DFFA98872A9B546C0037460A /* Array+ChatPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */; };
 /* End PBXBuildFile section */
 
@@ -230,6 +231,7 @@
 		DFE84084298AFB9400C3A7F8 /* Button.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Button.swift; sourceTree = "<group>"; };
 		DFECD756292A938B002A4BAD /* NotificationName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationName.swift; sourceTree = "<group>"; };
 		DFECD759292A99FE002A4BAD /* NotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenter.swift; sourceTree = "<group>"; };
+		DFF492692CD5115E003C1568 /* MessageProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageProperties.swift; sourceTree = "<group>"; };
 		DFFA98862A9B546C0037460A /* Array+ChatPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+ChatPosition.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -500,6 +502,7 @@
 				DFD7D48329423C360006CF85 /* View */,
 				DFECD756292A938B002A4BAD /* NotificationName.swift */,
 				DFECD759292A99FE002A4BAD /* NotificationCenter.swift */,
+				DFF492692CD5115E003C1568 /* MessageProperties.swift */,
 				DF61A48C2C3C7C1E00168EC4 /* TdNotification.swift */,
 				DF61A48E2C3C863600168EC4 /* Td+Generated.swift */,
 				DF763B072971BE5B00334615 /* Task.swift */,
@@ -558,7 +561,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1430;
-				LastUpgradeCheck = 1600;
+				LastUpgradeCheck = 1610;
 				TargetAttributes = {
 					DF4B997D28C3F3F50087C1B9 = {
 						CreatedOnToolsVersion = 14.0;
@@ -666,6 +669,7 @@
 				DFE84085298AFB9400C3A7F8 /* Button.swift in Sources */,
 				DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */,
 				DF236749294148290076B821 /* View+Center.swift in Sources */,
+				DFF4926A2CD51161003C1568 /* MessageProperties.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
 				DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */,
 				DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */,

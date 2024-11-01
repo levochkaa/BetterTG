@@ -418,7 +418,10 @@ struct ChatView: View {
         var customMessage = CustomMessage(
             message: message,
             replyToMessage: replyToMessage,
-            forwardedFrom: await getForwardedFrom(message.forwardInfo?.origin)
+            forwardedFrom: await getForwardedFrom(message.forwardInfo?.origin),
+            properties: (try? await td.getMessageProperties(
+                chatId: customChat.chat.id, messageId: message.id
+            )) ?? .default
         )
         
         if message.mediaAlbumId != 0 {

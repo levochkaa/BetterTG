@@ -22,7 +22,7 @@ extension MessageView {
             }
         }
         
-        if customMessage.message.canBeEdited {
+        if customMessage.properties.canBeEdited {
             Button("Edit", systemImage: "square.and.pencil") {
                 if editCustomMessage != nil {
                     withAnimation {
@@ -49,19 +49,19 @@ extension MessageView {
         
         Divider()
         
-        if customMessage.message.canBeDeletedOnlyForSelf, !customMessage.message.canBeDeletedForAllUsers {
+        if customMessage.properties.canBeDeletedOnlyForSelf, !customMessage.properties.canBeDeletedForAllUsers {
             Button("Delete", systemImage: "trash", role: .destructive) {
                 deleteMessage(customMessage.message.id, false)
             }
         }
         
-        if customMessage.message.canBeDeletedForAllUsers, !customMessage.message.canBeDeletedOnlyForSelf {
+        if customMessage.properties.canBeDeletedForAllUsers, !customMessage.properties.canBeDeletedOnlyForSelf {
             Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
                 deleteMessage(customMessage.message.id, true)
             }
         }
         
-        if customMessage.message.canBeDeletedOnlyForSelf, customMessage.message.canBeDeletedForAllUsers {
+        if customMessage.properties.canBeDeletedOnlyForSelf, customMessage.properties.canBeDeletedForAllUsers {
             Menu("Delete") {
                 Button("Delete only for me", systemImage: "trash", role: .destructive) {
                     deleteMessage(customMessage.message.id, false)
