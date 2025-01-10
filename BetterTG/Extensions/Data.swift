@@ -3,5 +3,5 @@
 import Foundation
 
 extension Data {
-    var string: String { String(decoding: self, as: UTF8.self) }
+    var string: String { String(data: self, encoding: .utf8) ?? "" }
 }

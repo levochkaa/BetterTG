@@ -16,6 +16,7 @@ extension MessageProperties {
         canBeRepliedInAnotherChat: false,
         canBeSaved: false,
         canBeSharedInStory: false,
+        canEditMedia: false,
         canEditSchedulingState: false,
         canGetEmbeddingCode: false,
         canGetLink: false,

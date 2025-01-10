@@ -39,6 +39,8 @@ func update(_ update: Update) {
             nc.post(name: .updateMessageFactCheck, object: updateMessageFactCheck)
         case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
             nc.post(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed)
+        case .updateVideoPublished(let updateVideoPublished):
+            nc.post(name: .updateVideoPublished, object: updateVideoPublished)
         case .updateNewChat(let updateNewChat):
             nc.post(name: .updateNewChat, object: updateNewChat)
         case .updateChatTitle(let updateChatTitle):
@@ -329,6 +331,7 @@ extension TdNotification {
     static var updateMessageUnreadReactions: TdNotification<UpdateMessageUnreadReactions> { .init(.updateMessageUnreadReactions) }
     static var updateMessageFactCheck: TdNotification<UpdateMessageFactCheck> { .init(.updateMessageFactCheck) }
     static var updateMessageLiveLocationViewed: TdNotification<UpdateMessageLiveLocationViewed> { .init(.updateMessageLiveLocationViewed) }
+    static var updateVideoPublished: TdNotification<UpdateVideoPublished> { .init(.updateVideoPublished) }
     static var updateNewChat: TdNotification<UpdateNewChat> { .init(.updateNewChat) }
     static var updateChatTitle: TdNotification<UpdateChatTitle> { .init(.updateChatTitle) }
     static var updateChatPhoto: TdNotification<UpdateChatPhoto> { .init(.updateChatPhoto) }
@@ -482,6 +485,7 @@ extension Foundation.Notification.Name {
     static let updateMessageUnreadReactions = Self("updateMessageUnreadReactions")
     static let updateMessageFactCheck = Self("updateMessageFactCheck")
     static let updateMessageLiveLocationViewed = Self("updateMessageLiveLocationViewed")
+    static let updateVideoPublished = Self("updateVideoPublished")
     static let updateNewChat = Self("updateNewChat")
     static let updateChatTitle = Self("updateChatTitle")
     static let updateChatPhoto = Self("updateChatPhoto")

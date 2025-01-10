@@ -115,6 +115,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
     /// A message with a live location was viewed. When the update is received, the application is expected to update the live location
     case updateMessageLiveLocationViewed(UpdateMessageLiveLocationViewed)
 
+    /// An automatically scheduled message with video has been successfully sent after conversion
+    case updateVideoPublished(UpdateVideoPublished)
+
     /// A new chat has been loaded/created. This update is guaranteed to come before the chat identifier is returned to the application. The chat field changes will be reported through separate updates
     case updateNewChat(UpdateNewChat)
 
@@ -539,6 +542,7 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case updateMessageUnreadReactions
         case updateMessageFactCheck
         case updateMessageLiveLocationViewed
+        case updateVideoPublished
         case updateNewChat
         case updateChatTitle
         case updateChatPhoto
@@ -723,6 +727,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
         case .updateMessageLiveLocationViewed:
             let value = try UpdateMessageLiveLocationViewed(from: decoder)
             self = .updateMessageLiveLocationViewed(value)
+        case .updateVideoPublished:
+            let value = try UpdateVideoPublished(from: decoder)
+            self = .updateVideoPublished(value)
         case .updateNewChat:
             let value = try UpdateNewChat(from: decoder)
             self = .updateNewChat(value)
@@ -1178,6 +1185,9 @@ public indirect enum Update: Codable, Equatable, Hashable {
             try value.encode(to: encoder)
         case .updateMessageLiveLocationViewed(let value):
             try container.encode(Kind.updateMessageLiveLocationViewed, forKey: .type)
+            try value.encode(to: encoder)
+        case .updateVideoPublished(let value):
+            try container.encode(Kind.updateVideoPublished, forKey: .type)
             try value.encode(to: encoder)
         case .updateNewChat(let value):
             try container.encode(Kind.updateNewChat, forKey: .type)
