@@ -1,7 +1,7 @@
 // TextEntity.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 extension TextEntity {
     init(_ type: TextEntityType, range: NSRange) {

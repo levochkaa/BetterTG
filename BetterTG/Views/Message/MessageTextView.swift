@@ -1,7 +1,7 @@
 // MessageTextView.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 var cachedTextSizes: [FormattedText: CGSize] = [:]
 

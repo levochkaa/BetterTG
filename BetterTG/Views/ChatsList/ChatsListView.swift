@@ -1,7 +1,7 @@
 // ChatsListView.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 import Combine
 
 struct ChatsListView: View {

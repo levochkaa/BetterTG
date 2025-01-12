@@ -1,7 +1,7 @@
 // ChatToolbar.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 import Combine
 
 struct ChatToolbar: ViewModifier {

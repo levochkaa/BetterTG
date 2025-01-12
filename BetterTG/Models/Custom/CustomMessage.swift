@@ -1,7 +1,7 @@
 // CustomMessage.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct CustomMessage: Identifiable, Equatable, Hashable {
     var id: Int64 { message.id }

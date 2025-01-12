@@ -1,7 +1,7 @@
 // MessageProperties.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 extension MessageProperties {
     static let `default` = MessageProperties(

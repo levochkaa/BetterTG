@@ -1,7 +1,7 @@
 // AsyncTdImage.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct AsyncTdImage<Content: View, Placeholder: View>: View {
     

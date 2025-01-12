@@ -1,7 +1,7 @@
 // ChatsListItemView.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct ChatsListItemView: View {
     @Binding var customChat: CustomChat

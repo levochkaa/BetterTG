@@ -1,7 +1,7 @@
 // SelectCountryView.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct SelectCountryView: View {
     @Binding var showSelectCountryView: Bool

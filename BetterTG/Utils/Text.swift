@@ -1,7 +1,7 @@
 // Text.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 func defaultAttributes(_ foregroundColor: Color = .white) -> [NSAttributedString.Key: Any] {
     [

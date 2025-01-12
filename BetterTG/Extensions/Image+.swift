@@ -1,7 +1,7 @@
 // Image.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 extension Image {
     init(file: TDLibKit.File) {

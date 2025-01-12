@@ -1,7 +1,7 @@
 // BetterTGApp.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 import AVKit
 
 @main

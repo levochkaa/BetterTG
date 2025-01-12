@@ -1,7 +1,7 @@
 // MessageVoiceNoteView.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct MessageVoiceNoteView: View {
     let voiceNote: VoiceNote

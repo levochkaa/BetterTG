@@ -1,7 +1,7 @@
 // CustomMessageAlbum.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct CustomMessageAlbum: Identifiable {
     var id = UUID()

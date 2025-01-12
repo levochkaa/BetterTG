@@ -4,7 +4,7 @@
 // Any modifications will be overwritten
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 // swiftlint:disable line_length
 

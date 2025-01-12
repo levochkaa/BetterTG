@@ -3,7 +3,7 @@
 import SwiftUI
 import MobileCoreServices
 import UniformTypeIdentifiers
-@preconcurrency import TDLibKit
+import TDLibKit
 
 let defaultDocumentAttributes = [
     NSAttributedString.DocumentAttributeKey.documentType: NSAttributedString.DocumentType.rtf

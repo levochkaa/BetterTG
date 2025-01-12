@@ -5,7 +5,7 @@
 //  Created by Lev Poznyakov on 27.08.2023.
 //
 
-@preconcurrency import TDLibKit
+import TDLibKit
 
 extension [ChatPosition] {
     var main: ChatPosition? {

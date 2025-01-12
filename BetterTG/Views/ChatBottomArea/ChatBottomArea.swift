@@ -3,7 +3,7 @@
 import SwiftUI
 import PhotosUI
 import Combine
-@preconcurrency import TDLibKit
+import TDLibKit
 
 // swiftlint:disable:next type_body_length
 struct ChatBottomArea: View {

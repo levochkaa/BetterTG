@@ -1,7 +1,7 @@
 // ChatViewAlbum.swift
 
 import SwiftUI
-@preconcurrency import TDLibKit
+import TDLibKit
 
 struct ChatViewAlbum: View {
     @State var album: [Message]
