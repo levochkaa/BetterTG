@@ -143,6 +143,7 @@ struct ChatBottomArea: View {
             }
             .menuOrder(.fixed)
             .frame(height: 36)
+            .padding(.bottom, 2)
             .sheet(isPresented: $showPhotoPickerView) {
                 PhotoPicker { index, image, error in
                     if let image {
