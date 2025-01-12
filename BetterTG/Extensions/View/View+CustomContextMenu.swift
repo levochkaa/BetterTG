@@ -48,16 +48,19 @@ extension View {
         onAppear: @escaping () -> Void = {},
         onDisappear: @escaping () -> Void = {}
     ) -> some View {
-        overlay {
-            CustomContextMenuView(
-                cornerRadius: cornerRadius,
-                menu: actions.uiMenu(),
-                preview: self,
-                didTapPreview: didTapPreview,
-                onAppear: onAppear,
-                onDisappear: onDisappear
-            )
-        }
+        self
+            .hidden()
+            .overlay {
+                CustomContextMenuView(
+                    cornerRadius: cornerRadius,
+                    menu: actions.uiMenu(),
+                    content: self,
+                    preview: self,
+                    didTapPreview: didTapPreview,
+                    onAppear: onAppear,
+                    onDisappear: onDisappear
+                )
+            }
     }
     
     func customContextMenu<Content: View>(
@@ -68,23 +71,27 @@ extension View {
         onAppear: @escaping () -> Void = {},
         onDisappear: @escaping () -> Void = {}
     ) -> some View {
-        overlay {
-            CustomContextMenuView(
-                cornerRadius: cornerRadius,
-                menu: actions.uiMenu(),
-                preview: preview(),
-                didTapPreview: didTapPreview,
-                onAppear: onAppear,
-                onDisappear: onDisappear
-            )
-        }
+        self
+            .hidden()
+            .overlay {
+                CustomContextMenuView(
+                    cornerRadius: cornerRadius,
+                    menu: actions.uiMenu(),
+                    content: self,
+                    preview: preview(),
+                    didTapPreview: didTapPreview,
+                    onAppear: onAppear,
+                    onDisappear: onDisappear
+                )
+            }
     }
 }
 
-private struct CustomContextMenuView<Content: View>: UIViewRepresentable {
+private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepresentable {
     let cornerRadius: CGFloat
     let menu: UIMenu
-    let preview: Content
+    let content: Content
+    let preview: Preview
     let didTapPreview: (() -> Void)?
     let onAppear: () -> Void
     let onDisappear: () -> Void
@@ -93,6 +100,19 @@ private struct CustomContextMenuView<Content: View>: UIViewRepresentable {
         let view = UIView()
         view.backgroundColor = .clear
         view.layer.cornerRadius = cornerRadius
+        let host = UIHostingController(rootView: content)
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        let constraints = [
+            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            host.view.widthAnchor.constraint(equalTo: view.widthAnchor),
+            host.view.heightAnchor.constraint(equalTo: view.heightAnchor)
+        ]
+        view.addSubview(host.view)
+        view.addConstraints(constraints)
         view.addInteraction(UIContextMenuInteraction(delegate: context.coordinator))
         return view
     }
