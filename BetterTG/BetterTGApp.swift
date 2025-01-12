@@ -8,7 +8,7 @@ import AVKit
 struct BetterTGApp: App {
     
     init() {
-        startTdLibUpdateHandler()
+        TDLib.shared.startTdLibUpdateHandler()
         
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()

@@ -16,7 +16,7 @@ update_func = """// swiftlint:disable:next function_body_length
 func update(_ update: Update) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
-            UpdateAuthorizationState(updateAuthorizationState.authorizationState)
+            TDLib.shared.UpdateAuthorizationState(updateAuthorizationState.authorizationState)
 """
 
 def main(update: str):

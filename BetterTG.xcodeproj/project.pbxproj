@@ -15,7 +15,7 @@
 		1A21DD03B6876C47203219A8 /* View+If.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A21D7EDDC8AFF28411C178C /* View+If.swift */; };
 		DF0921052ABF492600B79504 /* MessageTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0921042ABF492600B79504 /* MessageTextView.swift */; };
 		DF0921072ABF494C00B79504 /* ForwardedFromView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0921062ABF494C00B79504 /* ForwardedFromView.swift */; };
-		DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TdApi.swift */; };
+		DF0F9D5128CCADB300BCA763 /* TDLib.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0F9D5028CCADB300BCA763 /* TDLib.swift */; };
 		DF16E6EF28DA4AE900281C7B /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF16E6EE28DA4AE900281C7B /* LoginView.swift */; };
 		DF1717C02971F6410085E698 /* Array+GetSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1717BF2971F6410085E698 /* Array+GetSize.swift */; };
 		DF1717C32971F6AB0085E698 /* Sequence+Map.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1717C22971F6AB0085E698 /* Sequence+Map.swift */; };
@@ -147,7 +147,7 @@
 		1A21DFE55F3AC76D1FB1D20F /* View+ReadSize.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "View+ReadSize.swift"; sourceTree = "<group>"; };
 		DF0921042ABF492600B79504 /* MessageTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTextView.swift; sourceTree = "<group>"; };
 		DF0921062ABF494C00B79504 /* ForwardedFromView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardedFromView.swift; sourceTree = "<group>"; };
-		DF0F9D5028CCADB300BCA763 /* TdApi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TdApi.swift; sourceTree = "<group>"; };
+		DF0F9D5028CCADB300BCA763 /* TDLib.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TDLib.swift; sourceTree = "<group>"; };
 		DF16E6EE28DA4AE900281C7B /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		DF1717BF2971F6410085E698 /* Array+GetSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+GetSize.swift"; sourceTree = "<group>"; };
 		DF1717C22971F6AB0085E698 /* Sequence+Map.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sequence+Map.swift"; sourceTree = "<group>"; };
@@ -428,7 +428,7 @@
 			children = (
 				DFBFB86828CE48290076895C /* Utils.swift */,
 				DF820B6128D76563007DD293 /* Logger.swift */,
-				DF0F9D5028CCADB300BCA763 /* TdApi.swift */,
+				DF0F9D5028CCADB300BCA763 /* TDLib.swift */,
 				DF69FA892AA4C899009180D4 /* Text.swift */,
 				DF69FA902AA4ED2D009180D4 /* Image.swift */,
 				DF1F8CC62ABF58A2000E62BD /* View.swift */,
@@ -694,7 +694,7 @@
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF27AD252A9B65B7001A3FFF /* Color.swift in Sources */,
 				DF0921052ABF492600B79504 /* MessageTextView.swift in Sources */,
-				DF0F9D5128CCADB300BCA763 /* TdApi.swift in Sources */,
+				DF0F9D5128CCADB300BCA763 /* TDLib.swift in Sources */,
 				DFB5CC18294A512A00BE749C /* View+HideKeyboard.swift in Sources */,
 				DF0921072ABF494C00B79504 /* ForwardedFromView.swift in Sources */,
 				DF9C817729993AAF008989B0 /* ChatToolbar.swift in Sources */,

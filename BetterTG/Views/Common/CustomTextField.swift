@@ -3,9 +3,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private var isPastingText = false
-
 private class CustomUITextView: UITextView {
+    var isPastingText = false
+    
     // swiftlint:disable:next function_body_length
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let textInRange = self.text(in: textRange), !textInRange.isEmpty else {
@@ -146,10 +146,11 @@ private struct UITextViewWrapper: UIViewRepresentable {
         }
         
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard let textView = textView as? CustomUITextView else { return false }
             textView.typingAttributes = defaultAttributes()
             
-            if isPastingText {
-                defer { isPastingText = false }
+            if textView.isPastingText {
+                defer { textView.isPastingText = false }
                 if let item = UIPasteboard.general.items.first,
                    let data = (item[UTType.rtf.identifier] as? String)?.data(using: .utf8),
                    let attributedString = try? NSAttributedString(data: data, documentAttributes: nil) {
