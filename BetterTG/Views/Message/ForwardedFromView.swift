@@ -14,6 +14,7 @@ struct ForwardedFromView: View {
                 .bold()
                 .lineLimit(1)
         }
-        .padding(5)
+        .padding(.horizontal, 8)
+        .padding(.top, 5)
     }
 }

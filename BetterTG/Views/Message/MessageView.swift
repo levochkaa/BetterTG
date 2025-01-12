@@ -34,7 +34,11 @@ struct MessageView: View {
             if let formattedText = customMessage.formattedText {
                 MessageTextView(formattedText: formattedText)
                     .padding(8)
-                    .padding(.top, customMessage.replyUser != nil && customMessage.replyToMessage != nil ? -10 : 0)
+                    .padding(
+                        .top,
+                        customMessage.replyUser != nil && customMessage.replyToMessage != nil
+                        || customMessage.forwardedFrom != nil ? -8 : 0
+                    )
             }
         }
         .background(highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
