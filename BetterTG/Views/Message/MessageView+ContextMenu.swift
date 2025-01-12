@@ -4,26 +4,26 @@ import SwiftUI
 import TDLibKit
 
 extension MessageView {
-    @ViewBuilder var contextMenu: some View {
-        Button("Reply", systemImage: "arrowshape.turn.up.left") {
-            if replyMessage != nil {
-                withAnimation {
-                    replyMessage = nil
-                }
-                Task.main(delay: 0.4) {
+    var contextMenuActions: [ContextMenuAction?] {
+        [
+            .button(title: "Reply", systemImage: "arrowshape.turn.up.left") {
+                if replyMessage != nil {
+                    withAnimation {
+                        replyMessage = nil
+                    }
+                    Task.main(delay: 0.4) {
+                        withAnimation {
+                            replyMessage = customMessage
+                        }
+                    }
+                } else {
                     withAnimation {
                         replyMessage = customMessage
                     }
                 }
-            } else {
-                withAnimation {
-                    replyMessage = customMessage
-                }
-            }
-        }
-        
-        if customMessage.properties.canBeEdited {
-            Button("Edit", systemImage: "square.and.pencil") {
+            },
+            customMessage.properties.canBeEdited
+            ? .button(title: "Edit", systemImage: "square.and.pencil") {
                 if editCustomMessage != nil {
                     withAnimation {
                         editCustomMessage = nil
@@ -38,40 +38,32 @@ extension MessageView {
                         editCustomMessage = customMessage
                     }
                 }
-            }
-        }
-        
-        if let formattedText = getFormattedText(from: customMessage.message.content) {
-            Button("Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
-                UIPasteboard.setFormattedText(formattedText)
-            }
-        }
-        
-        Divider()
-        
-        if customMessage.properties.canBeDeletedOnlyForSelf, !customMessage.properties.canBeDeletedForAllUsers {
-            Button("Delete", systemImage: "trash", role: .destructive) {
-                deleteMessage(customMessage.message.id, false)
-            }
-        }
-        
-        if customMessage.properties.canBeDeletedForAllUsers, !customMessage.properties.canBeDeletedOnlyForSelf {
-            Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
-                deleteMessage(customMessage.message.id, true)
-            }
-        }
-        
-        if customMessage.properties.canBeDeletedOnlyForSelf, customMessage.properties.canBeDeletedForAllUsers {
-            Menu("Delete") {
-                Button("Delete only for me", systemImage: "trash", role: .destructive) {
-                    deleteMessage(customMessage.message.id, false)
+            } : nil,
+            getFormattedText(from: customMessage.message.content) != nil
+            ? .button(title: "Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
+                if let formattedText = getFormattedText(from: customMessage.message.content) {
+                    UIPasteboard.setFormattedText(formattedText)
                 }
-
-                Button("Delete for both", systemImage: "trash.fill", role: .destructive) {
+            } : nil,
+            .divider,
+            customMessage.properties.canBeDeletedOnlyForSelf && !customMessage.properties.canBeDeletedForAllUsers
+            ? .button(title: "Delete", systemImage: "trash", attributes: .destructive) {
+                deleteMessage(customMessage.message.id, false)
+            } : nil,
+            customMessage.properties.canBeDeletedForAllUsers && !customMessage.properties.canBeDeletedOnlyForSelf
+            ? .button(title: "Delete for both", systemImage: "trash.fill", attributes: .destructive) {
+                deleteMessage(customMessage.message.id, true)
+            } : nil,
+            customMessage.properties.canBeDeletedOnlyForSelf && customMessage.properties.canBeDeletedForAllUsers
+            ? .menu(title: "Delete", children: [
+                .button(title: "Delete only for me", systemImage: "trash", attributes: .destructive) {
+                    deleteMessage(customMessage.message.id, false)
+                },
+                .button(title: "Delete for both", systemImage: "trash.fill", attributes: .destructive) {
                     deleteMessage(customMessage.message.id, true)
                 }
-            }
-        }
+            ]) : nil
+        ]
     }
     
     func getFormattedText(from content: MessageContent) -> FormattedText? {
