@@ -1,7 +1,7 @@
 // RootView.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 import Combine
 
 struct RootView: View {

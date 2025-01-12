@@ -1,7 +1,7 @@
 // ChatView.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 import PhotosUI
 import Combine
 

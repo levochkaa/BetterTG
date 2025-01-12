@@ -1,6 +1,6 @@
 // Array+GetSize.swift
 
-import TDLibKit
+@preconcurrency import TDLibKit
 
 public enum PhotoSizeType: Int {
     // For info on cases, see https://core.telegram.org/api/files#image-thumbnail-types

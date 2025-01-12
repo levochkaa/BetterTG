@@ -1,7 +1,7 @@
 // AsyncTdFile.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 import Combine
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {

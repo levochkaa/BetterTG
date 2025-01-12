@@ -1,7 +1,7 @@
 // LoginView.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 import Combine
 
 struct LoginView: View {

@@ -1,7 +1,7 @@
 // LastOrDraftMessageView.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 struct LastOrDraftMessageView: View {
     @Binding var customChat: CustomChat

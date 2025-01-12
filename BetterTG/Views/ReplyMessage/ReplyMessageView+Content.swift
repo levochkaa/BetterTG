@@ -1,7 +1,7 @@
 // ReplyMessageView+Content.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension ReplyMessageView {
     @ViewBuilder func inlineMessageContent(for message: Message) -> some View {

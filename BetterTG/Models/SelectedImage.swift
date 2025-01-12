@@ -1,7 +1,7 @@
 // SelectedImage.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 struct SelectedImage: Identifiable {
     let id = UUID()

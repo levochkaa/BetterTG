@@ -1,7 +1,7 @@
 // MessageContentView.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 struct MessageContentView: View {
     @Binding var customMessage: CustomMessage

@@ -1,7 +1,7 @@
 // MessageView+Menu.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension MessageView {
     var contextMenuActions: [ContextMenuAction?] {

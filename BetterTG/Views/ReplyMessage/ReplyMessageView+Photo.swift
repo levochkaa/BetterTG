@@ -1,7 +1,7 @@
 // ReplyMessageView+Photo.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
 
 extension ReplyMessageView {
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto) -> some View {

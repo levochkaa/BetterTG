@@ -1,6 +1,6 @@
 // CustomChat.swift
 
-import TDLibKit
+@preconcurrency import TDLibKit
 
 struct CustomChat: Identifiable, Equatable, Hashable {
     var id: Int64 { chat.id }

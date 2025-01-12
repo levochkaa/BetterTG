@@ -1,7 +1,7 @@
 // TdNotification.swift
 
 import SwiftUI
-import TDLibKit
+@preconcurrency import TDLibKit
     
 struct TdNotification<T> {
     let name: Foundation.Notification.Name
