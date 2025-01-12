@@ -41,7 +41,6 @@ struct ChatsListView: View {
                         NavigationLink(value: customChat) {
                             ChatsListItemView(customChat: $customChat)
                                 .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
-                                .matchedTransitionSource(id: customChat.chat.id, in: namespace)
                         }
                         .contextMenu {
                             contextMenu(for: customChat)
@@ -72,7 +71,6 @@ struct ChatsListView: View {
             .navigationTitle("BetterTG")
             .navigationDestination(for: CustomChat.self) { customChat in
                 ChatView(customChat: customChat)
-                    .navigationTransition(.zoom(sourceID: customChat.chat.id, in: namespace))
             }
             .confirmationDialog(
                 "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
