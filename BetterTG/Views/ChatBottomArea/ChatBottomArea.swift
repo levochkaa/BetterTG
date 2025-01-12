@@ -50,8 +50,8 @@ struct ChatBottomArea: View {
     
     @State var recordingVoiceNote = false
     @State var errorShown = false
-    @State var photosPickerItems = [PhotosPickerItem]()
     @State var showCameraView = false
+    @State var showPhotoPickerView = false
     @State var savedVoiceNoteUrl = URL(filePath: "")
     @State var audioRecorder: AVAudioRecorder?
     
@@ -117,58 +117,58 @@ struct ChatBottomArea: View {
     
     @ViewBuilder var leftSide: some View {
         HStack(spacing: 10) {
-            if !showDetail {
+            Menu {
                 Button {
                     withAnimation {
-                        showDetail = true
+                        displayedImages.removeAll()
                     }
+                    showPhotoPickerView = true
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(.white, Color.gray6)
-                        .font(.system(size: 30))
+                    Label("Attach Photos", systemImage: "photo")
                 }
-                .padding(.bottom, 2)
-            }
-            
-            if showDetail {
-                PhotosPicker(
-                    selection: $photosPickerItems,
-                    maxSelectionCount: 10,
-                    selectionBehavior: .continuousAndOrdered,
-                    matching: .images
-                ) {
-                    Image(systemName: "photo")
-                }
-                .onChange(of: photosPickerItems) { _, photosPickerItems in
-                    setDisplayedImagesTask?.cancel()
-                    setDisplayedImagesTask = Task.background {
-                        let displayedImages = await photosPickerItems.asyncCompactMap {
-                            try? await $0.loadTransferable(type: SelectedImage.self)
-                        }
-                        await main { self.displayedImages = displayedImages }
-                    }
-                }
-                .transition(.opacity.combined(with: .scale))
-                .padding(.bottom, 7)
-            }
-            
-            if showDetail {
                 Button {
                     showCameraView = true
                 } label: {
-                    Image(systemName: "camera.fill")
+                    Label("Take Photo", systemImage: "camera.fill")
                 }
-                .fullScreenCover(isPresented: $showCameraView) {
-                    NavigationStack {
-                        CameraView { selectedImage in
-                            withAnimation { displayedImages = [selectedImage] }
+//                Button {
+//                    showDocumentPicker = true
+//                } label: {
+//                    Label("Attach Files", systemImage: "folder")
+//                }
+            } label: {
+                Image(systemName: "plus")
+                    .foregroundStyle(.white)
+                    .font(.system(size: 25))
+            }
+            .menuOrder(.fixed)
+            .frame(height: 36)
+            .sheet(isPresented: $showPhotoPickerView) {
+                PhotoPicker { index, image, error in
+                    if let image {
+                        Task.main {
+                            withAnimation {
+                                displayedImages.place(image, at: index)
+                            }
                         }
-                        .navigationTitle("Camera")
-                        .navigationBarTitleDisplayMode(.inline)
+                    } else if let error {
+                        print("Error picking image: \(error.localizedDescription)")
+                    }
+                } clear: {
+                    withAnimation {
+                        displayedImages.removeAll()
                     }
                 }
-                .transition(.opacity.combined(with: .scale).combined(with: .move(edge: .leading)))
-                .padding(.bottom, 7)
+                .ignoresSafeArea()
+            }
+            .fullScreenCover(isPresented: $showCameraView) {
+                NavigationStack {
+                    CameraView { selectedImage in
+                        withAnimation { displayedImages = [selectedImage] }
+                    }
+                    .navigationTitle("Camera")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
             }
         }
         .font(.system(size: 22))
