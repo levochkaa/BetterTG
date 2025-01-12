@@ -140,6 +140,7 @@ private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepres
                     guard let self else { return nil }
                     return PreviewHostingController(
                         rootView: parent.preview,
+                        cornerRadius: parent.cornerRadius,
                         onAppear: parent.onAppear,
                         onDisappear: parent.onDisappear
                     )
@@ -179,14 +180,15 @@ private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepres
 }
 
 private final class PreviewHostingController<Content: View>: UIHostingController<Content> {
-    private var onAppear: () -> Void = {}
-    private var onDisappear: () -> Void = {}
+    private let onAppear: () -> Void
+    private let onDisappear: () -> Void
     
-    init(rootView: Content, onAppear: @escaping () -> Void, onDisappear: @escaping () -> Void) {
-        super.init(rootView: rootView)
-        self.view.backgroundColor = .clear
+    init(rootView: Content, cornerRadius: CGFloat, onAppear: @escaping () -> Void, onDisappear: @escaping () -> Void) {
         self.onAppear = onAppear
         self.onDisappear = onDisappear
+        super.init(rootView: rootView)
+        self.view.backgroundColor = .clear
+        self.view.layer.cornerRadius = cornerRadius
     }
     
     @available(*, unavailable)
