@@ -25,10 +25,6 @@
 - last seen online
 - formatting/formatted messages
 
-# Road Map
-
-[GitHub Project](https://github.com/users/levochkaa/projects/1/views/1)
-
 # Installation
 
 Download an .ipa file from [releases tab](https://github.com/levochkaa/BetterTG/releases/latest) and install through [Sideloadly](https://altstore.io)
