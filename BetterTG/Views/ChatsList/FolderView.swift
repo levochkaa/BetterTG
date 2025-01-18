@@ -1,17 +1,23 @@
-// ChatsListView.swift
+// FolderView.swift
 
 import SwiftUI
 import TDLibKit
 import Combine
 
-struct ChatsListView: View {
-    @Binding var folder: CustomFolder
-    @Binding var chats: [CustomChat]
-    @Binding var confirmChatDelete: ConfirmChatDelete
+struct FolderView: View {
+    @State var folder: CustomFolder
+    @State var chats: [CustomChat]
+    
+    init(folder: CustomFolder) {
+        self._folder = .init(initialValue: folder)
+        self._chats = .init(initialValue: folder.chats)
+    }
+    
     @State var cancellables = Set<AnyCancellable>()
     @State var query = ""
     @Namespace var namespace
     @Environment(\.scenePhase) var scenePhase
+    @State var rootVM: RootVM = .shared
     
     @State var filteredSortedChats = [CustomChat]()
     func updateChats() {
@@ -166,24 +172,24 @@ struct ChatsListView: View {
         
         if !customChat.chat.canBeDeletedOnlyForSelf, customChat.chat.canBeDeletedForAllUsers {
             Button("Delete for everyone", systemImage: "trash.fill", role: .destructive) {
-                confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: true)
+                rootVM.confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: true)
             }
         }
         
         if customChat.chat.canBeDeletedOnlyForSelf, !customChat.chat.canBeDeletedForAllUsers {
             Button("Delete", systemImage: "trash", role: .destructive) {
-                confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: false)
+                rootVM.confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: false)
             }
         }
         
         if customChat.chat.canBeDeletedOnlyForSelf, customChat.chat.canBeDeletedForAllUsers {
             Menu("Delete") {
                 Button("Delete only for me", systemImage: "trash", role: .destructive) {
-                    confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: false)
+                    rootVM.confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: false)
                 }
                 
                 Button("Delete for all users", systemImage: "trash.fill", role: .destructive) {
-                    confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: true)
+                    rootVM.confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: true)
                 }
             }
         }
