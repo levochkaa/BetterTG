@@ -87,7 +87,6 @@ struct ChatsListView: View {
         .onAppear(perform: setPublishers)
     }
     
-    // swiftlint:disable:next function_body_length
     private func setPublishers() {
         nc.publisher(&cancellables, for: .updateChatReadInbox) { updateChatReadInbox in
             guard let index = chats.firstIndex(where: { $0.chat.id == updateChatReadInbox.chatId }) else { return }

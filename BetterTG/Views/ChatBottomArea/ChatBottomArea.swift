@@ -5,7 +5,6 @@ import PhotosUI
 import Combine
 import TDLibKit
 
-// swiftlint:disable:next type_body_length
 struct ChatBottomArea: View {
     @Binding var customChat: CustomChat
     @Binding var editCustomMessage: CustomMessage?
@@ -710,5 +709,3 @@ struct ChatBottomArea: View {
         return .inputMessageReplyToMessage(.init(messageId: customMessage.message.id, quote: nil))
     }
 }
-
-// swiftlint:disable:this file_length

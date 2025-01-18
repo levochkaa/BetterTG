@@ -1,5 +1,4 @@
 #!/usr/bin/env swift sh
-// swiftlint:disable all
 
 //
 // This script will set up development environment. Much wow.
@@ -29,7 +28,6 @@ struct EnvironmentScript: ParsableCommand {
     func run() throws {
         if let apiId, let apiHash {
             log("Installing dependencies...")
-            try install(command: "swiftlint", from: "swiftlint", as: "SwiftLint")
             try install(command: "gyb", from: "ggoraa/apps/gyb", as: "GYB")
             log("Running GYB...")
             try run(command: "./gyb.sh", with: [String(apiId), apiHash])
@@ -41,10 +39,6 @@ struct EnvironmentScript: ParsableCommand {
 
     func log(_ message: String) {
         print(">>> " + message)
-    }
-
-    func sectionStart(_ message: String) {
-        
     }
 
     /// Installs a specified command if not available
@@ -109,5 +103,3 @@ struct EnvironmentScript: ParsableCommand {
 }
 
 EnvironmentScript.main()
-
-// swiftlint:enable all

@@ -5,7 +5,6 @@ import TDLibKit
 import PhotosUI
 import Combine
 
-// swiftlint:disable:next type_body_length
 struct ChatView: View {
     @State var customChat: CustomChat
     
@@ -493,5 +492,3 @@ struct ChatView: View {
         return nil
     }
 }
-
-// swiftlint:disable:this file_length

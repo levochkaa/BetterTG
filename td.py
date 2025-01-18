@@ -8,16 +8,15 @@ core = """// Td+Generated.swift
 import SwiftUI
 import TDLibKit
 
-// swiftlint:disable line_length
-
 """
 
-update_func = """// swiftlint:disable:next function_body_length
+update_func = """
 func update(_ update: Update) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
             TDLib.shared.UpdateAuthorizationState(updateAuthorizationState.authorizationState)
 """
+
 
 def main(update: str):
     (notifications, notification_names, update_cases) = ([], [], [])
@@ -64,10 +63,8 @@ def main(update: str):
         file.write(notification_name)
     file.write("}\n\n")
 
-    file.write("// swiftlint:enable line_length\n\n")
-    file.write("// swiftlint:disable:this file_length\n")
-
     file.close()
+
 
 # probably, fetching from currently used tdlib is better, but this solution is faster to implement
 update = """
