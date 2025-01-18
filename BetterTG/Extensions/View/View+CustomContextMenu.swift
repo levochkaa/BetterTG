@@ -15,9 +15,9 @@ extension [ContextMenuAction?] {
             guard let action else { continue }
             switch action {
             case .divider:
-                let childre = elements
+                let children = elements
                 elements.removeAll()
-                elements.append(UIMenu(options: .displayInline, children: childre))
+                elements.append(UIMenu(options: .displayInline, children: children))
             case .button(let title, let systemImage, let attributes, let action):
                 elements.append(
                     UIAction(
