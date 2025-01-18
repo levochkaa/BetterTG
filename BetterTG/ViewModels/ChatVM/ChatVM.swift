@@ -10,7 +10,9 @@ import AVKit
     
     init(customChat: CustomChat) {
         self.customChat = customChat
-        self.onlineStatus = getOnlineStatus(from: customChat.user.status)
+        if let user = customChat.user {
+            self.onlineStatus = getOnlineStatus(from: user.status)
+        }
         
         try? td.openChat(chatId: customChat.chat.id) { _ in }
         setPublishers()

@@ -15,8 +15,8 @@ struct FolderView: View {
             .filter {
                 rootVM.query.isEmpty
                 || $0.chat.title.lowercased().contains(rootVM.query.lowercased())
-                || $0.user.firstName.lowercased().contains(rootVM.query.lowercased())
-                || $0.user.lastName.lowercased().contains(rootVM.query.lowercased())
+                || $0.user?.firstName.lowercased().contains(rootVM.query.lowercased()) == true
+                || $0.user?.lastName.lowercased().contains(rootVM.query.lowercased()) == true
             }
     }
     
