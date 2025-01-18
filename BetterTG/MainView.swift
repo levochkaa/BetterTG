@@ -5,12 +5,13 @@ import TDLibKit
 
 struct MainView: View {
     @Bindable private var rootVM = RootVM.shared
+    @Environment(\.safeAreaInsets) var safeAreaInsets
     
     var body: some View {
         NavigationStack {
             TabView(selection: $rootVM.currentFolder) {
                 ForEach(rootVM.folders) { folder in
-                    FolderView(folder: folder)
+                    FolderView(folder: folder, navigationBarHeight: safeAreaInsets.top + 40)
                         .tag(folder.id)
                 }
             }
@@ -20,7 +21,10 @@ struct MainView: View {
             .navigationTitle("BetterTG")
             .navigationDestination(isPresented: $rootVM.showArchive) {
                 if let archive = rootVM.archive {
-                    FolderView(folder: archive)
+                    FolderView(folder: archive, navigationBarHeight: 8)
+                        .navigationTitle("Archive")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search archive...")
                 }
             }
             .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats...")
