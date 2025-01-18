@@ -10,6 +10,7 @@ import AVKit
     
     init(customChat: CustomChat) {
         self.customChat = customChat
+        log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
         }
@@ -32,6 +33,7 @@ import AVKit
     }
     
     deinit {
+        log("deinit \(customChat.chat.id)")
         try? td.closeChat(chatId: customChat.chat.id) { _ in }
         Media.shared.onChatDismiss()
     }
