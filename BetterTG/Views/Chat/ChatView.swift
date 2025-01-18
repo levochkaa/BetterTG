@@ -21,6 +21,7 @@ struct ChatView: View {
         ScrollViewReader { scrollViewProxy in
             bodyView.onAppear { self.chatVM.scrollViewProxy = scrollViewProxy }
         }
+        .ignoresSafeArea(.container)
         .overlay {
             if chatVM.customChat.lastMessage == nil {
                 Text("No messages")
@@ -31,6 +32,7 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             if !isPreview {
                 ChatBottomArea(focused: $focused)
+                    .readSize { chatVM.bottomAreaHeight = $0.height }
             }
         }
         .dropDestination(for: SelectedImage.self) { items, _ in
@@ -43,6 +45,93 @@ struct ChatView: View {
             ToolbarItem(placement: .topBarTrailing) { topBarTrailing }
         }
         .environment(chatVM)
+        .onChange(of: focused) { chatVM.focused = focused }
+    }
+    
+    var bodyView: some View {
+        ScrollView {
+            LazyVStack(spacing: 5) {
+                ForEach(chatVM.messages) { customMessage in
+                    HStack(spacing: 0) {
+                        if customMessage.message.isOutgoing { Spacer(minLength: 0) }
+                        
+                        MessageView(customMessage: customMessage)
+                            .frame(
+                                maxWidth: Utils.maxMessageContentWidth,
+                                alignment: customMessage.message.isOutgoing ? .trailing : .leading
+                            )
+                            .onVisible {
+                                chatVM.viewMessage(id: customMessage.message.id)
+                            }
+                        
+                        if !customMessage.message.isOutgoing { Spacer(minLength: 0) }
+                    }
+                    .padding(customMessage.message.isOutgoing ? .trailing : .leading, 16)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .top),
+                            removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading)
+                        )
+                        .combined(with: .opacity)
+                    )
+                    .flipped()
+                }
+            }
+            .padding(.top, chatVM.extraBottomPadding)
+            .overlay {
+                GeometryReader { geometryProxy in
+                    Color.clear.preference(
+                        key: ScrollOffsetPreferenceKey.self,
+                        value: geometryProxy.frame(in: .named(chatVM.chatScrollNamespaceId))
+                    )
+                }
+            }
+        }
+        .background(.black)
+        .flipped()
+        .coordinateSpace(name: chatVM.chatScrollNamespaceId)
+        .scrollDismissesKeyboard(.interactively)
+        .scrollBounceBehavior(.always)
+        .scrollIndicators(.hidden)
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: chatVM.onPreferenceChange)
+        .onTapGesture { focused = false }
+        .animation(.default, value: chatVM.extraBottomPadding)
+        .overlay(alignment: .bottomTrailing) {
+            if chatVM.showScrollToBottomButton {
+                scrollToBottomButton
+                    .padding(.bottom, chatVM.extraBottomPadding)
+            }
+        }
+    }
+    
+    @ViewBuilder var scrollToBottomButton: some View {
+        Image(systemName: "chevron.down")
+            .offset(y: 1)
+            .font(.title3)
+            .padding(10)
+            .background(.black)
+            .clipShape(.circle)
+            .overlay {
+                Circle()
+                    .stroke(.blue, lineWidth: 1)
+            }
+            .overlay(alignment: .top) {
+                if chatVM.customChat.unreadCount != 0 {
+                    Circle()
+                        .fill(.blue)
+                        .frame(width: 16, height: 16)
+                        .overlay {
+                            Text("\(chatVM.customChat.unreadCount)")
+                                .font(.caption)
+                                .foregroundStyle(.white)
+                                .minimumScaleFactor(0.5)
+                        }
+                        .offset(y: -5)
+                }
+            }
+            .transition(.move(edge: .bottom).combined(with: .scale).combined(with: .opacity))
+            .padding(.trailing)
+            .onTapGesture(perform: chatVM.scrollToLast)
     }
     
     private var principal: some View {
@@ -50,10 +139,10 @@ struct ChatView: View {
             Text(chatVM.customChat.chat.title)
             
             Group {
-                if chatVM.actionStatus.isEmpty {
-                    Text(chatVM.onlineStatus)
-                } else {
+                if !chatVM.actionStatus.isEmpty {
                     Text(chatVM.actionStatus)
+                } else if !chatVM.onlineStatus.isEmpty {
+                    Text(chatVM.onlineStatus)
                 }
             }
             .transition(
@@ -95,89 +184,5 @@ struct ChatView: View {
         }
         .frame(width: 32, height: 32)
         .clipShape(.circle)
-    }
-    
-    var bodyView: some View {
-        ScrollView {
-            LazyVStack(spacing: 5) {
-                ForEach(chatVM.messages) { customMessage in
-                    HStack(spacing: 0) {
-                        if customMessage.message.isOutgoing { Spacer(minLength: 0) }
-                        
-                        MessageView(customMessage: customMessage)
-                            .frame(
-                                maxWidth: Utils.maxMessageContentWidth,
-                                alignment: customMessage.message.isOutgoing ? .trailing : .leading
-                            )
-                            .onVisible {
-                                chatVM.viewMessage(id: customMessage.message.id)
-                            }
-                        
-                        if !customMessage.message.isOutgoing { Spacer(minLength: 0) }
-                    }
-                    .padding(customMessage.message.isOutgoing ? .trailing : .leading, 16)
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: .top),
-                            removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading)
-                        )
-                        .combined(with: .opacity)
-                    )
-                    .flipped()
-                }
-            }
-            .overlay {
-                GeometryReader { geometryProxy in
-                    Color.clear.preference(
-                        key: ScrollOffsetPreferenceKey.self,
-                        value: geometryProxy.frame(in: .named(chatVM.chatScrollNamespaceId))
-                    )
-                }
-            }
-        }
-        .background(.black)
-        .flipped()
-        .coordinateSpace(name: chatVM.chatScrollNamespaceId)
-        .scrollDismissesKeyboard(.interactively)
-        .scrollBounceBehavior(.always)
-        .scrollIndicators(.hidden)
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: chatVM.onPreferenceChange)
-        .onTapGesture { focused = false }
-        .overlay(alignment: .bottomTrailing) {
-            if chatVM.showScrollToBottomButton {
-                scrollToBottomButton
-            }
-        }
-    }
-    
-    @ViewBuilder var scrollToBottomButton: some View {
-        Image(systemName: "chevron.down")
-            .offset(y: 1)
-            .font(.title3)
-            .padding(10)
-            .background(.black)
-            .clipShape(.circle)
-            .overlay {
-                Circle()
-                    .stroke(.blue, lineWidth: 1)
-            }
-            .overlay(alignment: .top) {
-                if chatVM.customChat.unreadCount != 0 {
-                    Circle()
-                        .fill(.blue)
-                        .frame(width: 16, height: 16)
-                        .overlay {
-                            Text("\(chatVM.customChat.unreadCount)")
-                                .font(.caption)
-                                .foregroundStyle(.white)
-                                .minimumScaleFactor(0.5)
-                        }
-                        .offset(y: -5)
-                }
-            }
-            .transition(.move(edge: .bottom).combined(with: .scale).combined(with: .opacity))
-            .padding(.trailing)
-            .padding(.bottom, 5)
-            .onTapGesture(perform: chatVM.scrollToLast)
     }
 }
