@@ -6,6 +6,7 @@ import Combine
 
 struct FolderView: View {
     @State var folder: CustomFolder
+    var navigationBarHeight: CGFloat = .zero
     
     var chats: [CustomChat] {
         folder.chats
@@ -21,9 +22,7 @@ struct FolderView: View {
     
     @Namespace var namespace
     @Environment(\.scenePhase) var scenePhase
-    @Environment(\.safeAreaInsets) var safeAreaInsets
     @State var rootVM: RootVM = .shared
-    var navigationBarHeight: CGFloat { safeAreaInsets.top + 40 }
     
     var body: some View {
         ScrollView {
