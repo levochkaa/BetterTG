@@ -209,7 +209,7 @@ struct ChatBottomArea: View {
                 guard let id else { return }
                 chatVM.scrollTo(id: id)
             })
-            .background(.gray6)
+            .background(Color.gray6)
             .clipShape(.rect(cornerRadius: 15))
             
             Image(systemName: "xmark")
@@ -249,7 +249,7 @@ struct ChatBottomArea: View {
         .frame(height: 120)
         .clipShape(.rect(cornerRadius: 15))
         .padding(5)
-        .background(.gray6)
+        .background(Color.gray6)
         .clipShape(.rect(cornerRadius: 15))
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
@@ -270,7 +270,7 @@ struct ChatBottomArea: View {
         .focused(focused)
         .lineLimit(10)
         .padding(.horizontal, 5)
-        .background(.gray6)
+        .background(Color.gray6)
         .clipShape(.rect(cornerRadius: 15))
 //        .onReceive(
 //            Just(text)

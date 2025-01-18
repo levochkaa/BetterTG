@@ -52,7 +52,7 @@ struct ChatsListItemView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(5)
-        .background(.gray6)
+        .background(Color.gray6)
         .clipShape(.rect(cornerRadius: 20))
         .padding(.horizontal, 10)
     }

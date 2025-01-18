@@ -30,7 +30,11 @@ struct FolderView: View {
                     Text("Empty folder :(")
                 } else {
                     ForEach(chats) { customChat in
-                        NavigationLink(value: customChat) {
+                        NavigationLink {
+                            LazyView {
+                                ChatView(customChat: customChat)
+                            }
+                        } label: {
                             ChatsListItemView(folder: folder, customChat: customChat)
                                 .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
                         }

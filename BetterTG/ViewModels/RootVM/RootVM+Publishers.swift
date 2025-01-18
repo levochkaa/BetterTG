@@ -48,9 +48,9 @@ extension RootVM {
     
     func updateChatFolders(_ updateChatFolders: UpdateChatFolders) {
         Task.background {
-            var folders = await updateChatFolders.chatFolders.asyncCompactMap { await getCustomFolder(from: $0) }
-            let mainFolder = await CustomFolder(chats: getCustomChats(for: .chatListMain) ?? [], type: .main)
-            let archive = await CustomFolder(chats: getCustomChats(for: .chatListArchive) ?? [], type: .archive)
+            var folders = await updateChatFolders.chatFolders.asyncCompactMap { await self.getCustomFolder(from: $0) }
+            let mainFolder = await CustomFolder(chats: self.getCustomChats(for: .chatListMain) ?? [], type: .main)
+            let archive = await CustomFolder(chats: self.getCustomChats(for: .chatListArchive) ?? [], type: .archive)
             folders.insert(mainFolder, at: updateChatFolders.mainChatListPosition)
             await main { [folders] in
                 withAnimation {
@@ -63,7 +63,7 @@ extension RootVM {
     
     func updateNewChat(_ updateNewChat: UpdateNewChat) {
         Task.background {
-            guard let customChat = await getCustomChat(from: updateNewChat.chat.id, for: .chatListMain) else { return }
+            guard let customChat = await self.getCustomChat(from: updateNewChat.chat.id, for: .chatListMain) else { return }
             await main { withAnimation { self.mainFolder?.chats.append(customChat) } }
         }
     }

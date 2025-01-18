@@ -10,6 +10,7 @@ import AVKit
     
     init(customChat: CustomChat) {
         self.customChat = customChat
+        self.onlineStatus = getOnlineStatus(from: customChat.user.status)
         
         try? td.openChat(chatId: customChat.chat.id) { _ in }
         setPublishers()
@@ -122,6 +123,17 @@ import AVKit
             withAnimation {
                 self.highlightedMessageId = nil
             }
+        }
+    }
+    
+    func getOnlineStatus(from userStatus: UserStatus) -> String {
+        switch userStatus {
+            case .userStatusEmpty: "empty"
+            case .userStatusOnline: /* (let userStatusOnline) */ "online"
+            case .userStatusOffline(let userStatusOffline): "last seen \(getLastSeenTime(userStatusOffline.wasOnline))"
+            case .userStatusRecently: "last seen recently"
+            case .userStatusLastWeek: "last seen last week"
+            case .userStatusLastMonth: "last seen last month"
         }
     }
     
