@@ -69,7 +69,6 @@
 		DF820B6228D76563007DD293 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF820B6128D76563007DD293 /* Logger.swift */; };
 		DF820B7528D7C6F7007DD293 /* Secret.swift.gyb in Resources */ = {isa = PBXBuildFile; fileRef = DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */; };
 		DF8B42402AEC59960081E821 /* UIEdgeInsets.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */; };
-		DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */; };
 		DF96BAE2298BE120003936AC /* View+Equatable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF96BAE1298BE120003936AC /* View+Equatable.swift */; };
 		DF9C5CC1292698BC00ED1CA8 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = DF9C5CC0292698BC00ED1CA8 /* TDLibKit */; };
 		DFB5CC16294A44F200BE749C /* MediaAlbum.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB5CC15294A44F200BE749C /* MediaAlbum.swift */; };
@@ -197,7 +196,6 @@
 		DF820B6128D76563007DD293 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		DF820B7428D7C6F7007DD293 /* Secret.swift.gyb */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Secret.swift.gyb; sourceTree = "<group>"; };
 		DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIEdgeInsets.swift; sourceTree = "<group>"; };
-		DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvironmentValues.swift; sourceTree = "<group>"; };
 		DF96BAE1298BE120003936AC /* View+Equatable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Equatable.swift"; sourceTree = "<group>"; };
 		DFB5CC15294A44F200BE749C /* MediaAlbum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAlbum.swift; sourceTree = "<group>"; };
 		DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyView.swift; sourceTree = "<group>"; };
@@ -538,7 +536,6 @@
 				DF69FA872AA38622009180D4 /* UIApplication.swift */,
 				DF69FA8B2AA4CEB9009180D4 /* UIPasteboard.swift */,
 				DF8B423F2AEC59960081E821 /* UIEdgeInsets.swift */,
-				DF8B42412AEC59BC0081E821 /* EnvironmentValues.swift */,
 				DF429D492B2FA0970038614B /* URL.swift */,
 				DF72BC6E2BD5557D00B23124 /* UINavigationController.swift */,
 			);
@@ -668,7 +665,6 @@
 				DF3A715129AB702E00A7EC22 /* AttributedString.swift in Sources */,
 				DFF4926A2CD51161003C1568 /* MessageProperties.swift in Sources */,
 				DF51DA38290D96C300AB9E60 /* LoginState.swift in Sources */,
-				DF8B42422AEC59BC0081E821 /* EnvironmentValues.swift in Sources */,
 				DF3A715329AB705900A7EC22 /* UIFont.swift in Sources */,
 				DF540682296C7ED700492867 /* CustomChat.swift in Sources */,
 				DF72BC7C2BD59A1100B23124 /* SelectCountryView.swift in Sources */,

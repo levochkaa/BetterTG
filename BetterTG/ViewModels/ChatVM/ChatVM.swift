@@ -34,6 +34,9 @@ import AVKit
         Media.shared.onChatDismiss()
     }
     
+    var focused = false
+    var bottomAreaHeight: CGFloat = .zero
+    var extraBottomPadding: CGFloat { bottomAreaHeight + (focused ? 0 : UIApplication.safeAreaInsets.bottom) + 5 }
     var actionStatus = ""
     var onlineStatus = ""
     var editCustomMessage: CustomMessage?
@@ -65,8 +68,7 @@ import AVKit
     @ObservationIgnored var audioRecorder: AVAudioRecorder?
     
     func onPreferenceChange(_ value: CGRect) {
-        let maxY = Int(value.maxY)
-        if maxY > 670 {
+        if Int(value.maxY) > Int(UIScreen.main.bounds.height) {
             scrollOnFocus = false
             if !showScrollToBottomButton {
                 withAnimation {

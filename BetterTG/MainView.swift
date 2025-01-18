@@ -5,13 +5,12 @@ import TDLibKit
 
 struct MainView: View {
     @Bindable private var rootVM = RootVM.shared
-    @Environment(\.safeAreaInsets) var safeAreaInsets
     
     var body: some View {
         NavigationStack {
             TabView(selection: $rootVM.currentFolder) {
                 ForEach(rootVM.folders) { folder in
-                    FolderView(folder: folder, navigationBarHeight: safeAreaInsets.top + 40)
+                    FolderView(folder: folder, navigationBarHeight: UIApplication.safeAreaInsets.top + 40)
                         .tag(folder.id)
                 }
             }

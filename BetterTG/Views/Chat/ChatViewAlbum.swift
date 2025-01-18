@@ -9,7 +9,6 @@ struct ChatViewAlbum: View {
     
     @State private var photos = [Int: String]()
     
-    @Environment(\.safeAreaInsets) var safeAreaInsets
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
@@ -31,7 +30,7 @@ struct ChatViewAlbum: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal)
                     .padding(.vertical, 10)
-                    .padding(.bottom, safeAreaInsets.bottom)
+                    .padding(.bottom, UIApplication.safeAreaInsets.bottom)
                     .background(.ultraThinMaterial)
                     .overlay(alignment: .top) { Divider() }
             }
