@@ -8,14 +8,14 @@ import TDLibKit
         chat: Chat,
         position: ChatPosition,
         unreadCount: Int,
-        user: User,
+        type: CustomChatType,
         lastMessage: Message? = nil,
         draftMessage: DraftMessage? = nil
     ) {
         self.chat = chat
         self.position = position
         self.unreadCount = unreadCount
-        self.user = user
+        self.type = type
         self.lastMessage = lastMessage
         self.draftMessage = draftMessage
     }
@@ -23,9 +23,40 @@ import TDLibKit
     var chat: Chat
     var position: ChatPosition
     var unreadCount: Int
-    var user: User
     var lastMessage: Message?
     var draftMessage: DraftMessage?
+    var type: CustomChatType
+    
+    var user: User? {
+        switch type {
+            case .user(let user): user
+            default: nil
+        }
+    }
+    
+    var supergroup: Supergroup? {
+        switch type {
+            case .supergroup(let supergroup): supergroup
+            default: nil
+        }
+    }
+    
+    var canPostMessages: Bool {
+        if let supergroup {
+            if case .chatMemberStatusCreator = supergroup.status {
+                return true
+            } else if case .chatMemberStatusAdministrator(let chatMemberStatusAdministrator) = supergroup.status {
+                return chatMemberStatusAdministrator.rights.canPostMessages
+            }
+            return false
+        }
+        return true
+    }
+    
+    enum CustomChatType: Equatable, Hashable {
+        case user(User)
+        case supergroup(Supergroup)
+    }
 }
 
 extension CustomChat: Hashable {
@@ -33,7 +64,7 @@ extension CustomChat: Hashable {
         hasher.combine(chat)
         hasher.combine(position)
         hasher.combine(unreadCount)
-        hasher.combine(user)
+        hasher.combine(type)
         hasher.combine(lastMessage)
         hasher.combine(draftMessage)
     }

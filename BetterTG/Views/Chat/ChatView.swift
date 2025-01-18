@@ -30,7 +30,7 @@ struct ChatView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if !isPreview {
+            if !isPreview, chatVM.customChat.canPostMessages {
                 ChatBottomArea(focused: $focused)
                     .readSize { chatVM.bottomAreaHeight = $0.height }
             }
