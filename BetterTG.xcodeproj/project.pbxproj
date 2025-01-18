@@ -547,7 +547,6 @@
 				DF4B997A28C3F3F50087C1B9 /* Sources */,
 				DF4B997B28C3F3F50087C1B9 /* Frameworks */,
 				DF4B997C28C3F3F50087C1B9 /* Resources */,
-				DF820B6328D770FD007DD293 /* Run Swiftlint */,
 				DFBB1D92290D6B8400CE7BB5 /* Embed Watch Content */,
 				DFE2618629196FB300267815 /* Embed Frameworks */,
 				DF63538429B68F180054F0A0 /* Embed Foundation Extensions */,
@@ -616,28 +615,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		DF820B6328D770FD007DD293 /* Run Swiftlint */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Run Swiftlint";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "export PATH=\"$PATH:/opt/homebrew/bin\"\nif which swiftlint > /dev/null; then\n  swiftlint\nelse\n  echo \"warning: SwiftLint not installed, download from https://github.com/realm/SwiftLint and if you are using not ARM mac remove path from script\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		DF4B997A28C3F3F50087C1B9 /* Sources */ = {

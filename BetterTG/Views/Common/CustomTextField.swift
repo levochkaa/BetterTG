@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 private class CustomUITextView: UITextView {
     var isPastingText = false
     
-    // swiftlint:disable:next function_body_length
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let textInRange = self.text(in: textRange), !textInRange.isEmpty else {
             return UIMenu(children: suggestedActions)

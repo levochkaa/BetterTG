@@ -1,9 +1,0 @@
-disabled_rules:
-  - switch_case_alignment
-  - trailing_whitespace
-  - identifier_name
-  - cyclomatic_complexity
-  - inclusive_language
-  - redundant_optional_initialization
-excluded:
-  - third-party

@@ -6,9 +6,6 @@
 import SwiftUI
 import TDLibKit
 
-// swiftlint:disable line_length
-
-// swiftlint:disable:next function_body_length
 func update(_ update: Update) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
@@ -623,7 +620,3 @@ extension Foundation.Notification.Name {
     static let updateMessageReactions = Self("updateMessageReactions")
     static let updatePaidMediaPurchased = Self("updatePaidMediaPurchased")
 }
-
-// swiftlint:enable line_length
-
-// swiftlint:disable:this file_length

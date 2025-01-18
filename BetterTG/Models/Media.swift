@@ -205,7 +205,6 @@ final class Media {
     }
     
     private func seekTo(_ timeInterval: TimeInterval) {
-        // swiftlint:disable:next compiler_protocol_init
         let number = NSNumber(floatLiteral: timeInterval * 1000)
         let time = VLCTime(number: number)
         player.time = time
