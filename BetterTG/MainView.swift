@@ -15,6 +15,7 @@ struct MainView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("BetterTG")
             .navigationDestination(isPresented: $rootVM.showArchive) {

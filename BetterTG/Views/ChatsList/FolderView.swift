@@ -21,7 +21,9 @@ struct FolderView: View {
     
     @Namespace var namespace
     @Environment(\.scenePhase) var scenePhase
+    @Environment(\.safeAreaInsets) var safeAreaInsets
     @State var rootVM: RootVM = .shared
+    var navigationBarHeight: CGFloat { safeAreaInsets.top + 40 }
     
     var body: some View {
         ScrollView {
@@ -60,8 +62,9 @@ struct FolderView: View {
                     }
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, navigationBarHeight)
         }
+        .contentMargins(.top, navigationBarHeight - 8, for: .scrollIndicators)
         .onChange(of: scenePhase) { _, newPhase in
             guard case .active = newPhase else { return }
             Task.background {
