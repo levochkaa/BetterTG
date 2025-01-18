@@ -3,7 +3,7 @@
 import SwiftUI
 
 struct PlaceholderView: View {
-    @Binding var customChat: CustomChat
+    @State var customChat: CustomChat
     var fontSize: CGFloat = 40
     
     var body: some View {

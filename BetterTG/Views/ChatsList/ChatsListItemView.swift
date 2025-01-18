@@ -4,16 +4,18 @@ import SwiftUI
 import TDLibKit
 
 struct ChatsListItemView: View {
-    @Binding var folder: CustomFolder
-    @Binding var customChat: CustomChat
+    @State var folder: CustomFolder
+    @State var customChat: CustomChat
     
     var body: some View {
         HStack {
-            if let isPinned = customChat.positions.first(folder.chatList)?.isPinned, isPinned {
+            if customChat.position.isPinned {
                 Button(systemImage: "pin.fill") {
                     Task.background {
                         try await td.toggleChatIsPinned(
-                            chatId: customChat.chat.id, chatList: folder.chatList, isPinned: !isPinned
+                            chatId: customChat.chat.id,
+                            chatList: folder.chatList,
+                            isPinned: !customChat.position.isPinned
                         )
                     }
                 }
@@ -22,14 +24,14 @@ struct ChatsListItemView: View {
                 .padding(.leading, 10)
             }
             
-            ChatsListItemPhotoView(customChat: $customChat)
+            ChatsListItemPhotoView(customChat: customChat)
             
             VStack(alignment: .leading, spacing: 0) {
                 Text(customChat.chat.title)
                     .font(.title2)
                     .foregroundStyle(.white)
                 
-                LastOrDraftMessageView(customChat: $customChat)
+                LastOrDraftMessageView(customChat: customChat)
             }
             .lineLimit(1)
             
@@ -57,7 +59,7 @@ struct ChatsListItemView: View {
 }
 
 private struct ChatsListItemPhotoView: View {
-    @Binding var customChat: CustomChat
+    @State var customChat: CustomChat
     
     var body: some View {
         ZStack {
@@ -72,11 +74,11 @@ private struct ChatsListItemPhotoView: View {
                             .resizable()
                             .scaledToFill()
                     } else {
-                        PlaceholderView(customChat: $customChat)
+                        PlaceholderView(customChat: customChat)
                     }
                 }
             } else {
-                PlaceholderView(customChat: $customChat)
+                PlaceholderView(customChat: customChat)
             }
         }
         .clipShape(.circle)

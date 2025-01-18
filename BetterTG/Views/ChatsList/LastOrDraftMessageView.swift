@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct LastOrDraftMessageView: View {
-    @Binding var customChat: CustomChat
+    @State var customChat: CustomChat
     
     var body: some View {
         ZStack {
