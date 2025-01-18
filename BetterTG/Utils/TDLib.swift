@@ -29,7 +29,7 @@ final class TDLib: @unchecked Sendable {
         try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
         
         nc.publisher(&cancellables, for: .authorizationStateWaitTdlibParameters) { _ in
-            Task.background { [weak self] in
+            Task.background {
                 let dir = try FileManager.default.url(
                     for: .documentDirectory,
                     in: .userDomainMask,
@@ -37,7 +37,7 @@ final class TDLib: @unchecked Sendable {
                     create: true
                 ).appending(path: "td").path()
                 
-                try await self?.td.setTdlibParameters(
+                try await self.td.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
                     applicationVersion: Utils.applicationVersion,

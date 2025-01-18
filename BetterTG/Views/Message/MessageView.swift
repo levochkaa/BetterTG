@@ -4,12 +4,8 @@ import SwiftUI
 import TDLibKit
 
 struct MessageView: View {
-    @Binding var customMessage: CustomMessage
-    @Binding var highlightedMessageId: Int64?
-    @Binding var replyMessage: CustomMessage?
-    @Binding var editCustomMessage: CustomMessage?
-    let scrollTo: (Int64) -> Void
-    let deleteMessage: (Int64, Bool) -> Void
+    @State var customMessage: CustomMessage
+    @Environment(ChatVM.self) var chatVM: ChatVM
     
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -21,14 +17,14 @@ struct MessageView: View {
                 ReplyMessageView(
                     customMessage: customMessage,
                     type: .replied,
-                    onTap: { scrollTo(replyToMessage.id) }
+                    onTap: { chatVM.scrollTo(id: replyToMessage.id) }
                 )
             }
             
             if customMessage.messagePhoto != nil 
                 || customMessage.messageVoiceNote != nil
                 || !customMessage.album.isEmpty {
-                MessageContentView(customMessage: $customMessage)
+                MessageContentView(customMessage: customMessage)
             }
             
             if let formattedText = customMessage.formattedText {
@@ -41,7 +37,7 @@ struct MessageView: View {
                     )
             }
         }
-        .background(highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
+        .background(chatVM.highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
         .clipShape(.rect(cornerRadius: 20))
         .customContextMenu(cornerRadius: 20, contextMenuActions)
     }

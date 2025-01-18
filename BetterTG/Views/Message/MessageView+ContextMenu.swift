@@ -4,66 +4,69 @@ import SwiftUI
 import TDLibKit
 
 extension MessageView {
-    var contextMenuActions: [ContextMenuAction?] {
-        [
-            .button(title: "Reply", systemImage: "arrowshape.turn.up.left") {
-                if replyMessage != nil {
+    var contextMenuActions: [ContextMenuAction] {
+        var actions = [ContextMenuAction]()
+        actions.append(.button(title: "Reply", systemImage: "arrowshape.turn.up.left") {
+            if chatVM.replyMessage != nil {
+                withAnimation {
+                    chatVM.replyMessage = nil
+                }
+                Task.main(delay: 0.4) {
                     withAnimation {
-                        replyMessage = nil
+                        chatVM.replyMessage = customMessage
+                    }
+                }
+            } else {
+                withAnimation {
+                    chatVM.replyMessage = customMessage
+                }
+            }
+        })
+        if customMessage.properties.canBeEdited {
+            actions.append(.button(title: "Edit", systemImage: "square.and.pencil") {
+                if chatVM.editCustomMessage != nil {
+                    withAnimation {
+                        chatVM.editCustomMessage = nil
                     }
                     Task.main(delay: 0.4) {
                         withAnimation {
-                            replyMessage = customMessage
+                            chatVM.editCustomMessage = customMessage
                         }
                     }
                 } else {
                     withAnimation {
-                        replyMessage = customMessage
+                        chatVM.editCustomMessage = customMessage
                     }
                 }
-            },
-            customMessage.properties.canBeEdited
-            ? .button(title: "Edit", systemImage: "square.and.pencil") {
-                if editCustomMessage != nil {
-                    withAnimation {
-                        editCustomMessage = nil
-                    }
-                    Task.main(delay: 0.4) {
-                        withAnimation {
-                            editCustomMessage = customMessage
-                        }
-                    }
-                } else {
-                    withAnimation {
-                        editCustomMessage = customMessage
-                    }
-                }
-            } : nil,
-            getFormattedText(from: customMessage.message.content) != nil
-            ? .button(title: "Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
-                if let formattedText = getFormattedText(from: customMessage.message.content) {
-                    UIPasteboard.setFormattedText(formattedText)
-                }
-            } : nil,
-            .divider,
-            customMessage.properties.canBeDeletedOnlyForSelf && !customMessage.properties.canBeDeletedForAllUsers
-            ? .button(title: "Delete", systemImage: "trash", attributes: .destructive) {
-                deleteMessage(customMessage.message.id, false)
-            } : nil,
-            customMessage.properties.canBeDeletedForAllUsers && !customMessage.properties.canBeDeletedOnlyForSelf
-            ? .button(title: "Delete for both", systemImage: "trash.fill", attributes: .destructive) {
-                deleteMessage(customMessage.message.id, true)
-            } : nil,
-            customMessage.properties.canBeDeletedOnlyForSelf && customMessage.properties.canBeDeletedForAllUsers
-            ? .menu(title: "Delete", children: [
+            })
+        }
+        if let formattedText = getFormattedText(from: customMessage.message.content) {
+            actions.append(.button(title: "Copy", systemImage: "rectangle.portrait.on.rectangle.portrait") {
+                UIPasteboard.setFormattedText(formattedText)
+            })
+        }
+        actions.append(.divider)
+        if customMessage.properties.canBeDeletedOnlyForSelf, !customMessage.properties.canBeDeletedForAllUsers {
+            actions.append(.button(title: "Delete", systemImage: "trash", attributes: .destructive) {
+                chatVM.deleteMessage(id: customMessage.message.id, deleteForBoth: false)
+            })
+        }
+        if customMessage.properties.canBeDeletedForAllUsers, !customMessage.properties.canBeDeletedOnlyForSelf {
+            actions.append(.button(title: "Delete for both", systemImage: "trash.fill", attributes: .destructive) {
+                chatVM.deleteMessage(id: customMessage.message.id, deleteForBoth: true)
+            })
+        }
+        if customMessage.properties.canBeDeletedOnlyForSelf, customMessage.properties.canBeDeletedForAllUsers {
+            actions.append(.menu(title: "Delete", children: [
                 .button(title: "Delete only for me", systemImage: "trash", attributes: .destructive) {
-                    deleteMessage(customMessage.message.id, false)
+                    chatVM.deleteMessage(id: customMessage.message.id, deleteForBoth: false)
                 },
                 .button(title: "Delete for both", systemImage: "trash.fill", attributes: .destructive) {
-                    deleteMessage(customMessage.message.id, true)
+                    chatVM.deleteMessage(id: customMessage.message.id, deleteForBoth: true)
                 }
-            ]) : nil
-        ]
+            ]))
+        }
+        return actions
     }
     
     func getFormattedText(from content: MessageContent) -> FormattedText? {

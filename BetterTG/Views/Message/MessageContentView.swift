@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct MessageContentView: View {
-    @Binding var customMessage: CustomMessage
+    @State var customMessage: CustomMessage
     
     @State var shownAlbum: CustomMessageAlbum?
     
