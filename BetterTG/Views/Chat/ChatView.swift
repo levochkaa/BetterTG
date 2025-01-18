@@ -24,8 +24,8 @@ struct ChatView: View {
         .overlay {
             if chatVM.customChat.lastMessage == nil {
                 Text("No messages")
-                    .center(.vertically)
-                    .fullScreenBackground(color: .black)
+                    .frame(maxHeight: .infinity)
+                    .background(.black)
             }
         }
         .safeAreaInset(edge: .bottom) {

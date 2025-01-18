@@ -54,7 +54,7 @@ struct LoginView: View {
                                 .focused($focused, equals: .code)
                                 .keyboardType(.numberPad)
                                 .padding()
-                                .background(.gray6)
+                                .background(Color.gray6)
                                 .clipShape(.rect(cornerRadius: 10))
                         }
                     case .twoFactor:
@@ -64,7 +64,7 @@ struct LoginView: View {
                                 .textContentType(.password)
                                 .keyboardType(.alphabet)
                                 .padding()
-                                .background(.gray6)
+                                .background(Color.gray6)
                                 .clipShape(.rect(cornerRadius: 10))
                         }
                 }

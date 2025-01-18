@@ -41,14 +41,7 @@ extension ChatVM {
     }
     
     func updateUserStatus(_ updateUserStatus: UpdateUserStatus) {
-        let onlineStatus = switch updateUserStatus.status {
-            case .userStatusEmpty: "empty"
-            case .userStatusOnline: /* (let userStatusOnline) */ "online"
-            case .userStatusOffline(let userStatusOffline): "last seen \(getLastSeenTime(userStatusOffline.wasOnline))"
-            case .userStatusRecently: "last seen recently"
-            case .userStatusLastWeek: "last seen last week"
-            case .userStatusLastMonth: "last seen last month"
-        }
+        let onlineStatus = getOnlineStatus(from: updateUserStatus.status)
         Task.main { self.onlineStatus = onlineStatus }
     }
     

@@ -1,4 +1,4 @@
-file_path = "BetterTG/Extensions/Td+Generated.swift"
+file_path = "BetterTG/Extensions/Td/Td+Generated.swift"
 
 core = """// Td+Generated.swift
 
