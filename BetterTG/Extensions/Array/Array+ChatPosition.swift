@@ -8,8 +8,7 @@
 import TDLibKit
 
 extension [ChatPosition] {
-    var main: ChatPosition? {
-        first(where: { $0.list == .chatListMain })
-        // ?? .init(isPinned: false, list: .chatListMain, order: 0, source: nil)
+    func first(_ chatList: ChatList) -> ChatPosition? {
+        first(where: { $0.list == chatList })
     }
 }

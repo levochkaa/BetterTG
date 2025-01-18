@@ -89,6 +89,8 @@
 		DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */; };
 		DFBFB86928CE48290076895C /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBFB86828CE48290076895C /* Utils.swift */; };
 		DFCC2A452950F02C00281EF8 /* MessageView+ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCC2A442950F02C00281EF8 /* MessageView+ContextMenu.swift */; };
+		DFD0279F2D3C1F8000BA7883 /* CustomFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD0279E2D3C1F7E00BA7883 /* CustomFolder.swift */; };
+		DFD027A12D3C206F00BA7883 /* ConfirmChatDelete.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD027A02D3C206F00BA7883 /* ConfirmChatDelete.swift */; };
 		DFD2DE7029B00D0300D531F4 /* IsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */; };
 		DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */; };
 		DFD7D49D294280E20006CF85 /* View+FullScreenBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49C294280E20006CF85 /* View+FullScreenBackground.swift */; };
@@ -222,6 +224,8 @@
 		DFB85D0B290EEC4E00F66E20 /* AsyncTdImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncTdImage.swift; sourceTree = "<group>"; };
 		DFBFB86828CE48290076895C /* Utils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils.swift; sourceTree = "<group>"; };
 		DFCC2A442950F02C00281EF8 /* MessageView+ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView+ContextMenu.swift"; sourceTree = "<group>"; };
+		DFD0279E2D3C1F7E00BA7883 /* CustomFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomFolder.swift; sourceTree = "<group>"; };
+		DFD027A02D3C206F00BA7883 /* ConfirmChatDelete.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmChatDelete.swift; sourceTree = "<group>"; };
 		DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsPreview.swift; sourceTree = "<group>"; };
 		DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyMessageType.swift; sourceTree = "<group>"; };
 		DFD7D49C294280E20006CF85 /* View+FullScreenBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+FullScreenBackground.swift"; sourceTree = "<group>"; };
@@ -282,6 +286,7 @@
 				DF68DAFE29B928A70010ADE9 /* Custom */,
 				DF51DA36290D96A400AB9E60 /* LoginState.swift */,
 				DF51DA3B290D9D5A00AB9E60 /* PhoneNumberInfo.swift */,
+				DFD027A02D3C206F00BA7883 /* ConfirmChatDelete.swift */,
 				DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */,
 				DF51E4432C1F576F00A0D46D /* Media.swift */,
 				DF5261C9294E61BB00FB7C73 /* SelectedImage.swift */,
@@ -384,6 +389,7 @@
 		DF68DAFE29B928A70010ADE9 /* Custom */ = {
 			isa = PBXGroup;
 			children = (
+				DFD0279E2D3C1F7E00BA7883 /* CustomFolder.swift */,
 				DF540681296C7ED700492867 /* CustomChat.swift */,
 				1A21DF7A2422F1FD51B5C52E /* CustomMessage.swift */,
 			);
@@ -638,6 +644,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DFD0279F2D3C1F8000BA7883 /* CustomFolder.swift in Sources */,
 				DF27AD232A9B641F001A3FFF /* Image+.swift in Sources */,
 				DFCC2A452950F02C00281EF8 /* MessageView+ContextMenu.swift in Sources */,
 				DF2040722D340F3D00E6A9AC /* View+CustomContextMenu.swift in Sources */,
@@ -661,6 +668,7 @@
 				DF180BD8299D8C0F008174A4 /* OpenedItem.swift in Sources */,
 				DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */,
 				DF9AC6C729A240B800D6EC76 /* View+Modify.swift in Sources */,
+				DFD027A12D3C206F00BA7883 /* ConfirmChatDelete.swift in Sources */,
 				DF1717C02971F6410085E698 /* Array+GetSize.swift in Sources */,
 				DF9D5170298D19A8009AFE7F /* Shape.swift in Sources */,
 				DF8B42402AEC59960081E821 /* UIEdgeInsets.swift in Sources */,

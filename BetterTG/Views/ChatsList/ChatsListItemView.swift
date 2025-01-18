@@ -4,15 +4,16 @@ import SwiftUI
 import TDLibKit
 
 struct ChatsListItemView: View {
+    @Binding var folder: CustomFolder
     @Binding var customChat: CustomChat
     
     var body: some View {
         HStack {
-            if let isPinned = customChat.positions.main?.isPinned, isPinned {
+            if let isPinned = customChat.positions.first(folder.chatList)?.isPinned, isPinned {
                 Button(systemImage: "pin.fill") {
                     Task.background {
                         try await td.toggleChatIsPinned(
-                            chatId: customChat.chat.id, chatList: .chatListMain, isPinned: !isPinned
+                            chatId: customChat.chat.id, chatList: folder.chatList, isPinned: !isPinned
                         )
                     }
                 }

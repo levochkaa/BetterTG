@@ -5,11 +5,10 @@ import TDLibKit
 import Combine
 
 struct ChatsListView: View {
+    @Binding var folder: CustomFolder
     @Binding var chats: [CustomChat]
+    @Binding var confirmChatDelete: ConfirmChatDelete
     @State var cancellables = Set<AnyCancellable>()
-    @State var showConfirmChatDelete = false
-    @State var deleteChatForAllUsers = false
-    @State var confirmedChat: Chat?
     @State var query = ""
     @Namespace var namespace
     @Environment(\.scenePhase) var scenePhase
@@ -19,7 +18,8 @@ struct ChatsListView: View {
         filteredSortedChats = chats
             .uniqued()
             .sorted {
-                if let firstOrder = $0.positions.main?.order, let secondOrder = $1.positions.main?.order {
+                if let firstOrder = $0.positions.first(folder.chatList)?.order,
+                   let secondOrder = $1.positions.first(folder.chatList)?.order {
                     return firstOrder > secondOrder
                 } else {
                     return $0.chat.id > $1.chat.id
@@ -34,12 +34,14 @@ struct ChatsListView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 8) {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                if filteredSortedChats.isEmpty {
+                    Text("Empty folder :(")
+                } else {
                     ForEach($filteredSortedChats) { $customChat in
                         NavigationLink(value: customChat) {
-                            ChatsListItemView(customChat: $customChat)
+                            ChatsListItemView(folder: $folder, customChat: $customChat)
                                 .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
                         }
                         .contextMenu {
@@ -63,40 +65,22 @@ struct ChatsListView: View {
                         }
                     }
                 }
-                .padding(.top, 8)
             }
-            .searchable(text: $query, prompt: "Search chats...")
-            .onChange(of: query, updateChats)
-            .onChange(of: chats, updateChats)
-            .navigationTitle("BetterTG")
-            .navigationDestination(for: CustomChat.self) { customChat in
-                ChatView(customChat: customChat)
-            }
-            .confirmationDialog(
-                "Are you sure you want to delete chat with \(confirmedChat?.title ?? "User")?",
-                isPresented: $showConfirmChatDelete
-            ) {
-                Button("Delete", role: .destructive) {
-                    guard let id = confirmedChat?.id else { return }
-                    Task.background {
-                        try await td.deleteChatHistory(
-                            chatId: id, removeFromChatList: true, revoke: deleteChatForAllUsers
-                        )
-                    }
-                }
-            }
-            .onChange(of: scenePhase) { _, newPhase in
-                guard case .active = newPhase else { return }
-                Task.background {
-                    await chats.asyncForEach { customChat in
-                        _ = try? await td.getChatHistory(
-                            chatId: customChat.chat.id,
-                            fromMessageId: 0,
-                            limit: 30,
-                            offset: 0,
-                            onlyLocal: false
-                        )
-                    }
+            .padding(.top, 8)
+        }
+        .onChange(of: chats, updateChats)
+        .onAppear(perform: updateChats)
+        .onChange(of: scenePhase) { _, newPhase in
+            guard case .active = newPhase else { return }
+            Task.background {
+                await chats.asyncForEach { customChat in
+                    _ = try? await td.getChatHistory(
+                        chatId: customChat.chat.id,
+                        fromMessageId: 0,
+                        limit: 30,
+                        offset: 0,
+                        onlyLocal: false
+                    )
                 }
             }
         }
@@ -171,11 +155,11 @@ struct ChatsListView: View {
     }
     
     @ViewBuilder func contextMenu(for customChat: CustomChat) -> some View {
-        if let isPinned = customChat.positions.main?.isPinned {
+        if let isPinned = customChat.positions.first(folder.chatList)?.isPinned {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash.fill" : "pin.fill") {
                 Task.background {
                     try await td.toggleChatIsPinned(
-                        chatId: customChat.chat.id, chatList: .chatListMain, isPinned: !isPinned
+                        chatId: customChat.chat.id, chatList: folder.chatList, isPinned: !isPinned
                     )
                 }
             }
@@ -183,32 +167,24 @@ struct ChatsListView: View {
         
         if !customChat.chat.canBeDeletedOnlyForSelf, customChat.chat.canBeDeletedForAllUsers {
             Button("Delete for everyone", systemImage: "trash.fill", role: .destructive) {
-                deleteChatForAllUsers = true
-                confirmedChat = customChat.chat
-                showConfirmChatDelete = true
+                confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: true)
             }
         }
         
         if customChat.chat.canBeDeletedOnlyForSelf, !customChat.chat.canBeDeletedForAllUsers {
             Button("Delete", systemImage: "trash", role: .destructive) {
-                deleteChatForAllUsers = false
-                confirmedChat = customChat.chat
-                showConfirmChatDelete = true
+                confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: false)
             }
         }
         
         if customChat.chat.canBeDeletedOnlyForSelf, customChat.chat.canBeDeletedForAllUsers {
             Menu("Delete") {
                 Button("Delete only for me", systemImage: "trash", role: .destructive) {
-                    deleteChatForAllUsers = false
-                    confirmedChat = customChat.chat
-                    showConfirmChatDelete = true
+                    confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: false)
                 }
                 
                 Button("Delete for all users", systemImage: "trash.fill", role: .destructive) {
-                    deleteChatForAllUsers = true
-                    confirmedChat = customChat.chat
-                    showConfirmChatDelete = true
+                    confirmChatDelete = ConfirmChatDelete(chat: customChat.chat, show: true, forAll: true)
                 }
             }
         }
