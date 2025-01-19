@@ -12,8 +12,11 @@ import Combine
     }
     
     var confirmChatDelete = ConfirmChatDelete(chat: nil, show: false, forAll: false)
-    
-    @ObservationIgnored var cancellables = Set<AnyCancellable>()
+    var folders = [CustomFolder]()
+    var archive: CustomFolder?
+    var showArchive = false
+    var currentFolder: Int?
+    var query = ""
     var loggedIn: Bool {
         get {
             access(keyPath: \.loggedIn)
@@ -25,13 +28,10 @@ import Combine
             }
         }
     }
-    var folders = [CustomFolder]()
-    var mainFolder: CustomFolder? { folders.first(where: { $0.type == .main }) }
-    var archive: CustomFolder?
-    var showArchive = false
-    var currentFolder: Int?
-    var query = ""
     
+    @ObservationIgnored var cancellables = Set<AnyCancellable>()
+    
+    var mainFolder: CustomFolder? { folders.first(where: { $0.type == .main }) }
     var allChats: [CustomChat] {
         var chats = [CustomChat]()
         if let archive { chats.append(contentsOf: archive.chats) }
