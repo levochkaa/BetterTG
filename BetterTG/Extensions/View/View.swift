@@ -3,14 +3,24 @@
 import SwiftUI
 
 extension View {
+    func readOffset(in coordinateSpace: NamedCoordinateSpace, onChange: @escaping (CGRect) -> Void) -> some View {
+        overlay {
+            GeometryReader { geometryProxy in
+                Color.clear
+                    .preference(key: ScrollOffsetPreferenceKey.self, value: geometryProxy.frame(in: coordinateSpace))
+                    .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: onChange)
+            }
+        }
+    }
+    
     func readSize(_ onChange: @escaping (CGSize) -> Void) -> some View {
         background {
             GeometryReader { geometryProxy in
                 Color.clear
                     .preference(key: SizePreferenceKey.self, value: geometryProxy.size)
+                    .onPreferenceChange(SizePreferenceKey.self, perform: onChange)
             }
         }
-        .onPreferenceChange(SizePreferenceKey.self, perform: onChange)
     }
     
     @ViewBuilder func `if`<TrueContent: View, FalseContent: View>(

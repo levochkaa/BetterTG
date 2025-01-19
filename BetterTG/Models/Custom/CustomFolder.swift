@@ -11,12 +11,21 @@ import TDLibKit
     
     var chats: [CustomChat]
     var type: CustomFolderType
+    var rect: CGRect = .zero
     
     var chatList: ChatList {
         switch type {
         case .main: .chatListMain
         case .archive: .chatListArchive
         case .folder(let info, _): .chatListFolder(.init(chatFolderId: info.id))
+        }
+    }
+    
+    var name: String {
+        switch type {
+            case .main: "All"
+            case .archive: "Archive"
+            case .folder(let info, _): info.name.text.text
         }
     }
     

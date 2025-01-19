@@ -5,23 +5,33 @@ import TDLibKit
 
 struct MainView: View {
     @Bindable private var rootVM = RootVM.shared
+    @State private var progress: CGFloat = .zero
     
     var body: some View {
         NavigationStack {
-            TabView(selection: $rootVM.currentFolder) {
-                ForEach(rootVM.folders) { folder in
-                    FolderView(folder: folder, navigationBarHeight: UIApplication.safeAreaInsets.top + 40)
-                        .tag(folder.id)
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(rootVM.folders) { folder in
+                        FolderView(folder: folder, navigationBarHeight: UIApplication.safeAreaInsets.top + 100)
+                            .frame(width: UIScreen.main.bounds.width)
+                            .id(folder.id)
+                            .onAppear { log("\(folder.id) onAppear") }
+                            .onDisappear { log("\(folder.id) onDisappear") }
+                    }
                 }
+                .scrollTargetLayout()
+                .readOffset(in: .scrollView(axis: .horizontal)) { progress = -$0.minX / UIScreen.main.bounds.width }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .scrollPosition(id: $rootVM.currentFolder)
+            .scrollTargetBehavior(.paging)
+            .scrollIndicators(.hidden)
             .ignoresSafeArea()
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("BetterTG")
             .navigationDestination(isPresented: $rootVM.showArchive) {
                 if let archive = rootVM.archive {
                     FolderView(folder: archive, navigationBarHeight: 8)
-                        .navigationTitle("Archive")
+                        .navigationTitle(archive.name)
                         .navigationBarTitleDisplayMode(.inline)
                         .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search archive...")
                 }
@@ -49,6 +59,40 @@ struct MainView: View {
                     }
                 }
             }
+            .overlay(alignment: .bottom) { bottomBarView }
         }
+    }
+    
+    var bottomBarView: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 20) {
+                ForEach(rootVM.folders) { folder in
+                    Button(folder.name) {
+                        withAnimation(.snappy) {
+                            rootVM.currentFolder = folder.id
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .readOffset(in: .scrollView(axis: .horizontal)) { folder.rect = $0 }
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollPosition(id: .constant(rootVM.currentFolder), anchor: .center)
+        .frame(height: 40)
+        .background(.bar)
+        .overlay(alignment: .topLeading) {
+            let inputRange = rootVM.folders.indices.map { CGFloat($0) }
+            let outputRange = rootVM.folders.map(\.rect.width)
+            let indicatorWidth = progress.interpolate(from: inputRange, to: outputRange)
+            let outputPositionRange = rootVM.folders.map(\.rect.minX)
+            let indicatorPosition = progress.interpolate(from: inputRange, to: outputPositionRange)
+            Rectangle()
+                .fill(.white)
+                .frame(width: indicatorWidth, height: 3)
+                .offset(x: indicatorPosition)
+        }
+        .safeAreaPadding(.horizontal)
     }
 }
