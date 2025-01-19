@@ -7,6 +7,7 @@ import Combine
 struct FolderView: View {
     @State var folder: CustomFolder
     var navigationBarHeight: CGFloat = .zero
+    var bottomBarHeight: CGFloat = .zero
     
     var chats: [CustomChat] {
         folder.chats
@@ -28,6 +29,7 @@ struct FolderView: View {
             bodyView.onAppear { folder.scrollViewProxy = scrollViewProxy }
         }
         .contentMargins(.top, navigationBarHeight - 8, for: .scrollIndicators)
+        .contentMargins(.bottom, bottomBarHeight, for: .scrollIndicators)
         .onChange(of: scenePhase) { _, newPhase in
             guard case .active = newPhase else { return }
             Task.background {
@@ -83,8 +85,12 @@ struct FolderView: View {
                         }
                     }
                 }
+                Spacer()
+                    .frame(height: bottomBarHeight)
+                    .id("bottom")
             }
         }
+        .scrollIndicators(.visible)
     }
     
     @ViewBuilder func contextMenu(for customChat: CustomChat) -> some View {
