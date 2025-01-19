@@ -8,7 +8,7 @@ struct MainView: View {
     @State private var progress: CGFloat = .zero
     
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $rootVM.path) {
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(rootVM.folders) { folder in
@@ -31,12 +31,15 @@ struct MainView: View {
             .ignoresSafeArea()
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("BetterTG")
-            .navigationDestination(isPresented: $rootVM.showArchive) {
-                if let archive = rootVM.archive {
-                    FolderView(folder: archive)
-                        .navigationTitle(archive.name)
-                        .navigationBarTitleDisplayMode(.inline)
-                        .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search archive...")
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                    case .customChat(let customChat):
+                        ChatView(customChat: customChat)
+                    case .archive(let customFolder):
+                        FolderView(folder: customFolder)
+                            .navigationTitle(customFolder.name)
+                            .navigationBarTitleDisplayMode(.inline)
+                            .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search archive...")
                 }
             }
             .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats...")
@@ -54,10 +57,10 @@ struct MainView: View {
                 }
             }
             .toolbar {
-                if rootVM.archive != nil {
+                if let archive = rootVM.archive {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(systemImage: "archivebox") {
-                            rootVM.showArchive = true
+                            rootVM.path.append(.archive(archive))
                         }
                     }
                 }

@@ -4,6 +4,11 @@ import SwiftUI
 import TDLibKit
 import Combine
 
+enum Route: Hashable {
+    case customChat(CustomChat)
+    case archive(CustomFolder)
+}
+
 @Observable final class RootVM {
     @ObservationIgnored static let shared = RootVM()
     
@@ -11,10 +16,10 @@ import Combine
         setPublishers()
     }
     
+    var path = [Route]()
     var confirmChatDelete = ConfirmChatDelete(chat: nil, show: false, forAll: false)
     var folders = [CustomFolder]()
     var archive: CustomFolder?
-    var showArchive = false
     var currentFolder: Int?
     var query = ""
     var loggedIn: Bool {
