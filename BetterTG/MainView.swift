@@ -14,7 +14,7 @@ struct MainView: View {
                     ForEach(rootVM.folders) { folder in
                         FolderView(
                             folder: folder,
-                            navigationBarHeight: UIApplication.safeAreaInsets.top + 100,
+                            navigationBarHeight: UIApplication.safeAreaInsets.top + 91,
                             bottomBarHeight: UIApplication.safeAreaInsets.bottom + 40
                         )
                         .frame(width: UIScreen.main.bounds.width)
@@ -33,7 +33,7 @@ struct MainView: View {
             .navigationTitle("BetterTG")
             .navigationDestination(isPresented: $rootVM.showArchive) {
                 if let archive = rootVM.archive {
-                    FolderView(folder: archive, navigationBarHeight: 8)
+                    FolderView(folder: archive)
                         .navigationTitle(archive.name)
                         .navigationBarTitleDisplayMode(.inline)
                         .searchable(text: $rootVM.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search archive...")
