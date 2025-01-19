@@ -24,7 +24,9 @@ struct ChatsListItemView: View {
                 .padding(.leading, 10)
             }
             
-            ChatsListItemPhotoView(customChat: customChat)
+            let chat = customChat.chat
+            ProfileImageView(photo: chat.photo?.big, minithumbnail: chat.photo?.minithumbnail, title: chat.title, userId: chat.id)
+                .frame(width: 64, height: 64)
             
             VStack(alignment: .leading, spacing: 0) {
                 Text(customChat.chat.title)
@@ -55,33 +57,5 @@ struct ChatsListItemView: View {
         .background(Color.gray6)
         .clipShape(.rect(cornerRadius: 20))
         .padding(.horizontal, 10)
-    }
-}
-
-private struct ChatsListItemPhotoView: View {
-    @State var customChat: CustomChat
-    
-    var body: some View {
-        ZStack {
-            if let photo = customChat.chat.photo {
-                AsyncTdImage(id: photo.small.id) { image in
-                    image
-                        .resizable()
-                        .scaledToFit()
-                } placeholder: {
-                    if let image = Image(data: photo.minithumbnail?.data) {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        PlaceholderView(customChat: customChat)
-                    }
-                }
-            } else {
-                PlaceholderView(customChat: customChat)
-            }
-        }
-        .clipShape(.circle)
-        .frame(width: 64, height: 64)
     }
 }

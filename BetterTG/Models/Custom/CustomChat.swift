@@ -41,14 +41,32 @@ import TDLibKit
         }
     }
     
+    var group: BasicGroup? {
+        switch type {
+            case .group(let group): group
+            default: nil
+        }
+    }
+    
+    var adminRights: ChatAdministratorRights? {
+        switch supergroup?.status {
+            case .chatMemberStatusAdministrator(let chatMemberStatusAdministrator): chatMemberStatusAdministrator.rights
+            default: nil
+        }
+    }
+    
     var canPostMessages: Bool {
         if let supergroup {
+            if adminRights?.canPostMessages == true {
+                return true
+            }
             if case .chatMemberStatusCreator = supergroup.status {
                 return true
-            } else if case .chatMemberStatusAdministrator(let chatMemberStatusAdministrator) = supergroup.status {
-                return chatMemberStatusAdministrator.rights.canPostMessages
             }
-            return false
+            if case .chatMemberStatusBanned = supergroup.status {
+                return false
+            }
+            return supergroup.status != .chatMemberStatusLeft
         }
         return true
     }
@@ -56,6 +74,7 @@ import TDLibKit
     enum CustomChatType: Equatable, Hashable {
         case user(User)
         case supergroup(Supergroup)
+        case group(BasicGroup)
     }
 }
 

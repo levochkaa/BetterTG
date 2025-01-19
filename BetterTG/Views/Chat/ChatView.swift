@@ -52,8 +52,15 @@ struct ChatView: View {
         ScrollView {
             LazyVStack(spacing: 5) {
                 ForEach(chatVM.messages) { customMessage in
-                    HStack(spacing: 0) {
-                        if customMessage.message.isOutgoing { Spacer(minLength: 0) }
+                    HStack(alignment: .top, spacing: 0) {
+                        if customMessage.message.isOutgoing { Spacer(minLength: 0) } else {
+                            if let user = customMessage.senderUser {
+                                ProfileImageView(photo: user.profilePhoto?.big, minithumbnail: user.profilePhoto?.minithumbnail, title: user.firstName, userId: user.id)
+                                    .frame(width: 32, height: 32)
+                                Spacer()
+                                    .frame(width: 5)
+                            }
+                        }
                         
                         MessageView(customMessage: customMessage)
                             .frame(
@@ -149,32 +156,9 @@ struct ChatView: View {
         }
     }
     
-    private var topBarTrailing: some View {
-        ZStack {
-            if let chatPhoto = chatVM.customChat.chat.photo {
-                AsyncTdImage(id: chatPhoto.big.id) { image in
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .contentShape(.contextMenuPreview, Circle())
-                        .contextMenu {
-                            Button("Save", systemImage: "square.and.arrow.down") {
-                                guard let uiImage = UIImage(contentsOfFile: chatPhoto.big.local.path) else { return }
-                                UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
-                            }
-                        } preview: {
-                            image
-                                .resizable()
-                                .scaledToFit()
-                        }
-                } placeholder: {
-                    PlaceholderView(customChat: chatVM.customChat, fontSize: 20)
-                }
-            } else {
-                PlaceholderView(customChat: chatVM.customChat, fontSize: 20)
-            }
-        }
-        .frame(width: 32, height: 32)
-        .clipShape(.circle)
+    @ViewBuilder private var topBarTrailing: some View {
+        let chat = chatVM.customChat.chat
+        ProfileImageView(photo: chat.photo?.big, minithumbnail: chat.photo?.minithumbnail, title: chat.title, userId: chat.id)
+            .frame(width: 32, height: 32)
     }
 }
