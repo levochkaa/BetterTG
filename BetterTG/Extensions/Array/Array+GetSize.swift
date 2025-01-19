@@ -2,9 +2,29 @@
 
 import TDLibKit
 
+/// For info on cases, see https://core.telegram.org/api/files#image-thumbnail-types
 public enum PhotoSizeType: Int {
-    // For info on cases, see https://core.telegram.org/api/files#image-thumbnail-types
-    case sBox, mBox, xBox, yBox, wBox, aCrop, bCrop, cCrop, dCrop, iString, jOutline
+    /// 100x100
+    case sBox
+    /// 100x100
+    case mBox
+    /// 320x320
+    case xBox
+    /// 1280x1280
+    case yBox
+    /// 2560x2560
+    case wBox
+    /// 160x160
+    case aCrop
+    /// 320x320
+    case bCrop
+    /// 640x640
+    case cCrop
+    /// 1280x1280
+    case dCrop
+    
+    case iString
+    case jOutline
     
     var td: String {
         switch self {
