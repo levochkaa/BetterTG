@@ -52,11 +52,16 @@ struct ChatView: View {
         ScrollView {
             LazyVStack(spacing: 5) {
                 ForEach(chatVM.messages) { customMessage in
-                    HStack(alignment: .top, spacing: 0) {
+                    HStack(alignment: .bottom, spacing: 0) {
                         if customMessage.message.isOutgoing { Spacer(minLength: 0) } else {
-                            if let user = customMessage.senderUser {
-                                ProfileImageView(photo: user.profilePhoto?.big, minithumbnail: user.profilePhoto?.minithumbnail, title: user.firstName, userId: user.id)
-                                    .frame(width: 32, height: 32)
+                            if let user = customMessage.senderUser, chatVM.customChat.shouldShowProfileImage {
+                                ProfileImageView(
+                                    photo: user.profilePhoto?.big,
+                                    minithumbnail: user.profilePhoto?.minithumbnail,
+                                    title: user.firstName,
+                                    userId: user.id
+                                )
+                                .frame(width: 32, height: 32)
                                 Spacer()
                                     .frame(width: 5)
                             }
