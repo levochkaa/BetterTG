@@ -70,6 +70,7 @@ struct MainView: View {
                     Button(folder.name) {
                         withAnimation(.snappy) {
                             rootVM.currentFolder = folder.id
+                            rootVM.scrollToTop(folderID: folder.id)
                         }
                     }
                     .foregroundStyle(.white)

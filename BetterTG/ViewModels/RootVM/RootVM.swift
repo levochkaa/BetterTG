@@ -29,7 +29,7 @@ import Combine
     var mainFolder: CustomFolder? { folders.first(where: { $0.type == .main }) }
     var archive: CustomFolder?
     var showArchive = false
-    var currentFolder: Int? = 0
+    var currentFolder: Int?
     var query = ""
     
     var allChats: [CustomChat] {
@@ -37,6 +37,11 @@ import Combine
         if let archive { chats.append(contentsOf: archive.chats) }
         if let mainFolder { chats.append(contentsOf: mainFolder.chats) }
         return chats
+    }
+    
+    func scrollToTop(folderID: Int) {
+        guard let scrollViewProxy = folders.first(where: { $0.id == folderID })?.scrollViewProxy else { return }
+        scrollViewProxy.scrollTo("top", anchor: .top)
     }
     
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {

@@ -24,8 +24,32 @@ struct FolderView: View {
     @State var rootVM: RootVM = .shared
     
     var body: some View {
+        ScrollViewReader { scrollViewProxy in
+            bodyView.onAppear { folder.scrollViewProxy = scrollViewProxy }
+        }
+        .contentMargins(.top, navigationBarHeight - 8, for: .scrollIndicators)
+        .onChange(of: scenePhase) { _, newPhase in
+            guard case .active = newPhase else { return }
+            Task.background {
+                await chats.asyncForEach { customChat in
+                    _ = try? await td.getChatHistory(
+                        chatId: customChat.chat.id,
+                        fromMessageId: 0,
+                        limit: 30,
+                        offset: 0,
+                        onlyLocal: false
+                    )
+                }
+            }
+        }
+    }
+    
+    var bodyView: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
+                Spacer()
+                    .frame(height: navigationBarHeight)
+                    .id("top")
                 if chats.isEmpty {
                     Text("Empty folder :(")
                 } else {
@@ -58,22 +82,6 @@ struct FolderView: View {
                             )
                         }
                     }
-                }
-            }
-            .padding(.top, navigationBarHeight)
-        }
-        .contentMargins(.top, navigationBarHeight - 8, for: .scrollIndicators)
-        .onChange(of: scenePhase) { _, newPhase in
-            guard case .active = newPhase else { return }
-            Task.background {
-                await chats.asyncForEach { customChat in
-                    _ = try? await td.getChatHistory(
-                        chatId: customChat.chat.id,
-                        fromMessageId: 0,
-                        limit: 30,
-                        offset: 0,
-                        onlyLocal: false
-                    )
                 }
             }
         }
