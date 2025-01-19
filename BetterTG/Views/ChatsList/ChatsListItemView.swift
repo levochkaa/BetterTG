@@ -25,8 +25,14 @@ struct ChatsListItemView: View {
             }
             
             let chat = customChat.chat
-            ProfileImageView(photo: chat.photo?.big, minithumbnail: chat.photo?.minithumbnail, title: chat.title, userId: chat.id)
-                .frame(width: 64, height: 64)
+            ProfileImageView(
+                photo: chat.photo?.big,
+                minithumbnail: chat.photo?.minithumbnail,
+                title: chat.title,
+                userId: chat.id,
+                fontSize: 40
+            )
+            .frame(width: 64, height: 64)
             
             VStack(alignment: .leading, spacing: 0) {
                 Text(customChat.chat.title)
