@@ -42,7 +42,7 @@ extension ChatVM {
     
     func updateUserStatus(_ updateUserStatus: UpdateUserStatus) {
         let onlineStatus = getOnlineStatus(from: updateUserStatus.status)
-        Task.main { self.onlineStatus = onlineStatus }
+        Task.main { withAnimation { self.onlineStatus = onlineStatus } }
     }
     
     func updateChatAction(_ updateChatAction: UpdateChatAction) {
