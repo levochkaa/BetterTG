@@ -28,7 +28,7 @@ struct FolderView: View {
         ScrollViewReader { scrollViewProxy in
             bodyView.onAppear { folder.scrollViewProxy = scrollViewProxy }
         }
-        .contentMargins(.top, navigationBarHeight - 8, for: .scrollIndicators)
+        .contentMargins(.top, navigationBarHeight, for: .scrollIndicators)
         .contentMargins(.bottom, bottomBarHeight, for: .scrollIndicators)
         .onChange(of: scenePhase) { _, newPhase in
             guard case .active = newPhase else { return }
