@@ -29,7 +29,7 @@ import Combine
     var mainFolder: CustomFolder? { folders.first(where: { $0.type == .main }) }
     var archive: CustomFolder?
     var showArchive = false
-    var currentFolder = 0
+    var currentFolder: Int? = 0
     var query = ""
     
     var allChats: [CustomChat] {

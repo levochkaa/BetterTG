@@ -78,14 +78,7 @@ struct ChatView: View {
                 }
             }
             .padding(.top, chatVM.extraBottomPadding)
-            .overlay {
-                GeometryReader { geometryProxy in
-                    Color.clear.preference(
-                        key: ScrollOffsetPreferenceKey.self,
-                        value: geometryProxy.frame(in: .named(chatVM.chatScrollNamespaceId))
-                    )
-                }
-            }
+            .readOffset(in: .named(chatVM.chatScrollNamespaceId), onChange: chatVM.onPreferenceChange)
         }
         .background(.black)
         .flipped()
@@ -93,7 +86,6 @@ struct ChatView: View {
         .scrollDismissesKeyboard(.interactively)
         .scrollBounceBehavior(.always)
         .scrollIndicators(.hidden)
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: chatVM.onPreferenceChange)
         .onTapGesture { focused = false }
         .animation(.default, value: chatVM.extraBottomPadding)
         .overlay(alignment: .bottomTrailing) {
