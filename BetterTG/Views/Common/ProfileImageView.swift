@@ -8,6 +8,7 @@ struct ProfileImageView: View {
     let minithumbnail: Minithumbnail?
     let title: String
     let userId: Int64
+    var fontSize: CGFloat = 20
     
     var body: some View {
         ZStack {
@@ -33,13 +34,27 @@ struct ProfileImageView: View {
                             .resizable()
                             .scaledToFit()
                     } else {
-                        PlaceholderView(title: title, id: userId, fontSize: 20)
+                        PlaceholderView(title: title, id: userId, fontSize: fontSize)
                     }
                 }
             } else {
-                PlaceholderView(title: title, id: userId, fontSize: 20)
+                PlaceholderView(title: title, id: userId, fontSize: fontSize)
             }
         }
         .clipShape(.circle)
+    }
+}
+
+struct PlaceholderView: View {
+    let title: String
+    let id: Int64
+    let fontSize: CGFloat
+    
+    var body: some View {
+        Text(String(title.prefix(1).capitalized))
+            .font(.system(size: fontSize, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(userId: id).gradient)
     }
 }

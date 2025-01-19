@@ -90,7 +90,6 @@
 		DFD759A02D3D6A7A004E7CA6 /* CGFloat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7599F2D3D6A78004E7CA6 /* CGFloat.swift */; };
 		DFD759A42D3D974E004E7CA6 /* ProfileImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD759A32D3D974D004E7CA6 /* ProfileImageView.swift */; };
 		DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */; };
-		DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */; };
 		DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6DA2938E01900A5919E /* ReplyMessageView.swift */; };
 		DFE026602951142D004C8C83 /* ReplyMessageView+Content.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE0265F2951142D004C8C83 /* ReplyMessageView+Content.swift */; };
 		DFE026622951144B004C8C83 /* ReplyMessageView+Photo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE026612951144B004C8C83 /* ReplyMessageView+Photo.swift */; };
@@ -218,7 +217,6 @@
 		DFD7599F2D3D6A78004E7CA6 /* CGFloat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGFloat.swift; sourceTree = "<group>"; };
 		DFD759A32D3D974D004E7CA6 /* ProfileImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileImageView.swift; sourceTree = "<group>"; };
 		DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyMessageType.swift; sourceTree = "<group>"; };
-		DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
 		DFDFC6DA2938E01900A5919E /* ReplyMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyMessageView.swift; sourceTree = "<group>"; };
 		DFE0265F2951142D004C8C83 /* ReplyMessageView+Content.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ReplyMessageView+Content.swift"; sourceTree = "<group>"; };
 		DFE026612951144B004C8C83 /* ReplyMessageView+Photo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ReplyMessageView+Photo.swift"; sourceTree = "<group>"; };
@@ -361,7 +359,6 @@
 			children = (
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
 				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
-				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
 				DFD027B62D3C558000BA7883 /* CaptionText.swift */,
 				DF2040732D34254800E6A9AC /* PhotoPicker.swift */,
@@ -694,7 +691,6 @@
 				DF72BC792BD589E800B23124 /* LastOrDraftMessageView.swift in Sources */,
 				DF69FA882AA38622009180D4 /* UIApplication.swift in Sources */,
 				DF69FA8A2AA4C899009180D4 /* Text.swift in Sources */,
-				DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */,
 				DF4B998428C3F3F50087C1B9 /* RootView.swift in Sources */,
 				DFECD75A292A99FE002A4BAD /* NotificationCenter.swift in Sources */,
 				DFD027B02D3C50A500BA7883 /* MainView.swift in Sources */,
