@@ -54,14 +54,21 @@ struct ChatView: View {
                 ForEach(chatVM.messages) { customMessage in
                     HStack(alignment: .bottom, spacing: 0) {
                         if customMessage.message.isOutgoing { Spacer(minLength: 0) } else {
-                            if let user = customMessage.senderUser, chatVM.customChat.shouldShowProfileImage {
-                                ProfileImageView(
-                                    photo: user.profilePhoto?.big,
-                                    minithumbnail: user.profilePhoto?.minithumbnail,
-                                    title: user.firstName,
-                                    userId: user.id
-                                )
-                                .frame(width: 32, height: 32)
+                            if let user = customMessage.senderUser,
+                               chatVM.customChat.shouldShowProfileImage,
+                               let index = chatVM.messages.firstIndex(of: customMessage) {
+                                if chatVM.messages[safe: index - 1]?.senderUser?.id != user.id {
+                                    ProfileImageView(
+                                        photo: user.profilePhoto?.big,
+                                        minithumbnail: user.profilePhoto?.minithumbnail,
+                                        title: user.firstName,
+                                        userId: user.id
+                                    )
+                                    .frame(width: 32, height: 32)
+                                } else {
+                                    Spacer()
+                                        .frame(width: 32, height: 32)
+                                }
                                 Spacer()
                                     .frame(width: 5)
                             }
