@@ -47,24 +47,8 @@ private struct LastMesssageView: View {
         switch lastMessage.content {
             case .messagePhoto(let messagePhoto):
                 HStack(alignment: .center, spacing: 5) {
-                    ZStack {
-                        if let size = messagePhoto.photo.sizes.getSize(.mBox) {
-                            AsyncTdImage(id: size.photo.id) { image in
-                                image
-                                    .resizable()
-                                    .scaledToFit()
-                            } placeholder: {
-                                Image(data: messagePhoto.photo.minithumbnail?.data)?
-                                    .resizable()
-                                    .scaledToFit()
-                            }
-                        } else {
-                            Image(data: messagePhoto.photo.minithumbnail?.data)?
-                                .resizable()
-                                .scaledToFit()
-                        }
-                    }
-                    .frame(width: 20, height: 20)
+                    TdImage(photo: messagePhoto.photo, size: .mBox, contentMode: .fit)
+                        .frame(width: 20, height: 20)
                     
                     if messagePhoto.caption.text.isEmpty {
                         Text("Photo")

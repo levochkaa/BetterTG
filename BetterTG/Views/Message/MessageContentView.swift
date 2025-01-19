@@ -38,35 +38,16 @@ struct MessageContentView: View {
     }
     
     @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto, albumMessage: Message? = nil) -> some View {
-        if let size = messagePhoto.photo.sizes.getSize(.yBox) {
-            AsyncTdImage(id: size.photo.id) { image in
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .onTapGesture {
-                        if customMessage.album.isEmpty {
-                            shownAlbum = .init(
-                                photos: [customMessage.message],
-                                selection: customMessage.message.id
-                            )
-                        } else if let albumMessage {
-                            shownAlbum = .init(photos: customMessage.album, selection: albumMessage.id)
-                        }
-                    }
-            } placeholder: {
-                makeMessagePhotoPlaceholder(from: messagePhoto)
+        TdImage(photo: messagePhoto.photo, size: .yBox, contentMode: .fill)
+            .onTapGesture {
+                if customMessage.album.isEmpty {
+                    shownAlbum = .init(
+                        photos: [customMessage.message],
+                        selection: customMessage.message.id
+                    )
+                } else if let albumMessage {
+                    shownAlbum = .init(photos: customMessage.album, selection: albumMessage.id)
+                }
             }
-        } else {
-            makeMessagePhotoPlaceholder(from: messagePhoto)
-        }
-    }
-    
-    @ViewBuilder func makeMessagePhotoPlaceholder(from messagePhoto: MessagePhoto) -> some View {
-        if let size = messagePhoto.photo.sizes.first(.iString) {
-            Image(file: size.photo)
-                .resizable()
-                .scaledToFill()
-                .blur(radius: 5)
-        }
     }
 }
