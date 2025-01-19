@@ -32,6 +32,14 @@ extension NotificationCenter {
             .store(in: &cancellables)
     }
     
+    func publisher<T>(for tdNotification: TdNotification<T>) -> AnyPublisher<T, Never> {
+        self
+            .publisher(for: tdNotification.name, object: nil)
+            .receive(on: updatesQueue)
+            .compactMap { $0.object as? T }
+            .eraseToAnyPublisher()
+    }
+    
     func post(name: Notification.Name) {
         post(name: name, object: nil)
     }

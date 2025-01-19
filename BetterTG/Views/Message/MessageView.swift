@@ -5,7 +5,7 @@ import TDLibKit
 
 struct MessageView: View {
     @State var customMessage: CustomMessage
-    @Environment(ChatVM.self) var chatVM: ChatVM
+    @Environment(ChatVM.self) var chatVM
     
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {

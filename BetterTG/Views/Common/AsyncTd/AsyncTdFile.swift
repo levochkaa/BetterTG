@@ -10,7 +10,6 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
     
     @State private var file: File?
-    @State private var cancellables = Set<AnyCancellable>()
     
     var body: some View {
         ZStack {
@@ -24,17 +23,9 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
             .transition(.opacity)
         }
         .task(id: id) { await download(id) }
-        .onAppear(perform: setPublishers)
-    }
-    
-    private func setPublishers() {
-        nc.publisher(&cancellables, for: .updateFile) { updateFile in
+        .onReceive(nc.publisher(for: .updateFile)) { updateFile in
             guard updateFile.file.id == id else { return }
-            Task.main {
-                withAnimation {
-                    file = updateFile.file
-                }
-            }
+            Task.main { withAnimation { file = updateFile.file } }
         }
     }
     
