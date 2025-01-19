@@ -102,6 +102,7 @@ private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepres
         view.layer.cornerRadius = cornerRadius
         let host = UIHostingController(rootView: content)
         host.view.translatesAutoresizingMaskIntoConstraints = false
+        host.view.layer.cornerRadius = cornerRadius
         let constraints = [
             host.view.topAnchor.constraint(equalTo: view.topAnchor),
             host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -120,14 +121,42 @@ private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepres
     func updateUIView(_: UIView, context _: Context) {}
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator(
+            cornerRadius: cornerRadius,
+            menu: menu,
+            content: content,
+            preview: preview,
+            didTapPreview: didTapPreview,
+            onAppear: onAppear,
+            onDisappear: onDisappear
+        )
     }
     
     class Coordinator: NSObject, UIContextMenuInteractionDelegate {
-        let parent: CustomContextMenuView
+        let cornerRadius: CGFloat
+        let menu: UIMenu
+        let content: Content
+        let preview: Preview
+        let didTapPreview: (() -> Void)?
+        let onAppear: () -> Void
+        let onDisappear: () -> Void
         
-        init(_ parent: CustomContextMenuView) {
-            self.parent = parent
+        init(
+            cornerRadius: CGFloat,
+            menu: UIMenu,
+            content: Content,
+            preview: Preview,
+            didTapPreview: (() -> Void)?,
+            onAppear: @escaping () -> Void,
+            onDisappear: @escaping () -> Void
+        ) {
+            self.cornerRadius = cornerRadius
+            self.menu = menu
+            self.content = content
+            self.preview = preview
+            self.didTapPreview = didTapPreview
+            self.onAppear = onAppear
+            self.onDisappear = onDisappear
         }
         
         func contextMenuInteraction(
@@ -139,14 +168,14 @@ private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepres
                 previewProvider: { [weak self] () -> UIViewController? in
                     guard let self else { return nil }
                     return PreviewHostingController(
-                        rootView: parent.preview,
-                        cornerRadius: parent.cornerRadius,
-                        onAppear: parent.onAppear,
-                        onDisappear: parent.onDisappear
+                        rootView: preview,
+                        cornerRadius: cornerRadius,
+                        onAppear: onAppear,
+                        onDisappear: onDisappear
                     )
                 },
                 actionProvider: { [weak self] _ in
-                    self?.parent.menu ?? nil
+                    self?.menu ?? nil
                 }
             )
         }
@@ -172,7 +201,7 @@ private struct CustomContextMenuView<Content: View, Preview: View>: UIViewRepres
             willPerformPreviewActionForMenuWith _: UIContextMenuConfiguration,
             animator: UIContextMenuInteractionCommitAnimating
         ) {
-            if let didTapPreview = parent.didTapPreview {
+            if let didTapPreview {
                 animator.addCompletion(didTapPreview)
             }
         }
