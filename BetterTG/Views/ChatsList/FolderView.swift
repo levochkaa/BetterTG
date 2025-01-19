@@ -10,7 +10,6 @@ struct FolderView: View {
     
     var chats: [CustomChat] {
         folder.chats
-            .uniqued()
             .sorted { $0.position.order > $1.position.order }
             .filter {
                 rootVM.query.isEmpty
