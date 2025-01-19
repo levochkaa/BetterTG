@@ -62,16 +62,24 @@ import Combine
                 }
             case .chatTypeSupergroup(let chatTypeSupergroup):
                 guard let supergroup = try? await td.getSupergroup(supergroupId: chatTypeSupergroup.supergroupId) else { return nil }
-                if chatTypeSupergroup.isChannel {
-                    return CustomChat(
-                        chat: chat,
-                        position: position,
-                        unreadCount: chat.unreadCount,
-                        type: .supergroup(supergroup),
-                        lastMessage: chat.lastMessage,
-                        draftMessage: chat.draftMessage
-                    )
-                }
+                return CustomChat(
+                    chat: chat,
+                    position: position,
+                    unreadCount: chat.unreadCount,
+                    type: .supergroup(supergroup),
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage
+                )
+            case .chatTypeBasicGroup(let chatTypeBasicGroup):
+                guard let group = try? await td.getBasicGroup(basicGroupId: chatTypeBasicGroup.basicGroupId) else { return nil }
+                return CustomChat(
+                    chat: chat,
+                    position: position,
+                    unreadCount: chat.unreadCount,
+                    type: .group(group),
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage
+                )
             default:
                 return nil
         }

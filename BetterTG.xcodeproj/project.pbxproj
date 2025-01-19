@@ -88,6 +88,7 @@
 		DFD027B72D3C558100BA7883 /* CaptionText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD027B62D3C558000BA7883 /* CaptionText.swift */; };
 		DFD2DE7029B00D0300D531F4 /* IsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */; };
 		DFD759A02D3D6A7A004E7CA6 /* CGFloat.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7599F2D3D6A78004E7CA6 /* CGFloat.swift */; };
+		DFD759A42D3D974E004E7CA6 /* ProfileImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD759A32D3D974D004E7CA6 /* ProfileImageView.swift */; };
 		DFD7D49529425D3E0006CF85 /* ReplyMessageType.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */; };
 		DFD9F88F292FE4FA00D1E03B /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */; };
 		DFDFC6DB2938E01900A5919E /* ReplyMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFDFC6DA2938E01900A5919E /* ReplyMessageView.swift */; };
@@ -215,6 +216,7 @@
 		DFD027B62D3C558000BA7883 /* CaptionText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptionText.swift; sourceTree = "<group>"; };
 		DFD2DE6F29B00D0300D531F4 /* IsPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsPreview.swift; sourceTree = "<group>"; };
 		DFD7599F2D3D6A78004E7CA6 /* CGFloat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGFloat.swift; sourceTree = "<group>"; };
+		DFD759A32D3D974D004E7CA6 /* ProfileImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileImageView.swift; sourceTree = "<group>"; };
 		DFD7D49429425D3E0006CF85 /* ReplyMessageType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyMessageType.swift; sourceTree = "<group>"; };
 		DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
 		DFDFC6DA2938E01900A5919E /* ReplyMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyMessageView.swift; sourceTree = "<group>"; };
@@ -357,12 +359,13 @@
 		DF55E2D3295B92F700A30C76 /* Common */ = {
 			isa = PBXGroup;
 			children = (
-				DF2040732D34254800E6A9AC /* PhotoPicker.swift */,
 				DFB85D07290EEAC800F66E20 /* AsyncTd */,
 				DFB5CC15294A44F200BE749C /* MediaAlbum.swift */,
 				DFD9F88E292FE4FA00D1E03B /* PlaceholderView.swift */,
 				DF40F14F298F01CC00383AE1 /* CameraView.swift */,
 				DFD027B62D3C558000BA7883 /* CaptionText.swift */,
+				DF2040732D34254800E6A9AC /* PhotoPicker.swift */,
+				DFD759A32D3D974D004E7CA6 /* ProfileImageView.swift */,
 				DF34C38829A2A43600EA2606 /* CustomTextField.swift */,
 				DFB71EB52AE33DEE00ECAC4E /* LazyView.swift */,
 				DF429D512B2FA53C0038614B /* ZoomableContainer.swift */,
@@ -685,6 +688,7 @@
 				DFB85D0C290EEC4E00F66E20 /* AsyncTdImage.swift in Sources */,
 				DF27AD252A9B65B7001A3FFF /* Color.swift in Sources */,
 				DF0921052ABF492600B79504 /* MessageTextView.swift in Sources */,
+				DFD759A42D3D974E004E7CA6 /* ProfileImageView.swift in Sources */,
 				DF0F9D5128CCADB300BCA763 /* TDLib.swift in Sources */,
 				DF0921072ABF494C00B79504 /* ForwardedFromView.swift in Sources */,
 				DF72BC792BD589E800B23124 /* LastOrDraftMessageView.swift in Sources */,
