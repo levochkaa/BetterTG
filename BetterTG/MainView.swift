@@ -10,13 +10,15 @@ struct MainView: View {
     var body: some View {
         NavigationStack {
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 0) {
+                HStack(spacing: 0) {
                     ForEach(rootVM.folders) { folder in
-                        FolderView(folder: folder, navigationBarHeight: UIApplication.safeAreaInsets.top + 100)
-                            .frame(width: UIScreen.main.bounds.width)
-                            .id(folder.id)
-                            .onAppear { log("\(folder.id) onAppear") }
-                            .onDisappear { log("\(folder.id) onDisappear") }
+                        FolderView(
+                            folder: folder,
+                            navigationBarHeight: UIApplication.safeAreaInsets.top + 100,
+                            bottomBarHeight: UIApplication.safeAreaInsets.bottom + 40
+                        )
+                        .frame(width: UIScreen.main.bounds.width)
+                        .id(folder.id)
                     }
                 }
                 .scrollTargetLayout()
@@ -25,6 +27,7 @@ struct MainView: View {
             .scrollPosition(id: $rootVM.currentFolder)
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("BetterTG")
@@ -69,8 +72,11 @@ struct MainView: View {
                 ForEach(rootVM.folders) { folder in
                     Button(folder.name) {
                         withAnimation(.snappy) {
-                            rootVM.currentFolder = folder.id
-                            rootVM.scrollToTop(folderID: folder.id)
+                            if rootVM.currentFolder == folder.id {
+                                rootVM.scrollToTop(folderID: folder.id)
+                            } else {
+                                rootVM.currentFolder = folder.id
+                            }
                         }
                     }
                     .foregroundStyle(.white)
