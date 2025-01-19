@@ -27,6 +27,13 @@ import TDLibKit
     var draftMessage: DraftMessage?
     var type: CustomChatType
     
+    var bot: UserTypeBot? {
+        switch type {
+            case .bot(let bot): bot
+            default: nil
+        }
+    }
+    
     var user: User? {
         switch type {
             case .user(let user): user
@@ -75,6 +82,7 @@ import TDLibKit
         case user(User)
         case supergroup(Supergroup)
         case group(BasicGroup)
+        case bot(UserTypeBot)
     }
 }
 

@@ -51,19 +51,30 @@ enum Route: Hashable {
     
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {
         guard let chat = try? await td.getChat(chatId: id), let position = chat.positions.first(chatList) else { return nil }
-        
         switch chat.type {
             case .chatTypePrivate(let chatTypePrivate):
                 guard let user = try? await td.getUser(userId: chatTypePrivate.userId) else { return nil }
-                if case .userTypeRegular = user.type {
-                    return CustomChat(
-                        chat: chat,
-                        position: position,
-                        unreadCount: chat.unreadCount,
-                        type: .user(user),
-                        lastMessage: chat.lastMessage,
-                        draftMessage: chat.draftMessage
-                    )
+                switch user.type {
+                    case .userTypeRegular:
+                        return CustomChat(
+                            chat: chat,
+                            position: position,
+                            unreadCount: chat.unreadCount,
+                            type: .user(user),
+                            lastMessage: chat.lastMessage,
+                            draftMessage: chat.draftMessage
+                        )
+                    case .userTypeBot(let userTypeBot):
+                        return CustomChat(
+                            chat: chat,
+                            position: position,
+                            unreadCount: chat.unreadCount,
+                            type: .bot(userTypeBot),
+                            lastMessage: chat.lastMessage,
+                            draftMessage: chat.draftMessage
+                        )
+                    case .userTypeUnknown, .userTypeDeleted:
+                        return nil
                 }
             case .chatTypeSupergroup(let chatTypeSupergroup):
                 guard let supergroup = try? await td.getSupergroup(supergroupId: chatTypeSupergroup.supergroupId) else { return nil }
@@ -88,8 +99,6 @@ enum Route: Hashable {
             default:
                 return nil
         }
-        
-        return nil
     }
     
     func getCustomFolder(from info: ChatFolderInfo) async -> CustomFolder? {
