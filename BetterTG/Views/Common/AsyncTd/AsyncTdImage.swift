@@ -4,17 +4,24 @@ import SwiftUI
 import TDLibKit
 
 struct AsyncTdImage<Content: View, Placeholder: View>: View {
-    
     let id: Int
-    let image: (Image) -> Content
+    @ViewBuilder let content: (Image) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
+    
+    @State private var image: Image?
     
     var body: some View {
         AsyncTdFile(id: id) { file in
-            image(Image(file: file))
+            if let image {
+                content(image)
+            } else {
+                placeholder().task {
+                    guard let uiImage = await UIImage(contentsOfFile: file.local.path)?.byPreparingForDisplay() else { return }
+                    self.image = Image(uiImage: uiImage)
+                }
+            }
         } placeholder: {
             placeholder()
         }
-        .equatable(by: id)
     }
 }
