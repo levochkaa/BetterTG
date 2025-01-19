@@ -12,6 +12,7 @@ import TDLibKit
     var chats: [CustomChat]
     var type: CustomFolderType
     var rect: CGRect = .zero
+    var scrollViewProxy: ScrollViewProxy?
     
     var chatList: ChatList {
         switch type {
