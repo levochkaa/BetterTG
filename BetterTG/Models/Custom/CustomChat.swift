@@ -62,6 +62,13 @@ import TDLibKit
         }
     }
     
+    var shouldShowProfileImage: Bool {
+        switch type {
+            case .user, .bot: false
+            case .supergroup, .group: true
+        }
+    }
+    
     var canPostMessages: Bool {
         if let supergroup {
             if adminRights?.canPostMessages == true {
