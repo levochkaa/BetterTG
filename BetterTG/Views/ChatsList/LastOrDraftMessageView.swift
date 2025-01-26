@@ -11,7 +11,13 @@ struct LastOrDraftMessageView: View {
             if let draftMessage = customChat.draftMessage {
                 DraftMessageView(draftMessage: draftMessage)
             } else if let lastMessage = customChat.lastMessage {
-                LastMesssageView(lastMessage: lastMessage)
+                HStack(spacing: 3) {
+                    if lastMessage.forwardInfo != nil {
+                        Image(systemName: "arrowshape.turn.up.right.fill")
+                    }
+                    
+                    LastMesssageView(lastMessage: lastMessage)
+                }
             }
         }
         .foregroundStyle(.gray)
@@ -46,7 +52,7 @@ private struct LastMesssageView: View {
     var body: some View {
         switch lastMessage.content {
             case .messagePhoto(let messagePhoto):
-                HStack(alignment: .center, spacing: 5) {
+                HStack(alignment: .center, spacing: 3) {
                     TdImage(photo: messagePhoto.photo, size: .mBox, contentMode: .fit)
                         .frame(width: 20, height: 20)
                     
