@@ -71,8 +71,11 @@ struct MainView: View {
     
     var bottomBarView: some View {
         ScrollView(.horizontal) {
-            LazyHStack(spacing: 20) {
-                ForEach(rootVM.folders) { folder in
+            LazyHStack(spacing: 0) {
+                ForEach(Array(rootVM.folders.enumerated()), id: \.element.id) { index, folder in
+                    let distance = abs(progress - CGFloat(index))
+                    let clampedDistance = min(distance, 1)
+                    let opacity = 1 - 0.5 * clampedDistance
                     Button(folder.name) {
                         withAnimation(.snappy) {
                             if rootVM.currentFolder == folder.id {
@@ -83,7 +86,24 @@ struct MainView: View {
                         }
                     }
                     .foregroundStyle(.white)
+                    .opacity(opacity)
                     .readOffset(in: .scrollView(axis: .horizontal)) { folder.rect = $0 }
+                    .padding(.leading, index != 0 ? 10 : 0)
+                    .padding(.trailing, index != rootVM.folders.count - 1 ? 10 : 0)
+                    .padding(.vertical, 10)
+                    .clipShape(.rect(cornerRadius: 20))
+                    .contentShape(.contextMenuPreview, .rect(cornerRadius: 20))
+//                    .contextMenu {
+//                        Button("Edit folder", systemImage: "square.and.pencil") {}
+//                        if folder.type != .main {
+//                            Button("Add chats", systemImage: "plus") {}
+//                            Button("Read all", systemImage: "folder.badge.questionmark") {}
+//                            Button("Mute all", systemImage: "bell.slash") {}
+//                            Button("Remove", systemImage: "trash", role: .destructive) {}
+//                        }
+//                        Divider()
+//                        Button("Reorder tabs") {}
+//                    }
                 }
             }
             .scrollTargetLayout()
@@ -98,7 +118,7 @@ struct MainView: View {
             let indicatorWidth = progress.interpolate(from: inputRange, to: outputRange)
             let outputPositionRange = rootVM.folders.map(\.rect.minX)
             let indicatorPosition = progress.interpolate(from: inputRange, to: outputPositionRange)
-            Rectangle()
+            UnevenRoundedRectangle(cornerRadii: .init(topLeading: 0, bottomLeading: 3, bottomTrailing: 3, topTrailing: 0))
                 .fill(.white)
                 .frame(width: indicatorWidth, height: 3)
                 .offset(x: indicatorPosition)
