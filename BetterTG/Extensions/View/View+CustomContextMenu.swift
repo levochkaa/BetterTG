@@ -5,14 +5,13 @@ import SwiftUI
 enum ContextMenuAction {
     case divider
     case button(title: String, systemImage: String, attributes: UIMenuElement.Attributes = [], action: () -> Void)
-    case menu(title: String, systemImage: String? = nil, children: [ContextMenuAction?])
+    case menu(title: String, systemImage: String? = nil, children: [ContextMenuAction])
 }
 
-extension [ContextMenuAction?] {
+extension [ContextMenuAction] {
     func uiMenu(title: String = "", systemImage: String? = nil) -> UIMenu {
         var elements = [UIMenuElement]()
         for action in self {
-            guard let action else { continue }
             switch action {
             case .divider:
                 let children = elements
@@ -43,7 +42,7 @@ extension [ContextMenuAction?] {
 extension View {
     func customContextMenu(
         cornerRadius: CGFloat = 0,
-        _ actions: [ContextMenuAction?] = [],
+        _ actions: [ContextMenuAction] = [],
         didTapPreview: (() -> Void)? = nil,
         onAppear: @escaping () -> Void = {},
         onDisappear: @escaping () -> Void = {}
@@ -65,7 +64,7 @@ extension View {
     
     func customContextMenu<Content: View>(
         cornerRadius: CGFloat = 0,
-        _ actions: [ContextMenuAction?] = [],
+        _ actions: [ContextMenuAction] = [],
         @ViewBuilder _ preview: () -> Content,
         didTapPreview: (() -> Void)? = nil,
         onAppear: @escaping () -> Void = {},

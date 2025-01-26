@@ -80,6 +80,7 @@ struct ChatView: View {
                                 alignment: customMessage.message.isOutgoing ? .trailing : .leading
                             )
                             .onVisible {
+                                guard !isPreview else { return }
                                 chatVM.viewMessage(id: customMessage.message.id)
                             }
                         
