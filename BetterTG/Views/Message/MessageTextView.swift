@@ -15,7 +15,7 @@ struct MessageTextView: View {
     
     private func size(for formattedText: FormattedText) -> CGSize {
         if let cached = cachedTextSizes[formattedText] { return cached }
-        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText))
+        let attributedString = NSMutableAttributedString(getAttributedString(from: formattedText, withDate: true))
         let textStorage = NSTextStorage(attributedString: attributedString)
         let size = CGSize(width: Utils.maxMessageContentWidth, height: .greatestFiniteMagnitude)
         let boundingRect = CGRect(origin: .zero, size: size)
@@ -55,13 +55,13 @@ struct TextView: UIViewRepresentable {
     }
     
     func updateUIView(_ textView: UITextView, context: Context) {
-        if textView.attributedText != NSAttributedString(string: formattedText.text) {
+        if textView.attributedText != formattedText.withDate {
             setText(textView)
         }
     }
     
     func setText(_ textView: UITextView) {
-        textView.attributedText = NSMutableAttributedString(getAttributedString(from: formattedText))
+        textView.attributedText = NSMutableAttributedString(getAttributedString(from: formattedText, withDate: true))
     }
     
     func makeCoordinator() -> Coordinator {

@@ -47,6 +47,11 @@ import AVKit
     var replyMessage: CustomMessage?
     var highlightedMessageId: Int64?
     var messages = [CustomMessage]()
+    @ObservationIgnored var dateFormatter: DateFormatter = {
+       let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "HH:mm"
+        return dateFormatter
+    }()
     @ObservationIgnored var loadingMessagesTask: Task<Void, Never>?
     // Scroll
     let chatScrollNamespaceId = "chatScrollNamespaceId"

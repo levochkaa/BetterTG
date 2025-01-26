@@ -14,3 +14,21 @@ extension String {
         return AttributedString(mutable)
     }
 }
+
+extension AttributedString {
+    var string: String {
+        NSAttributedString(self).string
+    }
+}
+
+extension NSMutableAttributedString {
+    static var dateString: NSMutableAttributedString {
+        NSMutableAttributedString(
+            string: " 00.00",
+            attributes: [
+                .font: UIFont.caption,
+                .foregroundColor: UIColor.clear,
+            ]
+        )
+    }
+}

@@ -36,6 +36,8 @@ import TDLibKit
     var formattedText: FormattedText?
     var properties: MessageProperties
     
+    var date: Foundation.Date { Date(timeIntervalSince1970: TimeInterval(message.date)) }
+    
     var messageVoiceNote: MessageVoiceNote? {
         if case .messageVoiceNote(let messageVoiceNote) = message.content {
             return messageVoiceNote
