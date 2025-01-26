@@ -21,4 +21,8 @@ extension UIPasteboard {
             UTType.utf8PlainText.identifier: formattedText.text
         ]]
     }
+    
+    static func setPlainText(_ string: String) {
+        UIPasteboard.general.items = [[UTType.utf8PlainText.identifier: string]]
+    }
 }
