@@ -39,6 +39,16 @@ struct MessageView: View {
         }
         .background(chatVM.highlightedMessageId == customMessage.id ? .white.opacity(0.5) : .gray6)
         .clipShape(.rect(cornerRadius: 20))
+        .overlay(alignment: .bottomTrailing) {
+            Text(chatVM.dateFormatter.string(from: customMessage.date))
+                .font(.system(size: 12))
+                .foregroundStyle(.white)
+                .padding(3)
+                .background(Color.gray6)
+                .clipShape(.rect(cornerRadius: 10))
+                .padding(5)
+                .opacity(0.5)
+        }
         .customContextMenu(cornerRadius: 20, contextMenuActions)
     }
 }

@@ -10,7 +10,7 @@ func defaultAttributes(_ foregroundColor: Color = .white) -> [NSAttributedString
     ]
 }
 
-func getAttributedString(from formattedText: FormattedText, _ foregroundColor: Color = .white) -> AttributedString {
+func getAttributedString(from formattedText: FormattedText, _ foregroundColor: Color = .white, withDate: Bool = false) -> AttributedString {
     let attributedString = NSMutableAttributedString(
         string: formattedText.text,
         attributes: defaultAttributes(foregroundColor)
@@ -18,6 +18,10 @@ func getAttributedString(from formattedText: FormattedText, _ foregroundColor: C
     
     for entity in formattedText.entities {
         setEntity(entity, base: formattedText.text, for: attributedString)
+    }
+    
+    if withDate {
+        attributedString.append(NSMutableAttributedString.dateString)
     }
     
     return AttributedString(attributedString)
