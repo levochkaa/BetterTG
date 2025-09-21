@@ -3,6 +3,8 @@
 import SwiftUI
 import TDLibKit
 
+// MARK: - LastOrDraftMessageView
+
 struct LastOrDraftMessageView: View {
     @State var customChat: CustomChat
     
@@ -26,6 +28,8 @@ struct LastOrDraftMessageView: View {
     }
 }
 
+// MARK: - DraftMessageView
+
 private struct DraftMessageView: View {
     let draftMessage: DraftMessage
     
@@ -46,40 +50,42 @@ private struct DraftMessageView: View {
     }
 }
 
+// MARK: - LastMesssageView
+
 private struct LastMesssageView: View {
     let lastMessage: Message
     
     var body: some View {
         switch lastMessage.content {
-            case .messagePhoto(let messagePhoto):
-                HStack(alignment: .center, spacing: 3) {
-                    TdImage(photo: messagePhoto.photo, size: .mBox, contentMode: .fit)
-                        .frame(width: 20, height: 20)
+        case .messagePhoto(let messagePhoto):
+            HStack(alignment: .center, spacing: 3) {
+                TdImage(photo: messagePhoto.photo, size: .sBox, contentMode: .fit)
+                    .frame(width: 20, height: 20)
                     
-                    if messagePhoto.caption.text.isEmpty {
-                        Text("Photo")
-                    } else {
-                        Text(getAttributedString(from: messagePhoto.caption, .gray))
-                    }
+                if messagePhoto.caption.text.isEmpty {
+                    Text("Photo")
+                } else {
+                    Text(getAttributedString(from: messagePhoto.caption, .gray))
                 }
-            case .messageVoiceNote(let messageVoiceNote):
-                HStack(alignment: .bottom, spacing: 0) {
-                    Text("Voice")
+            }
+        case .messageVoiceNote(let messageVoiceNote):
+            HStack(alignment: .bottom, spacing: 0) {
+                Text("Voice")
+                    .foregroundStyle(.white)
+                    
+                if !messageVoiceNote.caption.text.isEmpty {
+                    Text(": ")
                         .foregroundStyle(.white)
-                    
-                    if !messageVoiceNote.caption.text.isEmpty {
-                        Text(": ")
-                            .foregroundStyle(.white)
                         
-                        Text(getAttributedString(from: messageVoiceNote.caption, .gray))
-                    }
+                    Text(getAttributedString(from: messageVoiceNote.caption, .gray))
                 }
-            case .messageText(let messageText):
-                Text(getAttributedString(from: messageText.text, .gray))
-            case .messageUnsupported:
-                Text("TDLib not supported")
-            default:
-                Text("BTG not supported")
+            }
+        case .messageText(let messageText):
+            Text(getAttributedString(from: messageText.text, .gray))
+        case .messageUnsupported:
+            Text("TDLib not supported")
+        default:
+            Text("BTG not supported")
         }
     }
 }

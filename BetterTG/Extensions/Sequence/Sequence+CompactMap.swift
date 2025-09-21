@@ -16,7 +16,7 @@ extension Sequence where Element: Sendable {
     ///   except for the values that were transformed into `nil`.
     /// - throws: Rethrows any error thrown by the passed closure.
     func asyncCompactMap<T>(
-        _ transform: (Element) async throws -> T?
+        _ transform: (Element) async throws -> T?,
     ) async rethrows -> [T] {
         var values = [T]()
         
@@ -48,7 +48,7 @@ extension Sequence where Element: Sendable {
     ///   except for the values that were transformed into `nil`.
     func concurrentCompactMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @Sendable @escaping (Element) async -> T?
+        _ transform: @Sendable @escaping (Element) async -> T?,
     ) async -> [T] {
         let tasks = map { element in
             Task(priority: priority) {
@@ -81,7 +81,7 @@ extension Sequence where Element: Sendable {
     /// - throws: Rethrows any error thrown by the passed closure.
     func concurrentCompactMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @Sendable @escaping (Element) async throws -> T?
+        _ transform: @Sendable @escaping (Element) async throws -> T?,
     ) async throws -> [T] {
         let tasks = map { element in
             Task(priority: priority) {

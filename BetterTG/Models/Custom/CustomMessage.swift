@@ -3,7 +3,11 @@
 import SwiftUI
 import TDLibKit
 
-@Observable class CustomMessage {
+// MARK: - CustomMessage
+
+@Observable final class CustomMessage {
+    // MARK: Lifecycle
+
     init(
         message: Message,
         senderUser: User? = nil,
@@ -13,7 +17,7 @@ import TDLibKit
         sendFailed: Bool = false,
         forwardedFrom: String? = nil,
         formattedText: FormattedText? = nil,
-        properties: MessageProperties
+        properties: MessageProperties,
     ) {
         self.message = message
         self.senderUser = senderUser
@@ -26,6 +30,8 @@ import TDLibKit
         self.properties = properties
     }
     
+    // MARK: Internal
+
     var message: Message
     var senderUser: User?
     var replyUser: User?
@@ -53,6 +59,8 @@ import TDLibKit
     }
 }
 
+// MARK: Hashable
+
 extension CustomMessage: Hashable {
     func hash(into hasher: inout Hasher) {
         hasher.combine(message)
@@ -67,9 +75,13 @@ extension CustomMessage: Hashable {
     }
 }
 
+// MARK: Identifiable
+
 extension CustomMessage: Identifiable {
     var id: Int64 { message.id }
 }
+
+// MARK: Equatable
 
 extension CustomMessage: Equatable {
     static func == (lhs: CustomMessage, rhs: CustomMessage) -> Bool {

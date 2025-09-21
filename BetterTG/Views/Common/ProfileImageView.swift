@@ -3,6 +3,8 @@
 import SwiftUI
 import TDLibKit
 
+// MARK: - ProfileImageView
+
 struct ProfileImageView: View {
     let photo: File?
     let minithumbnail: Minithumbnail?
@@ -22,7 +24,7 @@ struct ProfileImageView: View {
                             .button(title: "Save", systemImage: "square.and.arrow.down") {
                                 guard let uiImage = UIImage(contentsOfFile: photo.local.path) else { return }
                                 UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
-                            }
+                            },
                         ]) {
                             image
                                 .resizable()
@@ -44,6 +46,8 @@ struct ProfileImageView: View {
         .clipShape(.circle)
     }
 }
+
+// MARK: - PlaceholderView
 
 struct PlaceholderView: View {
     let title: String

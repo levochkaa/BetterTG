@@ -4,12 +4,11 @@ import SwiftUI
 import TDLibKit
 
 struct MessageVoiceNoteView: View {
+    // MARK: Internal
+
     let voiceNote: VoiceNote
     
-    @State private var voiceLocalPath: String?
-    private var isCurrentVoiceActive: Bool { media.savedMediaPath == voiceLocalPath && media.isPlaying }
-    
-    @State var media: Media = .shared
+    @State var media = Media.shared
     
     var body: some View {
         AsyncTdFile(id: voiceNote.voice.id) { voice in
@@ -22,7 +21,7 @@ struct MessageVoiceNoteView: View {
         .disabled(voiceLocalPath == nil)
     }
     
-    @ViewBuilder var voiceNoteView: some View {
+    var voiceNoteView: some View {
         VStack(spacing: 5) {
             HStack(spacing: 10) {
                 Button {
@@ -75,8 +74,14 @@ struct MessageVoiceNoteView: View {
         .padding(.horizontal, 15)
     }
     
-    func formattedDuration<I: BinaryInteger>(from duration: I) -> String {
+    func formattedDuration(from duration: some BinaryInteger) -> String {
         Duration(secondsComponent: Int64(duration), attosecondsComponent: 0)
             .formatted(.time(pattern: .minuteSecond))
     }
+
+    // MARK: Private
+
+    @State private var voiceLocalPath: String?
+
+    private var isCurrentVoiceActive: Bool { media.savedMediaPath == voiceLocalPath && media.isPlaying }
 }

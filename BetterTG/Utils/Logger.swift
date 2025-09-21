@@ -1,7 +1,7 @@
 // Logger.swift
 
-import SwiftUI
 import os.log
+import SwiftUI
 
 let logger = os.Logger(subsystem: "BetterTG", category: "BetterTG")
 let dateFormatter: DateFormatter = {

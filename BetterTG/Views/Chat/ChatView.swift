@@ -1,25 +1,29 @@
 // ChatView.swift
 
+import Combine
+import PhotosUI
 import SwiftUI
 import TDLibKit
-import PhotosUI
-import Combine
 
 struct ChatView: View {
-    @State var chatVM: ChatVM
-    
+    // MARK: Lifecycle
+
     init(customChat: CustomChat) {
-        self._chatVM = .init(initialValue: .init(customChat: customChat))
+        self._chatVM = State(wrappedValue: ChatVM(customChat: customChat))
     }
     
-    @FocusState var focused
-    
+    // MARK: Internal
+
     @Environment(\.isPreview) var isPreview
     @Environment(\.dismiss) var dismiss
     
+    @FocusState var focused
+    
+    @State var chatVM: ChatVM
+    
     var body: some View {
         ScrollViewReader { scrollViewProxy in
-            bodyView.onAppear { self.chatVM.scrollViewProxy = scrollViewProxy }
+            bodyView.onAppear { chatVM.scrollViewProxy = scrollViewProxy }
         }
         .ignoresSafeArea(.container)
         .overlay {
@@ -40,6 +44,7 @@ struct ChatView: View {
             return true
         }
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarHeight($navigationBarHeight)
         .toolbar {
             ToolbarItem(placement: .principal) { principal }
             ToolbarItem(placement: .topBarTrailing) { topBarTrailing }
@@ -56,13 +61,14 @@ struct ChatView: View {
                         if customMessage.message.isOutgoing { Spacer(minLength: 0) } else {
                             if let user = customMessage.senderUser,
                                chatVM.customChat.shouldShowProfileImage,
-                               let index = chatVM.messages.firstIndex(of: customMessage) {
+                               let index = chatVM.messages.firstIndex(of: customMessage)
+                            {
                                 if chatVM.messages[safe: index - 1]?.senderUser?.id != user.id {
                                     ProfileImageView(
                                         photo: user.profilePhoto?.big,
                                         minithumbnail: user.profilePhoto?.minithumbnail,
                                         title: user.firstName,
-                                        userId: user.id
+                                        userId: user.id,
                                     )
                                     .frame(width: 32, height: 32)
                                 } else {
@@ -77,10 +83,10 @@ struct ChatView: View {
                         MessageView(customMessage: customMessage)
                             .frame(
                                 maxWidth: Utils.maxMessageContentWidth,
-                                alignment: customMessage.message.isOutgoing ? .trailing : .leading
+                                alignment: customMessage.message.isOutgoing ? .trailing : .leading,
                             )
-                            .onVisible {
-                                guard !isPreview else { return }
+                            .onScrollVisibilityChange { visible in
+                                guard !isPreview, visible else { return }
                                 chatVM.viewMessage(id: customMessage.message.id)
                             }
                         
@@ -90,9 +96,9 @@ struct ChatView: View {
                     .transition(
                         .asymmetric(
                             insertion: .move(edge: .top),
-                            removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading)
+                            removal: .move(edge: customMessage.message.isOutgoing ? .trailing : .leading),
                         )
-                        .combined(with: .opacity)
+                        .combined(with: .opacity),
                     )
                     .flipped()
                 }
@@ -106,6 +112,7 @@ struct ChatView: View {
         .scrollDismissesKeyboard(.interactively)
         .scrollBounceBehavior(.always)
         .scrollIndicators(.hidden)
+        .scrollEdgeEffectHidden(true, for: .all)
         .onTapGesture { focused = false }
         .animation(.default, value: chatVM.extraBottomPadding)
         .overlay(alignment: .bottomTrailing) {
@@ -114,9 +121,17 @@ struct ChatView: View {
                     .padding(.bottom, chatVM.extraBottomPadding)
             }
         }
+        .overlay(alignment: .top) {
+            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: topGradientHeight)
+        }
+        .overlay(alignment: .bottom) {
+            LinearGradient(colors: [.black, .clear], startPoint: .bottom, endPoint: .top)
+                .frame(height: bottomGradientHeight)
+        }
     }
     
-    @ViewBuilder var scrollToBottomButton: some View {
+    var scrollToBottomButton: some View {
         Image(systemName: "chevron.down")
             .offset(y: 1)
             .font(.title3)
@@ -146,6 +161,18 @@ struct ChatView: View {
             .onTapGesture(perform: chatVM.scrollToLast)
     }
     
+    // MARK: Private
+
+    @State private var navigationBarHeight = CGFloat.zero
+
+    private var topGradientHeight: CGFloat {
+        UIApplication.safeAreaInsets.top + navigationBarHeight
+    }
+
+    private var bottomGradientHeight: CGFloat {
+        UIApplication.safeAreaInsets.bottom + chatVM.bottomAreaHeight
+    }
+
     private var principal: some View {
         VStack(spacing: 0) {
             Text(chatVM.customChat.chat.title)
@@ -160,18 +187,27 @@ struct ChatView: View {
             .transition(
                 .asymmetric(
                     insertion: .move(edge: .top),
-                    removal: .move(edge: .bottom)
+                    removal: .move(edge: .bottom),
                 )
-                .combined(with: .opacity)
+                .combined(with: .opacity),
             )
             .font(.caption)
             .foregroundStyle(!chatVM.actionStatus.isEmpty || chatVM.onlineStatus == "online" ? .blue : .gray)
         }
+        .frame(minWidth: Utils.screen.bounds.width * 0.5)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .glassEffect(.regular.interactive())
     }
     
     @ViewBuilder private var topBarTrailing: some View {
         let chat = chatVM.customChat.chat
-        ProfileImageView(photo: chat.photo?.big, minithumbnail: chat.photo?.minithumbnail, title: chat.title, userId: chat.id)
-            .frame(width: 32, height: 32)
+        ProfileImageView(
+            photo: chat.photo?.big,
+            minithumbnail: chat.photo?.minithumbnail,
+            title: chat.title,
+            userId: chat.id,
+        )
+        .frame(width: 32, height: 32)
     }
 }

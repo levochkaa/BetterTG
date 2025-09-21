@@ -34,6 +34,8 @@ func update(_ update: Update) {
             nc.post(name: .updateMessageUnreadReactions, object: updateMessageUnreadReactions)
         case .updateMessageFactCheck(let updateMessageFactCheck):
             nc.post(name: .updateMessageFactCheck, object: updateMessageFactCheck)
+        case .updateMessageSuggestedPostInfo(let updateMessageSuggestedPostInfo):
+            nc.post(name: .updateMessageSuggestedPostInfo, object: updateMessageSuggestedPostInfo)
         case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
             nc.post(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed)
         case .updateVideoPublished(let updateVideoPublished):
@@ -112,6 +114,10 @@ func update(_ update: Update) {
             nc.post(name: .updateSavedMessagesTopic, object: updateSavedMessagesTopic)
         case .updateSavedMessagesTopicCount(let updateSavedMessagesTopicCount):
             nc.post(name: .updateSavedMessagesTopicCount, object: updateSavedMessagesTopicCount)
+        case .updateDirectMessagesChatTopic(let updateDirectMessagesChatTopic):
+            nc.post(name: .updateDirectMessagesChatTopic, object: updateDirectMessagesChatTopic)
+        case .updateTopicMessageCount(let updateTopicMessageCount):
+            nc.post(name: .updateTopicMessageCount, object: updateTopicMessageCount)
         case .updateQuickReplyShortcut(let updateQuickReplyShortcut):
             nc.post(name: .updateQuickReplyShortcut, object: updateQuickReplyShortcut)
         case .updateQuickReplyShortcutDeleted(let updateQuickReplyShortcutDeleted):
@@ -122,6 +128,8 @@ func update(_ update: Update) {
             nc.post(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages)
         case .updateForumTopicInfo(let updateForumTopicInfo):
             nc.post(name: .updateForumTopicInfo, object: updateForumTopicInfo)
+        case .updateForumTopic(let updateForumTopic):
+            nc.post(name: .updateForumTopic, object: updateForumTopic)
         case .updateScopeNotificationSettings(let updateScopeNotificationSettings):
             nc.post(name: .updateScopeNotificationSettings, object: updateScopeNotificationSettings)
         case .updateReactionNotificationSettings(let updateReactionNotificationSettings):
@@ -138,6 +146,8 @@ func update(_ update: Update) {
             nc.post(name: .updateDeleteMessages, object: updateDeleteMessages)
         case .updateChatAction(let updateChatAction):
             nc.post(name: .updateChatAction, object: updateChatAction)
+        case .updatePendingTextMessage(let updatePendingTextMessage):
+            nc.post(name: .updatePendingTextMessage, object: updatePendingTextMessage)
         case .updateUserStatus(let updateUserStatus):
             nc.post(name: .updateUserStatus, object: updateUserStatus)
         case .updateUser(let updateUser):
@@ -172,14 +182,34 @@ func update(_ update: Update) {
             nc.post(name: .updateFileRemovedFromDownloads, object: updateFileRemovedFromDownloads)
         case .updateApplicationVerificationRequired(let updateApplicationVerificationRequired):
             nc.post(name: .updateApplicationVerificationRequired, object: updateApplicationVerificationRequired)
+        case .updateApplicationRecaptchaVerificationRequired(let updateApplicationRecaptchaVerificationRequired):
+            nc.post(name: .updateApplicationRecaptchaVerificationRequired, object: updateApplicationRecaptchaVerificationRequired)
         case .updateCall(let updateCall):
             nc.post(name: .updateCall, object: updateCall)
         case .updateGroupCall(let updateGroupCall):
             nc.post(name: .updateGroupCall, object: updateGroupCall)
         case .updateGroupCallParticipant(let updateGroupCallParticipant):
             nc.post(name: .updateGroupCallParticipant, object: updateGroupCallParticipant)
+        case .updateGroupCallParticipants(let updateGroupCallParticipants):
+            nc.post(name: .updateGroupCallParticipants, object: updateGroupCallParticipants)
+        case .updateGroupCallVerificationState(let updateGroupCallVerificationState):
+            nc.post(name: .updateGroupCallVerificationState, object: updateGroupCallVerificationState)
+        case .updateNewGroupCallMessage(let updateNewGroupCallMessage):
+            nc.post(name: .updateNewGroupCallMessage, object: updateNewGroupCallMessage)
+        case .updateNewGroupCallPaidReaction(let updateNewGroupCallPaidReaction):
+            nc.post(name: .updateNewGroupCallPaidReaction, object: updateNewGroupCallPaidReaction)
+        case .updateGroupCallMessageSendFailed(let updateGroupCallMessageSendFailed):
+            nc.post(name: .updateGroupCallMessageSendFailed, object: updateGroupCallMessageSendFailed)
+        case .updateGroupCallMessagesDeleted(let updateGroupCallMessagesDeleted):
+            nc.post(name: .updateGroupCallMessagesDeleted, object: updateGroupCallMessagesDeleted)
+        case .updateLiveStoryTopDonors(let updateLiveStoryTopDonors):
+            nc.post(name: .updateLiveStoryTopDonors, object: updateLiveStoryTopDonors)
         case .updateNewCallSignalingData(let updateNewCallSignalingData):
             nc.post(name: .updateNewCallSignalingData, object: updateNewCallSignalingData)
+        case .updateGiftAuctionState(let updateGiftAuctionState):
+            nc.post(name: .updateGiftAuctionState, object: updateGiftAuctionState)
+        case .updateActiveGiftAuctions(let updateActiveGiftAuctions):
+            nc.post(name: .updateActiveGiftAuctions, object: updateActiveGiftAuctions)
         case .updateUserPrivacySettingRules(let updateUserPrivacySettingRules):
             nc.post(name: .updateUserPrivacySettingRules, object: updateUserPrivacySettingRules)
         case .updateUnreadMessageCount(let updateUnreadMessageCount):
@@ -190,16 +220,18 @@ func update(_ update: Update) {
             nc.post(name: .updateStory, object: updateStory)
         case .updateStoryDeleted(let updateStoryDeleted):
             nc.post(name: .updateStoryDeleted, object: updateStoryDeleted)
-        case .updateStorySendSucceeded(let updateStorySendSucceeded):
-            nc.post(name: .updateStorySendSucceeded, object: updateStorySendSucceeded)
-        case .updateStorySendFailed(let updateStorySendFailed):
-            nc.post(name: .updateStorySendFailed, object: updateStorySendFailed)
+        case .updateStoryPostSucceeded(let updateStoryPostSucceeded):
+            nc.post(name: .updateStoryPostSucceeded, object: updateStoryPostSucceeded)
+        case .updateStoryPostFailed(let updateStoryPostFailed):
+            nc.post(name: .updateStoryPostFailed, object: updateStoryPostFailed)
         case .updateChatActiveStories(let updateChatActiveStories):
             nc.post(name: .updateChatActiveStories, object: updateChatActiveStories)
         case .updateStoryListChatCount(let updateStoryListChatCount):
             nc.post(name: .updateStoryListChatCount, object: updateStoryListChatCount)
         case .updateStoryStealthMode(let updateStoryStealthMode):
             nc.post(name: .updateStoryStealthMode, object: updateStoryStealthMode)
+        case .updateTrustedMiniAppBots(let updateTrustedMiniAppBots):
+            nc.post(name: .updateTrustedMiniAppBots, object: updateTrustedMiniAppBots)
         case .updateOption(let updateOption):
             nc.post(name: .updateOption, object: updateOption)
         case .updateStickerSet(let updateStickerSet):
@@ -218,8 +250,8 @@ func update(_ update: Update) {
             nc.post(name: .updateSavedNotificationSounds, object: updateSavedNotificationSounds)
         case .updateDefaultBackground(let updateDefaultBackground):
             nc.post(name: .updateDefaultBackground, object: updateDefaultBackground)
-        case .updateChatThemes(let updateChatThemes):
-            nc.post(name: .updateChatThemes, object: updateChatThemes)
+        case .updateEmojiChatThemes(let updateEmojiChatThemes):
+            nc.post(name: .updateEmojiChatThemes, object: updateEmojiChatThemes)
         case .updateAccentColors(let updateAccentColors):
             nc.post(name: .updateAccentColors, object: updateAccentColors)
         case .updateProfileAccentColors(let updateProfileAccentColors):
@@ -228,6 +260,10 @@ func update(_ update: Update) {
             nc.post(name: .updateLanguagePackStrings, object: updateLanguagePackStrings)
         case .updateConnectionState(let updateConnectionState):
             nc.post(name: .updateConnectionState, object: updateConnectionState)
+        case .updateFreezeState(let updateFreezeState):
+            nc.post(name: .updateFreezeState, object: updateFreezeState)
+        case .updateAgeVerificationParameters(let updateAgeVerificationParameters):
+            nc.post(name: .updateAgeVerificationParameters, object: updateAgeVerificationParameters)
         case .updateTermsOfService(let updateTermsOfService):
             nc.post(name: .updateTermsOfService, object: updateTermsOfService)
         case .updateUnconfirmedSession(let updateUnconfirmedSession):
@@ -242,20 +278,30 @@ func update(_ update: Update) {
             nc.post(name: .updateAvailableMessageEffects, object: updateAvailableMessageEffects)
         case .updateDefaultReactionType(let updateDefaultReactionType):
             nc.post(name: .updateDefaultReactionType, object: updateDefaultReactionType)
+        case .updateDefaultPaidReactionType(let updateDefaultPaidReactionType):
+            nc.post(name: .updateDefaultPaidReactionType, object: updateDefaultPaidReactionType)
         case .updateSavedMessagesTags(let updateSavedMessagesTags):
             nc.post(name: .updateSavedMessagesTags, object: updateSavedMessagesTags)
         case .updateActiveLiveLocationMessages(let updateActiveLiveLocationMessages):
             nc.post(name: .updateActiveLiveLocationMessages, object: updateActiveLiveLocationMessages)
         case .updateOwnedStarCount(let updateOwnedStarCount):
             nc.post(name: .updateOwnedStarCount, object: updateOwnedStarCount)
+        case .updateOwnedTonCount(let updateOwnedTonCount):
+            nc.post(name: .updateOwnedTonCount, object: updateOwnedTonCount)
         case .updateChatRevenueAmount(let updateChatRevenueAmount):
             nc.post(name: .updateChatRevenueAmount, object: updateChatRevenueAmount)
         case .updateStarRevenueStatus(let updateStarRevenueStatus):
             nc.post(name: .updateStarRevenueStatus, object: updateStarRevenueStatus)
+        case .updateTonRevenueStatus(let updateTonRevenueStatus):
+            nc.post(name: .updateTonRevenueStatus, object: updateTonRevenueStatus)
         case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):
             nc.post(name: .updateSpeechRecognitionTrial, object: updateSpeechRecognitionTrial)
+        case .updateGroupCallMessageLevels(let updateGroupCallMessageLevels):
+            nc.post(name: .updateGroupCallMessageLevels, object: updateGroupCallMessageLevels)
         case .updateDiceEmojis(let updateDiceEmojis):
             nc.post(name: .updateDiceEmojis, object: updateDiceEmojis)
+        case .updateStakeDiceState(let updateStakeDiceState):
+            nc.post(name: .updateStakeDiceState, object: updateStakeDiceState)
         case .updateAnimatedEmojiMessageClicked(let updateAnimatedEmojiMessageClicked):
             nc.post(name: .updateAnimatedEmojiMessageClicked, object: updateAnimatedEmojiMessageClicked)
         case .updateAnimationSearchParameters(let updateAnimationSearchParameters):
@@ -327,6 +373,7 @@ extension TdNotification {
     static var updateMessageMentionRead: TdNotification<UpdateMessageMentionRead> { .init(.updateMessageMentionRead) }
     static var updateMessageUnreadReactions: TdNotification<UpdateMessageUnreadReactions> { .init(.updateMessageUnreadReactions) }
     static var updateMessageFactCheck: TdNotification<UpdateMessageFactCheck> { .init(.updateMessageFactCheck) }
+    static var updateMessageSuggestedPostInfo: TdNotification<UpdateMessageSuggestedPostInfo> { .init(.updateMessageSuggestedPostInfo) }
     static var updateMessageLiveLocationViewed: TdNotification<UpdateMessageLiveLocationViewed> { .init(.updateMessageLiveLocationViewed) }
     static var updateVideoPublished: TdNotification<UpdateVideoPublished> { .init(.updateVideoPublished) }
     static var updateNewChat: TdNotification<UpdateNewChat> { .init(.updateNewChat) }
@@ -366,11 +413,14 @@ extension TdNotification {
     static var updateChatOnlineMemberCount: TdNotification<UpdateChatOnlineMemberCount> { .init(.updateChatOnlineMemberCount) }
     static var updateSavedMessagesTopic: TdNotification<UpdateSavedMessagesTopic> { .init(.updateSavedMessagesTopic) }
     static var updateSavedMessagesTopicCount: TdNotification<UpdateSavedMessagesTopicCount> { .init(.updateSavedMessagesTopicCount) }
+    static var updateDirectMessagesChatTopic: TdNotification<UpdateDirectMessagesChatTopic> { .init(.updateDirectMessagesChatTopic) }
+    static var updateTopicMessageCount: TdNotification<UpdateTopicMessageCount> { .init(.updateTopicMessageCount) }
     static var updateQuickReplyShortcut: TdNotification<UpdateQuickReplyShortcut> { .init(.updateQuickReplyShortcut) }
     static var updateQuickReplyShortcutDeleted: TdNotification<UpdateQuickReplyShortcutDeleted> { .init(.updateQuickReplyShortcutDeleted) }
     static var updateQuickReplyShortcuts: TdNotification<UpdateQuickReplyShortcuts> { .init(.updateQuickReplyShortcuts) }
     static var updateQuickReplyShortcutMessages: TdNotification<UpdateQuickReplyShortcutMessages> { .init(.updateQuickReplyShortcutMessages) }
     static var updateForumTopicInfo: TdNotification<UpdateForumTopicInfo> { .init(.updateForumTopicInfo) }
+    static var updateForumTopic: TdNotification<UpdateForumTopic> { .init(.updateForumTopic) }
     static var updateScopeNotificationSettings: TdNotification<UpdateScopeNotificationSettings> { .init(.updateScopeNotificationSettings) }
     static var updateReactionNotificationSettings: TdNotification<UpdateReactionNotificationSettings> { .init(.updateReactionNotificationSettings) }
     static var updateNotification: TdNotification<UpdateNotification> { .init(.updateNotification) }
@@ -379,6 +429,7 @@ extension TdNotification {
     static var updateHavePendingNotifications: TdNotification<UpdateHavePendingNotifications> { .init(.updateHavePendingNotifications) }
     static var updateDeleteMessages: TdNotification<UpdateDeleteMessages> { .init(.updateDeleteMessages) }
     static var updateChatAction: TdNotification<UpdateChatAction> { .init(.updateChatAction) }
+    static var updatePendingTextMessage: TdNotification<UpdatePendingTextMessage> { .init(.updatePendingTextMessage) }
     static var updateUserStatus: TdNotification<UpdateUserStatus> { .init(.updateUserStatus) }
     static var updateUser: TdNotification<UpdateUser> { .init(.updateUser) }
     static var updateBasicGroup: TdNotification<UpdateBasicGroup> { .init(.updateBasicGroup) }
@@ -396,20 +447,31 @@ extension TdNotification {
     static var updateFileDownload: TdNotification<UpdateFileDownload> { .init(.updateFileDownload) }
     static var updateFileRemovedFromDownloads: TdNotification<UpdateFileRemovedFromDownloads> { .init(.updateFileRemovedFromDownloads) }
     static var updateApplicationVerificationRequired: TdNotification<UpdateApplicationVerificationRequired> { .init(.updateApplicationVerificationRequired) }
+    static var updateApplicationRecaptchaVerificationRequired: TdNotification<UpdateApplicationRecaptchaVerificationRequired> { .init(.updateApplicationRecaptchaVerificationRequired) }
     static var updateCall: TdNotification<UpdateCall> { .init(.updateCall) }
     static var updateGroupCall: TdNotification<UpdateGroupCall> { .init(.updateGroupCall) }
     static var updateGroupCallParticipant: TdNotification<UpdateGroupCallParticipant> { .init(.updateGroupCallParticipant) }
+    static var updateGroupCallParticipants: TdNotification<UpdateGroupCallParticipants> { .init(.updateGroupCallParticipants) }
+    static var updateGroupCallVerificationState: TdNotification<UpdateGroupCallVerificationState> { .init(.updateGroupCallVerificationState) }
+    static var updateNewGroupCallMessage: TdNotification<UpdateNewGroupCallMessage> { .init(.updateNewGroupCallMessage) }
+    static var updateNewGroupCallPaidReaction: TdNotification<UpdateNewGroupCallPaidReaction> { .init(.updateNewGroupCallPaidReaction) }
+    static var updateGroupCallMessageSendFailed: TdNotification<UpdateGroupCallMessageSendFailed> { .init(.updateGroupCallMessageSendFailed) }
+    static var updateGroupCallMessagesDeleted: TdNotification<UpdateGroupCallMessagesDeleted> { .init(.updateGroupCallMessagesDeleted) }
+    static var updateLiveStoryTopDonors: TdNotification<UpdateLiveStoryTopDonors> { .init(.updateLiveStoryTopDonors) }
     static var updateNewCallSignalingData: TdNotification<UpdateNewCallSignalingData> { .init(.updateNewCallSignalingData) }
+    static var updateGiftAuctionState: TdNotification<UpdateGiftAuctionState> { .init(.updateGiftAuctionState) }
+    static var updateActiveGiftAuctions: TdNotification<UpdateActiveGiftAuctions> { .init(.updateActiveGiftAuctions) }
     static var updateUserPrivacySettingRules: TdNotification<UpdateUserPrivacySettingRules> { .init(.updateUserPrivacySettingRules) }
     static var updateUnreadMessageCount: TdNotification<UpdateUnreadMessageCount> { .init(.updateUnreadMessageCount) }
     static var updateUnreadChatCount: TdNotification<UpdateUnreadChatCount> { .init(.updateUnreadChatCount) }
     static var updateStory: TdNotification<UpdateStory> { .init(.updateStory) }
     static var updateStoryDeleted: TdNotification<UpdateStoryDeleted> { .init(.updateStoryDeleted) }
-    static var updateStorySendSucceeded: TdNotification<UpdateStorySendSucceeded> { .init(.updateStorySendSucceeded) }
-    static var updateStorySendFailed: TdNotification<UpdateStorySendFailed> { .init(.updateStorySendFailed) }
+    static var updateStoryPostSucceeded: TdNotification<UpdateStoryPostSucceeded> { .init(.updateStoryPostSucceeded) }
+    static var updateStoryPostFailed: TdNotification<UpdateStoryPostFailed> { .init(.updateStoryPostFailed) }
     static var updateChatActiveStories: TdNotification<UpdateChatActiveStories> { .init(.updateChatActiveStories) }
     static var updateStoryListChatCount: TdNotification<UpdateStoryListChatCount> { .init(.updateStoryListChatCount) }
     static var updateStoryStealthMode: TdNotification<UpdateStoryStealthMode> { .init(.updateStoryStealthMode) }
+    static var updateTrustedMiniAppBots: TdNotification<UpdateTrustedMiniAppBots> { .init(.updateTrustedMiniAppBots) }
     static var updateOption: TdNotification<UpdateOption> { .init(.updateOption) }
     static var updateStickerSet: TdNotification<UpdateStickerSet> { .init(.updateStickerSet) }
     static var updateInstalledStickerSets: TdNotification<UpdateInstalledStickerSets> { .init(.updateInstalledStickerSets) }
@@ -419,11 +481,13 @@ extension TdNotification {
     static var updateSavedAnimations: TdNotification<UpdateSavedAnimations> { .init(.updateSavedAnimations) }
     static var updateSavedNotificationSounds: TdNotification<UpdateSavedNotificationSounds> { .init(.updateSavedNotificationSounds) }
     static var updateDefaultBackground: TdNotification<UpdateDefaultBackground> { .init(.updateDefaultBackground) }
-    static var updateChatThemes: TdNotification<UpdateChatThemes> { .init(.updateChatThemes) }
+    static var updateEmojiChatThemes: TdNotification<UpdateEmojiChatThemes> { .init(.updateEmojiChatThemes) }
     static var updateAccentColors: TdNotification<UpdateAccentColors> { .init(.updateAccentColors) }
     static var updateProfileAccentColors: TdNotification<UpdateProfileAccentColors> { .init(.updateProfileAccentColors) }
     static var updateLanguagePackStrings: TdNotification<UpdateLanguagePackStrings> { .init(.updateLanguagePackStrings) }
     static var updateConnectionState: TdNotification<UpdateConnectionState> { .init(.updateConnectionState) }
+    static var updateFreezeState: TdNotification<UpdateFreezeState> { .init(.updateFreezeState) }
+    static var updateAgeVerificationParameters: TdNotification<UpdateAgeVerificationParameters> { .init(.updateAgeVerificationParameters) }
     static var updateTermsOfService: TdNotification<UpdateTermsOfService> { .init(.updateTermsOfService) }
     static var updateUnconfirmedSession: TdNotification<UpdateUnconfirmedSession> { .init(.updateUnconfirmedSession) }
     static var updateAttachmentMenuBots: TdNotification<UpdateAttachmentMenuBots> { .init(.updateAttachmentMenuBots) }
@@ -431,13 +495,18 @@ extension TdNotification {
     static var updateActiveEmojiReactions: TdNotification<UpdateActiveEmojiReactions> { .init(.updateActiveEmojiReactions) }
     static var updateAvailableMessageEffects: TdNotification<UpdateAvailableMessageEffects> { .init(.updateAvailableMessageEffects) }
     static var updateDefaultReactionType: TdNotification<UpdateDefaultReactionType> { .init(.updateDefaultReactionType) }
+    static var updateDefaultPaidReactionType: TdNotification<UpdateDefaultPaidReactionType> { .init(.updateDefaultPaidReactionType) }
     static var updateSavedMessagesTags: TdNotification<UpdateSavedMessagesTags> { .init(.updateSavedMessagesTags) }
     static var updateActiveLiveLocationMessages: TdNotification<UpdateActiveLiveLocationMessages> { .init(.updateActiveLiveLocationMessages) }
     static var updateOwnedStarCount: TdNotification<UpdateOwnedStarCount> { .init(.updateOwnedStarCount) }
+    static var updateOwnedTonCount: TdNotification<UpdateOwnedTonCount> { .init(.updateOwnedTonCount) }
     static var updateChatRevenueAmount: TdNotification<UpdateChatRevenueAmount> { .init(.updateChatRevenueAmount) }
     static var updateStarRevenueStatus: TdNotification<UpdateStarRevenueStatus> { .init(.updateStarRevenueStatus) }
+    static var updateTonRevenueStatus: TdNotification<UpdateTonRevenueStatus> { .init(.updateTonRevenueStatus) }
     static var updateSpeechRecognitionTrial: TdNotification<UpdateSpeechRecognitionTrial> { .init(.updateSpeechRecognitionTrial) }
+    static var updateGroupCallMessageLevels: TdNotification<UpdateGroupCallMessageLevels> { .init(.updateGroupCallMessageLevels) }
     static var updateDiceEmojis: TdNotification<UpdateDiceEmojis> { .init(.updateDiceEmojis) }
+    static var updateStakeDiceState: TdNotification<UpdateStakeDiceState> { .init(.updateStakeDiceState) }
     static var updateAnimatedEmojiMessageClicked: TdNotification<UpdateAnimatedEmojiMessageClicked> { .init(.updateAnimatedEmojiMessageClicked) }
     static var updateAnimationSearchParameters: TdNotification<UpdateAnimationSearchParameters> { .init(.updateAnimationSearchParameters) }
     static var updateSuggestedActions: TdNotification<UpdateSuggestedActions> { .init(.updateSuggestedActions) }
@@ -481,6 +550,7 @@ extension Foundation.Notification.Name {
     static let updateMessageMentionRead = Self("updateMessageMentionRead")
     static let updateMessageUnreadReactions = Self("updateMessageUnreadReactions")
     static let updateMessageFactCheck = Self("updateMessageFactCheck")
+    static let updateMessageSuggestedPostInfo = Self("updateMessageSuggestedPostInfo")
     static let updateMessageLiveLocationViewed = Self("updateMessageLiveLocationViewed")
     static let updateVideoPublished = Self("updateVideoPublished")
     static let updateNewChat = Self("updateNewChat")
@@ -520,11 +590,14 @@ extension Foundation.Notification.Name {
     static let updateChatOnlineMemberCount = Self("updateChatOnlineMemberCount")
     static let updateSavedMessagesTopic = Self("updateSavedMessagesTopic")
     static let updateSavedMessagesTopicCount = Self("updateSavedMessagesTopicCount")
+    static let updateDirectMessagesChatTopic = Self("updateDirectMessagesChatTopic")
+    static let updateTopicMessageCount = Self("updateTopicMessageCount")
     static let updateQuickReplyShortcut = Self("updateQuickReplyShortcut")
     static let updateQuickReplyShortcutDeleted = Self("updateQuickReplyShortcutDeleted")
     static let updateQuickReplyShortcuts = Self("updateQuickReplyShortcuts")
     static let updateQuickReplyShortcutMessages = Self("updateQuickReplyShortcutMessages")
     static let updateForumTopicInfo = Self("updateForumTopicInfo")
+    static let updateForumTopic = Self("updateForumTopic")
     static let updateScopeNotificationSettings = Self("updateScopeNotificationSettings")
     static let updateReactionNotificationSettings = Self("updateReactionNotificationSettings")
     static let updateNotification = Self("updateNotification")
@@ -533,6 +606,7 @@ extension Foundation.Notification.Name {
     static let updateHavePendingNotifications = Self("updateHavePendingNotifications")
     static let updateDeleteMessages = Self("updateDeleteMessages")
     static let updateChatAction = Self("updateChatAction")
+    static let updatePendingTextMessage = Self("updatePendingTextMessage")
     static let updateUserStatus = Self("updateUserStatus")
     static let updateUser = Self("updateUser")
     static let updateBasicGroup = Self("updateBasicGroup")
@@ -550,20 +624,31 @@ extension Foundation.Notification.Name {
     static let updateFileDownload = Self("updateFileDownload")
     static let updateFileRemovedFromDownloads = Self("updateFileRemovedFromDownloads")
     static let updateApplicationVerificationRequired = Self("updateApplicationVerificationRequired")
+    static let updateApplicationRecaptchaVerificationRequired = Self("updateApplicationRecaptchaVerificationRequired")
     static let updateCall = Self("updateCall")
     static let updateGroupCall = Self("updateGroupCall")
     static let updateGroupCallParticipant = Self("updateGroupCallParticipant")
+    static let updateGroupCallParticipants = Self("updateGroupCallParticipants")
+    static let updateGroupCallVerificationState = Self("updateGroupCallVerificationState")
+    static let updateNewGroupCallMessage = Self("updateNewGroupCallMessage")
+    static let updateNewGroupCallPaidReaction = Self("updateNewGroupCallPaidReaction")
+    static let updateGroupCallMessageSendFailed = Self("updateGroupCallMessageSendFailed")
+    static let updateGroupCallMessagesDeleted = Self("updateGroupCallMessagesDeleted")
+    static let updateLiveStoryTopDonors = Self("updateLiveStoryTopDonors")
     static let updateNewCallSignalingData = Self("updateNewCallSignalingData")
+    static let updateGiftAuctionState = Self("updateGiftAuctionState")
+    static let updateActiveGiftAuctions = Self("updateActiveGiftAuctions")
     static let updateUserPrivacySettingRules = Self("updateUserPrivacySettingRules")
     static let updateUnreadMessageCount = Self("updateUnreadMessageCount")
     static let updateUnreadChatCount = Self("updateUnreadChatCount")
     static let updateStory = Self("updateStory")
     static let updateStoryDeleted = Self("updateStoryDeleted")
-    static let updateStorySendSucceeded = Self("updateStorySendSucceeded")
-    static let updateStorySendFailed = Self("updateStorySendFailed")
+    static let updateStoryPostSucceeded = Self("updateStoryPostSucceeded")
+    static let updateStoryPostFailed = Self("updateStoryPostFailed")
     static let updateChatActiveStories = Self("updateChatActiveStories")
     static let updateStoryListChatCount = Self("updateStoryListChatCount")
     static let updateStoryStealthMode = Self("updateStoryStealthMode")
+    static let updateTrustedMiniAppBots = Self("updateTrustedMiniAppBots")
     static let updateOption = Self("updateOption")
     static let updateStickerSet = Self("updateStickerSet")
     static let updateInstalledStickerSets = Self("updateInstalledStickerSets")
@@ -573,11 +658,13 @@ extension Foundation.Notification.Name {
     static let updateSavedAnimations = Self("updateSavedAnimations")
     static let updateSavedNotificationSounds = Self("updateSavedNotificationSounds")
     static let updateDefaultBackground = Self("updateDefaultBackground")
-    static let updateChatThemes = Self("updateChatThemes")
+    static let updateEmojiChatThemes = Self("updateEmojiChatThemes")
     static let updateAccentColors = Self("updateAccentColors")
     static let updateProfileAccentColors = Self("updateProfileAccentColors")
     static let updateLanguagePackStrings = Self("updateLanguagePackStrings")
     static let updateConnectionState = Self("updateConnectionState")
+    static let updateFreezeState = Self("updateFreezeState")
+    static let updateAgeVerificationParameters = Self("updateAgeVerificationParameters")
     static let updateTermsOfService = Self("updateTermsOfService")
     static let updateUnconfirmedSession = Self("updateUnconfirmedSession")
     static let updateAttachmentMenuBots = Self("updateAttachmentMenuBots")
@@ -585,13 +672,18 @@ extension Foundation.Notification.Name {
     static let updateActiveEmojiReactions = Self("updateActiveEmojiReactions")
     static let updateAvailableMessageEffects = Self("updateAvailableMessageEffects")
     static let updateDefaultReactionType = Self("updateDefaultReactionType")
+    static let updateDefaultPaidReactionType = Self("updateDefaultPaidReactionType")
     static let updateSavedMessagesTags = Self("updateSavedMessagesTags")
     static let updateActiveLiveLocationMessages = Self("updateActiveLiveLocationMessages")
     static let updateOwnedStarCount = Self("updateOwnedStarCount")
+    static let updateOwnedTonCount = Self("updateOwnedTonCount")
     static let updateChatRevenueAmount = Self("updateChatRevenueAmount")
     static let updateStarRevenueStatus = Self("updateStarRevenueStatus")
+    static let updateTonRevenueStatus = Self("updateTonRevenueStatus")
     static let updateSpeechRecognitionTrial = Self("updateSpeechRecognitionTrial")
+    static let updateGroupCallMessageLevels = Self("updateGroupCallMessageLevels")
     static let updateDiceEmojis = Self("updateDiceEmojis")
+    static let updateStakeDiceState = Self("updateStakeDiceState")
     static let updateAnimatedEmojiMessageClicked = Self("updateAnimatedEmojiMessageClicked")
     static let updateAnimationSearchParameters = Self("updateAnimationSearchParameters")
     static let updateSuggestedActions = Self("updateSuggestedActions")

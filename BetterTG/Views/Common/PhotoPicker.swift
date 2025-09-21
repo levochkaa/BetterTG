@@ -1,21 +1,23 @@
 // PhotoPicker.swift
 
-import SwiftUI
 import PhotosUI
+import SwiftUI
 
 typealias PhotoPickerOnSelection = (_ index: Int, _ image: SelectedImage?, _ error: (any Error)?) -> Void
 
+// MARK: - PhotoPicker
+
 struct PhotoPicker: UIViewControllerRepresentable {
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        private let onSelection: PhotoPickerOnSelection
-        private let clear: () -> Void
-        private var previousResultsCount = 0
-        
+        // MARK: Lifecycle
+
         init(onSelection: @escaping PhotoPickerOnSelection, clear: @escaping () -> Void) {
             self.onSelection = onSelection
             self.clear = clear
         }
         
+        // MARK: Internal
+
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             guard previousResultsCount != results.count else { return picker.dismiss(animated: true) }
             previousResultsCount = results.count
@@ -29,6 +31,12 @@ struct PhotoPicker: UIViewControllerRepresentable {
                 }
             }
         }
+
+        // MARK: Private
+
+        private let onSelection: PhotoPickerOnSelection
+        private let clear: () -> Void
+        private var previousResultsCount = 0
     }
     
     let onSelection: PhotoPickerOnSelection

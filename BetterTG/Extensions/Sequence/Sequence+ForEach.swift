@@ -11,7 +11,7 @@ extension Sequence where Element: Sendable {
     /// - parameter operation: The closure to run for each element.
     /// - throws: Rethrows any error thrown by the passed closure.
     func asyncForEach(
-        _ operation: (Element) async throws -> Void
+        _ operation: (Element) async throws -> Void,
     ) async rethrows {
         for element in self {
             try await operation(element)
@@ -30,7 +30,7 @@ extension Sequence where Element: Sendable {
     /// - parameter operation: The closure to run for each element.
     func concurrentForEach(
         withPriority priority: TaskPriority? = nil,
-        _ operation: @Sendable @escaping (Element) async -> Void
+        _ operation: @Sendable @escaping (Element) async -> Void,
     ) async {
         await withTaskGroup(of: Void.self) { group in
             for element in self {
@@ -56,7 +56,7 @@ extension Sequence where Element: Sendable {
     /// - throws: Rethrows any error thrown by the passed closure.
     func concurrentForEach(
         withPriority priority: TaskPriority? = nil,
-        _ operation: @Sendable @escaping (Element) async throws -> Void
+        _ operation: @Sendable @escaping (Element) async throws -> Void,
     ) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             for element in self {

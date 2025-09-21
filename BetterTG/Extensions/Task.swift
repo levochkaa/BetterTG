@@ -4,7 +4,7 @@ extension Task where Failure == Error {
     @discardableResult static func main(
         delay: Double? = nil,
         priority: TaskPriority? = nil,
-        _ operation: @escaping @MainActor @Sendable () async throws -> Success
+        _ operation: @escaping @MainActor @Sendable () async throws -> Success,
     ) -> Task {
         if let delay {
             Task(priority: priority) { @MainActor in
@@ -17,11 +17,11 @@ extension Task where Failure == Error {
             }
         }
     }
-    
+
     @discardableResult static func background(
         delay: Double? = nil,
         priority: TaskPriority? = nil,
-        _ operation: @escaping @Sendable () async throws -> Success
+        _ operation: @escaping @Sendable () async throws -> Success,
     ) -> Task {
         if let delay {
             Task.detached(priority: priority) {
@@ -40,7 +40,7 @@ extension Task where Failure == Never {
     @discardableResult static func main(
         delay: Double? = nil,
         priority: TaskPriority? = nil,
-        _ operation: @escaping @MainActor @Sendable () async -> Success
+        _ operation: @escaping @MainActor @Sendable () async -> Success,
     ) -> Task {
         if let delay {
             Task(priority: priority) { @MainActor in
@@ -53,11 +53,11 @@ extension Task where Failure == Never {
             }
         }
     }
-    
+
     @discardableResult static func background(
         delay: Double? = nil,
         priority: TaskPriority? = nil,
-        _ operation: @escaping @Sendable () async -> Success
+        _ operation: @escaping @Sendable () async -> Success,
     ) -> Task {
         if let delay {
             Task.detached(priority: priority) {
@@ -82,7 +82,7 @@ extension Task where Success == Void, Failure == Never {
 
 func main<Value>(
     delay: Double? = nil,
-    _ operation: @escaping @Sendable @MainActor () throws -> Value
+    _ operation: @escaping @Sendable @MainActor () throws -> Value,
 ) async throws -> Value {
     try await Task.sleep(delay)
     return try await MainActor.run(resultType: Value.self) {

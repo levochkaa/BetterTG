@@ -1,13 +1,13 @@
 // ChatVM.swift
 
+import AVKit
+import Combine
 import SwiftUI
 import TDLibKit
-import Combine
-import AVKit
 
 @Observable final class ChatVM {
-    var customChat: CustomChat
-    
+    // MARK: Lifecycle
+
     init(customChat: CustomChat) {
         self.customChat = customChat
         log("init \(customChat.chat.id)")
@@ -21,7 +21,8 @@ import AVKit
         Media.shared.onChatOpen(title: customChat.chat.title)
         
         if let draftMessage = customChat.draftMessage,
-           case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
+           case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText
+        {
             self.text = getAttributedString(from: inputMessageText.text)
         }
         
@@ -38,9 +39,12 @@ import AVKit
         Media.shared.onChatDismiss()
     }
     
+    // MARK: Internal
+
+    var customChat: CustomChat
+    
     var focused = false
-    var bottomAreaHeight: CGFloat = .zero
-    var extraBottomPadding: CGFloat { bottomAreaHeight + (focused ? 0 : UIApplication.safeAreaInsets.bottom) + 5 }
+    var bottomAreaHeight = CGFloat.zero
     var actionStatus = ""
     var onlineStatus = ""
     var editCustomMessage: CustomMessage?
@@ -48,10 +52,11 @@ import AVKit
     var highlightedMessageId: Int64?
     var messages = [CustomMessage]()
     @ObservationIgnored var dateFormatter: DateFormatter = {
-       let dateFormatter = DateFormatter()
+        let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm"
         return dateFormatter
     }()
+
     @ObservationIgnored var loadingMessagesTask: Task<Void, Never>?
     // Scroll
     let chatScrollNamespaceId = "chatScrollNamespaceId"
@@ -76,8 +81,37 @@ import AVKit
     @ObservationIgnored var savedVoiceNoteUrl = URL(filePath: "")
     @ObservationIgnored var audioRecorder: AVAudioRecorder?
     
+    var extraBottomPadding: CGFloat { bottomAreaHeight + (focused ? 0 : UIApplication.safeAreaInsets.bottom) + 5 }
+
+    var canEditMessage: Bool {
+        guard let editCustomMessage else { return false }
+        switch editCustomMessage.message.content {
+        case .messagePhoto, .messageVoiceNote:
+            return true
+        case .messageText:
+            return !editMessageText.characters.isEmpty
+        default:
+            return false
+        }
+    }
+    
+    var formattedTimerCount: String {
+        let time = String(format: "%.2f", timerCount).split(separator: ".", maxSplits: 2)
+        let seconds = Int(time[0]) ?? 0
+        var resultString = ""
+        if seconds >= 60 {
+            resultString += "\(seconds / 60):" // seconds / 60 == minutes
+            var estimatedSeconds = String(seconds % 60)
+            if estimatedSeconds.count == 1 { estimatedSeconds = "0\(estimatedSeconds)" }
+            resultString += "\(estimatedSeconds)"
+        } else {
+            resultString += "\(seconds).\(time[1])" // time[1] == millisecongs
+        }
+        return resultString
+    }
+    
     func onPreferenceChange(_ value: CGRect) {
-        if Int(value.maxY) > Int(UIScreen.main.bounds.height) {
+        if Int(value.maxY) > Int(Utils.screen.bounds.height) {
             scrollOnFocus = false
             if !showScrollToBottomButton {
                 withAnimation {
@@ -139,18 +173,18 @@ import AVKit
     
     func getOnlineStatus(from userStatus: UserStatus) -> String {
         switch userStatus {
-            case .userStatusEmpty: "empty"
-            case .userStatusOnline: /* (let userStatusOnline) */ "online"
-            case .userStatusOffline(let userStatusOffline): "last seen \(getLastSeenTime(userStatusOffline.wasOnline))"
-            case .userStatusRecently: "last seen recently"
-            case .userStatusLastWeek: "last seen last week"
-            case .userStatusLastMonth: "last seen last month"
+        case .userStatusEmpty: "empty"
+        case .userStatusOnline: /* (let userStatusOnline) */ "online"
+        case .userStatusOffline(let userStatusOffline): "last seen \(getLastSeenTime(userStatusOffline.wasOnline))"
+        case .userStatusRecently: "last seen recently"
+        case .userStatusLastWeek: "last seen last week"
+        case .userStatusLastMonth: "last seen last month"
         }
     }
     
     func loadMessages() {
         guard loadingMessagesTask == nil else { return }
-        self.loadingMessagesTask = Task.background { await self._loadMessages() }
+        loadingMessagesTask = Task.background { await self._loadMessages() }
     }
     
     func _loadMessages() async {
@@ -159,8 +193,9 @@ import AVKit
             fromMessageId: messages.last?.message.id ?? 0,
             limit: 30,
             offset: 0,
-            onlyLocal: false
-        ).messages else { return }
+            onlyLocal: false,
+        )
+        .messages else { return }
         
         let customMessages = await chatHistory.asyncMap { chatMessage in
             await getCustomMessage(from: chatMessage)
@@ -195,10 +230,18 @@ import AVKit
         guard let customMessage = messages.first(where: { $0.message.id == id }) else { return }
         Task.background {
             if customMessage.album.isEmpty {
-                _ = try? await td.deleteMessages(chatId: self.customChat.chat.id, messageIds: [id], revoke: deleteForBoth)
+                _ = try? await td.deleteMessages(
+                    chatId: self.customChat.chat.id,
+                    messageIds: [id],
+                    revoke: deleteForBoth,
+                )
             } else {
-                let ids = customMessage.album.map { $0.id }
-                _ = try? await td.deleteMessages(chatId: self.customChat.chat.id, messageIds: ids, revoke: deleteForBoth)
+                let ids = customMessage.album.map(\.id)
+                _ = try? await td.deleteMessages(
+                    chatId: self.customChat.chat.id,
+                    messageIds: ids,
+                    revoke: deleteForBoth,
+                )
             }
         }
     }
@@ -209,7 +252,7 @@ import AVKit
                 chatId: self.customChat.chat.id,
                 forceRead: true,
                 messageIds: [id],
-                source: nil
+                source: nil,
             )
         }
     }
@@ -221,13 +264,13 @@ import AVKit
     
     func getCustomMessage(from message: Message) async -> CustomMessage {
         let replyToMessage = await getReplyToMessage(message.replyTo)
-        let customMessage = CustomMessage(
+        let customMessage = await CustomMessage(
             message: message,
             replyToMessage: replyToMessage,
-            forwardedFrom: await getForwardedFrom(message.forwardInfo?.origin),
-            properties: (try? await td.getMessageProperties(
-                chatId: customChat.chat.id, messageId: message.id
-            )) ?? .default
+            forwardedFrom: getForwardedFrom(message.forwardInfo?.origin),
+            properties: (try? td.getMessageProperties(
+                chatId: customChat.chat.id, messageId: message.id,
+            )) ?? .default,
         )
         
         if message.mediaAlbumId != 0 {
@@ -243,20 +286,20 @@ import AVKit
         }
         
         switch message.content {
-            case .messageText(let messageText):
-                customMessage.formattedText = messageText.text
-            case .messagePhoto(let messagePhoto):
-                if !messagePhoto.caption.text.isEmpty {
-                    customMessage.formattedText = messagePhoto.caption
-                }
-            case .messageVoiceNote(let messageVoiceNote):
-                if !messageVoiceNote.caption.text.isEmpty {
-                    customMessage.formattedText = messageVoiceNote.caption
-                }
-            case .messageUnsupported:
-                customMessage.formattedText = FormattedText(entities: [], text: "TDLib not supported")
-            default:
-                customMessage.formattedText = FormattedText(entities: [], text: "BTG not supported")
+        case .messageText(let messageText):
+            customMessage.formattedText = messageText.text
+        case .messagePhoto(let messagePhoto):
+            if !messagePhoto.caption.text.isEmpty {
+                customMessage.formattedText = messagePhoto.caption
+            }
+        case .messageVoiceNote(let messageVoiceNote):
+            if !messageVoiceNote.caption.text.isEmpty {
+                customMessage.formattedText = messageVoiceNote.caption
+            }
+        case .messageUnsupported:
+            customMessage.formattedText = FormattedText(entities: [], text: "TDLib not supported")
+        default:
+            customMessage.formattedText = FormattedText(entities: [], text: "BTG not supported")
         }
         
         return customMessage
@@ -266,22 +309,22 @@ import AVKit
         guard let origin else { return nil }
         
         switch origin {
-            case .messageOriginChat(let chat):
-                if let title = (try? await td.getChat(chatId: chat.senderChatId))?.title {
-                    return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
-                } else {
-                    return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
-                }
-            case .messageOriginChannel(let channel):
-                if let title = (try? await td.getChat(chatId: channel.chatId))?.title {
-                    return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
-                } else {
-                    return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
-                }
-            case .messageOriginHiddenUser(let messageOriginHiddenUser):
-                return messageOriginHiddenUser.senderName
-            case .messageOriginUser(let messageOriginUser):
-                return (try? await td.getUser(userId: messageOriginUser.senderUserId))?.firstName
+        case .messageOriginChat(let chat):
+            if let title = await (try? td.getChat(chatId: chat.senderChatId))?.title {
+                return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
+            } else {
+                return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
+            }
+        case .messageOriginChannel(let channel):
+            if let title = await (try? td.getChat(chatId: channel.chatId))?.title {
+                return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
+            } else {
+                return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
+            }
+        case .messageOriginHiddenUser(let messageOriginHiddenUser):
+            return messageOriginHiddenUser.senderName
+        case .messageOriginUser(let messageOriginUser):
+            return await (try? td.getUser(userId: messageOriginUser.senderUserId))?.firstName
         }
     }
     
@@ -306,18 +349,18 @@ import AVKit
                 .init(
                     caption: FormattedText(
                         entities: getEntities(from: text),
-                        text: text.string
+                        text: text.string,
                     ),
                     duration: duration,
                     selfDestructType: nil,
                     voiceNote: .inputFileLocal(.init(path: savedVoiceNoteUrl.path())),
-                    waveform: waveform
-                )
+                    waveform: waveform,
+                ),
             ),
-            messageThreadId: 0,
             options: nil,
             replyMarkup: nil,
-            replyTo: getMessageReplyTo(from: replyMessage)
+            replyTo: getMessageReplyTo(from: replyMessage),
+            topicId: nil,
         )
         text = ""
         try? await tdSendChatAction(.chatActionCancel)
@@ -345,18 +388,6 @@ import AVKit
         }
     }
     
-    var canEditMessage: Bool {
-        guard let editCustomMessage else { return false }
-        switch editCustomMessage.message.content {
-            case .messagePhoto, .messageVoiceNote:
-                return true
-            case .messageText:
-                return !editMessageText.characters.isEmpty
-            default:
-                return false
-        }
-    }
-    
     func sendMessagePhotos() async {
         try? await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
         
@@ -364,10 +395,10 @@ import AVKit
             _ = try? await td.sendMessage(
                 chatId: customChat.chat.id,
                 inputMessageContent: makeInputMessageContent(for: photo.url),
-                messageThreadId: 0,
                 options: nil,
                 replyMarkup: nil,
-                replyTo: getMessageReplyTo(from: replyMessage)
+                replyTo: getMessageReplyTo(from: replyMessage),
+                topicId: nil,
             )
         } else {
             let messageContents = displayedImages.map {
@@ -376,9 +407,9 @@ import AVKit
             _ = try? await td.sendMessageAlbum(
                 chatId: customChat.chat.id,
                 inputMessageContents: messageContents,
-                messageThreadId: nil,
                 options: nil,
-                replyTo: getMessageReplyTo(from: replyMessage)
+                replyTo: getMessageReplyTo(from: replyMessage),
+                topicId: nil,
             )
         }
         
@@ -388,7 +419,7 @@ import AVKit
     func makeInputMessageContent(for url: URL) -> InputMessageContent {
         let path = url.path()
         let image = UIImage(contentsOfFile: path) ?? UIImage()
-        let input: InputFile = .inputFileLocal(.init(path: path))
+        let input = InputFile.inputFileLocal(.init(path: path))
         return .inputMessagePhoto(
             InputMessagePhoto(
                 addedStickerFileIds: [],
@@ -401,10 +432,10 @@ import AVKit
                 thumbnail: InputThumbnail(
                     height: Int(image.size.height),
                     thumbnail: input,
-                    width: Int(image.size.width)
+                    width: Int(image.size.width),
                 ),
-                width: Int(image.size.width)
-            )
+                width: Int(image.size.width),
+            ),
         )
     }
     
@@ -417,53 +448,53 @@ import AVKit
                     linkPreviewOptions: nil,
                     text: FormattedText(
                         entities: getEntities(from: text),
-                        text: text.string
-                    )
-                )
+                        text: text.string,
+                    ),
+                ),
             ),
-            messageThreadId: 0,
             options: nil,
             replyMarkup: nil,
-            replyTo: getMessageReplyTo(from: replyMessage)
+            replyTo: getMessageReplyTo(from: replyMessage),
+            topicId: nil,
         )
         
         try? await tdSendChatAction(.chatActionCancel)
     }
     
     func editMessage() async {
-        guard let message = self.editCustomMessage?.message else { return }
+        guard let message = editCustomMessage?.message else { return }
         
         switch message.content {
-            case .messageText:
-                _ = try? await td.editMessageText(
-                    chatId: customChat.chat.id,
-                    inputMessageContent:
-                            .inputMessageText(
-                                .init(
-                                    clearDraft: true,
-                                    linkPreviewOptions: nil,
-                                    text: FormattedText(
-                                        entities: getEntities(from: editMessageText),
-                                        text: editMessageText.string
-                                    )
-                                )
-                            ),
-                    messageId: message.id,
-                    replyMarkup: nil
-                )
-            case .messagePhoto, .messageVoiceNote:
-                _ = try? await td.editMessageCaption(
-                    caption: FormattedText(
-                        entities: getEntities(from: editMessageText),
-                        text: editMessageText.string
+        case .messageText:
+            _ = try? await td.editMessageText(
+                chatId: customChat.chat.id,
+                inputMessageContent:
+                .inputMessageText(
+                    .init(
+                        clearDraft: true,
+                        linkPreviewOptions: nil,
+                        text: FormattedText(
+                            entities: getEntities(from: editMessageText),
+                            text: editMessageText.string,
+                        ),
                     ),
-                    chatId: customChat.chat.id,
-                    messageId: message.id,
-                    replyMarkup: nil,
-                    showCaptionAboveMedia: false
-                )
-            default:
-                log("Unsupported edit message type")
+                ),
+                messageId: message.id,
+                replyMarkup: nil,
+            )
+        case .messagePhoto, .messageVoiceNote:
+            _ = try? await td.editMessageCaption(
+                caption: FormattedText(
+                    entities: getEntities(from: editMessageText),
+                    text: editMessageText.string,
+                ),
+                chatId: customChat.chat.id,
+                messageId: message.id,
+                replyMarkup: nil,
+                showCaptionAboveMedia: false,
+            )
+        default:
+            log("Unsupported edit message type")
         }
     }
     
@@ -477,16 +508,17 @@ import AVKit
                     linkPreviewOptions: nil,
                     text: FormattedText(
                         entities: getEntities(from: text),
-                        text: text.string
-                    )
-                )
+                        text: text.string,
+                    ),
+                ),
             ),
-            replyTo: getMessageReplyTo(from: replyMessage)
+            replyTo: getMessageReplyTo(from: replyMessage),
+            suggestedPostInfo: nil,
         )
         _ = try? await td.setChatDraftMessage(
             chatId: customChat.chat.id,
             draftMessage: draftMessage,
-            messageThreadId: 0
+            topicId: nil,
         )
     }
     
@@ -499,36 +531,21 @@ import AVKit
     func setEditMessageText(from message: Message?) {
         withAnimation {
             switch message?.content {
-                case .messageText(let messageText):
-                    editMessageText = getAttributedString(from: messageText.text)
-                case .messagePhoto(let messagePhoto):
-                    editMessageText = getAttributedString(from: messagePhoto.caption)
-                case .messageVoiceNote(let messageVoiceNote):
-                    editMessageText = getAttributedString(from: messageVoiceNote.caption)
-                default:
-                    break
+            case .messageText(let messageText):
+                editMessageText = getAttributedString(from: messageText.text)
+            case .messagePhoto(let messagePhoto):
+                editMessageText = getAttributedString(from: messagePhoto.caption)
+            case .messageVoiceNote(let messageVoiceNote):
+                editMessageText = getAttributedString(from: messageVoiceNote.caption)
+            default:
+                break
             }
         }
     }
     
     func getMessageReplyTo(from customMessage: CustomMessage?) -> InputMessageReplyTo? {
         guard let customMessage else { return nil }
-        return .inputMessageReplyToMessage(.init(messageId: customMessage.message.id, quote: nil))
-    }
-    
-    var formattedTimerCount: String {
-        let time = String(format: "%.2f", timerCount).split(separator: ".", maxSplits: 2)
-        let seconds = Int(time[0]) ?? 0
-        var resultString = ""
-        if seconds >= 60 {
-            resultString += "\(seconds / 60):" // seconds / 60 == minutes
-            var estimatedSeconds = String(seconds % 60)
-            if estimatedSeconds.count == 1 { estimatedSeconds = "0\(estimatedSeconds)" }
-            resultString += "\(estimatedSeconds)"
-        } else {
-            resultString += "\(seconds).\(time[1])" // time[1] == millisecongs
-        }
-        return resultString
+        return .inputMessageReplyToMessage(.init(checklistTaskId: 0, messageId: customMessage.message.id, quote: nil))
     }
     
     func startTimer() {
@@ -554,28 +571,28 @@ import AVKit
         for wave in waves {
             let index = bytesWave.count - 1
             switch count {
-                case 0:
-                    bytesWave.append((wave & 0b00011111) << 3)
-                case 1:
-                    bytesWave[index] = bytesWave.last! | ((wave & 0b00011100) >> 2)
-                    bytesWave.append((wave & 0b00000011) << 6)
-                case 2:
-                    bytesWave[index] = bytesWave.last! | ((wave & 0b00011111) << 1)
-                case 3:
-                    bytesWave[index] = bytesWave.last! | ((wave & 0b00010000) >> 4)
-                    bytesWave.append((wave & 0b00001111) << 4)
-                case 4:
-                    bytesWave[index] = bytesWave.last! | ((wave & 0b00011110) >> 1)
-                    bytesWave.append((wave & 0b00000001) << 7)
-                case 5:
-                    bytesWave[index] = bytesWave.last! | ((wave & 0b00011111) << 2)
-                case 6:
-                    bytesWave[index] = bytesWave.last! | ((wave & 0b00011000) >> 3)
-                    bytesWave.append((wave & 0b00000111) << 5)
-                case 7:
-                    bytesWave[index] = bytesWave.last! | wave
-                default:
-                    break
+            case 0:
+                bytesWave.append((wave & 0b0001_1111) << 3)
+            case 1:
+                bytesWave[index] = bytesWave.last! | ((wave & 0b0001_1100) >> 2)
+                bytesWave.append((wave & 0b0000_0011) << 6)
+            case 2:
+                bytesWave[index] = bytesWave.last! | ((wave & 0b0001_1111) << 1)
+            case 3:
+                bytesWave[index] = bytesWave.last! | ((wave & 0b0001_0000) >> 4)
+                bytesWave.append((wave & 0b0000_1111) << 4)
+            case 4:
+                bytesWave[index] = bytesWave.last! | ((wave & 0b0001_1110) >> 1)
+                bytesWave.append((wave & 0b0000_0001) << 7)
+            case 5:
+                bytesWave[index] = bytesWave.last! | ((wave & 0b0001_1111) << 2)
+            case 6:
+                bytesWave[index] = bytesWave.last! | ((wave & 0b0001_1000) >> 3)
+                bytesWave.append((wave & 0b0000_0111) << 5)
+            case 7:
+                bytesWave[index] = bytesWave.last! | wave
+            default:
+                break
             }
             count += count == 7 ? -7 : 1
         }
@@ -587,7 +604,7 @@ import AVKit
             action: chatAction,
             businessConnectionId: nil,
             chatId: customChat.chat.id,
-            messageThreadId: 0
+            topicId: nil,
         )
     }
     
@@ -600,7 +617,7 @@ import AVKit
             log("Access to Microphone for Voice messages is granted")
         } else {
             log("Access to Microphone for Voice messages is not granted")
-            self.errorShown = true
+            errorShown = true
             return
         }
         
@@ -608,7 +625,7 @@ import AVKit
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 16000,
             AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.min.rawValue
+            AVEncoderAudioQualityKey: AVAudioQuality.min.rawValue,
         ]
         
         let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).wav")

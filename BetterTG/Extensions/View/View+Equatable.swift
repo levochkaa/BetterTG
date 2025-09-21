@@ -3,11 +3,13 @@
 import SwiftUI
 
 extension View {
-    func equatable<V: Equatable>(by value: V) -> some View {
+    func equatable(by value: some Equatable) -> some View {
         EquatableView(content: self, value: value)
             .equatable()
     }
 }
+
+// MARK: - EquatableView
 
 private struct EquatableView<Content: View, Value: Equatable>: Equatable, View {
     let content: Content

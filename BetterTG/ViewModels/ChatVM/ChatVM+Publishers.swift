@@ -1,8 +1,8 @@
 // ChatVM+Publishers.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
-import Combine
 
 extension ChatVM {
     func setPublishers() {
@@ -49,7 +49,8 @@ extension ChatVM {
         guard case .messageSenderUser(let messageSenderUser) = updateChatAction.senderId,
               messageSenderUser.userId == customChat.chat.id
         else { return }
-        let actionStatus = switch updateChatAction.action {
+        let actionStatus =
+            switch updateChatAction.action {
             case .chatActionTyping: "typing..."
             case .chatActionRecordingVideo: "recording video..."
             case .chatActionUploadingVideo: /* (let chatActionUploadingVideo) */ "uploading video..."
@@ -65,7 +66,7 @@ extension ChatVM {
             case .chatActionUploadingVideoNote: /* (let chatActionUploadingVideoNote) */ "uploading video note..."
             case .chatActionWatchingAnimations(let watching): "watching animations...\(watching.emoji)"
             case .chatActionCancel: ""
-        }
+            }
         Task.main {
             withAnimation {
                 self.actionStatus = actionStatus
@@ -78,7 +79,7 @@ extension ChatVM {
         let oldMessageId = updateMessageSendSucceeded.oldMessageId
         
         if message.mediaAlbumId == 0 {
-            guard let index = messages.firstIndex(where: { $0.message.id == oldMessageId  }) else { return }
+            guard let index = messages.firstIndex(where: { $0.message.id == oldMessageId }) else { return }
             Task.background {
                 let customMessage = await self.getCustomMessage(from: message)
                 await main {
@@ -88,9 +89,9 @@ extension ChatVM {
                 }
             }
         } else {
-            messages.enumerated().forEach { outerIndex, outerMessage in
-                outerMessage.album.enumerated().forEach { innerIndex, innerMessage in
-                    guard innerMessage.id == oldMessageId else { return }
+            for (outerIndex, outerMessage) in messages.enumerated() {
+                for (innerIndex, innerMessage) in outerMessage.album.enumerated() {
+                    guard innerMessage.id == oldMessageId else { continue }
                     withAnimation {
                         messages[outerIndex].album[innerIndex] = message
                     }
@@ -144,9 +145,10 @@ extension ChatVM {
     }
     
     func updateMessageEdited(_ updateMessageEdited: UpdateMessageEdited) {
-        if let index = self.messages.firstIndex(where: { $0.message.id == updateMessageEdited.messageId }) {
+        if let index = messages.firstIndex(where: { $0.message.id == updateMessageEdited.messageId }) {
             Task.background {
-                guard let customMessage = await self.getCustomMessage(fromId: updateMessageEdited.messageId) else { return }
+                guard let customMessage = await self.getCustomMessage(fromId: updateMessageEdited.messageId)
+                else { return }
                 
                 await main {
                     withAnimation {
@@ -160,12 +162,15 @@ extension ChatVM {
             }
         }
         
-        let indices = self.messages.enumerated().compactMap { index, customMessage in
-            return customMessage.replyToMessage?.id == updateMessageEdited.messageId ? index : nil
+        let indices = messages.enumerated().compactMap { index, customMessage in
+            customMessage.replyToMessage?.id == updateMessageEdited.messageId ? index : nil
         }
         guard !indices.isEmpty else { return }
         Task.background {
-            let reply = try? await td.getMessage(chatId: self.customChat.chat.id, messageId: updateMessageEdited.messageId)
+            let reply = try? await td.getMessage(
+                chatId: self.customChat.chat.id,
+                messageId: updateMessageEdited.messageId,
+            )
             await main {
                 for index in indices {
                     withAnimation {

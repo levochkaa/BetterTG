@@ -15,7 +15,7 @@ struct ChatsListItemView: View {
                         try await td.toggleChatIsPinned(
                             chatId: customChat.chat.id,
                             chatList: folder.chatList,
-                            isPinned: !customChat.position.isPinned
+                            isPinned: !customChat.position.isPinned,
                         )
                     }
                 }
@@ -30,7 +30,7 @@ struct ChatsListItemView: View {
                 minithumbnail: chat.photo?.minithumbnail,
                 title: chat.title,
                 userId: chat.id,
-                fontSize: 40
+                fontSize: 40,
             )
             .frame(width: 64, height: 64)
             
@@ -47,7 +47,7 @@ struct ChatsListItemView: View {
                 Spacer()
                 
                 Circle()
-                    .fill(.blue)
+                    .fill(.gray)
                     .frame(width: 32, height: 32)
                     .overlay {
                         Text("\(customChat.unreadCount)")

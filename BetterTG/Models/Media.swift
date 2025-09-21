@@ -1,33 +1,27 @@
 // Media.swift
 
+import Combine
 import MediaPlayer
 import MobileVLCKit
 import Observation
-import Combine
 import SwiftUI
 
-@Observable
-final class Media {
-    static let shared = Media()
-    
-    var savedMediaPath = ""
-    var isPlaying = false
-    var currentTime: Int32 = 0
-    
-    @ObservationIgnored private var duration = 0
-    @ObservationIgnored private var title = ""
-    
-    private let player = VLCMediaPlayer()
-    private let audioSession: AVAudioSession = .sharedInstance()
-    private let nowPlayingCenter: MPNowPlayingInfoCenter = .default()
-    private let commandCenter: MPRemoteCommandCenter = .shared()
-    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
-    
+@Observable final class Media {
+    // MARK: Lifecycle
+
     init() {
         setPublishers()
         setCommandCenterControls()
     }
-    
+
+    // MARK: Internal
+
+    static let shared = Media()
+
+    var savedMediaPath = ""
+    var isPlaying = false
+    var currentTime: Int32 = 0
+
     func stop() {
         withAnimation {
             isPlaying = false
@@ -38,23 +32,23 @@ final class Media {
             nowPlayingCenter.nowPlayingInfo = nil
         }
     }
-    
+
     func onChatOpen(title: String) {
         self.title = title
     }
-    
+
     func onChatDismiss() {
         player.stop()
     }
-    
+
     func seekForward() {
         player.jumpForward(5)
     }
-    
+
     func seekBackward() {
         player.jumpBackward(5)
     }
-    
+
     func toggle(with path: String, duration: Int) {
         self.duration = duration
         withAnimation {
@@ -69,7 +63,34 @@ final class Media {
             }
         }
     }
-    
+
+    func setAudioSessionRecord() {
+        do {
+            try audioSession.setActive(false)
+            try audioSession.setCategory(.playAndRecord, mode: .default, policy: .default, options: [
+                .allowAirPlay,
+                .allowBluetoothHFP,
+                .allowBluetoothA2DP,
+                .defaultToSpeaker,
+                .overrideMutedMicrophoneInterruption,
+            ])
+            try audioSession.setActive(true)
+        } catch {
+            log("Error setting audioSessionRecord: \(error)")
+        }
+    }
+
+    // MARK: Private
+
+    @ObservationIgnored private var duration = 0
+    @ObservationIgnored private var title = ""
+
+    private let player = VLCMediaPlayer()
+    private let audioSession = AVAudioSession.sharedInstance()
+    private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+    private let commandCenter = MPRemoteCommandCenter.shared()
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
+
     private func setPublishers() {
         player
             .publisher(for: \.time, options: [.new])
@@ -79,7 +100,7 @@ final class Media {
                 changeCurrentTime()
             }
             .store(in: &cancellables)
-        
+
         player
             .publisher(for: \.state, options: [.new])
             .sink { [weak self] state in
@@ -89,11 +110,11 @@ final class Media {
             }
             .store(in: &cancellables)
     }
-    
+
     private func setCommandCenterControls() {
         commandCenter.skipBackwardCommand.preferredIntervals = [5.0]
         commandCenter.skipForwardCommand.preferredIntervals = [5.0]
-        
+
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil, !isPlaying {
@@ -102,7 +123,7 @@ final class Media {
             }
             return .commandFailed
         }
-        
+
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil, isPlaying {
@@ -111,7 +132,7 @@ final class Media {
             }
             return .commandFailed
         }
-        
+
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil {
@@ -120,7 +141,7 @@ final class Media {
             }
             return .commandFailed
         }
-        
+
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self else { return .commandFailed }
             if let positionEvent = event as? MPChangePlaybackPositionCommandEvent {
@@ -129,7 +150,7 @@ final class Media {
             }
             return .commandFailed
         }
-        
+
         commandCenter.skipForwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil {
@@ -138,7 +159,7 @@ final class Media {
             }
             return .commandFailed
         }
-        
+
         commandCenter.skipBackwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil {
@@ -148,23 +169,7 @@ final class Media {
             return .commandFailed
         }
     }
-    
-    func setAudioSessionRecord() {
-        do {
-            try audioSession.setActive(false)
-            try audioSession.setCategory(.playAndRecord, mode: .default, policy: .default, options: [
-                .allowAirPlay,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .overrideMutedMicrophoneInterruption
-            ])
-            try audioSession.setActive(true)
-        } catch {
-            log("Error setting audioSessionRecord: \(error)")
-        }
-    }
-    
+
     private func toggle() {
         withAnimation {
             if isPlaying {
@@ -174,42 +179,42 @@ final class Media {
             }
         }
     }
-    
+
     private func pause() {
         player.pause()
         isPlaying = false
     }
-    
+
     private func setAudioSessionPlayback() {
         do {
             try audioSession.setActive(false)
             try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [
-                .allowBluetooth,
-                .allowBluetoothA2DP
+                .allowBluetoothHFP,
+                .allowBluetoothA2DP,
             ])
             try audioSession.setActive(true)
         } catch {
             log("Error setting audioSessionPlayback: \(error)")
         }
     }
-    
+
     private func play() {
         setAudioSessionPlayback()
         player.play()
         isPlaying = true
         setNowPlaying()
     }
-    
+
     private func changeCurrentTime() {
         nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(currentTime)
     }
-    
+
     private func seekTo(_ timeInterval: TimeInterval) {
         let number = NSNumber(floatLiteral: timeInterval * 1000)
         let time = VLCTime(number: number)
         player.time = time
     }
-    
+
     private func setNowPlaying() {
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = title

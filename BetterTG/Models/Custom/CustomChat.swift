@@ -3,14 +3,18 @@
 import SwiftUI
 import TDLibKit
 
-@Observable class CustomChat {
+// MARK: - CustomChat
+
+@Observable final class CustomChat {
+    // MARK: Lifecycle
+
     init(
         chat: Chat,
         position: ChatPosition,
         unreadCount: Int,
         type: CustomChatType,
         lastMessage: Message? = nil,
-        draftMessage: DraftMessage? = nil
+        draftMessage: DraftMessage? = nil,
     ) {
         self.chat = chat
         self.position = position
@@ -20,6 +24,15 @@ import TDLibKit
         self.draftMessage = draftMessage
     }
     
+    // MARK: Internal
+
+    enum CustomChatType: Equatable, Hashable {
+        case user(User)
+        case supergroup(Supergroup)
+        case group(BasicGroup)
+        case bot(UserTypeBot)
+    }
+
     var chat: Chat
     var position: ChatPosition
     var unreadCount: Int
@@ -29,43 +42,43 @@ import TDLibKit
     
     var bot: UserTypeBot? {
         switch type {
-            case .bot(let bot): bot
-            default: nil
+        case .bot(let bot): bot
+        default: nil
         }
     }
     
     var user: User? {
         switch type {
-            case .user(let user): user
-            default: nil
+        case .user(let user): user
+        default: nil
         }
     }
     
     var supergroup: Supergroup? {
         switch type {
-            case .supergroup(let supergroup): supergroup
-            default: nil
+        case .supergroup(let supergroup): supergroup
+        default: nil
         }
     }
     
     var group: BasicGroup? {
         switch type {
-            case .group(let group): group
-            default: nil
+        case .group(let group): group
+        default: nil
         }
     }
     
     var adminRights: ChatAdministratorRights? {
         switch supergroup?.status {
-            case .chatMemberStatusAdministrator(let chatMemberStatusAdministrator): chatMemberStatusAdministrator.rights
-            default: nil
+        case .chatMemberStatusAdministrator(let chatMemberStatusAdministrator): chatMemberStatusAdministrator.rights
+        default: nil
         }
     }
     
     var shouldShowProfileImage: Bool {
         switch type {
-            case .user, .bot: false
-            case .supergroup, .group: true
+        case .bot, .user: false
+        case .group, .supergroup: true
         }
     }
     
@@ -84,14 +97,9 @@ import TDLibKit
         }
         return true
     }
-    
-    enum CustomChatType: Equatable, Hashable {
-        case user(User)
-        case supergroup(Supergroup)
-        case group(BasicGroup)
-        case bot(UserTypeBot)
-    }
 }
+
+// MARK: Hashable
 
 extension CustomChat: Hashable {
     func hash(into hasher: inout Hasher) {
@@ -104,9 +112,13 @@ extension CustomChat: Hashable {
     }
 }
 
+// MARK: Identifiable
+
 extension CustomChat: Identifiable {
     var id: Int64 { chat.id }
 }
+
+// MARK: Equatable
 
 extension CustomChat: Equatable {
     static func == (lhs: CustomChat, rhs: CustomChat) -> Bool {

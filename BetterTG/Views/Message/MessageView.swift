@@ -4,7 +4,8 @@ import SwiftUI
 import TDLibKit
 
 struct MessageView: View {
-    @State var customMessage: CustomMessage
+    let customMessage: CustomMessage
+
     @Environment(ChatVM.self) var chatVM
     
     var body: some View {
@@ -17,13 +18,14 @@ struct MessageView: View {
                 ReplyMessageView(
                     customMessage: customMessage,
                     type: .replied,
-                    onTap: { chatVM.scrollTo(id: replyToMessage.id) }
+                    onTap: { chatVM.scrollTo(id: replyToMessage.id) },
                 )
             }
             
-            if customMessage.messagePhoto != nil 
+            if customMessage.messagePhoto != nil
                 || customMessage.messageVoiceNote != nil
-                || !customMessage.album.isEmpty {
+                || !customMessage.album.isEmpty
+            {
                 MessageContentView(customMessage: customMessage)
             }
             
@@ -33,7 +35,7 @@ struct MessageView: View {
                     .padding(
                         .top,
                         customMessage.replyUser != nil && customMessage.replyToMessage != nil
-                        || customMessage.forwardedFrom != nil ? -8 : 0
+                            || customMessage.forwardedFrom != nil ? -8 : 0,
                     )
             }
         }

@@ -3,8 +3,8 @@
 import SwiftUI
 
 struct RootView: View {
-    @State private var rootVM = RootVM.shared
-    
+    // MARK: Internal
+
     var body: some View {
         ZStack {
             if rootVM.loggedIn {
@@ -15,4 +15,8 @@ struct RootView: View {
         }
         .transition(.opacity)
     }
+
+    // MARK: Private
+
+    @State private var rootVM = RootVM.shared
 }

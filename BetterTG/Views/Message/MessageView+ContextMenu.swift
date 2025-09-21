@@ -1,4 +1,4 @@
-// MessageView+Menu.swift
+// MessageView+ContextMenu.swift
 
 import SwiftUI
 import TDLibKit
@@ -63,7 +63,7 @@ extension MessageView {
                 },
                 .button(title: "Delete for both", systemImage: "trash.fill", attributes: .destructive) {
                     chatVM.deleteMessage(id: customMessage.message.id, deleteForBoth: true)
-                }
+                },
             ]))
         }
         return actions
@@ -71,17 +71,17 @@ extension MessageView {
     
     func getFormattedText(from content: MessageContent) -> FormattedText? {
         switch content {
-            case .messageText(let messageText):
-                guard !messageText.text.text.isEmpty else { return nil }
-                return messageText.text
-            case .messagePhoto(let messagePhoto):
-                guard !messagePhoto.caption.text.isEmpty else { return nil }
-                return messagePhoto.caption
-            case .messageVoiceNote(let messageVoiceNote):
-                guard !messageVoiceNote.caption.text.isEmpty else { return nil }
-                return messageVoiceNote.caption
-            default:
-                return nil
+        case .messageText(let messageText):
+            guard !messageText.text.text.isEmpty else { return nil }
+            return messageText.text
+        case .messagePhoto(let messagePhoto):
+            guard !messagePhoto.caption.text.isEmpty else { return nil }
+            return messagePhoto.caption
+        case .messageVoiceNote(let messageVoiceNote):
+            guard !messageVoiceNote.caption.text.isEmpty else { return nil }
+            return messageVoiceNote.caption
+        default:
+            return nil
         }
     }
 }

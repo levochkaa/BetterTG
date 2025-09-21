@@ -4,7 +4,7 @@ import SwiftUI
 import TDLibKit
 
 struct MessageContentView: View {
-    @State var customMessage: CustomMessage
+    let customMessage: CustomMessage
     
     @State var shownAlbum: CustomMessageAlbum?
     
@@ -12,13 +12,13 @@ struct MessageContentView: View {
         ZStack {
             if customMessage.album.isEmpty {
                 switch customMessage.message.content {
-                    case .messagePhoto(let messagePhoto):
-                        makeMessagePhoto(from: messagePhoto)
-                            .scaledToFit()
-                    case .messageVoiceNote(let messageVoiceNote):
-                        MessageVoiceNoteView(voiceNote: messageVoiceNote.voiceNote)
-                    default:
-                        EmptyView()
+                case .messagePhoto(let messagePhoto):
+                    makeMessagePhoto(from: messagePhoto)
+                        .scaledToFit()
+                case .messageVoiceNote(let messageVoiceNote):
+                    MessageVoiceNoteView(voiceNote: messageVoiceNote.voiceNote)
+                default:
+                    EmptyView()
                 }
             } else {
                 MediaAlbum {
@@ -37,13 +37,13 @@ struct MessageContentView: View {
         }
     }
     
-    @ViewBuilder func makeMessagePhoto(from messagePhoto: MessagePhoto, albumMessage: Message? = nil) -> some View {
+    func makeMessagePhoto(from messagePhoto: MessagePhoto, albumMessage: Message? = nil) -> some View {
         TdImage(photo: messagePhoto.photo, size: .yBox, contentMode: .fill)
             .onTapGesture {
                 if customMessage.album.isEmpty {
                     shownAlbum = .init(
                         photos: [customMessage.message],
-                        selection: customMessage.message.id
+                        selection: customMessage.message.id,
                     )
                 } else if let albumMessage {
                     shownAlbum = .init(photos: customMessage.album, selection: albumMessage.id)

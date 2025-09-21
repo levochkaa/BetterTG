@@ -1,15 +1,17 @@
 // AsyncTdImage.swift
 
+import ImageIO
 import SwiftUI
 import TDLibKit
 
+// MARK: - AsyncTdImage
+
 struct AsyncTdImage<Content: View, Placeholder: View>: View {
+    // MARK: Internal
+
     let id: Int
     @ViewBuilder let content: (Image, File) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
-    
-    @State private var file: File?
-    @State private var image: Image?
     
     var body: some View {
         ZStack {
@@ -26,6 +28,11 @@ struct AsyncTdImage<Content: View, Placeholder: View>: View {
         }
     }
     
+    // MARK: Private
+
+    @State private var file: File?
+    @State private var image: Image?
+    
     private func download(_ id: Int? = nil) async {
         do {
             let file = try await td.downloadFile(
@@ -33,7 +40,7 @@ struct AsyncTdImage<Content: View, Placeholder: View>: View {
                 limit: 0,
                 offset: 0,
                 priority: 1,
-                synchronous: false
+                synchronous: false,
             )
             await setImage(from: file)
         } catch {
@@ -42,12 +49,40 @@ struct AsyncTdImage<Content: View, Placeholder: View>: View {
     }
     
     @MainActor private func setImage(from file: File) async {
-        guard file.local.isDownloadingCompleted,
-              let uiImage = await UIImage(contentsOfFile: file.local.path)?.byPreparingForDisplay()
-        else { return }
+        guard file.local.isDownloadingCompleted else { return }
+        let localPath = file.local.path
+        guard let uiImage = await Task.detached(priority: .userInitiated, operation: {
+            createThumbnailImage(at: localPath)
+        })
+        .value else { return }
+
         withAnimation {
             self.file = file
-            self.image = Image(uiImage: uiImage)
+            image = Image(uiImage: uiImage)
         }
     }
+}
+
+private func createThumbnailImage(at localPath: String) -> UIImage? {
+    guard FileManager.default.fileExists(atPath: localPath), // Avoid spamming logs for missing files.
+          let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: localPath) as CFURL, nil)
+    else { return nil }
+
+    let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+    let maxPixelSize = max(
+        (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue ?? 0,
+        (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 0,
+    )
+
+    guard maxPixelSize > 0,
+          let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+              kCGImageSourceCreateThumbnailFromImageAlways: true,
+              kCGImageSourceCreateThumbnailWithTransform: true,
+              kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+              kCGImageSourceShouldCache: false,
+              kCGImageSourceShouldCacheImmediately: false,
+          ] as CFDictionary)
+    else { return nil }
+
+    return UIImage(cgImage: cgImage)
 }

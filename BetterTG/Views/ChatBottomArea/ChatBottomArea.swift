@@ -1,17 +1,13 @@
 // ChatBottomArea.swift
 
-import SwiftUI
-import PhotosUI
 import Combine
+import PhotosUI
+import SwiftUI
 import TDLibKit
 
 struct ChatBottomArea: View {
     var focused: FocusState<Bool>.Binding
-    
-    init(focused: FocusState<Bool>.Binding) {
-        self.focused = focused
-    }
-    
+
     @Namespace var namespace
     @Environment(ChatVM.self) var chatVM
     
@@ -125,7 +121,7 @@ struct ChatBottomArea: View {
                 .ignoresSafeArea()
             }
             .fullScreenCover(isPresented: $chatVM.showCameraView) {
-                NavigationStack {
+                NavigationControllerWrapper {
                     CameraView { selectedImage in
                         withAnimation { chatVM.displayedImages = [selectedImage] }
                     }
@@ -159,7 +155,7 @@ struct ChatBottomArea: View {
         }
     }
     
-    @ViewBuilder var rightSide: some View {
+    var rightSide: some View {
         Group {
             if chatVM.showSendButton {
                 Image("send")
@@ -197,32 +193,7 @@ struct ChatBottomArea: View {
         }
     }
     
-    @ViewBuilder func replyMessageView(_ customMessage: CustomMessage, type: ReplyMessageType) -> some View {
-        HStack {
-            ReplyMessageView(customMessage: customMessage, type: type, onTap: {
-                var id: Int64?
-                switch type {
-                    case .reply: id = chatVM.replyMessage?.id
-                    case .edit: id = chatVM.editCustomMessage?.id
-                    default: break
-                }
-                guard let id else { return }
-                chatVM.scrollTo(id: id)
-            })
-            .background(Color.gray6)
-            .clipShape(.rect(cornerRadius: 15))
-            
-            Image(systemName: "xmark")
-                .onTapGesture {
-                    withAnimation {
-                        chatVM.replyMessage = nil
-                        chatVM.editCustomMessage = nil
-                    }
-                }
-        }
-    }
-    
-    @ViewBuilder var photosScroll: some View {
+    var photosScroll: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .center, spacing: 5) {
                 ForEach(chatVM.displayedImages) { photo in
@@ -290,7 +261,7 @@ struct ChatBottomArea: View {
 //        }
     }
     
-    @ViewBuilder var voiceNoteRecording: some View {
+    var voiceNoteRecording: some View {
         HStack(alignment: .center, spacing: 0) {
             Button {
                 withAnimation {
@@ -313,5 +284,30 @@ struct ChatBottomArea: View {
         .padding(.vertical, 2)
         .onAppear(perform: chatVM.startTimer)
         .onDisappear(perform: chatVM.stopTimer)
+    }
+
+    func replyMessageView(_ customMessage: CustomMessage, type: ReplyMessageType) -> some View {
+        HStack {
+            ReplyMessageView(customMessage: customMessage, type: type, onTap: {
+                var id: Int64?
+                switch type {
+                case .reply: id = chatVM.replyMessage?.id
+                case .edit: id = chatVM.editCustomMessage?.id
+                default: break
+                }
+                guard let id else { return }
+                chatVM.scrollTo(id: id)
+            })
+            .background(Color.gray6)
+            .clipShape(.rect(cornerRadius: 15))
+            
+            Image(systemName: "xmark")
+                .onTapGesture {
+                    withAnimation {
+                        chatVM.replyMessage = nil
+                        chatVM.editCustomMessage = nil
+                    }
+                }
+        }
     }
 }

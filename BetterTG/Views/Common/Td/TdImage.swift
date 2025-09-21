@@ -26,7 +26,7 @@ struct TdImage: View {
     
     var placeholder: some View {
         Group {
-            if let size = photo.sizes.first {
+            if let size = photo.sizes.getSize(.sBox) ?? photo.sizes.first {
                 Image(file: size.photo)
                     .resizable()
             } else if let thumbnail = photo.minithumbnail {

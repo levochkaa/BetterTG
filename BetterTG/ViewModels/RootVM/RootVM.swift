@@ -1,27 +1,38 @@
 // RootVM.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
-import Combine
+
+// MARK: - Route
 
 enum Route: Hashable {
     case customChat(CustomChat)
     case archive(CustomFolder)
 }
 
+// MARK: - RootVM
+
 @Observable final class RootVM {
-    @ObservationIgnored static let shared = RootVM()
-    
+    // MARK: Lifecycle
+
     init() {
         setPublishers()
     }
+    
+    // MARK: Internal
+
+    @ObservationIgnored static let shared = RootVM()
     
     var path = [Route]()
     var confirmChatDelete = ConfirmChatDelete(chat: nil, show: false, forAll: false)
     var folders = [CustomFolder]()
     var archive: CustomFolder?
     var currentFolder: Int?
+    var scrollPosition = ScrollPosition(x: 0)
     var query = ""
+    @ObservationIgnored var cancellables = Set<AnyCancellable>()
+    
     var loggedIn: Bool {
         get {
             access(keyPath: \.loggedIn)
@@ -33,8 +44,6 @@ enum Route: Hashable {
             }
         }
     }
-    
-    @ObservationIgnored var cancellables = Set<AnyCancellable>()
     
     var mainFolder: CustomFolder? { folders.first(where: { $0.type == .main }) }
     var allChats: [CustomChat] {
@@ -50,54 +59,57 @@ enum Route: Hashable {
     }
     
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {
-        guard let chat = try? await td.getChat(chatId: id), let position = chat.positions.first(chatList) else { return nil }
+        guard let chat = try? await td.getChat(chatId: id),
+              let position = chat.positions.first(chatList) else { return nil }
         switch chat.type {
-            case .chatTypePrivate(let chatTypePrivate):
-                guard let user = try? await td.getUser(userId: chatTypePrivate.userId) else { return nil }
-                switch user.type {
-                    case .userTypeRegular:
-                        return CustomChat(
-                            chat: chat,
-                            position: position,
-                            unreadCount: chat.unreadCount,
-                            type: .user(user),
-                            lastMessage: chat.lastMessage,
-                            draftMessage: chat.draftMessage
-                        )
-                    case .userTypeBot(let userTypeBot):
-                        return CustomChat(
-                            chat: chat,
-                            position: position,
-                            unreadCount: chat.unreadCount,
-                            type: .bot(userTypeBot),
-                            lastMessage: chat.lastMessage,
-                            draftMessage: chat.draftMessage
-                        )
-                    case .userTypeUnknown, .userTypeDeleted:
-                        return nil
-                }
-            case .chatTypeSupergroup(let chatTypeSupergroup):
-                guard let supergroup = try? await td.getSupergroup(supergroupId: chatTypeSupergroup.supergroupId) else { return nil }
+        case .chatTypePrivate(let chatTypePrivate):
+            guard let user = try? await td.getUser(userId: chatTypePrivate.userId) else { return nil }
+            switch user.type {
+            case .userTypeRegular:
                 return CustomChat(
                     chat: chat,
                     position: position,
                     unreadCount: chat.unreadCount,
-                    type: .supergroup(supergroup),
+                    type: .user(user),
                     lastMessage: chat.lastMessage,
-                    draftMessage: chat.draftMessage
+                    draftMessage: chat.draftMessage,
                 )
-            case .chatTypeBasicGroup(let chatTypeBasicGroup):
-                guard let group = try? await td.getBasicGroup(basicGroupId: chatTypeBasicGroup.basicGroupId) else { return nil }
+            case .userTypeBot(let userTypeBot):
                 return CustomChat(
                     chat: chat,
                     position: position,
                     unreadCount: chat.unreadCount,
-                    type: .group(group),
+                    type: .bot(userTypeBot),
                     lastMessage: chat.lastMessage,
-                    draftMessage: chat.draftMessage
+                    draftMessage: chat.draftMessage,
                 )
-            default:
+            case .userTypeDeleted, .userTypeUnknown:
                 return nil
+            }
+        case .chatTypeSupergroup(let chatTypeSupergroup):
+            guard let supergroup = try? await td.getSupergroup(supergroupId: chatTypeSupergroup.supergroupId)
+            else { return nil }
+            return CustomChat(
+                chat: chat,
+                position: position,
+                unreadCount: chat.unreadCount,
+                type: .supergroup(supergroup),
+                lastMessage: chat.lastMessage,
+                draftMessage: chat.draftMessage,
+            )
+        case .chatTypeBasicGroup(let chatTypeBasicGroup):
+            guard let group = try? await td.getBasicGroup(basicGroupId: chatTypeBasicGroup.basicGroupId)
+            else { return nil }
+            return CustomChat(
+                chat: chat,
+                position: position,
+                unreadCount: chat.unreadCount,
+                type: .group(group),
+                lastMessage: chat.lastMessage,
+                draftMessage: chat.draftMessage,
+            )
+        default:
+            return nil
         }
     }
     
@@ -105,11 +117,10 @@ enum Route: Hashable {
         guard let folder = try? await td.getChatFolder(chatFolderId: info.id),
               let customChats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)))
         else { return nil }
-        let customFolder = CustomFolder(
+        return CustomFolder(
             chats: customChats,
-            type: .folder(info, folder)
+            type: .folder(info, folder),
         )
-        return customFolder
     }
     
     func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {

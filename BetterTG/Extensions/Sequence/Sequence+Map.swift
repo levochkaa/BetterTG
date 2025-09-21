@@ -14,7 +14,7 @@ extension Sequence where Element: Sendable {
     ///   the transformed values will match the original sequence.
     /// - throws: Rethrows any error thrown by the passed closure.
     func asyncMap<T>(
-        _ transform: (Element) async throws -> T
+        _ transform: (Element) async throws -> T,
     ) async rethrows -> [T] {
         var values = [T]()
         
@@ -40,7 +40,7 @@ extension Sequence where Element: Sendable {
     ///   the transformed values will match the original sequence.
     func concurrentMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @Sendable @escaping (Element) async -> T
+        _ transform: @Sendable @escaping (Element) async -> T,
     ) async -> [T] {
         let tasks = map { element in
             Task(priority: priority) {
@@ -71,7 +71,7 @@ extension Sequence where Element: Sendable {
     /// - throws: Rethrows any error thrown by the passed closure.
     func concurrentMap<T: Sendable>(
         withPriority priority: TaskPriority? = nil,
-        _ transform: @Sendable @escaping (Element) async throws -> T
+        _ transform: @Sendable @escaping (Element) async throws -> T,
     ) async throws -> [T] {
         let tasks = map { element in
             Task(priority: priority) {

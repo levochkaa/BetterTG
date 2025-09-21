@@ -1,28 +1,30 @@
 // FolderView.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
-import Combine
 
 struct FolderView: View {
+    // MARK: Internal
+
     @State var folder: CustomFolder
-    var navigationBarHeight: CGFloat = .zero
-    var bottomBarHeight: CGFloat = .zero
+    var navigationBarHeight = CGFloat.zero
+    var bottomBarHeight = CGFloat.zero
     
+    @Namespace var namespace
+    @Environment(\.scenePhase) var scenePhase
+    @State var rootVM = RootVM.shared
+
     var chats: [CustomChat] {
         folder.chats
             .sorted { $0.position.order > $1.position.order }
             .filter {
                 rootVM.query.isEmpty
-                || $0.chat.title.lowercased().contains(rootVM.query.lowercased())
-                || $0.user?.firstName.lowercased().contains(rootVM.query.lowercased()) == true
-                || $0.user?.lastName.lowercased().contains(rootVM.query.lowercased()) == true
+                    || $0.chat.title.lowercased().contains(rootVM.query.lowercased())
+                    || $0.user?.firstName.lowercased().contains(rootVM.query.lowercased()) == true
+                    || $0.user?.lastName.lowercased().contains(rootVM.query.lowercased()) == true
             }
     }
-    
-    @Namespace var namespace
-    @Environment(\.scenePhase) var scenePhase
-    @State var rootVM: RootVM = .shared
     
     var body: some View {
         ScrollViewReader { scrollViewProxy in
@@ -39,7 +41,7 @@ struct FolderView: View {
                         fromMessageId: 0,
                         limit: 30,
                         offset: 0,
-                        onlyLocal: false
+                        onlyLocal: false,
                     )
                 }
             }
@@ -57,7 +59,7 @@ struct FolderView: View {
                 } else {
                     ForEach(chats) { customChat in
                         Button {
-                            rootVM.path.append(.customChat(customChat))
+                            navigationStorage.push(.customChat(customChat))
                         } label: {
                             ChatsListItemView(folder: folder, customChat: customChat)
                                 .matchedGeometryEffect(id: customChat.chat.id, in: namespace)
@@ -66,7 +68,7 @@ struct FolderView: View {
                             contextMenu(for: customChat)
                         } preview: {
                             LazyView {
-                                NavigationStack {
+                                NavigationControllerWrapper {
                                     ChatView(customChat: customChat)
                                         .environment(\.isPreview, true)
                                 }
@@ -78,7 +80,7 @@ struct FolderView: View {
                                 fromMessageId: 0,
                                 limit: 30,
                                 offset: 0,
-                                onlyLocal: false
+                                onlyLocal: false,
                             )
                         }
                     }
@@ -96,7 +98,7 @@ struct FolderView: View {
         Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash.fill" : "pin.fill") {
             Task.background {
                 try await td.toggleChatIsPinned(
-                    chatId: customChat.chat.id, chatList: folder.chatList, isPinned: !isPinned
+                    chatId: customChat.chat.id, chatList: folder.chatList, isPinned: !isPinned,
                 )
             }
         }
@@ -125,4 +127,8 @@ struct FolderView: View {
             }
         }
     }
+
+    // MARK: Private
+
+    private let navigationStorage = NavigationStorage.shared
 }

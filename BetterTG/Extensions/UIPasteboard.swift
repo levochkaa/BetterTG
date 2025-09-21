@@ -1,12 +1,12 @@
 // UIPasteboard.swift
 
-import SwiftUI
 import MobileCoreServices
-import UniformTypeIdentifiers
+import SwiftUI
 import TDLibKit
+import UniformTypeIdentifiers
 
 let defaultDocumentAttributes = [
-    NSAttributedString.DocumentAttributeKey.documentType: NSAttributedString.DocumentType.rtf
+    NSAttributedString.DocumentAttributeKey.documentType: NSAttributedString.DocumentType.rtf,
 ]
 
 extension UIPasteboard {
@@ -14,14 +14,14 @@ extension UIPasteboard {
         let attributedString = NSAttributedString(getAttributedString(from: formattedText))
         guard let data = try? attributedString.data(
             from: NSRange(location: 0, length: attributedString.length),
-            documentAttributes: defaultDocumentAttributes
+            documentAttributes: defaultDocumentAttributes,
         ) else { return }
         UIPasteboard.general.items = [[
             UTType.rtf.identifier: data.string,
-            UTType.utf8PlainText.identifier: formattedText.text
+            UTType.utf8PlainText.identifier: formattedText.text,
         ]]
     }
-    
+
     static func setPlainText(_ string: String) {
         UIPasteboard.general.items = [[UTType.utf8PlainText.identifier: string]]
     }

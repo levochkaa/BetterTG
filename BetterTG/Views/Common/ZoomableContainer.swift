@@ -4,20 +4,12 @@ import SwiftUI
 
 private let maxAllowedScale = 3.0
 
+// MARK: - ZoomableContainer
+
 struct ZoomableContainer<Content: View>: View {
-    let content: Content
-    
-    @State private var currentScale: CGFloat = 1.0
-    @State private var tapLocation: CGPoint = .zero
-    
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-    
-    func doubleTapAction(location: CGPoint) {
-        tapLocation = location
-        currentScale = currentScale == 1.0 ? maxAllowedScale : 1.0
-    }
+    // MARK: Internal
+
+    @ViewBuilder let content: Content
     
     var body: some View {
         ZoomableScrollView(scale: $currentScale, tapLocation: $tapLocation) {
@@ -25,19 +17,54 @@ struct ZoomableContainer<Content: View>: View {
         }
         .onTapGesture(count: 2, perform: doubleTapAction)
     }
+
+    func doubleTapAction(location: CGPoint) {
+        tapLocation = location
+        currentScale = currentScale == 1.0 ? maxAllowedScale : 1.0
+    }
+    
+    // MARK: Private
+
+    @State private var currentScale: CGFloat = 1.0
+    @State private var tapLocation = CGPoint.zero
 }
 
+// MARK: - ZoomableScrollView
+
 private struct ZoomableScrollView<Content: View>: UIViewRepresentable {
-    private var content: Content
-    @Binding private var currentScale: CGFloat
-    @Binding private var tapLocation: CGPoint
-    
+    // MARK: Lifecycle
+
     init(scale: Binding<CGFloat>, tapLocation: Binding<CGPoint>, @ViewBuilder content: () -> Content) {
         _currentScale = scale
         _tapLocation = tapLocation
         self.content = content()
     }
     
+    // MARK: Internal
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        // MARK: Lifecycle
+
+        init(hostingController: UIHostingController<Content>, scale: Binding<CGFloat>) {
+            self.hostingController = hostingController
+            _currentScale = scale
+        }
+        
+        // MARK: Internal
+
+        @Binding var currentScale: CGFloat
+        
+        var hostingController: UIHostingController<Content>
+
+        func viewForZooming(in _: UIScrollView) -> UIView? {
+            hostingController.view
+        }
+        
+        func scrollViewDidEndZooming(_: UIScrollView, with _: UIView?, atScale scale: CGFloat) {
+            currentScale = scale
+        }
+    }
+
     func makeUIView(context: Context) -> UIScrollView {
         // Setup the UIScrollView
         let scrollView = UIScrollView()
@@ -61,7 +88,7 @@ private struct ZoomableScrollView<Content: View>: UIViewRepresentable {
     }
     
     func makeCoordinator() -> Coordinator {
-        return Coordinator(hostingController: UIHostingController(rootView: content), scale: $currentScale)
+        Coordinator(hostingController: UIHostingController(rootView: content), scale: $currentScale)
     }
     
     func updateUIView(_ uiView: UIScrollView, context: Context) {
@@ -91,21 +118,10 @@ private struct ZoomableScrollView<Content: View>: UIViewRepresentable {
         return CGRect(x: x, y: y, width: width, height: height)
     }
     
-    class Coordinator: NSObject, UIScrollViewDelegate {
-        var hostingController: UIHostingController<Content>
-        @Binding var currentScale: CGFloat
-        
-        init(hostingController: UIHostingController<Content>, scale: Binding<CGFloat>) {
-            self.hostingController = hostingController
-            _currentScale = scale
-        }
-        
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-            hostingController.view
-        }
-        
-        func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
-            currentScale = scale
-        }
-    }
+    // MARK: Private
+
+    @Binding private var currentScale: CGFloat
+    @Binding private var tapLocation: CGPoint
+    
+    private var content: Content
 }

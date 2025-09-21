@@ -23,10 +23,10 @@ extension View {
         }
     }
     
-    @ViewBuilder func `if`<TrueContent: View, FalseContent: View>(
+    @ViewBuilder func `if`(
         _ condition: Bool,
-        _ transform: (Self) -> TrueContent,
-        else elseTransform: ((Self) -> FalseContent)? = nil
+        _ transform: (Self) -> some View,
+        else elseTransform: ((Self) -> some View)? = nil,
     ) -> some View {
         if condition {
             transform(self)
@@ -39,9 +39,9 @@ extension View {
         }
     }
     
-    @ViewBuilder func `if`<Content: View>(
+    @ViewBuilder func `if`(
         _ condition: Bool,
-        _ transform: (Self) -> Content
+        _ transform: (Self) -> some View,
     ) -> some View {
         if condition {
             transform(self)
@@ -50,7 +50,7 @@ extension View {
         }
     }
     
-    @ViewBuilder func modify<Content: View>(@ViewBuilder _ transform: (Self) -> Content?) -> some View {
+    @ViewBuilder func modify(@ViewBuilder _ transform: (Self) -> (some View)?) -> some View {
         if let view = transform(self), !(view is EmptyView) {
             view
         } else {
@@ -58,13 +58,12 @@ extension View {
         }
     }
     
-    @ViewBuilder func frame(size: CGSize?, alignment: Alignment = .center) -> some View {
+    func frame(size: CGSize?, alignment: Alignment = .center) -> some View {
         frame(width: size?.width, height: size?.height, alignment: alignment)
     }
     
     func flipped() -> some View {
-        self
-            .rotationEffect(.init(radians: .pi))
+        rotationEffect(.init(radians: .pi))
             .scaleEffect(x: -1, y: 1, anchor: .center)
     }
 }

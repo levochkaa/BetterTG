@@ -1,29 +1,28 @@
 #!/usr/bin/env swift sh
 
-//
-// This script will set up development environment. Much wow.
-//
-
-import Foundation
+// environment.swift
 
 import ArgumentParser // apple/swift-argument-parser ~> 1.0.0
+import Foundation
+
+// MARK: - ScriptError
 
 enum ScriptError: Error {
     case parseError(String)
     case runCommandFail(String)
 }
 
+// MARK: - EnvironmentScript
+
 struct EnvironmentScript: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "environment.swift",
-        abstract: "This script will set up the development environment by downloading all dependencies and generating all code."
+        abstract: "This script will set up the development environment by downloading all dependencies and generating all code.",
     )
 
-    @Argument(help: "Your API ID from https://my.telegram.org/")
-    var apiId: Int?
+    @Argument(help: "Your API ID from https://my.telegram.org/") var apiId: Int?
 
-    @Argument(help: "Your API hash from https://my.telegram.org/")
-    var apiHash: String?
+    @Argument(help: "Your API hash from https://my.telegram.org/") var apiHash: String?
 
     func run() throws {
         if let apiId, let apiHash {
@@ -63,8 +62,7 @@ struct EnvironmentScript: ParsableCommand {
     ///   - args: Args supplied to it
     /// - Throws: Any error, like being unable to parse command's response or a run failure.
     /// - Returns: Command's output
-    @discardableResult
-    func run(command: String, with args: [String]) throws -> Int32 {
+    @discardableResult func run(command: String, with args: [String]) -> Int32 {
         let task = Process()
         task.launchPath = "/usr/bin/env"
         task.arguments = [command] + args
@@ -79,8 +77,7 @@ struct EnvironmentScript: ParsableCommand {
     ///   - args: Args supplied to it
     /// - Throws: Any error, like being unable to parse command's response or a run failure.
     /// - Returns: Command's output
-    @discardableResult
-    func runWithOutput(command: String, with args: [String]) throws -> String {
+    @discardableResult func runWithOutput(command: String, with args: [String]) throws -> String {
         let which = Process()
         which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         which.arguments = [command] + args

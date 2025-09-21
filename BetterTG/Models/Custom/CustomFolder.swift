@@ -3,15 +3,27 @@
 import SwiftUI
 import TDLibKit
 
-@Observable class CustomFolder {
+// MARK: - CustomFolder
+
+@Observable final class CustomFolder {
+    // MARK: Lifecycle
+
     init(chats: [CustomChat], type: CustomFolderType) {
         self.chats = chats
         self.type = type
     }
     
+    // MARK: Internal
+
+    enum CustomFolderType: Equatable, Hashable {
+        case main
+        case archive
+        case folder(ChatFolderInfo, ChatFolder)
+    }
+
     var chats: [CustomChat]
     var type: CustomFolderType
-    var rect: CGRect = .zero
+    var rect = CGRect.zero
     var scrollViewProxy: ScrollViewProxy?
     
     var chatList: ChatList {
@@ -24,9 +36,9 @@ import TDLibKit
     
     var name: String {
         switch type {
-            case .main: "All"
-            case .archive: "Archive"
-            case .folder(let info, _): info.name.text.text
+        case .main: "All"
+        case .archive: "Archive"
+        case .folder(let info, _): info.name.text.text
         }
     }
     
@@ -43,13 +55,9 @@ import TDLibKit
         default: nil
         }
     }
-    
-    enum CustomFolderType: Equatable, Hashable {
-        case main
-        case archive
-        case folder(ChatFolderInfo, ChatFolder)
-    }
 }
+
+// MARK: Hashable
 
 extension CustomFolder: Hashable {
     func hash(into hasher: inout Hasher) {
@@ -58,15 +66,19 @@ extension CustomFolder: Hashable {
     }
 }
 
+// MARK: Identifiable
+
 extension CustomFolder: Identifiable {
     var id: Int {
         switch type {
-            case .main: 0
-            case .archive: -1
-            case .folder(let info, _): info.id
+        case .main: 0
+        case .archive: -1
+        case .folder(let info, _): info.id
         }
     }
 }
+
+// MARK: Equatable
 
 extension CustomFolder: Equatable {
     static func == (lhs: CustomFolder, rhs: CustomFolder) -> Bool {

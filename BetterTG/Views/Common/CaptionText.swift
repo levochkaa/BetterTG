@@ -8,6 +8,7 @@ struct CaptionText: View {
     var body: some View {
         Text(dateString)
             .font(.caption)
-            .foregroundStyle(.white).opacity(0.5)
+            .foregroundStyle(.white)
+            .opacity(0.5)
     }
 }

@@ -2,6 +2,8 @@
 
 import SwiftUI
 
+// MARK: - OpenedItem
+
 struct OpenedItem: Identifiable {
     var id: String
     var image: Image

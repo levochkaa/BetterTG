@@ -3,11 +3,13 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private class CustomUITextView: UITextView {
+// MARK: - CustomUITextView
+
+private final class CustomUITextView: UITextView {
     var isPastingText = false
     
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        guard let textInRange = self.text(in: textRange), !textInRange.isEmpty else {
+        guard let textInRange = text(in: textRange), !textInRange.isEmpty else {
             return UIMenu(children: suggestedActions)
         }
         
@@ -55,7 +57,7 @@ private class CustomUITextView: UITextView {
                 guard let self else { return }
                 textStorage.addAttribute(.backgroundColor, value: UIColor.gray, range: selectedRange)
                 delegate?.textViewDidChange?(self)
-            }
+            },
         ])
         
         var actions = suggestedActions
@@ -81,7 +83,47 @@ private class CustomUITextView: UITextView {
     }
 }
 
+// MARK: - UITextViewWrapper
+
 private struct UITextViewWrapper: UIViewRepresentable {
+    final class Coordinator: NSObject, UITextViewDelegate {
+        // MARK: Lifecycle
+
+        init(parent: UITextViewWrapper) {
+            self.parent = parent
+        }
+        
+        // MARK: Internal
+
+        let parent: UITextViewWrapper
+        
+        func textViewDidChange(_ uiView: UITextView) {
+            parent.text = AttributedString(uiView.attributedText)
+            parent.recalculateHeight(view: uiView)
+        }
+        
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText _: String) -> Bool {
+            guard let textView = textView as? CustomUITextView else { return false }
+            textView.typingAttributes = defaultAttributes()
+            
+            if textView.isPastingText {
+                defer { textView.isPastingText = false }
+                if let item = UIPasteboard.general.items.first,
+                   let data = (item[UTType.rtf.identifier] as? String)?.data(using: .utf8),
+                   let attributedString = try? NSAttributedString(data: data, documentAttributes: nil)
+                {
+                    let mutableAttributedString = NSMutableAttributedString(attributedString: textView.attributedText)
+                    mutableAttributedString.replaceCharacters(in: range, with: attributedString)
+                    textView.attributedText = mutableAttributedString
+                    textView.delegate?.textViewDidChange?(textView)
+                    return false
+                }
+            }
+            
+            return true
+        }
+    }
+
     @Binding var text: AttributedString
     @Binding var calculatedHeight: CGFloat
     
@@ -109,7 +151,7 @@ private struct UITextViewWrapper: UIViewRepresentable {
         return textView
     }
     
-    func updateUIView(_ uiView: CustomUITextView, context: Context) {
+    func updateUIView(_ uiView: CustomUITextView, context _: Context) {
         if AttributedString(uiView.attributedText) != text {
             uiView.attributedText = NSAttributedString(text)
         }
@@ -130,51 +172,13 @@ private struct UITextViewWrapper: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
-    
-    final class Coordinator: NSObject, UITextViewDelegate {
-        
-        let parent: UITextViewWrapper
-        
-        init(parent: UITextViewWrapper) {
-            self.parent = parent
-        }
-        
-        func textViewDidChange(_ uiView: UITextView) {
-            parent.text = AttributedString(uiView.attributedText)
-            parent.recalculateHeight(view: uiView)
-        }
-        
-        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            guard let textView = textView as? CustomUITextView else { return false }
-            textView.typingAttributes = defaultAttributes()
-            
-            if textView.isPastingText {
-                defer { textView.isPastingText = false }
-                if let item = UIPasteboard.general.items.first,
-                   let data = (item[UTType.rtf.identifier] as? String)?.data(using: .utf8),
-                   let attributedString = try? NSAttributedString(data: data, documentAttributes: nil) {
-                    let mutableAttributedString = NSMutableAttributedString(attributedString: textView.attributedText)
-                    mutableAttributedString.replaceCharacters(in: range, with: attributedString)
-                    textView.attributedText = mutableAttributedString
-                    textView.delegate?.textViewDidChange?(textView)
-                    return false
-                }
-            }
-            
-            return true
-        }
-    }
 }
 
+// MARK: - CustomTextField
+
 struct CustomTextField: View {
-    
-    private var placeholder: String
-    @Binding private var text: AttributedString
-    private var focus: Bool
-    
-    @State private var dynamicHeight: CGFloat = 36.333333333333336
-    @State private var showingPlaceholder = true
-    
+    // MARK: Lifecycle
+
     init(_ placeholder: String = "", text: Binding<AttributedString>, focus: Bool = false) {
         self.focus = focus
         self.placeholder = placeholder
@@ -182,6 +186,8 @@ struct CustomTextField: View {
         self._showingPlaceholder = State(initialValue: self.text.characters.isEmpty)
     }
     
+    // MARK: Internal
+
     var body: some View {
         UITextViewWrapper(text: $text, calculatedHeight: $dynamicHeight, becomeFirstResponer: focus)
             .frame(height: dynamicHeight)
@@ -197,4 +203,13 @@ struct CustomTextField: View {
                 }
             }
     }
+
+    // MARK: Private
+
+    @Binding private var text: AttributedString
+    @State private var dynamicHeight: CGFloat = 36.333333333333336
+    @State private var showingPlaceholder = true
+    
+    private var placeholder: String
+    private var focus: Bool
 }

@@ -1,42 +1,46 @@
 // TDLib.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
-import Combine
 
 var td: TDLibClient { TDLib.shared.td }
 
+// MARK: - TDLib
+
 final class TDLib: @unchecked Sendable {
-    static let shared = TDLib()
-    
-    fileprivate let td: TDLibClient
-    
+    // MARK: Lifecycle
+
     private init() {
-        td = manager.createClient { data, client in
+        self.td = manager.createClient { data, client in
             do {
-                update(try client.decoder.decode(Update.self, from: data))
+                try update(client.decoder.decode(Update.self, from: data))
             } catch {
                 log("Error TdLibUpdateHandler: \(error)")
             }
         }
     }
-    
-    private var cancellables = Set<AnyCancellable>()
-    private let manager = TDLibClientManager()
-    
+
+    // MARK: Internal
+
+    static let shared = TDLib()
+
     func startTdLibUpdateHandler() {
         // Xcode 15+ is unable to handle so many logs
         try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
-        
+
         nc.publisher(&cancellables, for: .authorizationStateWaitTdlibParameters) { _ in
             Task.background {
-                let dir = try FileManager.default.url(
-                    for: .documentDirectory,
-                    in: .userDomainMask,
-                    appropriateFor: nil,
-                    create: true
-                ).appending(path: "td").path()
-                
+                let dir = try FileManager.default
+                    .url(
+                        for: .documentDirectory,
+                        in: .userDomainMask,
+                        appropriateFor: nil,
+                        create: true,
+                    )
+                    .appending(path: "td")
+                    .path()
+
                 try await self.td.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
@@ -51,16 +55,16 @@ final class TDLib: @unchecked Sendable {
                     useFileDatabase: true,
                     useMessageDatabase: true,
                     useSecretChats: true,
-                    useTestDc: false
+                    useTestDc: false,
                 )
             }
         }
-        
+
         nc.publisher(&cancellables, for: UIApplication.willTerminateNotification) { [weak self] _ in
             self?.manager.closeClients()
         }
     }
-    
+
     func UpdateAuthorizationState(_ updateAuthorizationState: AuthorizationState) {
         switch updateAuthorizationState {
         case .authorizationStateWaitTdlibParameters:
@@ -76,7 +80,7 @@ final class TDLib: @unchecked Sendable {
         case .authorizationStateWaitOtherDeviceConfirmation(let authorizationStateWaitOtherDeviceConfirmation):
             nc.post(
                 name: .authorizationStateWaitOtherDeviceConfirmation,
-                object: authorizationStateWaitOtherDeviceConfirmation
+                object: authorizationStateWaitOtherDeviceConfirmation,
             )
         case .authorizationStateWaitRegistration(let authorizationStateWaitRegistration):
             nc.post(name: .authorizationStateWaitRegistration, object: authorizationStateWaitRegistration)
@@ -90,6 +94,17 @@ final class TDLib: @unchecked Sendable {
             nc.post(name: .authorizationStateClosing)
         case .authorizationStateClosed:
             nc.post(name: .authorizationStateClosed)
+        case .authorizationStateWaitPremiumPurchase(let authorizationStateWaitPremiumPurchase):
+            nc.post(name: .authorizationStateWaitPremiumPurchase, object: authorizationStateWaitPremiumPurchase)
         }
     }
+
+    // MARK: Fileprivate
+
+    fileprivate let td: TDLibClient
+
+    // MARK: Private
+
+    private var cancellables = Set<AnyCancellable>()
+    private let manager = TDLibClientManager()
 }

@@ -15,7 +15,8 @@ extension Foundation.Notification.Name {
     static let authorizationStateLoggingOut = Self("authorizationStateLoggingOut")
     static let authorizationStateClosing = Self("authorizationStateClosing")
     static let authorizationStateClosed = Self("authorizationStateClosed")
-    
+    static let authorizationStateWaitPremiumPurchase = Self("authorizationStateWaitPremiumPurchase")
+
     static let localScrollToLastOnFocus = Self("localScrollToLastOnFocus")
     static let localPasteImages = Self("localPasteImages")
     static let localOnSelectedImagesDrop = Self("localOnSelectedImagesDrop")

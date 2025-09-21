@@ -1,15 +1,15 @@
 // AsyncTdFile.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
-import Combine
 
 struct AsyncTdFile<Content: View, Placeholder: View>: View {
+    // MARK: Internal
+
     let id: Int
     @ViewBuilder let content: (File) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
-    
-    @State private var file: File?
     
     var body: some View {
         ZStack {
@@ -29,6 +29,10 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
         }
     }
     
+    // MARK: Private
+
+    @State private var file: File?
+    
     private func download(_ id: Int? = nil) async {
         do {
             let file = try await td.downloadFile(
@@ -36,7 +40,7 @@ struct AsyncTdFile<Content: View, Placeholder: View>: View {
                 limit: 0,
                 offset: 0,
                 priority: 1,
-                synchronous: false
+                synchronous: false,
             )
             withAnimation {
                 self.file = file

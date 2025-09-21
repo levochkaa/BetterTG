@@ -14,9 +14,9 @@ struct SelectCountryView: View {
         countryNums
             .filter { country in
                 query.isEmpty
-                || country.name.lowercased().contains(query.lowercased())
-                || country.phoneNumberPrefix.lowercased().contains(query.lowercased())
-                || country.country.lowercased().contains(query.lowercased())
+                    || country.name.lowercased().contains(query.lowercased())
+                    || country.phoneNumberPrefix.lowercased().contains(query.lowercased())
+                    || country.country.lowercased().contains(query.lowercased())
             }
     }
     
@@ -60,14 +60,14 @@ struct SelectCountryView: View {
         let selectedCountryNum = PhoneNumberInfo(
             country: country.countryCode,
             phoneNumberPrefix: country.callingCodes[0],
-            name: country.englishName
+            name: country.englishName,
         )
         let countryNums = countries
             .map {
                 PhoneNumberInfo(
                     country: $0.countryCode,
                     phoneNumberPrefix: $0.callingCodes[0],
-                    name: $0.englishName
+                    name: $0.englishName,
                 )
             }
             .sorted { $0.name < $1.name }
