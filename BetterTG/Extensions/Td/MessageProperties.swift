@@ -21,6 +21,7 @@ extension MessageProperties {
         canBeRepliedInAnotherChat: false,
         canBeSaved: false,
         canBeSharedInStory: false,
+        canDeleteReactions: false,
         canEditMedia: false,
         canEditSchedulingState: false,
         canEditSuggestedPostInfo: false,
@@ -29,6 +30,7 @@ extension MessageProperties {
         canGetLink: false,
         canGetMediaTimestampLinks: false,
         canGetMessageThread: false,
+        canGetPollVoteStatistics: false,
         canGetReadDate: false,
         canGetStatistics: false,
         canGetVideoAdvertisements: false,
@@ -39,6 +41,8 @@ extension MessageProperties {
         canReportReactions: false,
         canReportSupergroupSpam: false,
         canSetFactCheck: false,
+        hasProtectedContentByCurrentUser: false,
+        hasProtectedContentByOtherUser: false,
         needShowStatistics: false,
     )
 }

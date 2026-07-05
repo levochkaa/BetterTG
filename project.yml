@@ -1,0 +1,101 @@
+name: BetterTG
+options:
+  bundleIdPrefix: com.levochkaaa
+  minimumXcodeGenVersion: 2.45.4
+  xcodeVersion: 26.6
+  projectFormat: xcode16_3
+  indentWidth: 4
+  tabWidth: 4
+  deploymentTarget:
+    iOS: 26.0
+  groupSortPosition: top
+  generateEmptyDirectories: true
+  defaultSourceDirectoryType: syncedFolder
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_LANGUAGE: en
+    MARKETING_VERSION: 4
+    CURRENT_PROJECT_VERSION: 1
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+    CLANG_CXX_LANGUAGE_STANDARD: gnu++20
+    CODE_SIGN_IDENTITY: Apple Development
+    DEVELOPMENT_TEAM: 7Z2WHPKU8W
+    SDKROOT: iphoneos
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+    SWIFT_VERSION: "5.0"
+    WATCHOS_DEPLOYMENT_TARGET: 9.0
+packages:
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exactVersion: 1.5.2-tdlib-1.8.65-a17f87c4
+  MobileVLCKit:
+    url: https://github.com/levochkaa/MobileVLCKit
+    exactVersion: 3.7.3
+targets:
+  BetterTG:
+    type: application
+    platform: iOS
+    sources:
+      - path: BetterTG
+        excludes:
+          - Info.plist
+          - Secret/Secret.swift.gyb
+          - "**/.DS_Store"
+    dependencies:
+      - package: TDLibKit
+      - package: MobileVLCKit
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: ""
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_ASSET_PATHS: "\"BetterTG/Preview Assets.xcassets\""
+        ENABLE_PREVIEWS: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: BetterTG/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: BetterTG
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
+        INFOPLIST_KEY_NSCameraUsageDescription: We would like to access your Camera to let you send photos in chats.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: We would like to access your Microphone to let you send Voice messages in chats.
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: We would like to access Photos to save images you request.
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: We would like to access your Photos to let you send them in chats.
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UIStatusBarHidden: YES
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        IPHONEOS_DEPLOYMENT_TARGET: 26.0
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - "@executable_path/Frameworks"
+        OTHER_LDFLAGS: ""
+        PRODUCT_BUNDLE_IDENTIFIER: com.levochkaaa.BetterTG
+        PRODUCT_NAME: $(TARGET_NAME)
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        SUPPORTED_PLATFORMS: iphoneos iphonesimulator
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        SWIFT_EMIT_LOC_STRINGS: YES
+        SWIFT_USE_INTEGRATED_DRIVER: NO
+        TARGETED_DEVICE_FAMILY: 1
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+    postCompileScripts:
+      - name: SwiftFormat
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ -x /opt/homebrew/bin/swiftformat ]; then
+            /opt/homebrew/bin/swiftformat "$SRCROOT" --config "$SRCROOT/.swiftformat" --lint --lenient
+          else
+            echo "warning: SwiftFormat not installed. Install from https://github.com/nicklockwood/SwiftFormat (Homebrew: brew install swiftformat)"
+          fi
+    scheme:
+      gatherCoverageData: false

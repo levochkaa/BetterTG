@@ -43,8 +43,8 @@ private struct DraftMessageView: View {
                     .foregroundStyle(.white)
             }
             
-            if case .inputMessageText(let inputMessageText) = draftMessage.inputMessageText {
-                Text(getAttributedString(from: inputMessageText.text, .gray))
+            if case .draftMessageContentText(let draftMessageContentText) = draftMessage.content {
+                Text(getAttributedString(from: draftMessageContentText.text, .gray))
             }
         }
     }
