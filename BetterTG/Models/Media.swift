@@ -46,6 +46,11 @@ final class Media: ObservableObject {
         player.jumpBackward(5)
     }
 
+    func seek(to timeInterval: TimeInterval) {
+        guard player.media != nil else { return }
+        seekTo(max(0, min(TimeInterval(duration), timeInterval)))
+    }
+
     func toggle(with path: String, duration: Int) {
         self.duration = duration
         if savedMediaPath.isEmpty || savedMediaPath != path {

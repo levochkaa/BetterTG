@@ -61,8 +61,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         self.formattedText = formattedText
         maximumLayoutWidth = maximumWidth
         let result = NSMutableAttributedString(attributedString: NSAttributedString(getAttributedString(from: formattedText)))
+        let statusSpacer = NSTextAttachment()
+        statusSpacer.bounds = CGRect(x: 0, y: 0, width: 9, height: 1)
+        result.append(NSAttributedString(attachment: statusSpacer))
         result.append(NSAttributedString(
-            string: "\u{00A0}\u{00A0}\(statusText)",
+            string: statusText,
             attributes: [
                 .font: UIFont.caption,
                 .foregroundColor: statusColor,
