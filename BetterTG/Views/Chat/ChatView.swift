@@ -6,7 +6,8 @@ import TDLibKit
 import UIKit
 
 final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
-    PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate
+    PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
+    UIGestureRecognizerDelegate
 {
     // MARK: Lifecycle
 
@@ -214,9 +215,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
-        collectionView.addGestureRecognizer(
-            UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:))),
-        )
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        collectionView.addGestureRecognizer(tapGesture)
+        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        longPressGesture.delegate = self
+        collectionView.addGestureRecognizer(longPressGesture)
         historyContainerView.addSubview(collectionView)
         var constraints = [
             historyContainerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -581,7 +586,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let message = message(for: messageID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
-        presentTelegramContextMenu(sourceView: cell.contextPreviewView, actions: menu(for: message))
+        presentTelegramContextMenu(
+            sourceView: cell.contextPreviewView,
+            actions: menu(for: message),
+            tracking: gesture,
+        )
+    }
+
+    @objc private func historyTapped() {
+        view.endEditing(true)
+    }
+
+    func gestureRecognizer(
+        _: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer,
+    ) -> Bool {
+        true
     }
 
     private func menu(for message: CustomMessage) -> [TelegramContextMenuAction] {

@@ -196,6 +196,6 @@ final class ProfileAvatarView: UIView {
                 guard let image = self?.imageView.image else { return }
                 UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
             },
-        ])
+        ], tracking: gesture)
     }
 }

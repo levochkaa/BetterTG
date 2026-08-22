@@ -19,6 +19,20 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         linkTextAttributes = [.foregroundColor: UIColor.systemBlue]
         adjustsFontForContentSizeCategory = true
         setContentCompressionResistancePriority(.required, for: .vertical)
+        statusLabel.font = .caption
+        statusLabel.textAlignment = .right
+        statusLabel.isUserInteractionEnabled = false
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(statusLabel)
+        NSLayoutConstraint.activate([
+            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        // Keep links tappable, but let the cell's custom context-menu gesture own long presses.
+        gestureRecognizers?
+            .compactMap { $0 as? UILongPressGestureRecognizer }
+            .forEach { $0.isEnabled = false }
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleCodeTap(_:))))
     }
 
@@ -51,6 +65,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private var formattedText: FormattedText?
     private var lastLayoutWidth = CGFloat.zero
     private var maximumLayoutWidth = Utils.maxMessageContentWidth
+    private let statusLabel = UILabel()
+
+    private static let transparentPixel: UIImage = UIGraphicsImageRenderer(
+        size: CGSize(width: 1, height: 1),
+    ).image { _ in }
 
     func configure(
         formattedText: FormattedText,
@@ -60,18 +79,21 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     ) {
         self.formattedText = formattedText
         maximumLayoutWidth = maximumWidth
+        statusLabel.text = statusText
+        statusLabel.textColor = statusColor
+        statusLabel.sizeToFit()
         let result = NSMutableAttributedString(attributedString: NSAttributedString(getAttributedString(from: formattedText)))
         let statusSpacer = NSTextAttachment()
-        statusSpacer.bounds = CGRect(x: 0, y: 0, width: 9, height: 1)
+        statusSpacer.image = Self.transparentPixel
+        statusSpacer.bounds = CGRect(
+            x: 0,
+            y: -2,
+            width: ceil(statusLabel.bounds.width) + 9,
+            height: statusLabel.font.lineHeight,
+        )
         result.append(NSAttributedString(attachment: statusSpacer))
-        result.append(NSAttributedString(
-            string: statusText,
-            attributes: [
-                .font: UIFont.caption,
-                .foregroundColor: statusColor,
-            ],
-        ))
         attributedText = result
+        bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
         accessibilityLabel = formattedText.text
     }

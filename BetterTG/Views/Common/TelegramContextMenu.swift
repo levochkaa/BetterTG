@@ -25,25 +25,43 @@ struct TelegramContextMenuAction {
 }
 
 extension UIViewController {
-    func presentTelegramContextMenu(sourceView: UIView, actions: [TelegramContextMenuAction]) {
+    func presentTelegramContextMenu(
+        sourceView: UIView,
+        actions: [TelegramContextMenuAction],
+        tracking gesture: UILongPressGestureRecognizer? = nil,
+    ) {
         guard !actions.isEmpty, presentedViewController == nil else { return }
-        let controller = TelegramContextMenuController(sourceView: sourceView, actions: actions)
+        let controller = TelegramContextMenuController(
+            sourceView: sourceView,
+            actions: actions,
+            trackingGesture: gesture,
+        )
         present(controller, animated: false)
     }
 }
 
 private final class TelegramContextMenuController: UIViewController {
-    init(sourceView: UIView, actions: [TelegramContextMenuAction]) {
+    init(
+        sourceView: UIView,
+        actions: [TelegramContextMenuAction],
+        trackingGesture: UILongPressGestureRecognizer?,
+    ) {
         self.sourceView = sourceView
         self.actions = actions
+        self.trackingGesture = trackingGesture
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
         modalPresentationCapturesStatusBarAppearance = true
+        trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
     override func viewDidLoad() {
@@ -63,13 +81,20 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private weak var sourceView: UIView?
+    private weak var trackingGesture: UILongPressGestureRecognizer?
     private let actions: [TelegramContextMenuAction]
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
     private let dimView = UIView()
     private let previewContainer = UIView()
-    private let menuEffectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let menuEffectView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        return UIVisualEffectView(effect: effect)
+    }()
     private let menuStack = UIStackView()
     private var previewView: UIView?
+    private var actionButtons = [TelegramContextMenuActionButton]()
+    private weak var trackedButton: TelegramContextMenuActionButton?
     private var hasAnimatedIn = false
 
     private func configureViews() {
@@ -100,8 +125,9 @@ private final class TelegramContextMenuController: UIViewController {
             previewView = snapshot
         }
 
-        menuEffectView.layer.cornerRadius = 14
+        menuEffectView.layer.cornerRadius = 26
         menuEffectView.layer.cornerCurve = .continuous
+        menuEffectView.cornerConfiguration = .corners(radius: 26)
         menuEffectView.clipsToBounds = true
         menuEffectView.alpha = 0
         view.addSubview(menuEffectView)
@@ -121,17 +147,18 @@ private final class TelegramContextMenuController: UIViewController {
             if index > 0 {
                 let separator = UIView()
                 separator.backgroundColor = action.startsNewSection
-                    ? UIColor.separator.withAlphaComponent(0.9)
-                    : UIColor.separator.withAlphaComponent(0.55)
+                    ? .clear
+                    : UIColor.separator.withAlphaComponent(0.32)
                 separator.translatesAutoresizingMaskIntoConstraints = false
-                separator.heightAnchor.constraint(equalToConstant: action.startsNewSection ? 7 : 1 / traitCollection.displayScale)
+                separator.heightAnchor.constraint(equalToConstant: action.startsNewSection ? 8 : 1 / traitCollection.displayScale)
                     .isActive = true
                 menuStack.addArrangedSubview(separator)
             }
             let button = TelegramContextMenuActionButton(action: action)
             button.addTarget(self, action: #selector(actionPressed(_:)), for: .touchUpInside)
-            button.heightAnchor.constraint(equalToConstant: 50).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 52).isActive = true
             menuStack.addArrangedSubview(button)
+            actionButtons.append(button)
         }
     }
 
@@ -150,9 +177,9 @@ private final class TelegramContextMenuController: UIViewController {
         previewView?.frame = previewContainer.bounds
 
         let separatorHeight = actions.dropFirst().reduce(CGFloat.zero) {
-            $0 + ($1.startsNewSection ? 7 : 1 / traitCollection.displayScale)
+            $0 + ($1.startsNewSection ? 8 : 1 / traitCollection.displayScale)
         }
-        let menuHeight = CGFloat(actions.count) * 50 + separatorHeight
+        let menuHeight = CGFloat(actions.count) * 52 + separatorHeight
         let menuWidth = min(CGFloat(260), availableWidth)
         let menuX = sourceFrame.midX > view.bounds.midX
             ? view.bounds.width - horizontalInset - menuWidth
@@ -209,8 +236,41 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     @objc private func actionPressed(_ sender: TelegramContextMenuActionButton) {
-        let handler = sender.menuAction.handler
+        perform(sender)
+    }
+
+    private func perform(_ button: TelegramContextMenuActionButton) {
+        trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
+        let handler = button.menuAction.handler
         dismissMenu(completion: handler)
+    }
+
+    @objc private func trackingGestureChanged(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .changed:
+            updateTrackedButton(at: gesture.location(in: view))
+        case .ended:
+            if let trackedButton {
+                perform(trackedButton)
+            }
+        case .cancelled, .failed:
+            updateTrackedButton(at: nil)
+        default:
+            break
+        }
+    }
+
+    private func updateTrackedButton(at location: CGPoint?) {
+        let button = location.flatMap { point in
+            actionButtons.first { $0.convert($0.bounds, to: view).contains(point) }
+        }
+        guard trackedButton !== button else { return }
+        trackedButton?.setTracked(false)
+        button?.setTracked(true)
+        trackedButton = button
+        if button != nil {
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
     }
 }
 
@@ -220,6 +280,14 @@ private final class TelegramContextMenuActionButton: UIControl {
     init(action: TelegramContextMenuAction) {
         menuAction = action
         super.init(frame: .zero)
+
+        highlightView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        highlightView.layer.cornerRadius = 20
+        highlightView.layer.cornerCurve = .continuous
+        highlightView.alpha = 0
+        highlightView.isUserInteractionEnabled = false
+        highlightView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(highlightView)
 
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
@@ -236,6 +304,10 @@ private final class TelegramContextMenuActionButton: UIControl {
         addSubview(iconView)
 
         NSLayoutConstraint.activate([
+            highlightView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            highlightView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            highlightView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            highlightView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: iconView.leadingAnchor, constant: -12),
@@ -254,11 +326,34 @@ private final class TelegramContextMenuActionButton: UIControl {
     }
 
     override var isHighlighted: Bool {
-        didSet { backgroundColor = isHighlighted ? UIColor.white.withAlphaComponent(0.09) : .clear }
+        didSet { updateHighlight(animated: true) }
     }
 
+    func setTracked(_ tracked: Bool) {
+        isTracked = tracked
+        updateHighlight(animated: true)
+    }
+
+    private func updateHighlight(animated: Bool) {
+        let changes = {
+            self.highlightView.alpha = self.isHighlighted || self.isTracked ? 1 : 0
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.16,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState],
+                animations: changes,
+            )
+        } else {
+            changes()
+        }
+    }
+
+    private let highlightView = UIView()
     private let titleLabel = UILabel()
     private let iconView = UIImageView()
+    private var isTracked = false
 }
 
 extension UIView {

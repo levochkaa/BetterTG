@@ -375,7 +375,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
               let chat = chat(for: chatID),
               let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
         else { return }
-        presentTelegramContextMenu(sourceView: cell.contextPreviewView, actions: menu(for: chat))
+        presentTelegramContextMenu(sourceView: cell.contextPreviewView, actions: menu(for: chat), tracking: gesture)
     }
 
     private func confirmDelete(chat: CustomChat, forAll: Bool) {
