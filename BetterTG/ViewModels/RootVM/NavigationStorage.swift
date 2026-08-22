@@ -6,7 +6,7 @@ import UIKit
 final class NavigationStorage {
     private init() {
         navigationController.navigationBar.prefersLargeTitles = false
-        navigationController.navigationBar.isTranslucent = false
+        navigationController.navigationBar.isTranslucent = true
     }
 
     static let shared = NavigationStorage()

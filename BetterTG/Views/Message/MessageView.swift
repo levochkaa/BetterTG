@@ -8,7 +8,6 @@ final class MessageCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
         configureViews()
         configureConstraints()
     }
@@ -26,6 +25,8 @@ final class MessageCell: UICollectionViewCell {
         replyView.isHidden = true
         textView.isHidden = true
         mediaView.isHidden = true
+        timestampLabel.isHidden = true
+        mediaTimestampLabel.isHidden = true
         onReplyTap = nil
         onMediaTap = nil
     }
@@ -39,6 +40,7 @@ final class MessageCell: UICollectionViewCell {
     private let mediaView = MessageMediaView()
     private let textView = MessageTextContentView()
     private let timestampLabel = UILabel()
+    private let mediaTimestampLabel = UILabel()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
     private var onReplyTap: ((Int64) -> Void)?
@@ -70,23 +72,29 @@ final class MessageCell: UICollectionViewCell {
             replyView.isHidden = true
         }
 
-        mediaView.isHidden = !mediaView.configure(message: message) { [weak self] messages, selection in
+        let hasMedia = mediaView.configure(message: message) { [weak self] messages, selection in
             self?.onMediaTap?(messages, selection)
         }
+        mediaView.isHidden = !hasMedia
+
+        let timestamp = Self.timeFormatter.string(from: message.date)
+        let timestampText = message.sendFailed ? "Failed • \(timestamp)" : timestamp
+        let timestampColor: UIColor = message.sendFailed ? .systemRed : .tertiaryLabel
         if let formatted = message.formattedText {
             textView.isHidden = false
-            textView.configure(formattedText: formatted)
+            textView.configure(formattedText: formatted, statusText: timestampText, statusColor: timestampColor)
         } else {
             textView.isHidden = true
         }
 
-        timestampLabel.text = Self.timeFormatter.string(from: message.date)
-        if message.sendFailed {
-            timestampLabel.text = "Failed • \(timestampLabel.text ?? "")"
-            timestampLabel.textColor = .systemRed
-        } else {
-            timestampLabel.textColor = .tertiaryLabel
-        }
+        timestampLabel.text = timestampText
+        timestampLabel.textColor = timestampColor
+        mediaTimestampLabel.text = timestampText
+        mediaTimestampLabel.textColor = message.sendFailed ? .systemRed : .white
+        let hasVisualMedia = hasMedia && message.hasVisualMedia
+        timestampLabel.isHidden = message.formattedText != nil || hasVisualMedia
+        mediaTimestampLabel.isHidden = message.formattedText != nil || !hasVisualMedia
+        mediaView.bringSubviewToFront(mediaTimestampLabel)
 
         if let sender = message.senderUser, chat.shouldShowProfileImage, !message.message.isOutgoing {
             avatarView.isHidden = false
@@ -149,6 +157,22 @@ final class MessageCell: UICollectionViewCell {
         textView.isHidden = true
         timestampLabel.font = .preferredFont(forTextStyle: .caption2)
         timestampLabel.textAlignment = .right
+        timestampLabel.isHidden = true
+
+        mediaTimestampLabel.translatesAutoresizingMaskIntoConstraints = false
+        mediaTimestampLabel.font = .preferredFont(forTextStyle: .caption2)
+        mediaTimestampLabel.textAlignment = .center
+        mediaTimestampLabel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        mediaTimestampLabel.layer.cornerRadius = 8
+        mediaTimestampLabel.clipsToBounds = true
+        mediaTimestampLabel.isHidden = true
+        mediaView.addSubview(mediaTimestampLabel)
+        NSLayoutConstraint.activate([
+            mediaTimestampLabel.trailingAnchor.constraint(equalTo: mediaView.trailingAnchor, constant: -6),
+            mediaTimestampLabel.bottomAnchor.constraint(equalTo: mediaView.bottomAnchor, constant: -5),
+            mediaTimestampLabel.heightAnchor.constraint(equalToConstant: 17),
+            mediaTimestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
+        ])
 
         for view in [forwardedLabel, replyView, mediaView, textView, timestampLabel] {
             bubbleStack.addArrangedSubview(view)
@@ -245,5 +269,17 @@ final class ReplySnippetView: UIControl {
 
     @objc private func tapped() {
         onTap?()
+    }
+}
+
+private extension CustomMessage {
+    var hasVisualMedia: Bool {
+        if !album.isEmpty { return true }
+        return switch message.content {
+        case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+            true
+        default:
+            false
+        }
     }
 }

@@ -25,8 +25,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private func configureAppearance() {
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .black
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterialDark)
+        appearance.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        appearance.shadowColor = UIColor.separator.withAlphaComponent(0.35)
         appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
         appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
         UINavigationBar.appearance().standardAppearance = appearance

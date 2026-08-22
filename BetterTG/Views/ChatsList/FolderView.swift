@@ -4,7 +4,7 @@ import Combine
 import TDLibKit
 import UIKit
 
-final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching, UISearchResultsUpdating {
+final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching, UISearchBarDelegate {
     // MARK: Lifecycle
 
     init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
@@ -33,17 +33,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.separatorStyle = .none
         tableView.rowHeight = 84
         tableView.keyboardDismissMode = .interactive
+        tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 48
+        tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 48
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
         configureDataSource()
+        configureSearch()
         if showsStandaloneSearch {
             title = folder.name
-            let searchController = UISearchController(searchResultsController: nil)
-            searchController.obscuresBackgroundDuringPresentation = false
-            searchController.searchResultsUpdater = self
-            searchController.searchBar.placeholder = "Search \(folder.name.lowercased())…"
-            navigationItem.searchController = searchController
-            navigationItem.hidesSearchBarWhenScrolling = false
         }
         updateSnapshot(animated: false)
         startStateUpdates()
@@ -52,6 +49,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         warmVisibleChats()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard searchBar.frame.width != tableView.bounds.width else { return }
+        searchBar.frame.size.width = tableView.bounds.width
+        tableView.tableHeaderView = searchBar
     }
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -95,13 +99,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    func updateSearchResults(for searchController: UISearchController) {
-        updateQuery(searchController.searchBar.text ?? "")
+    func searchBar(_: UISearchBar, textDidChange searchText: String) {
+        if !showsStandaloneSearch {
+            rootVM.query = searchText
+        }
+        updateQuery(searchText)
     }
 
     func updateQuery(_ query: String) {
         guard self.query != query else { return }
         self.query = query
+        if searchBar.text != query {
+            searchBar.text = query
+        }
         updateSnapshot(animated: true)
     }
 
@@ -118,6 +128,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private let rootVM: RootVM
     private let showsStandaloneSearch: Bool
+    private let searchBar = UISearchBar(frame: CGRect(x: 0, y: 0, width: 0, height: 52))
     private var query = ""
     private var cancellables = Set<AnyCancellable>()
     private var chatCancellables = Set<AnyCancellable>()
@@ -133,6 +144,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     || $0.user?.firstName.localizedCaseInsensitiveContains(query) == true
                     || $0.user?.lastName.localizedCaseInsensitiveContains(query) == true
             }
+    }
+
+    private func configureSearch() {
+        searchBar.delegate = self
+        searchBar.searchBarStyle = .minimal
+        searchBar.placeholder = showsStandaloneSearch ? "Search \(folder.name.lowercased())…" : "Search chats…"
+        searchBar.autocapitalizationType = .none
+        let initialQuery = showsStandaloneSearch ? "" : rootVM.query
+        searchBar.text = initialQuery
+        query = initialQuery
+        tableView.tableHeaderView = searchBar
     }
 
     private func configureDataSource() {

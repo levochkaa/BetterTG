@@ -4,6 +4,8 @@ import TDLibKit
 import UIKit
 
 final class MessageTextContentView: UITextView, UITextViewDelegate {
+    override var canBecomeFirstResponder: Bool { false }
+
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
         backgroundColor = .clear
@@ -12,6 +14,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         isSelectable = true
         textContainerInset = .zero
         self.textContainer.lineFragmentPadding = 0
+        self.textContainer.lineBreakMode = .byWordWrapping
         delegate = self
         linkTextAttributes = [.foregroundColor: UIColor.systemBlue]
         adjustsFontForContentSizeCategory = true
@@ -25,8 +28,15 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     }
 
     override var intrinsicContentSize: CGSize {
-        let targetWidth = bounds.width > 0 ? bounds.width : Utils.maxMessageContentWidth
-        return sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+        guard attributedText.length > 0 else { return .zero }
+        let measured = attributedText.boundingRect(
+            with: CGSize(width: maximumLayoutWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil,
+        )
+        let width = min(maximumLayoutWidth, ceil(measured.width))
+        let fitted = sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
     }
 
     override func layoutSubviews() {
@@ -40,10 +50,25 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     private var formattedText: FormattedText?
     private var lastLayoutWidth = CGFloat.zero
+    private var maximumLayoutWidth = Utils.maxMessageContentWidth
 
-    func configure(formattedText: FormattedText) {
+    func configure(
+        formattedText: FormattedText,
+        statusText: String,
+        statusColor: UIColor,
+        maximumWidth: CGFloat = Utils.maxMessageContentWidth,
+    ) {
         self.formattedText = formattedText
-        attributedText = NSAttributedString(getAttributedString(from: formattedText))
+        maximumLayoutWidth = maximumWidth
+        let result = NSMutableAttributedString(attributedString: NSAttributedString(getAttributedString(from: formattedText)))
+        result.append(NSAttributedString(
+            string: "\u{00A0}\u{00A0}\(statusText)",
+            attributes: [
+                .font: UIFont.caption,
+                .foregroundColor: statusColor,
+            ],
+        ))
+        attributedText = result
         invalidateIntrinsicContentSize()
         accessibilityLabel = formattedText.text
     }

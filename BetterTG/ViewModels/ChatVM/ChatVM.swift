@@ -193,6 +193,63 @@ import UIKit
         }
     }
 
+    func displayedMessageID(containing messageID: Int64) -> Int64? {
+        messages.first(where: { message in
+            message.id == messageID || message.album.contains(where: { $0.id == messageID })
+        })?.id
+    }
+
+    func ensureMessageLoaded(id: Int64) async -> Int64? {
+        if let displayedID = displayedMessageID(containing: id) {
+            return displayedID
+        }
+
+        var history = (try? await td.getChatHistory(
+            chatId: chatID,
+            fromMessageId: id,
+            limit: 30,
+            offset: -15,
+            onlyLocal: false,
+        ).messages) ?? []
+        if !history.contains(where: { $0.id == id }),
+           let target = try? await td.getMessage(chatId: chatID, messageId: id)
+        {
+            history.append(target)
+        }
+        guard !history.isEmpty else { return nil }
+
+        let loaded = await history.asyncMap { await getCustomMessage(from: $0) }
+        var grouped = [CustomMessage]()
+        for message in loaded {
+            let albumID = message.message.mediaAlbumId
+            if albumID != 0, let existing = grouped.first(where: { $0.message.mediaAlbumId == albumID }) {
+                if !existing.album.contains(where: { $0.id == message.id }) {
+                    existing.album.append(message.message)
+                }
+            } else {
+                grouped.append(message)
+            }
+        }
+
+        var merged = messages
+        for message in grouped {
+            let albumID = message.message.mediaAlbumId
+            if albumID != 0, let existing = merged.first(where: { $0.message.mediaAlbumId == albumID }) {
+                let knownIDs = Set(existing.album.map(\.id))
+                existing.album.append(contentsOf: message.album.filter { !knownIDs.contains($0.id) })
+                existing.album.sort { lhs, rhs in
+                    lhs.date == rhs.date ? lhs.id > rhs.id : lhs.date > rhs.date
+                }
+            } else if !merged.contains(where: { $0.id == message.id }) {
+                merged.append(message)
+            }
+        }
+        messages = merged.sorted { lhs, rhs in
+            lhs.message.date == rhs.message.date ? lhs.id > rhs.id : lhs.message.date > rhs.message.date
+        }
+        return displayedMessageID(containing: id)
+    }
+
     func deleteMessage(id: Int64, deleteForBoth: Bool) {
         guard let customMessage = messages.first(where: { $0.message.id == id }) else { return }
         let ids = customMessage.album.isEmpty ? [id] : customMessage.album.map(\.id)

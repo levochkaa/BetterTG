@@ -21,7 +21,12 @@ final class ChatComposerView: UIView {
     var onTakePhoto: (() -> Void)?
     var onScrollToMessage: ((Int64) -> Void)?
 
+    func focusInput() {
+        textView.becomeFirstResponder()
+    }
+
     private let chatVM: ChatVM
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let rootStack = UIStackView()
     private let replyRow = UIStackView()
     private let replySnippet = ReplySnippetView()
@@ -45,15 +50,23 @@ final class ChatComposerView: UIView {
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.96)
+        backgroundColor = .clear
         layer.cornerRadius = 18
         layer.cornerCurve = .continuous
+        clipsToBounds = true
+
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(blurView)
 
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         rootStack.axis = .vertical
         rootStack.spacing = 6
         addSubview(rootStack)
         NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),

@@ -41,9 +41,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         Task { [chatVM] in await chatVM.updateDraft() }
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-keyboard") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.composerView.focusInput()
+        }
+        #endif
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard chatVM.customChat.canPostMessages else { return }
+        let bottomInset = composerView.bounds.height + 10
+        guard abs(collectionView.contentInset.bottom - bottomInset) > 0.5 else { return }
+        let keepLatestVisible = didPerformInitialScroll && isNearLatest
+        collectionView.contentInset.bottom = bottomInset
+        collectionView.verticalScrollIndicatorInsets.bottom = bottomInset
+        if keepLatestVisible {
+            DispatchQueue.main.async { [weak self] in self?.scrollToLatestMessage(animated: false) }
+        }
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
-        let isAwayFromLatest = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 160
+        let latestOffset = max(
+            -scrollView.adjustedContentInset.top,
+            scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom,
+        )
+        let isAwayFromLatest = latestOffset - scrollView.contentOffset.y > 160
         let targetAlpha = isAwayFromLatest ? CGFloat(1) : 0
         guard scrollToLatestButton.alpha != targetAlpha else { return }
         UIView.animate(withDuration: 0.2) { self.scrollToLatestButton.alpha = targetAlpha }
@@ -78,7 +105,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
         chatVM.viewMessage(id: messageID)
-        if indexPath.item >= max(chatVM.messages.count - 5, 0) {
+        if indexPath.item <= 4 {
             chatVM.loadMessages()
         }
     }
@@ -139,6 +166,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let unreadBadgeLabel = UILabel()
     private var didPresentMicrophoneError = false
     private var lastHighlightedMessageID: Int64?
+    private var didPerformInitialScroll = false
+    private var pendingScrollMessageID: Int64?
 
     private func makeLayout() -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
@@ -180,7 +209,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.alwaysBounceVertical = true
         collectionView.keyboardDismissMode = .interactive
         collectionView.showsVerticalScrollIndicator = false
-        collectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
@@ -200,7 +228,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 5),
                 composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -5),
                 composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -5),
-                collectionView.bottomAnchor.constraint(equalTo: composerView.topAnchor, constant: -5),
+                collectionView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             ])
         } else {
             constraints.append(collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor))
@@ -338,10 +366,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateSnapshot(animated: Bool) {
         guard isViewLoaded else { return }
         subscribeToMessages()
+        let shouldKeepLatestVisible = !didPerformInitialScroll || isNearLatest
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.messages])
-        snapshot.appendItems(chatVM.messages.map(\.id))
-        dataSource.apply(snapshot, animatingDifferences: animated)
+        snapshot.appendItems(chatVM.messages.reversed().map(\.id))
+        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+            guard let self, !snapshot.itemIdentifiers.isEmpty else { return }
+            if let pendingScrollMessageID {
+                self.pendingScrollMessageID = nil
+                scrollToLoadedMessage(id: pendingScrollMessageID)
+            } else if shouldKeepLatestVisible {
+                scrollToLatestMessage(animated: false)
+            }
+            didPerformInitialScroll = true
+        }
         collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
     }
 
@@ -366,8 +404,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         label.text = "No messages"
         label.textColor = .secondaryLabel
         label.textAlignment = .center
-        label.transform = CGAffineTransform(scaleX: 1, y: -1)
         return label
+    }
+
+    private var isNearLatest: Bool {
+        let latestOffset = max(
+            -collectionView.adjustedContentInset.top,
+            collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom,
+        )
+        return latestOffset - collectionView.contentOffset.y < 100
     }
 
     private func message(for id: Int64) -> CustomMessage? {
@@ -375,6 +420,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToMessage(id: Int64) {
+        if let displayedID = chatVM.displayedMessageID(containing: id) {
+            scrollToLoadedMessage(id: displayedID)
+            return
+        }
+        Task { [weak self] in
+            guard let self, let displayedID = await chatVM.ensureMessageLoaded(id: id) else { return }
+            pendingScrollMessageID = displayedID
+            updateSnapshot(animated: false)
+        }
+    }
+
+    private func scrollToLoadedMessage(id: Int64) {
         guard let index = dataSource.snapshot().indexOfItem(id) else { return }
         collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .centeredVertically, animated: true)
         chatVM.highlightedMessageId = id
@@ -386,8 +443,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     @objc private func scrollToLatest() {
-        guard !chatVM.messages.isEmpty else { return }
-        collectionView.scrollToItem(at: IndexPath(item: 0, section: 0), at: .bottom, animated: true)
+        scrollToLatestMessage(animated: true)
+    }
+
+    private func scrollToLatestMessage(animated: Bool) {
+        let items = dataSource.snapshot().numberOfItems
+        guard items > 0 else { return }
+        collectionView.scrollToItem(at: IndexPath(item: items - 1, section: 0), at: .bottom, animated: animated)
     }
 
     private func showPhotoPicker() {

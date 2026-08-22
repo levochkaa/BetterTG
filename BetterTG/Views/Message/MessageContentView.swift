@@ -122,8 +122,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 220),
-            widthAnchor.constraint(equalToConstant: 280),
+            heightConstraint,
+            widthConstraint,
         ])
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }
@@ -136,6 +136,9 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
 
     func configure(photo: Photo, onTap: @escaping () -> Void) {
         self.onTap = onTap
+        let displaySize = telegramMediaDisplaySize(source: telegramPhotoSize(photo))
+        widthConstraint.constant = displaySize.width
+        heightConstraint.constant = displaySize.height
         imageView.load(photo: photo, preferredSize: .yBox)
     }
 
@@ -147,6 +150,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     // MARK: Private
 
     private let imageView = TDImageLoadingView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
 
     @objc private func tapped() {
@@ -162,8 +167,8 @@ final class AlbumMediaView: UIView, ReusableMediaView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
-        heightAnchor.constraint(equalToConstant: 240).isActive = true
-        widthAnchor.constraint(equalToConstant: 280).isActive = true
+        layer.cornerRadius = 13
+        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -174,32 +179,8 @@ final class AlbumMediaView: UIView, ReusableMediaView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let spacing = CGFloat(1)
-        let count = imageViews.count
-        guard count > 0 else { return }
-        if count == 1 {
-            imageViews[0].frame = bounds
-            return
-        }
-        if count == 2 {
-            let width = (bounds.width - spacing) / 2
-            imageViews[0].frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
-            imageViews[1].frame = CGRect(x: width + spacing, y: 0, width: width, height: bounds.height)
-            return
-        }
-        let columns = 2
-        let rows = Int(ceil(Double(count) / Double(columns)))
-        let itemWidth = (bounds.width - spacing) / CGFloat(columns)
-        let itemHeight = (bounds.height - CGFloat(rows - 1) * spacing) / CGFloat(rows)
-        for (index, imageView) in imageViews.enumerated() {
-            let row = index / columns
-            let column = index % columns
-            imageView.frame = CGRect(
-                x: CGFloat(column) * (itemWidth + spacing),
-                y: CGFloat(row) * (itemHeight + spacing),
-                width: itemWidth,
-                height: itemHeight,
-            )
+        for (tile, frame) in zip(tiles, itemFrames) {
+            tile.frame = frame
         }
     }
 
@@ -207,40 +188,117 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         prepareForReuse()
         self.messages = messages
         self.onTap = onTap
+        let itemSizes = messages.map(telegramMessageMediaSize)
+        let (layout, size) = telegramMessageBubbleMosaicLayout(
+            maxSize: CGSize(width: 280, height: 320),
+            itemSizes: itemSizes,
+        )
+        itemFrames = layout.map(\.0)
+        widthConstraint.constant = size.width
+        heightConstraint.constant = size.height
         for (index, message) in messages.enumerated() {
-            guard case .messagePhoto(let photo) = message.content else { continue }
-            let imageView = TDImageLoadingView()
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.tag = index
-            imageView.isUserInteractionEnabled = true
-            imageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(imageTapped(_:))))
-            imageView.load(photo: photo.photo, preferredSize: .yBox)
-            addSubview(imageView)
-            imageViews.append(imageView)
+            let tile = AlbumMediaTileView()
+            tile.tag = index
+            tile.addTarget(self, action: #selector(tileTapped(_:)), for: .touchUpInside)
+            tile.configure(message: message)
+            if layout.indices.contains(index) {
+                tile.apply(position: layout[index].1)
+            }
+            addSubview(tile)
+            tiles.append(tile)
         }
         setNeedsLayout()
     }
 
     func prepareForReuse() {
-        for imageView in imageViews {
-            imageView.cancel()
-            imageView.removeFromSuperview()
+        for tile in tiles {
+            tile.prepareForReuse()
+            tile.removeFromSuperview()
         }
-        imageViews.removeAll()
+        tiles.removeAll()
+        itemFrames.removeAll()
         messages.removeAll()
         onTap = nil
     }
 
     // MARK: Private
 
-    private var imageViews = [TDImageLoadingView]()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 240)
+    private var tiles = [AlbumMediaTileView]()
+    private var itemFrames = [CGRect]()
     private var messages = [Message]()
     private var onTap: (([Message], Int64) -> Void)?
 
-    @objc private func imageTapped(_ gesture: UITapGestureRecognizer) {
-        guard let index = gesture.view?.tag, messages.indices.contains(index) else { return }
+    @objc private func tileTapped(_ sender: UIControl) {
+        let index = sender.tag
+        guard messages.indices.contains(index) else { return }
         onTap?(messages, messages[index].id)
+    }
+}
+
+private final class AlbumMediaTileView: UIControl, ReusableMediaView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        imageView.frame = bounds
+        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        imageView.contentMode = .scaleAspectFill
+        playIcon.image = UIImage(systemName: "play.circle.fill")
+        playIcon.tintColor = .white
+        playIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 30)
+        playIcon.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        addSubview(playIcon)
+        NSLayoutConstraint.activate([
+            playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
+            playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
+
+    func configure(message: Message) {
+        switch message.content {
+        case .messagePhoto(let photo):
+            playIcon.isHidden = true
+            imageView.load(photo: photo.photo, preferredSize: .yBox)
+        case .messageVideo(let video):
+            playIcon.isHidden = false
+            if let thumbnail = video.video.thumbnail {
+                imageView.load(file: thumbnail.file, placeholderData: video.video.minithumbnail?.data)
+            } else {
+                imageView.load(file: video.video.video, placeholderData: video.video.minithumbnail?.data)
+            }
+        case .messageAnimation(let animation):
+            playIcon.isHidden = false
+            if let thumbnail = animation.animation.thumbnail {
+                imageView.load(file: thumbnail.file, placeholderData: animation.animation.minithumbnail?.data)
+            } else {
+                imageView.load(file: animation.animation.animation, placeholderData: animation.animation.minithumbnail?.data)
+            }
+        default:
+            playIcon.isHidden = true
+        }
+    }
+
+    func apply(position: TelegramMosaicItemPosition) {
+        var corners = CACornerMask()
+        if position.contains([.top, .left]) { corners.insert(.layerMinXMinYCorner) }
+        if position.contains([.top, .right]) { corners.insert(.layerMaxXMinYCorner) }
+        if position.contains([.bottom, .left]) { corners.insert(.layerMinXMaxYCorner) }
+        if position.contains([.bottom, .right]) { corners.insert(.layerMaxXMaxYCorner) }
+        layer.cornerRadius = corners.isEmpty ? 0 : 13
+        layer.maskedCorners = corners
+    }
+
+    func prepareForReuse() {
+        imageView.cancel()
     }
 }
 
@@ -267,8 +325,8 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 220),
-            widthAnchor.constraint(equalToConstant: 280),
+            heightConstraint,
+            widthConstraint,
         ])
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }
@@ -283,11 +341,14 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         file: File,
         thumbnail: Thumbnail?,
         minithumbnail: Minithumbnail?,
-        size _: CGSize,
+        size: CGSize,
         showsPlayIcon: Bool,
         onTap: @escaping () -> Void,
     ) {
         self.onTap = onTap
+        let displaySize = telegramMediaDisplaySize(source: size)
+        widthConstraint.constant = displaySize.width
+        heightConstraint.constant = displaySize.height
         playIcon.isHidden = !showsPlayIcon
         if let thumbnail {
             imageView.load(file: thumbnail.file, placeholderData: minithumbnail?.data)
@@ -305,6 +366,8 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
 
     private let imageView = TDImageLoadingView()
     private let playIcon = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
 
     @objc private func tapped() {
@@ -434,6 +497,35 @@ enum TDMediaPrefetcher {
             }
         }
     }
+}
+
+private func telegramPhotoSize(_ photo: Photo) -> CGSize {
+    guard let size = photo.sizes.max(by: { lhs, rhs in
+        lhs.width * lhs.height < rhs.width * rhs.height
+    }) else { return CGSize(width: 1, height: 1) }
+    return CGSize(width: max(size.width, 1), height: max(size.height, 1))
+}
+
+private func telegramMessageMediaSize(_ message: Message) -> CGSize {
+    switch message.content {
+    case .messagePhoto(let photo):
+        telegramPhotoSize(photo.photo)
+    case .messageVideo(let video):
+        CGSize(width: max(video.video.width, 1), height: max(video.video.height, 1))
+    case .messageAnimation(let animation):
+        CGSize(width: max(animation.animation.width, 1), height: max(animation.animation.height, 1))
+    case .messageSticker(let sticker):
+        CGSize(width: max(sticker.sticker.width, 1), height: max(sticker.sticker.height, 1))
+    default:
+        CGSize(width: 1, height: 1)
+    }
+}
+
+private func telegramMediaDisplaySize(source: CGSize) -> CGSize {
+    let aspectRatio = max(source.width / max(source.height, 1), 0.01)
+    let width: CGFloat = 280
+    let height = min(320, max(140, round(width / aspectRatio)))
+    return CGSize(width: width, height: height)
 }
 
 private func downsampledImage(at path: String, maximumPixelSize: Int) -> UIImage? {

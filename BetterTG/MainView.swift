@@ -3,7 +3,7 @@
 import Combine
 import UIKit
 
-final class MainViewController: UIViewController, UISearchResultsUpdating, UIPageViewControllerDataSource,
+final class MainViewController: UIViewController, UIPageViewControllerDataSource,
     UIPageViewControllerDelegate
 {
     init(rootVM: RootVM) {
@@ -44,14 +44,6 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
     private var cancellables = Set<AnyCancellable>()
 
     private func configureNavigation() {
-        let searchController = UISearchController(searchResultsController: nil)
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchResultsUpdater = self
-        searchController.searchBar.placeholder = "Search chats…"
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
-        definesPresentationContext = true
-
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "archivebox"),
             style: .plain,
@@ -101,13 +93,14 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         NSLayoutConstraint.activate([
             folderSelector.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             folderSelector.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            folderSelector.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            folderSelector.heightAnchor.constraint(equalToConstant: 48),
+            folderSelector.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -48),
+            folderSelector.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             pageController.view.topAnchor.constraint(equalTo: view.topAnchor),
             pageController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pageController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            pageController.view.bottomAnchor.constraint(equalTo: folderSelector.topAnchor),
+            pageController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        view.bringSubviewToFront(folderSelector)
     }
 
     private func reloadFromState() {
@@ -135,11 +128,6 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         rootVM.currentFolder = id
         folderSelector.select(id: id)
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
-    }
-
-    func updateSearchResults(for searchController: UISearchController) {
-        rootVM.query = searchController.searchBar.text ?? ""
-        folderControllers.forEach { $0.updateQuery(rootVM.query) }
     }
 
     func pageViewController(
@@ -186,7 +174,9 @@ final class FolderSelectorView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor.black.withAlphaComponent(0.9)
+        backgroundColor = .clear
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(blurView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
@@ -196,10 +186,14 @@ final class FolderSelectorView: UIView {
         addSubview(scrollView)
         scrollView.addSubview(stackView)
         NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 4),
             stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 12),
             stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -12),
@@ -215,6 +209,7 @@ final class FolderSelectorView: UIView {
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private var selectedID: Int?
     private var buttons = [Int: UIButton]()
 
