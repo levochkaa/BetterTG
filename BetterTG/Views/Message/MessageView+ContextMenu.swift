@@ -1,4 +1,3 @@
 // MessageView+ContextMenu.swift
 
-// Message context menus are provided natively by ChatViewController's
-// UICollectionViewDelegate implementation.
+// Message context menus are presented by TelegramContextMenu from ChatViewController.

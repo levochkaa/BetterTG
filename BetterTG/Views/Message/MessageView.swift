@@ -6,6 +6,8 @@ import UIKit
 final class MessageCell: UICollectionViewCell {
     static let reuseIdentifier = "MessageCell"
 
+    var contextPreviewView: UIView { bubbleView }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.transform = CGAffineTransform(scaleX: 1, y: -1)

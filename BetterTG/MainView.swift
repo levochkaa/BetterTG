@@ -3,8 +3,7 @@
 import Combine
 import UIKit
 
-final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate
-{
+final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
     init(rootVM: RootVM) {
         self.rootVM = rootVM
         super.init(nibName: nil, bundle: nil)
@@ -18,11 +17,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        title = "BetterTG"
-        configureNavigation()
         configurePageController()
-        configureSearchHeader()
-        configureFolderSelector()
+        configureNavigationBar()
+        configureFolderPicker()
 
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -34,31 +31,35 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureAutomatedSmokeRoute()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateNavigationBarHeight(contentHeight: currentNavigationContentHeight)
+    }
+
     private let rootVM: RootVM
     private let pageController = UIPageViewController(
         transitionStyle: .scroll,
         navigationOrientation: .horizontal,
     )
-    private let folderSelector = FolderSelectorView()
-    private let searchHeader = ChatListNavigationSearchView()
+    private let folderPicker = FolderPickerView()
+    private lazy var customNavigationBar = TelegramListNavigationBar(
+        title: "BetterTG",
+        placeholder: "Search chats…",
+        leftImage: UIImage(systemName: "archivebox"),
+        rightImage: UIImage(systemName: "gearshape"),
+        leftAction: { [weak self] in self?.openArchive() },
+        rightAction: { [weak self] in self?.openSettings() },
+    )
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private var currentNavigationContentHeight = TelegramListNavigationBar.expandedContentHeight
     private var folderControllers = [FolderViewController]()
     private var cancellables = Set<AnyCancellable>()
     private var searchQuery = ""
-
-    private func configureNavigation() {
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "archivebox"),
-            style: .plain,
-            target: self,
-            action: #selector(openArchive),
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "gearshape"),
-            style: .plain,
-            target: self,
-            action: #selector(openSettings),
-        )
-    }
 
     private func configureAutomatedSmokeRoute() {
         #if DEBUG
@@ -83,70 +84,85 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         pageController.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pageController.view)
         pageController.didMove(toParent: self)
-    }
-
-    private func configureSearchHeader() {
-        searchHeader.translatesAutoresizingMaskIntoConstraints = false
-        searchHeader.onQueryChange = { [weak self] query in
-            guard let self else { return }
-            searchQuery = query
-            folderControllers.forEach { $0.updateQuery(query) }
-        }
-        searchHeader.onActiveChange = { [weak self] active in
-            guard active else { return }
-            self?.currentFolderController?.revealSearch(animated: true)
-        }
-        view.addSubview(searchHeader)
         NSLayoutConstraint.activate([
-            searchHeader.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            searchHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            searchHeader.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            searchHeader.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
-        ])
-    }
-
-    private func configureFolderSelector() {
-        folderSelector.translatesAutoresizingMaskIntoConstraints = false
-        folderSelector.onSelection = { [weak self] id in self?.selectFolder(id: id, animated: true) }
-        folderSelector.onReselection = { [weak self] id in
-            self?.folderControllers.first(where: { $0.folder.id == id })?.scrollToTop()
-        }
-        view.addSubview(folderSelector)
-        NSLayoutConstraint.activate([
-            folderSelector.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            folderSelector.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            folderSelector.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -48),
-            folderSelector.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             pageController.view.topAnchor.constraint(equalTo: view.topAnchor),
             pageController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pageController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pageController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        view.bringSubviewToFront(searchHeader)
-        view.bringSubviewToFront(folderSelector)
+    }
+
+    private func configureNavigationBar() {
+        customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
+        customNavigationBar.onQueryChange = { [weak self] query in
+            guard let self else { return }
+            searchQuery = query
+            folderControllers.forEach { $0.updateQuery(query) }
+        }
+        customNavigationBar.onSearchActiveChange = { [weak self] active in
+            guard let self, active else { return }
+            currentFolderController?.revealSearch(animated: true)
+            customNavigationBar.applyScroll(offset: 0, animated: true)
+        }
+        customNavigationBar.onVisibleHeightChange = { [weak self] contentHeight in
+            self?.updateNavigationBarHeight(contentHeight: contentHeight)
+        }
+        view.addSubview(customNavigationBar)
+        navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
+            equalToConstant: currentNavigationContentHeight + view.safeAreaInsets.top,
+        )
+        NSLayoutConstraint.activate([
+            customNavigationBar.topAnchor.constraint(equalTo: view.topAnchor),
+            customNavigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            customNavigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            navigationBarHeightConstraint,
+        ])
+    }
+
+    private func configureFolderPicker() {
+        folderPicker.translatesAutoresizingMaskIntoConstraints = false
+        folderPicker.onSelection = { [weak self] id in self?.selectFolder(id: id, animated: true) }
+        folderPicker.onReselection = { [weak self] id in
+            self?.folderControllers.first(where: { $0.folder.id == id })?.scrollToTop()
+        }
+        view.addSubview(folderPicker)
+        NSLayoutConstraint.activate([
+            folderPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            folderPicker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            folderPicker.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -58),
+            folderPicker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        view.bringSubviewToFront(customNavigationBar)
+        view.bringSubviewToFront(folderPicker)
+    }
+
+    private func updateNavigationBarHeight(contentHeight: CGFloat) {
+        currentNavigationContentHeight = contentHeight
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
     }
 
     private func reloadFromState() {
         let currentIDs = folderControllers.map(\.folder.id)
         let newIDs = rootVM.folders.map(\.id)
-        navigationItem.leftBarButtonItem?.isHidden = rootVM.archive == nil
+        customNavigationBar.setLeftButtonHidden(rootVM.archive == nil)
 
         guard currentIDs != newIDs else {
             folderControllers.forEach { $0.updateQuery(searchQuery) }
+            folderPicker.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
             return
         }
 
         folderControllers = rootVM.folders.map { folder in
             let controller = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: false)
             controller.updateQuery(searchQuery)
-            controller.isSearchActive = { [weak self] in self?.searchHeader.isActive == true }
+            controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
                 guard let self, self.currentFolderController === controller else { return }
-                searchHeader.applyScroll(offset: offset)
+                customNavigationBar.applyScroll(offset: offset)
             }
             return controller
         }
-        folderSelector.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
+        folderPicker.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
         guard let selected = rootVM.currentFolder ?? rootVM.folders.first?.id else { return }
         selectFolder(id: selected, animated: false)
     }
@@ -156,8 +172,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let previousIndex = folderControllers.firstIndex(where: { $0.folder.id == rootVM.currentFolder }) ?? targetIndex
         let direction: UIPageViewController.NavigationDirection = targetIndex >= previousIndex ? .forward : .reverse
         rootVM.currentFolder = id
-        folderSelector.select(id: id)
-        searchHeader.applyScroll(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
+        folderPicker.select(id: id)
+        customNavigationBar.applyScroll(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
     }
 
@@ -190,9 +206,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     ) {
         guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else { return }
         rootVM.currentFolder = folder.id
-        folderSelector.select(id: folder.id)
+        folderPicker.select(id: folder.id)
         if let currentFolderController {
-            searchHeader.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
+            customNavigationBar.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
         }
     }
 
@@ -202,42 +218,23 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     @objc private func openSettings() {
-        present(UINavigationController(rootViewController: SettingsViewController()), animated: true)
+        navigationController?.pushViewController(SettingsViewController(), animated: true)
     }
 }
 
-final class FolderSelectorView: UIView {
+/// Telegram's iOS 26 folder picker pattern: a native UISegmentedControl over blur.
+final class FolderPickerView: UIView {
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .clear
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(blurView)
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.axis = .horizontal
-        stackView.alignment = .fill
-        stackView.spacing = 8
-        scrollView.showsHorizontalScrollIndicator = false
-        addSubview(scrollView)
-        scrollView.addSubview(stackView)
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 4),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 12),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -12),
-            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -4),
-            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -8),
-        ])
+        configureViews()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        segmentedWidthConstraint?.constant = max(controlContainer.bounds.width - 32, totalSegmentWidth)
     }
 
     @available(*, unavailable)
@@ -245,44 +242,116 @@ final class FolderSelectorView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let scrollView = UIScrollView()
-    private let stackView = UIStackView()
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let controlContainer = UIScrollView()
+    private var segmentedControl: UISegmentedControl?
+    private var segmentedWidthConstraint: NSLayoutConstraint?
+    private var folders = [CustomFolder]()
     private var selectedID: Int?
-    private var buttons = [Int: UIButton]()
+    private var segmentWidths = [CGFloat]()
+
+    private var totalSegmentWidth: CGFloat {
+        segmentWidths.reduce(0, +)
+    }
+
+    private func configureViews() {
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(blurView)
+
+        controlContainer.translatesAutoresizingMaskIntoConstraints = false
+        controlContainer.showsHorizontalScrollIndicator = false
+        controlContainer.alwaysBounceHorizontal = true
+        controlContainer.isDirectionalLockEnabled = true
+        addSubview(controlContainer)
+
+        let separator = UIView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = .separator
+        addSubview(separator)
+
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            controlContainer.topAnchor.constraint(equalTo: topAnchor),
+            controlContainer.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            controlContainer.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            controlContainer.heightAnchor.constraint(equalToConstant: 58),
+            separator.topAnchor.constraint(equalTo: topAnchor),
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
+        ])
+    }
 
     func configure(folders: [CustomFolder], selectedID: Int?) {
-        stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        buttons.removeAll()
-        for folder in folders {
-            var configuration = UIButton.Configuration.gray()
-            configuration.title = folder.name
-            configuration.cornerStyle = .capsule
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
-            let button = UIButton(configuration: configuration)
-            button.tag = folder.id
-            button.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
-            stackView.addArrangedSubview(button)
-            buttons[folder.id] = button
-        }
-        select(id: selectedID ?? folders.first?.id)
+        self.folders = folders
+        self.selectedID = selectedID ?? folders.first?.id
+        rebuildControl()
     }
 
     func select(id: Int?) {
         selectedID = id
-        for (buttonID, button) in buttons {
-            button.configuration?.baseBackgroundColor = buttonID == id ? .systemBlue : .secondarySystemBackground
-            button.configuration?.baseForegroundColor = .white
-        }
-        guard let id, let button = buttons[id] else { return }
-        scrollView.scrollRectToVisible(button.frame.insetBy(dx: -24, dy: 0), animated: true)
+        segmentedControl?.selectedSegmentIndex = folders.firstIndex(where: { $0.id == id }) ?? UISegmentedControl.noSegment
+        scrollSelectedSegmentIntoView(animated: true)
     }
 
-    @objc private func buttonTapped(_ sender: UIButton) {
-        if selectedID == sender.tag {
-            onReselection?(sender.tag)
-        } else {
-            onSelection?(sender.tag)
+    private func rebuildControl() {
+        segmentedControl?.removeFromSuperview()
+        let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        segmentWidths = folders.map { folder in
+            max(60, ceil((folder.name as NSString).size(withAttributes: [.font: titleFont]).width) + 32)
         }
+        let actions = folders.map { folder in
+            UIAction(title: folder.name) { [weak self] _ in
+                guard let self else { return }
+                if selectedID == folder.id {
+                    onReselection?(folder.id)
+                } else {
+                    onSelection?(folder.id)
+                }
+            }
+        }
+        let control = UISegmentedControl(frame: .zero, actions: actions)
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.apportionsSegmentWidthsByContent = true
+        control.setContentCompressionResistancePriority(.required, for: .horizontal)
+        control.selectedSegmentIndex = folders.firstIndex(where: { $0.id == selectedID }) ?? UISegmentedControl.noSegment
+        control.setTitleTextAttributes([
+            .font: titleFont,
+        ], for: .normal)
+        control.accessibilityLabel = "Chat Folders"
+        controlContainer.addSubview(control)
+        segmentedControl = control
+        let widthConstraint = control.widthAnchor.constraint(equalToConstant: max(300, totalSegmentWidth))
+        segmentedWidthConstraint = widthConstraint
+
+        NSLayoutConstraint.activate([
+            control.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor, constant: 16),
+            control.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor, constant: -16),
+            control.centerYAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.centerYAnchor),
+            control.heightAnchor.constraint(equalToConstant: 36),
+            widthConstraint,
+            controlContainer.contentLayoutGuide.heightAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.heightAnchor),
+        ])
+        layoutIfNeeded()
+        scrollSelectedSegmentIntoView(animated: false)
+    }
+
+    private func scrollSelectedSegmentIntoView(animated: Bool) {
+        guard let control = segmentedControl, control.selectedSegmentIndex != UISegmentedControl.noSegment else { return }
+        layoutIfNeeded()
+        let availableWidth = max(1, totalSegmentWidth)
+        let widthScale = control.bounds.width / availableWidth
+        let selectedX = segmentWidths.prefix(control.selectedSegmentIndex).reduce(0, +) * widthScale
+        let selectedWidth = segmentWidths[control.selectedSegmentIndex] * widthScale
+        let selectedRect = CGRect(
+            x: control.frame.minX + selectedX,
+            y: control.frame.minY,
+            width: selectedWidth,
+            height: control.frame.height,
+        )
+        controlContainer.scrollRectToVisible(selectedRect.insetBy(dx: -24, dy: 0), animated: animated)
     }
 }

@@ -7,9 +7,15 @@ import UIKit
 final class ArchiveViewController: UIViewController {
     init(folder: CustomFolder, rootVM: RootVM) {
         folderController = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: true)
-        searchHeader = ChatListNavigationSearchView(placeholder: "Search \(folder.name.lowercased())…")
+        navigationBarView = TelegramListNavigationBar(
+            title: folder.name,
+            placeholder: "Search \(folder.name.lowercased())…",
+            leftImage: UIImage(systemName: "chevron.left"),
+            rightImage: nil,
+            leftAction: { NavigationStorage.shared.pop() },
+            rightAction: nil,
+        )
         super.init(nibName: nil, bundle: nil)
-        title = folder.name
     }
 
     @available(*, unavailable)
@@ -26,32 +32,52 @@ final class ArchiveViewController: UIViewController {
         view.addSubview(folderController.view)
         folderController.didMove(toParent: self)
 
-        searchHeader.translatesAutoresizingMaskIntoConstraints = false
-        searchHeader.onQueryChange = { [weak self] query in self?.folderController.updateQuery(query) }
-        searchHeader.onActiveChange = { [weak self] active in
+        navigationBarView.translatesAutoresizingMaskIntoConstraints = false
+        navigationBarView.onQueryChange = { [weak self] query in self?.folderController.updateQuery(query) }
+        navigationBarView.onSearchActiveChange = { [weak self] active in
             guard active else { return }
             self?.folderController.revealSearch(animated: true)
         }
-        folderController.isSearchActive = { [weak self] in self?.searchHeader.isActive == true }
-        folderController.onSearchScrollOffsetChange = { [weak self] offset in
-            self?.searchHeader.applyScroll(offset: offset)
+        navigationBarView.onVisibleHeightChange = { [weak self] contentHeight in
+            guard let self else { return }
+            navigationBarHeightConstraint.constant = view.safeAreaInsets.top + contentHeight
         }
-        view.addSubview(searchHeader)
+        folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
+        folderController.onSearchScrollOffsetChange = { [weak self] offset in
+            self?.navigationBarView.applyScroll(offset: offset)
+        }
+        view.addSubview(navigationBarView)
+        navigationBarHeightConstraint = navigationBarView.heightAnchor.constraint(
+            equalToConstant: view.safeAreaInsets.top + TelegramListNavigationBar.expandedContentHeight,
+        )
 
         NSLayoutConstraint.activate([
             folderController.view.topAnchor.constraint(equalTo: view.topAnchor),
             folderController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             folderController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             folderController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            searchHeader.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            searchHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            searchHeader.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            searchHeader.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
+            navigationBarView.topAnchor.constraint(equalTo: view.topAnchor),
+            navigationBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            navigationBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            navigationBarHeightConstraint,
         ])
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top
+            + TelegramListNavigationBar.expandedContentHeight
+            - folderController.searchScrollOffset
+    }
+
     private let folderController: FolderViewController
-    private let searchHeader: ChatListNavigationSearchView
+    private let navigationBarView: TelegramListNavigationBar
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
 }
 
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
@@ -93,12 +119,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.separatorStyle = .none
         tableView.rowHeight = 84
         tableView.keyboardDismissMode = .interactive
-        tableView.contentInset.top = ChatListNavigationSearchView.scrollHeight
-        tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 48
-        tableView.verticalScrollIndicatorInsets.top = ChatListNavigationSearchView.scrollHeight
-        tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 48
+        tableView.contentInset.top = TelegramListNavigationBar.expandedContentHeight
+        tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
+        tableView.verticalScrollIndicatorInsets.top = TelegramListNavigationBar.expandedContentHeight
+        tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 58
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
+        tableView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:))))
         configureDataSource()
         updateSnapshot(animated: false)
         startStateUpdates()
@@ -153,17 +180,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.deselectRow(at: indexPath, animated: true)
         guard let chatID = dataSource.itemIdentifier(for: indexPath), let chat = chat(for: chatID) else { return }
         NavigationStorage.shared.push(.customChat(chat))
-    }
-
-    override func tableView(
-        _: UITableView,
-        contextMenuConfigurationForRowAt indexPath: IndexPath,
-        point _: CGPoint,
-    ) -> UIContextMenuConfiguration? {
-        guard let chatID = dataSource.itemIdentifier(for: indexPath), let chat = chat(for: chatID) else { return nil }
-        return UIContextMenuConfiguration(identifier: NSNumber(value: chatID), previewProvider: nil) { [weak self] _ in
-            self?.menu(for: chat)
-        }
     }
 
     func tableView(_: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
@@ -307,12 +323,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView(tableView, prefetchRowsAt: tableView.indexPathsForVisibleRows ?? [])
     }
 
-    private func menu(for chat: CustomChat) -> UIMenu {
+    private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {
         let pinned = chat.position.isPinned
-        let pin = UIAction(
+        let pin = TelegramContextMenuAction(
             title: pinned ? "Unpin" : "Pin",
             image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
-        ) { _ in
+        ) {
             Task {
                 try? await td.toggleChatIsPinned(
                     chatId: chat.id,
@@ -322,29 +338,44 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
         }
 
-        var actions: [UIMenuElement] = [pin]
-        let deleteOnlyForSelf = UIAction(
+        var actions = [pin]
+        let deleteOnlyForSelf = TelegramContextMenuAction(
             title: "Delete only for me",
             image: UIImage(systemName: "trash"),
-            attributes: .destructive,
-        ) { [weak self] _ in self?.confirmDelete(chat: chat, forAll: false) }
-        let deleteForAll = UIAction(
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in self?.confirmDelete(chat: chat, forAll: false) }
+        let deleteForAll = TelegramContextMenuAction(
             title: "Delete for everyone",
             image: UIImage(systemName: "trash.fill"),
-            attributes: .destructive,
-        ) { [weak self] _ in self?.confirmDelete(chat: chat, forAll: true) }
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in self?.confirmDelete(chat: chat, forAll: true) }
 
         if chat.chat.canBeDeletedOnlyForSelf, chat.chat.canBeDeletedForAllUsers {
-            actions.append(UIMenu(title: "Delete", image: UIImage(systemName: "trash"), children: [
-                deleteOnlyForSelf,
-                deleteForAll,
-            ]))
+            actions.append(deleteOnlyForSelf)
+            actions.append(TelegramContextMenuAction(
+                title: deleteForAll.title,
+                image: deleteForAll.image,
+                isDestructive: true,
+            ) { [weak self] in self?.confirmDelete(chat: chat, forAll: true) })
         } else if chat.chat.canBeDeletedForAllUsers {
             actions.append(deleteForAll)
         } else if chat.chat.canBeDeletedOnlyForSelf {
             actions.append(deleteOnlyForSelf)
         }
-        return UIMenu(children: actions)
+        return actions
+    }
+
+    @objc private func chatLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let point = gesture.location(in: tableView)
+        guard let indexPath = tableView.indexPathForRow(at: point),
+              let chatID = dataSource.itemIdentifier(for: indexPath),
+              let chat = chat(for: chatID),
+              let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
+        else { return }
+        presentTelegramContextMenu(sourceView: cell.contextPreviewView, actions: menu(for: chat))
     }
 
     private func confirmDelete(chat: CustomChat, forAll: Bool) {

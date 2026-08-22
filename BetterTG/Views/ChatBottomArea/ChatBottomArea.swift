@@ -29,6 +29,27 @@ final class ChatComposerView: UIView {
         textView.becomeFirstResponder()
     }
 
+    func setHiddenForSearch(_ hidden: Bool) {
+        hiddenForSearch = hidden
+        if hidden {
+            textView.resignFirstResponder()
+        } else {
+            isHidden = false
+        }
+        isUserInteractionEnabled = !hidden
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            self.alpha = hidden ? 0 : 1
+        } completion: { _ in
+            if self.hiddenForSearch == hidden {
+                self.isHidden = hidden
+            }
+        }
+    }
+
     private let chatVM: ChatVM
     private let blurView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
@@ -54,15 +75,13 @@ final class ChatComposerView: UIView {
     private var draftTask: Task<Void, Never>?
     private var typingTask: Task<Void, Never>?
     private var isApplyingState = false
+    private var hiddenForSearch = false
     private var lastReplyID: Int64?
     private var lastEditID: Int64?
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
-        layer.cornerRadius = 18
-        layer.cornerCurve = .continuous
-        clipsToBounds = true
 
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
@@ -113,9 +132,7 @@ final class ChatComposerView: UIView {
         attachmentButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 26), forImageIn: .normal)
         attachmentButton.showsMenuAsPrimaryAction = true
         attachmentButton.accessibilityLabel = "Attach"
-        textView.backgroundColor = .tertiarySystemBackground
-        textView.layer.cornerRadius = 15
-        textView.layer.cornerCurve = .continuous
+        textView.backgroundColor = .clear
         actionButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 28), forImageIn: .normal)
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)

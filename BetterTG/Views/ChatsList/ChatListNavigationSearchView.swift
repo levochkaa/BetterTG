@@ -2,8 +2,9 @@
 
 import UIKit
 
+/// Telegram-style search content embedded into the app's custom navigation chrome.
 final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
-    static let scrollHeight: CGFloat = 54
+    static let scrollHeight: CGFloat = 52
 
     var onQueryChange: ((String) -> Void)?
     var onActiveChange: ((Bool) -> Void)?
@@ -19,9 +20,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    var isActive: Bool {
-        searchField.isFirstResponder
-    }
+    var isActive: Bool { searchField.isFirstResponder }
 
     func applyScroll(offset: CGFloat, animated: Bool = false) {
         requestedScrollOffset = min(max(0, offset), Self.scrollHeight)
@@ -29,11 +28,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         let fraction = appliedOffset / Self.scrollHeight
         let changes = {
             self.transform = CGAffineTransform(translationX: 0, y: -appliedOffset)
-            self.searchField.transform = CGAffineTransform(translationX: 0, y: -8 * fraction)
-            let contentAlpha = 1 - min(1, max(0, fraction - 0.62) / 0.38)
+            let contentAlpha = 1 - min(1, max(0, fraction - 0.55) / 0.45)
             self.searchField.alpha = contentAlpha
-            self.cancelButton.alpha = (self.isActive ? 1 : 0) * contentAlpha
-            self.isUserInteractionEnabled = fraction < 0.98
+            self.closeButton.alpha = (self.isActive ? 1 : 0) * contentAlpha
+            self.isUserInteractionEnabled = fraction < 0.96
         }
         guard animated else {
             changes()
@@ -49,19 +47,18 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         )
     }
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    func focus() {
+        searchField.becomeFirstResponder()
+    }
+
     private let searchField = UISearchTextField()
-    private let cancelButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .system)
     private let placeholder: String
-    private var cancelWidthConstraint: NSLayoutConstraint!
+    private var closeWidthConstraint: NSLayoutConstraint!
     private var requestedScrollOffset = CGFloat.zero
 
     private func configureViews() {
         clipsToBounds = false
-
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        blurView.isUserInteractionEnabled = false
-        addSubview(blurView)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.placeholder = placeholder
@@ -69,34 +66,31 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
-        searchField.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.9)
+        searchField.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.92)
         searchField.textColor = .label
         searchField.tintColor = .systemBlue
         searchField.delegate = self
         searchField.addTarget(self, action: #selector(queryChanged), for: .editingChanged)
         addSubview(searchField)
 
-        cancelButton.translatesAutoresizingMaskIntoConstraints = false
-        cancelButton.setTitle("Cancel", for: .normal)
-        cancelButton.contentHorizontalAlignment = .right
-        cancelButton.alpha = 0
-        cancelButton.clipsToBounds = true
-        cancelButton.addTarget(self, action: #selector(cancelSearch), for: .touchUpInside)
-        addSubview(cancelButton)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.tintColor = .secondaryLabel
+        closeButton.accessibilityLabel = "Close Search"
+        closeButton.alpha = 0
+        closeButton.addTarget(self, action: #selector(closeSearch), for: .touchUpInside)
+        addSubview(closeButton)
 
-        cancelWidthConstraint = cancelButton.widthAnchor.constraint(equalToConstant: 0)
+        closeWidthConstraint = closeButton.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            cancelButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            cancelButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            cancelWidthConstraint,
-            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            closeButton.heightAnchor.constraint(equalToConstant: 36),
+            closeWidthConstraint,
+            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            searchField.trailingAnchor.constraint(equalTo: cancelButton.leadingAnchor, constant: -8),
-            searchField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
+            searchField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         ])
     }
 
@@ -114,20 +108,19 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     }
 
     private func setActive(_ active: Bool) {
-        cancelWidthConstraint.constant = active ? 56 : 0
+        closeWidthConstraint.constant = active ? 36 : 0
         if active {
             transform = .identity
-            searchField.transform = .identity
             searchField.alpha = 1
             isUserInteractionEnabled = true
         }
         onActiveChange?(active)
         UIView.animate(
-            withDuration: 0.25,
+            withDuration: 0.22,
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            self.cancelButton.alpha = active ? 1 : 0
+            self.closeButton.alpha = active ? 1 : 0
             self.layoutIfNeeded()
         } completion: { _ in
             if !active {
@@ -140,7 +133,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         onQueryChange?(searchField.text ?? "")
     }
 
-    @objc private func cancelSearch() {
+    @objc private func closeSearch() {
         searchField.text = ""
         onQueryChange?("")
         searchField.resignFirstResponder()

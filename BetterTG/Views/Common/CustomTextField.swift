@@ -177,9 +177,3 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         placeholderLabel.isHidden = !text.isEmpty
     }
 }
-
-private extension UIView {
-    var nearestViewController: UIViewController? {
-        sequence(first: next, next: { $0?.next }).first(where: { $0 is UIViewController }) as? UIViewController
-    }
-}

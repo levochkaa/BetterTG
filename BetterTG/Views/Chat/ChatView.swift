@@ -28,8 +28,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        configureNavigationItem()
         configureCollectionView()
+        configureNavigationBar()
         configureDataSource()
         observeState()
         updateSnapshot(animated: false)
@@ -39,6 +39,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         super.viewDidDisappear(animated)
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         Task { [chatVM] in await chatVM.updateDraft() }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -54,46 +59,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateHistoryInsets()
-        if dismissedKeyboardByDraggingFromLatestEdge, !keyboardIsVisible {
-            dismissedKeyboardByDraggingFromLatestEdge = false
-            pinToLatestEdge(animated: false)
-        }
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
-        if dismissedKeyboardByDraggingFromLatestEdge {
-            let latestOffset = -scrollView.adjustedContentInset.top
-            if abs(scrollView.contentOffset.y - latestOffset) > 0.5 {
-                scrollView.setContentOffset(CGPoint(x: 0, y: latestOffset), animated: false)
-                return
-            }
-        }
         let isAwayFromLatest = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 160
         let targetAlpha = isAwayFromLatest ? CGFloat(1) : 0
         guard scrollToLatestButton.alpha != targetAlpha else { return }
         UIView.animate(withDuration: 0.2) { self.scrollToLatestButton.alpha = targetAlpha }
-    }
-
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        guard scrollView === collectionView, chatVM.customChat.canPostMessages else { return }
-        dismissedKeyboardByDraggingFromLatestEdge = composerView.isInputFocused && keyboardIsVisible && isNearLatest
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard scrollView === collectionView, dismissedKeyboardByDraggingFromLatestEdge, !decelerate else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, dismissedKeyboardByDraggingFromLatestEdge, keyboardIsVisible else { return }
-            dismissedKeyboardByDraggingFromLatestEdge = false
-        }
-    }
-
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard scrollView === collectionView, dismissedKeyboardByDraggingFromLatestEdge else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, dismissedKeyboardByDraggingFromLatestEdge, keyboardIsVisible else { return }
-            dismissedKeyboardByDraggingFromLatestEdge = false
-        }
     }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -127,21 +105,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.viewMessage(id: messageID)
         if indexPath.item >= max(chatVM.messages.count - 5, 0) {
             chatVM.loadMessages()
-        }
-    }
-
-    func collectionView(
-        _: UICollectionView,
-        contextMenuConfigurationForItemAt indexPath: IndexPath,
-        point _: CGPoint,
-    ) -> UIContextMenuConfiguration? {
-        guard let messageID = dataSource.itemIdentifier(for: indexPath),
-              let message = message(for: messageID) else { return nil }
-        return UIContextMenuConfiguration(
-            identifier: NSNumber(value: messageID),
-            previewProvider: nil,
-        ) { [weak self] _ in
-            self?.menu(for: message)
         }
     }
 
@@ -179,9 +142,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var cancellables = Set<AnyCancellable>()
     private var messageCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
-    private let titleLabel = UILabel()
-    private let statusLabel = UILabel()
-    private let avatarView = ProfileAvatarView()
+    private let customNavigationBar = TelegramChatNavigationBar()
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
     private let scrollToLatestButton = UIButton(type: .system)
     private let unreadBadgeLabel = UILabel()
@@ -189,7 +151,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
-    private var dismissedKeyboardByDraggingFromLatestEdge = false
+    private var searchTask: Task<Void, Never>?
+    private var messageSearchActive = false
 
     private func makeLayout() -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
@@ -204,23 +167,33 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return UICollectionViewCompositionalLayout(section: section)
     }
 
-    private func configureNavigationItem() {
-        let titleStack = UIStackView(arrangedSubviews: [titleLabel, statusLabel])
-        titleStack.axis = .vertical
-        titleStack.alignment = .center
-        titleStack.spacing = 0
-        titleLabel.textColor = .white
-        titleLabel.font = .preferredFont(forTextStyle: .headline)
-        statusLabel.font = .preferredFont(forTextStyle: .caption1)
-        statusLabel.textColor = .secondaryLabel
-        navigationItem.titleView = titleStack
-
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
+    private func configureNavigationBar() {
+        customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
+        customNavigationBar.onBack = { NavigationStorage.shared.pop() }
+        customNavigationBar.onSearchQueryChange = { [weak self] query in
+            self?.searchMessages(query: query)
+        }
+        customNavigationBar.onSearchActiveChange = { [weak self] active in
+            guard let self else { return }
+            messageSearchActive = active
+            composerView.setHiddenForSearch(active)
+            scrollToLatestButton.isHidden = active
+            if !active {
+                searchTask?.cancel()
+                customNavigationBar.setSearchResultFound(nil)
+            }
+            view.setNeedsLayout()
+        }
+        view.addSubview(customNavigationBar)
+        navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
+            equalToConstant: view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight,
+        )
         NSLayoutConstraint.activate([
-            avatarView.widthAnchor.constraint(equalToConstant: 32),
-            avatarView.heightAnchor.constraint(equalToConstant: 32),
+            customNavigationBar.topAnchor.constraint(equalTo: view.topAnchor),
+            customNavigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            customNavigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            navigationBarHeightConstraint,
         ])
-        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: avatarView)
         updateChatHeader()
         updateStatus()
     }
@@ -241,6 +214,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
+        collectionView.addGestureRecognizer(
+            UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:))),
+        )
         historyContainerView.addSubview(collectionView)
         var constraints = [
             historyContainerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -259,9 +235,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
             view.addSubview(composerView)
             constraints.append(contentsOf: [
-                composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 5),
-                composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -5),
-                composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -5),
+                composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             ])
         }
         configureScrollToLatestButton(bottomAnchor: chatVM.customChat.canPostMessages
@@ -362,8 +338,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
-        titleLabel.text = chat.title
-        avatarView.configure(
+        let status = chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
+        let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
+        customNavigationBar.configure(title: chat.title, status: status, statusColor: statusColor)
+        customNavigationBar.configureAvatar(
             file: chat.photo?.big,
             minithumbnail: chat.photo?.minithumbnail,
             title: chat.title,
@@ -385,9 +363,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateStatus() {
         let status = chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
-        statusLabel.text = status
-        statusLabel.isHidden = status.isEmpty
-        statusLabel.textColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
+        let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
+        customNavigationBar.configure(
+            title: chatVM.customChat.chat.title,
+            status: status,
+            statusColor: statusColor,
+        )
         let unreadCount = chatVM.customChat.unreadCount
         unreadBadgeLabel.text = unreadCount > 99 ? "99+" : "\(unreadCount)"
         unreadBadgeLabel.isHidden = unreadCount == 0
@@ -443,24 +424,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
     }
 
-    private var keyboardIsVisible: Bool {
-        view.keyboardLayoutGuide.layoutFrame.minY < view.bounds.height - view.safeAreaInsets.bottom - 1
-    }
-
     private func updateHistoryInsets() {
         let visualBottomInset: CGFloat
-        if chatVM.customChat.canPostMessages, composerView.frame.minY > 0 {
+        if messageSearchActive {
+            visualBottomInset = max(
+                view.safeAreaInsets.bottom,
+                view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
+            ) + 8
+        } else if chatVM.customChat.canPostMessages, composerView.frame.minY > 0 {
             visualBottomInset = max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
         } else {
             visualBottomInset = view.safeAreaInsets.bottom + 8
         }
-        let visualTopInset = view.safeAreaInsets.top + 8
+        let visualTopInset = customNavigationBar.frame.maxY + 8
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
         guard abs(collectionView.contentInset.top - updatedInsets.top) > 0.5
             || abs(collectionView.contentInset.bottom - updatedInsets.bottom) > 0.5
         else { return }
 
-        let keepLatestVisible = !didPerformInitialScroll || isNearLatest || dismissedKeyboardByDraggingFromLatestEdge
+        let userIsScrolling = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
+        let keepLatestVisible = !didPerformInitialScroll || (!userIsScrolling && isNearLatest)
         let previousOffset = collectionView.contentOffset
         collectionView.contentInset = updatedInsets
         collectionView.verticalScrollIndicatorInsets = updatedInsets
@@ -515,6 +498,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
+    private func searchMessages(query: String) {
+        searchTask?.cancel()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else {
+            customNavigationBar.setSearchResultFound(nil)
+            return
+        }
+
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled else { return }
+            let result = try? await td.searchChatMessages(
+                chatId: chatVM.customChat.id,
+                filter: nil,
+                fromMessageId: 0,
+                limit: 50,
+                offset: 0,
+                query: normalizedQuery,
+                senderId: nil,
+                topicId: nil,
+            )
+            guard !Task.isCancelled else { return }
+            let firstID = result?.messages.first?.id
+            customNavigationBar.setSearchResultFound(firstID != nil)
+            if let firstID {
+                scrollToMessage(id: firstID)
+            }
+        }
+    }
+
     private func showPhotoPicker() {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .images
@@ -560,52 +573,69 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
-    private func menu(for message: CustomMessage) -> UIMenu {
-        var elements = [UIMenuElement]()
+    @objc private func messageLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let point = gesture.location(in: collectionView)
+        guard let indexPath = collectionView.indexPathForItem(at: point),
+              let messageID = dataSource.itemIdentifier(for: indexPath),
+              let message = message(for: messageID),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+        else { return }
+        presentTelegramContextMenu(sourceView: cell.contextPreviewView, actions: menu(for: message))
+    }
+
+    private func menu(for message: CustomMessage) -> [TelegramContextMenuAction] {
+        var elements = [TelegramContextMenuAction]()
         if message.properties.canBeReplied {
             elements
-                .append(UIAction(
+                .append(TelegramContextMenuAction(
                     title: "Reply",
                     image: UIImage(systemName: "arrowshape.turn.up.left"),
-                ) { [weak self] _ in
+                ) { [weak self] in
                     self?.chatVM.replyMessage = message
                 })
         }
         if message.properties.canBeEdited {
-            elements.append(UIAction(title: "Edit", image: UIImage(systemName: "square.and.pencil")) { [weak self] _ in
+            elements.append(TelegramContextMenuAction(
+                title: "Edit",
+                image: UIImage(systemName: "square.and.pencil"),
+            ) { [weak self] in
                 self?.chatVM.editCustomMessage = message
                 self?.chatVM.setEditMessageText(from: message.message)
             })
         }
         if let text = formattedText(from: message.message.content) {
-            elements.append(UIAction(
+            elements.append(TelegramContextMenuAction(
                 title: "Copy",
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
-            ) { _ in UIPasteboard.setFormattedText(text) })
+            ) { UIPasteboard.setFormattedText(text) })
         }
 
-        let deleteSelf = UIAction(
+        let deleteSelf = TelegramContextMenuAction(
             title: "Delete only for me",
             image: UIImage(systemName: "trash"),
-            attributes: .destructive,
-        ) { [weak self] _ in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false) }
-        let deleteAll = UIAction(
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false) }
+        let deleteAll = TelegramContextMenuAction(
             title: "Delete for both",
             image: UIImage(systemName: "trash.fill"),
-            attributes: .destructive,
-        ) { [weak self] _ in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) }
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) }
         if message.properties.canBeDeletedOnlyForSelf, message.properties.canBeDeletedForAllUsers {
-            elements.append(UIMenu(
-                title: "Delete",
-                image: UIImage(systemName: "trash"),
-                children: [deleteSelf, deleteAll],
-            ))
+            elements.append(deleteSelf)
+            elements.append(TelegramContextMenuAction(
+                title: deleteAll.title,
+                image: deleteAll.image,
+                isDestructive: true,
+            ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) })
         } else if message.properties.canBeDeletedForAllUsers {
             elements.append(deleteAll)
         } else if message.properties.canBeDeletedOnlyForSelf {
             elements.append(deleteSelf)
         }
-        return UIMenu(children: elements)
+        return elements
     }
 
     private func formattedText(from content: MessageContent) -> FormattedText? {

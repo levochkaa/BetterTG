@@ -24,6 +24,8 @@ final class ChatListCell: UITableViewCell {
 
     static let reuseIdentifier = "ChatListCell"
 
+    var contextPreviewView: UIView { cardView }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarView.prepareForReuse()
@@ -121,7 +123,7 @@ final class ChatListCell: UITableViewCell {
 
 // MARK: - ProfileAvatarView
 
-final class ProfileAvatarView: UIView, UIContextMenuInteractionDelegate {
+final class ProfileAvatarView: UIView {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -135,7 +137,8 @@ final class ProfileAvatarView: UIView, UIContextMenuInteractionDelegate {
         label.font = .preferredFont(forTextStyle: .title2)
         addSubview(label)
         addSubview(imageView)
-        addInteraction(UIContextMenuInteraction(delegate: self))
+        isUserInteractionEnabled = true
+        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -177,22 +180,22 @@ final class ProfileAvatarView: UIView, UIContextMenuInteractionDelegate {
         imageView.image = nil
     }
 
-    func contextMenuInteraction(
-        _: UIContextMenuInteraction,
-        configurationForMenuAtLocation _: CGPoint,
-    ) -> UIContextMenuConfiguration? {
-        guard representedFile != nil else { return nil }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            UIMenu(children: [UIAction(title: "Save", image: UIImage(systemName: "square.and.arrow.down")) { _ in
-                guard let image = self?.imageView.image else { return }
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            }])
-        }
-    }
-
     // MARK: Private
 
     private let imageView = TDImageLoadingView()
     private let label = UILabel()
     private var representedFile: File?
+
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, representedFile != nil, imageView.image != nil else { return }
+        nearestViewController?.presentTelegramContextMenu(sourceView: self, actions: [
+            TelegramContextMenuAction(
+                title: "Save Photo",
+                image: UIImage(systemName: "square.and.arrow.down"),
+            ) { [weak self] in
+                guard let image = self?.imageView.image else { return }
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            },
+        ])
+    }
 }
