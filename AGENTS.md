@@ -18,6 +18,12 @@
 - Main scheme: `BetterTG`.
 - Prefer narrow, codebase-consistent UIKit changes and preserve unrelated local edits.
 
+## Git Workflow
+
+- Commit all agent-authored changes before handing the task back to the user, unless the user explicitly asks to leave changes uncommitted.
+- For a large task, commit after every coherent, verified implementation stage. Do not wait until the end and put the entire large task into one oversized commit.
+- Keep every commit focused and stage only the files or hunks that belong to that stage; never include unrelated user changes.
+
 ## UI Implementation
 
 - Implement all application UI in UIKit. Do not introduce SwiftUI, `UIHostingController`, `UIViewRepresentable`, `UIViewControllerRepresentable`, or other SwiftUI-only UI and layout code.
