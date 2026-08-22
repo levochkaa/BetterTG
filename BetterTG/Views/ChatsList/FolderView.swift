@@ -125,7 +125,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 58
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
-        tableView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:))))
+        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:)))
+        longPressGesture.minimumPressDuration = 0.3
+        tableView.addGestureRecognizer(longPressGesture)
         configureDataSource()
         updateSnapshot(animated: false)
         startStateUpdates()

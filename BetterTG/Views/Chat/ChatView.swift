@@ -229,6 +229,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         tapGesture.delegate = self
         collectionView.addGestureRecognizer(tapGesture)
         let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        longPressGesture.minimumPressDuration = 0.3
         longPressGesture.delegate = self
         collectionView.addGestureRecognizer(longPressGesture)
         historyContainerView.addSubview(collectionView)

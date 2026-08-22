@@ -22,12 +22,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.font = .caption
         statusLabel.textAlignment = .right
         statusLabel.isUserInteractionEnabled = false
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(statusLabel)
-        NSLayoutConstraint.activate([
-            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
 
         // Keep links tappable, but let the cell's custom context-menu gesture own long presses.
         gestureRecognizers?
@@ -56,6 +51,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     override func layoutSubviews() {
         let oldWidth = lastLayoutWidth
         super.layoutSubviews()
+        statusLabel.sizeToFit()
+        statusLabel.frame.origin = CGPoint(
+            x: bounds.maxX - statusLabel.bounds.width,
+            y: bounds.maxY - statusLabel.bounds.height,
+        )
+        bringSubviewToFront(statusLabel)
         lastLayoutWidth = bounds.width
         if abs(oldWidth - bounds.width) > 0.5 {
             invalidateIntrinsicContentSize()

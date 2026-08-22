@@ -139,7 +139,9 @@ final class ProfileAvatarView: UIView {
         addSubview(label)
         addSubview(imageView)
         isUserInteractionEnabled = true
-        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
+        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
+        longPressGesture.minimumPressDuration = 0.3
+        addGestureRecognizer(longPressGesture)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
