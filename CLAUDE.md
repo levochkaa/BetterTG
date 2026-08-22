@@ -17,3 +17,11 @@
 - Main project: `BetterTG.xcodeproj`.
 - Main scheme: `BetterTG`.
 - Prefer narrow, codebase-consistent UIKit changes and preserve unrelated local edits.
+
+## UI Implementation
+
+- Implement all application UI in UIKit. Do not introduce SwiftUI, `UIHostingController`, `UIViewRepresentable`, `UIViewControllerRepresentable`, or other SwiftUI-only UI and layout code.
+- Keep UI implementations UIKit-native, using `UIViewController`, `UIView`, `UITableView` or `UICollectionView`, Auto Layout, and Combine-based observation where appropriate.
+- Use the official Telegram iOS source code as the primary behavioral and layout reference. Inspect the local `/Users/lev/Developer/Telegram-iOS` checkout when available, and port the relevant logic instead of replacing it with a simplified approximation.
+- This Telegram reference requirement especially applies to chat and message layout, bubble sizing, date and status placement, reply navigation, media mosaic or grid layout, keyboard and input-panel interaction, scrolling, translucent bars, and chat-list or search behavior.
+- Adapt referenced Telegram behavior to BetterTG's UIKit and TDLibKit architecture; do not copy unrelated Telegram infrastructure into the project.
