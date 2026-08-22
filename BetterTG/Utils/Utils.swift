@@ -1,6 +1,6 @@
 // Utils.swift
 
-import SwiftUI
+import UIKit
 
 enum Utils {
     static var screen: UIScreen!

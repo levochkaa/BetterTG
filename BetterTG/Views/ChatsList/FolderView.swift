@@ -5,6 +5,8 @@ import TDLibKit
 import UIKit
 
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching, UISearchResultsUpdating {
+    // MARK: Lifecycle
+
     init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
         self.folder = folder
         self.rootVM = rootVM
@@ -12,10 +14,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         super.init(style: .plain)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    deinit {
+        prefetchTasks.values.forEach { $0.cancel() }
+    }
+
+    // MARK: Internal
 
     let folder: CustomFolder
 
@@ -68,7 +75,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         for indexPath in indexPaths {
             guard let id = dataSource.itemIdentifier(for: indexPath), prefetchTasks[id] == nil else { continue }
             prefetchTasks[id] = Task { [weak self] in
-                guard let self else { return }
                 _ = try? await td.getChatHistory(
                     chatId: id,
                     fromMessageId: 0,
@@ -76,7 +82,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     offset: 0,
                     onlyLocal: false,
                 )
-                await MainActor.run { self.prefetchTasks[id] = nil }
+                await MainActor.run { self?.prefetchTasks[id] = nil }
             }
         }
     }
@@ -104,9 +110,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
     }
 
-    deinit {
-        prefetchTasks.values.forEach { $0.cancel() }
-    }
+    // MARK: Private
 
     private enum Section {
         case main
@@ -132,7 +136,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func configureDataSource() {
-        dataSource = UITableViewDiffableDataSource<Section, Int64>(tableView: tableView) { [weak self] tableView, indexPath, id in
+        dataSource = UITableViewDiffableDataSource<
+            Section,
+            Int64,
+        >(tableView: tableView) { [weak self] tableView, indexPath, id in
             guard let self,
                   let cell = tableView.dequeueReusableCell(
                       withIdentifier: ChatListCell.reuseIdentifier,
@@ -151,6 +158,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             .sink { [weak self] in
                 DispatchQueue.main.async { self?.updateSnapshot(animated: true) }
             }
+            .store(in: &cancellables)
+        folder.$chats
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateSnapshot(animated: true) }
             .store(in: &cancellables)
         subscribeToChats()
     }

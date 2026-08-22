@@ -1,7 +1,7 @@
 // NotificationCenter.swift
 
 import Combine
-import SwiftUI
+import Foundation
 
 let nc = NotificationCenter()
 let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .userInteractive)
@@ -13,7 +13,7 @@ extension NotificationCenter {
         _ perform: @escaping (T) -> Void,
     ) {
         publisher(for: tdNotification.name)
-            .receive(on: updatesQueue)
+            .receive(on: DispatchQueue.main)
             .compactMap { $0.object as? T }
             .sink { perform($0) }
             .store(in: &cancellables)
@@ -25,7 +25,7 @@ extension NotificationCenter {
         _ perform: @escaping (Publisher.Output) -> Void,
     ) {
         publisher(for: name)
-            .receive(on: updatesQueue)
+            .receive(on: DispatchQueue.main)
             .sink { perform($0) }
             .store(in: &cancellables)
     }
@@ -55,7 +55,7 @@ extension NotificationCenter {
         _ perform: @escaping (Publisher.Output) -> Void,
     ) {
         mergeMany(names)
-            .receive(on: updatesQueue)
+            .receive(on: DispatchQueue.main)
             .sink { perform($0) }
             .store(in: &cancellables)
     }

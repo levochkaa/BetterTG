@@ -1,12 +1,9 @@
 // CustomChat.swift
 
 import Combine
-import SwiftUI
 import TDLibKit
 
-// MARK: - CustomChat
-
-@Observable final class CustomChat: ObservableObject {
+@MainActor final class CustomChat: ObservableObject {
     // MARK: Lifecycle
 
     init(
@@ -24,7 +21,7 @@ import TDLibKit
         self.lastMessage = lastMessage
         self.draftMessage = draftMessage
     }
-    
+
     // MARK: Internal
 
     enum CustomChatType: Equatable, Hashable {
@@ -34,105 +31,68 @@ import TDLibKit
         case bot(UserTypeBot)
     }
 
-    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
+    @Published var chat: Chat
+    let type: CustomChatType
+    @Published var position: ChatPosition
+    @Published var unreadCount: Int
+    @Published var lastMessage: Message?
+    @Published var draftMessage: DraftMessage?
 
-    var chat: Chat
-    var position: ChatPosition {
-        didSet { objectWillChange.send() }
-    }
-    var unreadCount: Int {
-        didSet { objectWillChange.send() }
-    }
-    var lastMessage: Message? {
-        didSet { objectWillChange.send() }
-    }
-    var draftMessage: DraftMessage? {
-        didSet { objectWillChange.send() }
-    }
-    var type: CustomChatType
-    
+    var id: Int64 { chat.id }
+
     var bot: UserTypeBot? {
-        switch type {
-        case .bot(let bot): bot
-        default: nil
+        if case .bot(let bot) = type {
+            return bot
         }
+        return nil
     }
-    
+
     var user: User? {
-        switch type {
-        case .user(let user): user
-        default: nil
+        if case .user(let user) = type {
+            return user
         }
+        return nil
     }
-    
+
     var supergroup: Supergroup? {
-        switch type {
-        case .supergroup(let supergroup): supergroup
-        default: nil
+        if case .supergroup(let group) = type {
+            return group
         }
+        return nil
     }
-    
+
     var group: BasicGroup? {
-        switch type {
-        case .group(let group): group
-        default: nil
+        if case .group(let group) = type {
+            return group
         }
+        return nil
     }
-    
+
     var adminRights: ChatAdministratorRights? {
-        switch supergroup?.status {
-        case .chatMemberStatusAdministrator(let chatMemberStatusAdministrator): chatMemberStatusAdministrator.rights
-        default: nil
+        if case .chatMemberStatusAdministrator(let administrator) = supergroup?.status {
+            return administrator.rights
         }
+        return nil
     }
-    
+
     var shouldShowProfileImage: Bool {
         switch type {
         case .bot, .user: false
         case .group, .supergroup: true
         }
     }
-    
+
     var canPostMessages: Bool {
-        if let supergroup {
-            if adminRights?.canPostMessages == true {
-                return true
-            }
-            if case .chatMemberStatusCreator = supergroup.status {
-                return true
-            }
-            if case .chatMemberStatusBanned = supergroup.status {
-                return false
-            }
-            return supergroup.status != .chatMemberStatusLeft
+        guard let supergroup else { return true }
+        if adminRights?.canPostMessages == true {
+            return true
         }
-        return true
-    }
-}
-
-// MARK: Hashable
-
-extension CustomChat: Hashable {
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(chat)
-        hasher.combine(position)
-        hasher.combine(unreadCount)
-        hasher.combine(type)
-        hasher.combine(lastMessage)
-        hasher.combine(draftMessage)
-    }
-}
-
-// MARK: Identifiable
-
-extension CustomChat: Identifiable {
-    var id: Int64 { chat.id }
-}
-
-// MARK: Equatable
-
-extension CustomChat: Equatable {
-    static func == (lhs: CustomChat, rhs: CustomChat) -> Bool {
-        lhs.hashValue == rhs.hashValue
+        if case .chatMemberStatusCreator = supergroup.status {
+            return true
+        }
+        if case .chatMemberStatusBanned = supergroup.status {
+            return false
+        }
+        return supergroup.status != .chatMemberStatusLeft
     }
 }

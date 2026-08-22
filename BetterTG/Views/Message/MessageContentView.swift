@@ -5,22 +5,24 @@ import ImageIO
 import TDLibKit
 import UIKit
 
+// MARK: - MessageMediaView
+
 final class MessageMediaView: UIView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
         layer.cornerRadius = 13
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private var contentView: UIView?
+    // MARK: Internal
 
-    @discardableResult
-    func configure(
+    @discardableResult func configure(
         message: CustomMessage,
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
@@ -92,13 +94,23 @@ final class MessageMediaView: UIView {
         contentView?.removeFromSuperview()
         contentView = nil
     }
+
+    // MARK: Private
+
+    private var contentView: UIView?
 }
+
+// MARK: - ReusableMediaView
 
 protocol ReusableMediaView where Self: UIView {
     func prepareForReuse()
 }
 
+// MARK: - SinglePhotoView
+
 final class SinglePhotoView: UIControl, ReusableMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -116,13 +128,11 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let imageView = TDImageLoadingView()
-    private var onTap: (() -> Void)?
+    // MARK: Internal
 
     func configure(photo: Photo, onTap: @escaping () -> Void) {
         self.onTap = onTap
@@ -134,12 +144,21 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         onTap = nil
     }
 
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private var onTap: (() -> Void)?
+
     @objc private func tapped() {
         onTap?()
     }
 }
 
+// MARK: - AlbumMediaView
+
 final class AlbumMediaView: UIView, ReusableMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
@@ -147,33 +166,11 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         widthAnchor.constraint(equalToConstant: 280).isActive = true
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private var imageViews = [TDImageLoadingView]()
-    private var messages = [Message]()
-    private var onTap: (([Message], Int64) -> Void)?
-
-    func configure(messages: [Message], onTap: @escaping ([Message], Int64) -> Void) {
-        prepareForReuse()
-        self.messages = messages
-        self.onTap = onTap
-        for (index, message) in messages.enumerated() {
-            guard case .messagePhoto(let photo) = message.content else { continue }
-            let imageView = TDImageLoadingView()
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.tag = index
-            imageView.isUserInteractionEnabled = true
-            imageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(imageTapped(_:))))
-            imageView.load(photo: photo.photo, preferredSize: .yBox)
-            addSubview(imageView)
-            imageViews.append(imageView)
-        }
-        setNeedsLayout()
-    }
+    // MARK: Internal
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -206,15 +203,40 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         }
     }
 
+    func configure(messages: [Message], onTap: @escaping ([Message], Int64) -> Void) {
+        prepareForReuse()
+        self.messages = messages
+        self.onTap = onTap
+        for (index, message) in messages.enumerated() {
+            guard case .messagePhoto(let photo) = message.content else { continue }
+            let imageView = TDImageLoadingView()
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            imageView.tag = index
+            imageView.isUserInteractionEnabled = true
+            imageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(imageTapped(_:))))
+            imageView.load(photo: photo.photo, preferredSize: .yBox)
+            addSubview(imageView)
+            imageViews.append(imageView)
+        }
+        setNeedsLayout()
+    }
+
     func prepareForReuse() {
-        imageViews.forEach {
-            $0.cancel()
-            $0.removeFromSuperview()
+        for imageView in imageViews {
+            imageView.cancel()
+            imageView.removeFromSuperview()
         }
         imageViews.removeAll()
         messages.removeAll()
         onTap = nil
     }
+
+    // MARK: Private
+
+    private var imageViews = [TDImageLoadingView]()
+    private var messages = [Message]()
+    private var onTap: (([Message], Int64) -> Void)?
 
     @objc private func imageTapped(_ gesture: UITapGestureRecognizer) {
         guard let index = gesture.view?.tag, messages.indices.contains(index) else { return }
@@ -222,7 +244,11 @@ final class AlbumMediaView: UIView, ReusableMediaView {
     }
 }
 
+// MARK: - FileMediaPreviewView
+
 final class FileMediaPreviewView: UIControl, ReusableMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -247,14 +273,11 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
-    private var onTap: (() -> Void)?
+    // MARK: Internal
 
     func configure(
         file: File,
@@ -278,17 +301,22 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         onTap = nil
     }
 
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
+    private var onTap: (() -> Void)?
+
     @objc private func tapped() {
         onTap?()
     }
 }
 
-final class TDImageLoadingView: UIImageView {
-    private static let cache = NSCache<NSNumber, UIImage>()
+// MARK: - TDImageLoadingView
 
-    private var representedFileID: Int?
-    private var downloadTask: Task<Void, Never>?
-    private var cancellable: AnyCancellable?
+final class TDImageLoadingView: UIImageView {
+    // MARK: Internal
+
     private(set) var loadedPath: String?
 
     func load(photo: Photo, preferredSize: PhotoSizeType) {
@@ -300,8 +328,9 @@ final class TDImageLoadingView: UIImageView {
         load(file: size.photo, placeholderData: placeholderData)
     }
 
-    func load(file: File, placeholderData: Data? = nil) {
+    func load(file: File, placeholderData: Data? = nil, maximumPixelSize: Int = 1280) {
         cancel()
+        self.maximumPixelSize = maximumPixelSize
         representedFileID = file.id
         image = placeholderData.flatMap(UIImage.init(data:))
         if let cached = Self.cache.object(forKey: NSNumber(value: file.id)) {
@@ -339,47 +368,70 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
+    // MARK: Private
+
+    private static let cache: NSCache<NSNumber, UIImage> = {
+        let cache = NSCache<NSNumber, UIImage>()
+        cache.countLimit = 200
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+
+    private var representedFileID: Int?
+    private var downloadTask: Task<Void, Never>?
+    private var cancellable: AnyCancellable?
+    private var maximumPixelSize = 1280
+
     private func update(file: File) {
         guard representedFileID == file.id, file.local.isDownloadingCompleted else { return }
         let path = file.local.path
+        let maximumPixelSize = maximumPixelSize
         loadedPath = path
         Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) {
-                downsampledImage(at: path, maximumPixelSize: 1280)
+                downsampledImage(at: path, maximumPixelSize: maximumPixelSize)
             }.value
             await MainActor.run {
                 guard let self, self.representedFileID == file.id, let decoded else { return }
-                Self.cache.setObject(decoded, forKey: NSNumber(value: file.id))
+                let cost = Int(decoded.size.width * decoded.size.height * decoded.scale * decoded.scale * 4)
+                Self.cache.setObject(decoded, forKey: NSNumber(value: file.id), cost: cost)
                 self.image = decoded
             }
         }
     }
 }
 
+// MARK: - TDMediaPrefetcher
+
 enum TDMediaPrefetcher {
     static func prefetch(message: Message) async {
-        let fileIDs: [Int] = switch message.content {
-        case .messagePhoto(let photo):
-            photo.photo.sizes.getSize(.yBox).map { [$0.photo.id] } ?? []
-        case .messageVoiceNote(let voice):
-            [voice.voiceNote.voice.id]
-        case .messageAnimation(let animation):
-            [animation.animation.thumbnail?.file.id ?? animation.animation.animation.id]
-        case .messageSticker(let sticker):
-            [sticker.sticker.thumbnail?.file.id ?? sticker.sticker.sticker.id]
-        case .messageVideo(let video):
-            [video.video.thumbnail?.file.id ?? video.video.video.id]
-        default:
-            []
-        }
+        let fileIDs: [Int] =
+            switch message.content {
+            case .messagePhoto(let photo):
+                photo.photo.sizes.getSize(.yBox).map { [$0.photo.id] } ?? []
+            case .messageVoiceNote(let voice):
+                [voice.voiceNote.voice.id]
+            case .messageAnimation(let animation):
+                [animation.animation.thumbnail?.file.id ?? animation.animation.animation.id]
+            case .messageSticker(let sticker):
+                [sticker.sticker.thumbnail?.file.id ?? sticker.sticker.sticker.id]
+            case .messageVideo(let video):
+                [video.video.thumbnail?.file.id ?? video.video.video.id]
+            default:
+                []
+            }
         for fileID in fileIDs where !Task.isCancelled {
-            _ = try? await td.downloadFile(
-                fileId: fileID,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: false,
-            )
+            await withTaskCancellationHandler {
+                _ = try? await td.downloadFile(
+                    fileId: fileID,
+                    limit: 0,
+                    offset: 0,
+                    priority: 1,
+                    synchronous: false,
+                )
+            } onCancel: {
+                Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
+            }
         }
     }
 }

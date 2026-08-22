@@ -1,6 +1,6 @@
 // TdNotification.swift
 
-import SwiftUI
+import Foundation
 import TDLibKit
     
 struct TdNotification<T> {

@@ -8,6 +8,7 @@ final class MessageCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
         configureViews()
         configureConstraints()
     }
@@ -137,6 +138,8 @@ final class MessageCell: UICollectionViewCell {
         bubbleStack.alignment = .fill
         bubbleStack.spacing = 2
         bubbleView.addSubview(bubbleStack)
+        rowStack.addArrangedSubview(bubbleView)
+        rowStack.addArrangedSubview(trailingSpacer)
 
         forwardedLabel.textColor = .secondaryLabel
         forwardedLabel.font = .preferredFont(forTextStyle: .caption1)

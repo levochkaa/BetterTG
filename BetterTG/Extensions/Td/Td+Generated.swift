@@ -3,7 +3,7 @@
 // This file is generated from td.py
 // Any modifications will be overwritten
 
-import SwiftUI
+import Foundation
 import TDLibKit
 
 func update(_ update: Update) {

@@ -1,6 +1,6 @@
 // String.swift
 
-import SwiftUI
+import UIKit
 
 extension String {
     var data: Data { Data(utf8) }

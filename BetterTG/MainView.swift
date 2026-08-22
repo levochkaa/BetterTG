@@ -31,6 +31,7 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
             }
             .store(in: &cancellables)
         reloadFromState()
+        configureAutomatedSmokeRoute()
     }
 
     private let rootVM: RootVM
@@ -63,6 +64,22 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
             target: self,
             action: #selector(openSettings),
         )
+    }
+
+    private func configureAutomatedSmokeRoute() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-chat") else { return }
+        rootVM.$folders
+            .compactMap { folders in folders.lazy.flatMap(\.chats).first }
+            .first()
+            .receive(on: DispatchQueue.main)
+            .sink { chat in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    NavigationStorage.shared.push(.customChat(chat), animated: false)
+                }
+            }
+            .store(in: &cancellables)
+        #endif
     }
 
     private func configurePageController() {

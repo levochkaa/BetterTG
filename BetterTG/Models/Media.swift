@@ -1,15 +1,14 @@
 // Media.swift
 
+import AVFoundation
 import Combine
 import MediaPlayer
 import MobileVLCKit
-import Observation
-import SwiftUI
 
-@Observable final class Media: ObservableObject {
+final class Media: ObservableObject {
     // MARK: Lifecycle
 
-    init() {
+    private init() {
         setPublishers()
         setCommandCenterControls()
     }
@@ -18,21 +17,17 @@ import SwiftUI
 
     static let shared = Media()
 
-    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
-
-    var savedMediaPath = "" { didSet { objectWillChange.send() } }
-    var isPlaying = false { didSet { objectWillChange.send() } }
-    var currentTime: Int32 = 0 { didSet { objectWillChange.send() } }
+    @Published var savedMediaPath = ""
+    @Published var isPlaying = false
+    @Published var currentTime: Int32 = 0
 
     func stop() {
-        withAnimation {
-            isPlaying = false
-            currentTime = 0
-            savedMediaPath = ""
-            player.media = nil
-            player.stop()
-            nowPlayingCenter.nowPlayingInfo = nil
-        }
+        isPlaying = false
+        currentTime = 0
+        savedMediaPath = ""
+        player.media = nil
+        player.stop()
+        nowPlayingCenter.nowPlayingInfo = nil
     }
 
     func onChatOpen(title: String) {
@@ -53,16 +48,13 @@ import SwiftUI
 
     func toggle(with path: String, duration: Int) {
         self.duration = duration
-        withAnimation {
-            if savedMediaPath.isEmpty || savedMediaPath != path {
-                savedMediaPath = path
-                stop()
-                savedMediaPath = path
-                player.media = VLCMedia(path: path)
-                play()
-            } else {
-                toggle()
-            }
+        if savedMediaPath.isEmpty || savedMediaPath != path {
+            stop()
+            savedMediaPath = path
+            player.media = VLCMedia(path: path)
+            play()
+        } else {
+            toggle()
         }
     }
 
@@ -84,18 +76,19 @@ import SwiftUI
 
     // MARK: Private
 
-    @ObservationIgnored private var duration = 0
-    @ObservationIgnored private var title = ""
+    private var duration = 0
+    private var title = ""
 
     private let player = VLCMediaPlayer()
     private let audioSession = AVAudioSession.sharedInstance()
     private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
     private let commandCenter = MPRemoteCommandCenter.shared()
-    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
+    private var cancellables = Set<AnyCancellable>()
 
     private func setPublishers() {
         player
             .publisher(for: \.time, options: [.new])
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }
                 currentTime = time.intValue / 1000
@@ -105,6 +98,7 @@ import SwiftUI
 
         player
             .publisher(for: \.state, options: [.new])
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
                 guard case .ended = state else { return }
@@ -120,7 +114,7 @@ import SwiftUI
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil, !isPlaying {
-                play()
+                DispatchQueue.main.async { self.play() }
                 return .success
             }
             return .commandFailed
@@ -129,7 +123,7 @@ import SwiftUI
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil, isPlaying {
-                pause()
+                DispatchQueue.main.async { self.pause() }
                 return .success
             }
             return .commandFailed
@@ -138,7 +132,7 @@ import SwiftUI
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil {
-                toggle()
+                DispatchQueue.main.async { self.toggle() }
                 return .success
             }
             return .commandFailed
@@ -147,7 +141,7 @@ import SwiftUI
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self else { return .commandFailed }
             if let positionEvent = event as? MPChangePlaybackPositionCommandEvent {
-                seekTo(positionEvent.positionTime)
+                DispatchQueue.main.async { self.seekTo(positionEvent.positionTime) }
                 return .success
             }
             return .commandFailed
@@ -156,7 +150,7 @@ import SwiftUI
         commandCenter.skipForwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil {
-                seekForward()
+                DispatchQueue.main.async { self.seekForward() }
                 return .success
             }
             return .commandFailed
@@ -165,7 +159,7 @@ import SwiftUI
         commandCenter.skipBackwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             if !savedMediaPath.isEmpty, player.media != nil {
-                seekBackward()
+                DispatchQueue.main.async { self.seekBackward() }
                 return .success
             }
             return .commandFailed
@@ -173,12 +167,10 @@ import SwiftUI
     }
 
     private func toggle() {
-        withAnimation {
-            if isPlaying {
-                pause()
-            } else {
-                play()
-            }
+        if isPlaying {
+            pause()
+        } else {
+            play()
         }
     }
 

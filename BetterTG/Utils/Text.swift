@@ -1,18 +1,18 @@
 // Text.swift
 
-import SwiftUI
 import TDLibKit
+import UIKit
 
-func defaultAttributes(_ foregroundColor: Color = .white) -> [NSAttributedString.Key: Any] {
+func defaultAttributes(_ foregroundColor: UIColor = .white) -> [NSAttributedString.Key: Any] {
     [
         .font: UIFont.body as Any,
-        .foregroundColor: UIColor(foregroundColor),
+        .foregroundColor: foregroundColor,
     ]
 }
 
 func getAttributedString(
     from formattedText: FormattedText,
-    _ foregroundColor: Color = .white,
+    _ foregroundColor: UIColor = .white,
     withDate: Bool = false,
 ) -> AttributedString {
     let attributedString = NSMutableAttributedString(
@@ -68,7 +68,7 @@ func setEntity(_ entity: TextEntity, base text: String, for attributedString: NS
 func getEntities(from text: AttributedString) -> [TextEntity] {
     var entities = [TextEntity]()
     let attributedText = NSAttributedString(text)
-    let textRange = NSRange(location: 0, length: text.string.count)
+    let textRange = NSRange(location: 0, length: attributedText.length)
     attributedText.enumerateAttributes(in: textRange) { attributes, range, _ in
         for attribute in attributes {
             guard let entity = getEntity(from: attribute, using: range) else { continue }

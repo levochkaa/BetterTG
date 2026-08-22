@@ -1,6 +1,6 @@
 // UIFont.swift
 
-import SwiftUI
+import UIKit
 
 extension UIFont {
     static let monospaced = UIFont(name: "Menlo", size: 17) ?? UIFont.monospacedSystemFont(ofSize: 17, weight: .regular)

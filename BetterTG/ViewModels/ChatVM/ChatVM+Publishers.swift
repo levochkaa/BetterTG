@@ -1,182 +1,138 @@
 // ChatVM+Publishers.swift
 
 import Combine
-import SwiftUI
 import TDLibKit
 
 extension ChatVM {
     func setPublishers() {
-        nc.publisher(&cancellables, for: .localScrollToLastOnFocus) { [weak self] _ in
-            guard let self, scrollOnFocus else { return }
-            Task.main { self.scrollToLast() }
+        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] update in
+            guard let self, update.chatId == customChat.id else { return }
+            customChat.unreadCount = update.unreadCount
         }
-        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] updateChatReadInbox in
-            guard let self, updateChatReadInbox.chatId == customChat.chat.id else { return }
-            Task.main { self.customChat.unreadCount = updateChatReadInbox.unreadCount }
+        nc.publisher(&cancellables, for: .updateNewMessage) { [weak self] update in
+            guard let self, update.message.chatId == customChat.id else { return }
+            updateNewMessage(update)
         }
-        nc.publisher(&cancellables, for: .updateNewMessage) { [weak self] updateNewMessage in
-            guard let self, updateNewMessage.message.chatId == customChat.chat.id else { return }
-            self.updateNewMessage(updateNewMessage)
+        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
+            guard let self, update.chatId == customChat.id else { return }
+            updateDeleteMessages(update)
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] updateDeleteMessages in
-            guard let self, updateDeleteMessages.chatId == customChat.chat.id else { return }
-            self.updateDeleteMessages(updateDeleteMessages)
+        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
+            guard let self, update.chatId == customChat.id else { return }
+            updateMessageEdited(update)
         }
-        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] updateMessageEdited in
-            guard let self, updateMessageEdited.chatId == customChat.chat.id else { return }
-            self.updateMessageEdited(updateMessageEdited)
+        nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
+            guard let self, update.chatId == customChat.id else { return }
+            refreshMessage(id: update.messageId)
         }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] updateMessageSendSucceeded in
-            guard let self, updateMessageSendSucceeded.message.chatId == customChat.chat.id else { return }
-            self.updateMessageSendSucceeded(updateMessageSendSucceeded)
+        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
+            guard let self, update.message.chatId == customChat.id else { return }
+            updateMessageSendSucceeded(update)
         }
-        nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] updateUserStatus in
-            guard let self, updateUserStatus.userId == customChat.chat.id else { return }
-            self.updateUserStatus(updateUserStatus)
+        nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
+            guard let self, update.message.chatId == customChat.id else { return }
+            updateMessageSendFailed(update)
         }
-        nc.publisher(&cancellables, for: .updateChatAction) { [weak self] updateChatAction in
-            guard let self, updateChatAction.chatId == customChat.chat.id else { return }
-            self.updateChatAction(updateChatAction)
+        nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
+            guard let self, update.userId == customChat.user?.id else { return }
+            onlineStatus = getOnlineStatus(from: update.status)
+        }
+        nc.publisher(&cancellables, for: .updateChatAction) { [weak self] update in
+            guard let self, update.chatId == customChat.id else { return }
+            updateChatAction(update)
         }
     }
-    
-    func updateUserStatus(_ updateUserStatus: UpdateUserStatus) {
-        let onlineStatus = getOnlineStatus(from: updateUserStatus.status)
-        Task.main { withAnimation { self.onlineStatus = onlineStatus } }
-    }
-    
-    func updateChatAction(_ updateChatAction: UpdateChatAction) {
-        guard case .messageSenderUser(let messageSenderUser) = updateChatAction.senderId,
-              messageSenderUser.userId == customChat.chat.id
-        else { return }
-        let actionStatus =
-            switch updateChatAction.action {
+
+    func updateChatAction(_ update: UpdateChatAction) {
+        actionStatus =
+            switch update.action {
             case .chatActionTyping: "typing..."
             case .chatActionRecordingVideo: "recording video..."
-            case .chatActionUploadingVideo: /* (let chatActionUploadingVideo) */ "uploading video..."
+            case .chatActionUploadingVideo: "uploading video..."
             case .chatActionRecordingVoiceNote: "recording voice note..."
-            case .chatActionUploadingVoiceNote: /* (let chatActionUploadingVoiceNote) */ "uploading voice note..."
-            case .chatActionUploadingPhoto: /* (let chatActionUploadingPhoto) */ "uploading photo..."
-            case .chatActionUploadingDocument: /* (let chatActionUploadingDocument) */ "uploading voice document..."
+            case .chatActionUploadingVoiceNote: "uploading voice note..."
+            case .chatActionUploadingPhoto: "uploading photo..."
+            case .chatActionUploadingDocument: "uploading document..."
             case .chatActionChoosingSticker: "choosing sticker..."
             case .chatActionChoosingLocation: "choosing location..."
             case .chatActionChoosingContact: "choosing contact..."
             case .chatActionStartPlayingGame: "playing game..."
             case .chatActionRecordingVideoNote: "recording video note..."
-            case .chatActionUploadingVideoNote: /* (let chatActionUploadingVideoNote) */ "uploading video note..."
-            case .chatActionWatchingAnimations(let watching): "watching animations...\(watching.emoji)"
+            case .chatActionUploadingVideoNote: "uploading video note..."
+            case .chatActionWatchingAnimations(let action): "watching animations...\(action.emoji)"
             case .chatActionCancel: ""
             }
-        Task.main {
-            withAnimation {
-                self.actionStatus = actionStatus
-            }
-        }
     }
-    
-    func updateMessageSendSucceeded(_ updateMessageSendSucceeded: UpdateMessageSendSucceeded) {
-        let message = updateMessageSendSucceeded.message
-        let oldMessageId = updateMessageSendSucceeded.oldMessageId
-        
-        if message.mediaAlbumId == 0 {
-            guard let index = messages.firstIndex(where: { $0.message.id == oldMessageId }) else { return }
-            Task.background {
-                let customMessage = await self.getCustomMessage(from: message)
-                await main {
-                    withAnimation {
-                        self.messages[index] = customMessage
-                    }
-                }
-            }
-        } else {
-            for (outerIndex, outerMessage) in messages.enumerated() {
-                for (innerIndex, innerMessage) in outerMessage.album.enumerated() {
-                    guard innerMessage.id == oldMessageId else { continue }
-                    withAnimation {
-                        messages[outerIndex].album[innerIndex] = message
-                    }
-                    nc.post(name: .localScrollToLastOnFocus)
-                }
+
+    func updateMessageSendSucceeded(_ update: UpdateMessageSendSucceeded) {
+        if update.message.mediaAlbumId != 0 {
+            for outerMessage in messages {
+                guard let index = outerMessage.album.firstIndex(where: { $0.id == update.oldMessageId })
+                else { continue }
+                outerMessage.album[index] = update.message
+                return
             }
         }
-    }
-    
-    func updateDeleteMessages(_ updateDeleteMessages: UpdateDeleteMessages) {
-        if updateDeleteMessages.fromCache || !updateDeleteMessages.isPermanent { return }
-        
-        Task.main(delay: 0.5) {
-            withAnimation {
-                self.messages.removeAll { customMessage in
-                    updateDeleteMessages.messageIds.contains(customMessage.message.id)
-                }
-            }
-        }
-    }
-    
-    func updateNewMessage(_ updateNewMessage: UpdateNewMessage) {
-        let message = updateNewMessage.message
-        Task.background {
-            let customMessage = await self.getCustomMessage(from: message)
-            if message.mediaAlbumId == 0 {
-                await main {
-                    withAnimation {
-                        self.messages.add(customMessage)
-                    }
-                }
-            } else {
-                if let index = self.messages.firstIndex(where: {
-                    $0.message.mediaAlbumId == message.mediaAlbumId
-                }) {
-                    await main {
-                        withAnimation {
-                            self.messages[index].album.append(customMessage.message)
-                        }
-                    }
-                } else {
-                    await main {
-                        withAnimation {
-                            self.messages.add(customMessage)
-                        }
-                    }
-                }
-            }
-            nc.post(name: .localScrollToLastOnFocus)
-        }
-    }
-    
-    func updateMessageEdited(_ updateMessageEdited: UpdateMessageEdited) {
-        if let index = messages.firstIndex(where: { $0.message.id == updateMessageEdited.messageId }) {
-            Task.background {
-                guard let customMessage = await self.getCustomMessage(fromId: updateMessageEdited.messageId)
-                else { return }
-                
-                await main {
-                    withAnimation {
-                        self.messages[index] = customMessage
-                        
-                        if updateMessageEdited.messageId == self.replyMessage?.message.id {
-                            self.replyMessage = customMessage
-                        }
-                    }
-                }
-            }
-        }
-        
-        let indices = messages.enumerated().compactMap { index, customMessage in
-            customMessage.replyToMessage?.id == updateMessageEdited.messageId ? index : nil
-        }
-        guard !indices.isEmpty else { return }
-        Task.background {
-            let reply = try? await td.getMessage(
-                chatId: self.customChat.chat.id,
-                messageId: updateMessageEdited.messageId,
-            )
+        Task {
+            let replacement = await self.getCustomMessage(from: update.message)
             await main {
-                for index in indices {
-                    withAnimation {
-                        self.messages[index].replyToMessage = reply
-                    }
+                guard let index = self.messages.firstIndex(where: { $0.id == update.oldMessageId }) else { return }
+                self.messages[index] = replacement
+            }
+        }
+    }
+
+    func updateMessageSendFailed(_ update: UpdateMessageSendFailed) {
+        Task {
+            let replacement = await self.getCustomMessage(from: update.message)
+            await main {
+                replacement.sendFailed = true
+                guard let index = self.messages.firstIndex(where: { $0.id == update.oldMessageId }) else { return }
+                self.messages[index] = replacement
+            }
+        }
+    }
+
+    func updateDeleteMessages(_ update: UpdateDeleteMessages) {
+        guard !update.fromCache, update.isPermanent else { return }
+        messages.removeAll { update.messageIds.contains($0.id) }
+    }
+
+    func updateNewMessage(_ update: UpdateNewMessage) {
+        Task {
+            let customMessage = await self.getCustomMessage(from: update.message)
+            await main {
+                if update.message.mediaAlbumId == 0 {
+                    self.messages.add(customMessage)
+                } else if let existing = self.messages.first(where: {
+                    $0.message.mediaAlbumId == update.message.mediaAlbumId
+                }) {
+                    existing.album.append(update.message)
+                } else {
+                    self.messages.add(customMessage)
                 }
+            }
+        }
+    }
+
+    func updateMessageEdited(_ update: UpdateMessageEdited) {
+        refreshMessage(id: update.messageId)
+    }
+
+    private func refreshMessage(id: Int64) {
+        Task {
+            let replacement = await getCustomMessage(fromId: id)
+            let reply = try? await td.getMessage(chatId: chatID, messageId: id)
+            if let replacement,
+               let index = messages.firstIndex(where: { $0.id == id })
+            {
+                messages[index] = replacement
+                if replyMessage?.id == id {
+                    replyMessage = replacement
+                }
+            }
+            for message in messages where message.replyToMessage?.id == id {
+                message.replyToMessage = reply
             }
         }
     }

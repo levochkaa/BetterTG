@@ -8,15 +8,22 @@ import UIKit
 final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate
 {
+    // MARK: Lifecycle
+
     init(customChat: CustomChat) {
-        chatVM = ChatVM(customChat: customChat)
+        self.chatVM = ChatVM(customChat: customChat)
         super.init(nibName: nil, bundle: nil)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    deinit {
+        prefetchTasks.values.forEach { $0.cancel() }
+    }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -33,6 +40,86 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         Task { [chatVM] in await chatVM.updateDraft() }
     }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === collectionView else { return }
+        let isAwayFromLatest = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 160
+        let targetAlpha = isAwayFromLatest ? CGFloat(1) : 0
+        guard scrollToLatestButton.alpha != targetAlpha else { return }
+        UIView.animate(withDuration: 0.2) { self.scrollToLatestButton.alpha = targetAlpha }
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard !results.isEmpty else { return }
+        PhotoPickerSelectionLoader.load(results) { [weak self] images in
+            self?.chatVM.displayedImages = images
+        }
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
+
+    func imagePickerController(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any],
+    ) {
+        picker.dismiss(animated: true)
+        guard let image = info[.originalImage] as? UIImage else { return }
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        Task { [weak self] in
+            let selected = await Task.detached(priority: .userInitiated) { writeImage(image) }.value
+            guard let selected else { return }
+            self?.chatVM.displayedImages = [selected]
+        }
+    }
+
+    func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
+        chatVM.viewMessage(id: messageID)
+        if indexPath.item >= max(chatVM.messages.count - 5, 0) {
+            chatVM.loadMessages()
+        }
+    }
+
+    func collectionView(
+        _: UICollectionView,
+        contextMenuConfigurationForItemAt indexPath: IndexPath,
+        point _: CGPoint,
+    ) -> UIContextMenuConfiguration? {
+        guard let messageID = dataSource.itemIdentifier(for: indexPath),
+              let message = message(for: messageID) else { return nil }
+        return UIContextMenuConfiguration(
+            identifier: NSNumber(value: messageID),
+            previewProvider: nil,
+        ) { [weak self] _ in
+            self?.menu(for: message)
+        }
+    }
+
+    func collectionView(_: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        for indexPath in indexPaths {
+            guard let messageID = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: messageID),
+                  prefetchTasks[messageID] == nil
+            else { continue }
+            prefetchTasks[messageID] = Task { [weak self] in
+                await TDMediaPrefetcher.prefetch(message: message.message)
+                await MainActor.run { self?.prefetchTasks[messageID] = nil }
+            }
+        }
+    }
+
+    func collectionView(_: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        for indexPath in indexPaths {
+            guard let id = dataSource.itemIdentifier(for: indexPath) else { continue }
+            prefetchTasks[id]?.cancel()
+            prefetchTasks[id] = nil
+        }
+    }
+
+    // MARK: Private
 
     private enum Section {
         case messages
@@ -71,7 +158,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         titleStack.axis = .vertical
         titleStack.alignment = .center
         titleStack.spacing = 0
-        titleLabel.text = chatVM.customChat.chat.title
         titleLabel.textColor = .white
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         statusLabel.font = .preferredFont(forTextStyle: .caption1)
@@ -79,17 +165,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         navigationItem.titleView = titleStack
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.configure(
-            file: chatVM.customChat.chat.photo?.big,
-            minithumbnail: chatVM.customChat.chat.photo?.minithumbnail,
-            title: chatVM.customChat.chat.title,
-            id: chatVM.customChat.id,
-        )
         NSLayoutConstraint.activate([
             avatarView.widthAnchor.constraint(equalToConstant: 32),
             avatarView.heightAnchor.constraint(equalToConstant: 32),
         ])
         navigationItem.rightBarButtonItem = UIBarButtonItem(customView: avatarView)
+        updateChatHeader()
         updateStatus()
     }
 
@@ -110,6 +191,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ]
         if chatVM.customChat.canPostMessages {
+            view.keyboardLayoutGuide.usesBottomSafeArea = true
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
@@ -172,7 +254,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   ) as? MessageCell,
                   let message = message(for: messageID)
             else { return UICollectionViewCell() }
-            cell.transform = CGAffineTransform(scaleX: 1, y: -1)
             cell.configure(
                 message: message,
                 chat: chatVM.customChat,
@@ -190,10 +271,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .sink { [weak self] in
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    self.updateStatus()
-                    self.composerView.update(from: self.chatVM)
-                    self.updateHighlightState()
-                    self.presentMicrophoneErrorIfNeeded()
+                    updateStatus()
+                    composerView.update(from: chatVM)
+                    updateHighlightState()
+                    presentMicrophoneErrorIfNeeded()
                 }
             }
             .store(in: &cancellables)
@@ -203,7 +284,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 DispatchQueue.main.async { self?.updateSnapshot(animated: true) }
             }
             .store(in: &cancellables)
+        chatVM.customChat
+            .$chat
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateChatHeader() }
+            }
+            .store(in: &cancellables)
+        chatVM.customChat
+            .$unreadCount
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.updateStatus() } }
+            .store(in: &cancellables)
         subscribeToMessages()
+    }
+
+    private func updateChatHeader() {
+        let chat = chatVM.customChat.chat
+        titleLabel.text = chat.title
+        avatarView.configure(
+            file: chat.photo?.big,
+            minithumbnail: chat.photo?.minithumbnail,
+            title: chat.title,
+            id: chat.id,
+        )
     }
 
     private func subscribeToMessages() {
@@ -279,14 +385,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(MediaGalleryViewController(messages: messages, selection: selection), animated: true)
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard scrollView === collectionView else { return }
-        let isAwayFromLatest = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 160
-        let targetAlpha = isAwayFromLatest ? CGFloat(1) : 0
-        guard scrollToLatestButton.alpha != targetAlpha else { return }
-        UIView.animate(withDuration: 0.2) { self.scrollToLatestButton.alpha = targetAlpha }
-    }
-
     @objc private func scrollToLatest() {
         guard !chatVM.messages.isEmpty else { return }
         collectionView.scrollToItem(at: IndexPath(item: 0, section: 0), at: .bottom, animated: true)
@@ -337,72 +435,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        PhotoPickerSelectionLoader.load(results) { [weak self] images in
-            self?.chatVM.displayedImages = images
-        }
-    }
-
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
-    }
-
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any],
-    ) {
-        picker.dismiss(animated: true)
-        guard let image = writeImage(info[.originalImage] as? UIImage, withSaving: true) else { return }
-        chatVM.displayedImages = [image]
-    }
-
-    func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
-        chatVM.viewMessage(id: messageID)
-        if indexPath.item >= max(chatVM.messages.count - 5, 0) {
-            chatVM.loadMessages()
-        }
-    }
-
-    func collectionView(
-        _: UICollectionView,
-        contextMenuConfigurationForItemAt indexPath: IndexPath,
-        point _: CGPoint,
-    ) -> UIContextMenuConfiguration? {
-        guard let messageID = dataSource.itemIdentifier(for: indexPath), let message = message(for: messageID) else { return nil }
-        return UIContextMenuConfiguration(identifier: NSNumber(value: messageID), previewProvider: nil) { [weak self] _ in
-            self?.menu(for: message)
-        }
-    }
-
-    func collectionView(_: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        for indexPath in indexPaths {
-            guard let messageID = dataSource.itemIdentifier(for: indexPath),
-                  let message = message(for: messageID),
-                  prefetchTasks[messageID] == nil
-            else { continue }
-            prefetchTasks[messageID] = Task {
-                await TDMediaPrefetcher.prefetch(message: message.message)
-                await MainActor.run { self.prefetchTasks[messageID] = nil }
-            }
-        }
-    }
-
-    func collectionView(_: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
-        for indexPath in indexPaths {
-            guard let id = dataSource.itemIdentifier(for: indexPath) else { continue }
-            prefetchTasks[id]?.cancel()
-            prefetchTasks[id] = nil
-        }
-    }
-
     private func menu(for message: CustomMessage) -> UIMenu {
         var elements = [UIMenuElement]()
         if message.properties.canBeReplied {
-            elements.append(UIAction(title: "Reply", image: UIImage(systemName: "arrowshape.turn.up.left")) { [weak self] _ in
-                self?.chatVM.replyMessage = message
-            })
+            elements
+                .append(UIAction(
+                    title: "Reply",
+                    image: UIImage(systemName: "arrowshape.turn.up.left"),
+                ) { [weak self] _ in
+                    self?.chatVM.replyMessage = message
+                })
         }
         if message.properties.canBeEdited {
             elements.append(UIAction(title: "Edit", image: UIImage(systemName: "square.and.pencil")) { [weak self] _ in
@@ -428,7 +470,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             attributes: .destructive,
         ) { [weak self] _ in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) }
         if message.properties.canBeDeletedOnlyForSelf, message.properties.canBeDeletedForAllUsers {
-            elements.append(UIMenu(title: "Delete", image: UIImage(systemName: "trash"), children: [deleteSelf, deleteAll]))
+            elements.append(UIMenu(
+                title: "Delete",
+                image: UIImage(systemName: "trash"),
+                children: [deleteSelf, deleteAll],
+            ))
         } else if message.properties.canBeDeletedForAllUsers {
             elements.append(deleteAll)
         } else if message.properties.canBeDeletedOnlyForSelf {

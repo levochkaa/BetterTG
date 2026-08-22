@@ -1,11 +1,12 @@
 // ChatsListItemView.swift
 
-import Combine
 import TDLibKit
 import UIKit
 
+// MARK: - ChatListCell
+
 final class ChatListCell: UITableViewCell {
-    static let reuseIdentifier = "ChatListCell"
+    // MARK: Lifecycle
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -15,24 +16,18 @@ final class ChatListCell: UITableViewCell {
         configureConstraints()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    // MARK: Internal
+
+    static let reuseIdentifier = "ChatListCell"
+
     override func prepareForReuse() {
         super.prepareForReuse()
-        cancellables.removeAll()
         avatarView.prepareForReuse()
     }
-
-    private let cardView = UIView()
-    private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
-    private let avatarView = ProfileAvatarView()
-    private let titleLabel = UILabel()
-    private let messageLabel = UILabel()
-    private let unreadLabel = UILabel()
-    private var cancellables = Set<AnyCancellable>()
 
     func configure(chat: CustomChat, folder _: CustomFolder) {
         pinView.isHidden = !chat.position.isPinned
@@ -46,11 +41,26 @@ final class ChatListCell: UITableViewCell {
             title: chat.chat.title,
             id: chat.id,
         )
-        accessibilityLabel = [chat.chat.title, messageLabel.text, chat.unreadCount > 0 ? "\(chat.unreadCount) unread" : nil]
+        accessibilityLabel = [
+            chat.chat.title,
+            messageLabel.text,
+            chat.unreadCount > 0
+                ? "\(chat.unreadCount) unread"
+                : nil,
+        ]
             .compactMap(\.self)
             .joined(separator: ", ")
         accessibilityTraits = .button
     }
+
+    // MARK: Private
+
+    private let cardView = UIView()
+    private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
+    private let avatarView = ProfileAvatarView()
+    private let titleLabel = UILabel()
+    private let messageLabel = UILabel()
+    private let unreadLabel = UILabel()
 
     private func configureViews() {
         cardView.translatesAutoresizingMaskIntoConstraints = false
@@ -59,9 +69,9 @@ final class ChatListCell: UITableViewCell {
         cardView.clipsToBounds = true
         contentView.addSubview(cardView)
 
-        [pinView, avatarView, titleLabel, messageLabel, unreadLabel].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            cardView.addSubview($0)
+        for item in [pinView, avatarView, titleLabel, messageLabel, unreadLabel] {
+            item.translatesAutoresizingMaskIntoConstraints = false
+            cardView.addSubview(item)
         }
         pinView.tintColor = .white
         pinView.contentMode = .scaleAspectFit
@@ -109,7 +119,11 @@ final class ChatListCell: UITableViewCell {
     }
 }
 
-final class ProfileAvatarView: UIView {
+// MARK: - ProfileAvatarView
+
+final class ProfileAvatarView: UIView, UIContextMenuInteractionDelegate {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
@@ -121,6 +135,7 @@ final class ProfileAvatarView: UIView {
         label.font = .preferredFont(forTextStyle: .title2)
         addSubview(label)
         addSubview(imageView)
+        addInteraction(UIContextMenuInteraction(delegate: self))
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -133,69 +148,51 @@ final class ProfileAvatarView: UIView {
         ])
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func layoutSubviews() {
         super.layoutSubviews()
         layer.cornerRadius = bounds.width / 2
     }
 
-    private let imageView = UIImageView()
-    private let label = UILabel()
-    private var representedFileID: Int?
-    private var downloadTask: Task<Void, Never>?
-    private var cancellable: AnyCancellable?
-
     func configure(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
         prepareForReuse()
         label.text = String(title.prefix(1)).uppercased()
         backgroundColor = UIColor(userID: id)
-        imageView.image = minithumbnail.flatMap { UIImage(data: $0.data) }
-        imageView.isHidden = imageView.image == nil
-        guard let file else { return }
-        representedFileID = file.id
-        update(file: file)
-        cancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == file.id }
-            .sink { [weak self] in self?.update(file: $0.file) }
-        downloadTask = Task { [weak self] in
-            guard let self else { return }
-            let downloaded = try? await td.downloadFile(
-                fileId: file.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: false,
-            )
-            guard let downloaded else { return }
-            await MainActor.run { self.update(file: downloaded) }
+        representedFile = file
+        if let file {
+            imageView.load(file: file, placeholderData: minithumbnail?.data, maximumPixelSize: 160)
+        } else {
+            imageView.image = minithumbnail.flatMap { UIImage(data: $0.data) }
         }
     }
 
     func prepareForReuse() {
-        downloadTask?.cancel()
-        downloadTask = nil
-        cancellable?.cancel()
-        cancellable = nil
-        representedFileID = nil
+        imageView.cancel()
+        representedFile = nil
         imageView.image = nil
-        imageView.isHidden = true
     }
 
-    private func update(file: File) {
-        guard representedFileID == file.id, file.local.isDownloadingCompleted else { return }
-        let path = file.local.path
-        Task { [weak self] in
-            let image = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: path) }.value
-            await MainActor.run {
-                guard let self, self.representedFileID == file.id, let image else { return }
-                self.imageView.image = image
-                self.imageView.isHidden = false
-            }
+    func contextMenuInteraction(
+        _: UIContextMenuInteraction,
+        configurationForMenuAtLocation _: CGPoint,
+    ) -> UIContextMenuConfiguration? {
+        guard representedFile != nil else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: [UIAction(title: "Save", image: UIImage(systemName: "square.and.arrow.down")) { _ in
+                guard let image = self?.imageView.image else { return }
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            }])
         }
     }
+
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let label = UILabel()
+    private var representedFile: File?
 }

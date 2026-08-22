@@ -3,7 +3,7 @@
 import TDLibKit
 import UIKit
 
-enum ChatSummary {
+@MainActor enum ChatSummary {
     static func attributedText(for chat: CustomChat) -> NSAttributedString? {
         if let draft = chat.draftMessage {
             let result = NSMutableAttributedString(
@@ -34,21 +34,21 @@ enum ChatSummary {
     static func summary(for message: Message) -> String {
         switch message.content {
         case .messagePhoto(let photo):
-            return photo.caption.text.isEmpty ? "Photo" : "Photo: \(photo.caption.text)"
+            photo.caption.text.isEmpty ? "Photo" : "Photo: \(photo.caption.text)"
         case .messageVoiceNote(let voice):
-            return voice.caption.text.isEmpty ? "Voice" : "Voice: \(voice.caption.text)"
+            voice.caption.text.isEmpty ? "Voice" : "Voice: \(voice.caption.text)"
         case .messageText(let text):
-            return text.text.text
+            text.text.text
         case .messageAnimation:
-            return "Animation"
+            "Animation"
         case .messageSticker:
-            return "Sticker"
+            "Sticker"
         case .messageVideo:
-            return "Video"
+            "Video"
         case .messageUnsupported:
-            return "TDLib not supported"
+            "TDLib not supported"
         default:
-            return "BTG not supported"
+            "BTG not supported"
         }
     }
 }

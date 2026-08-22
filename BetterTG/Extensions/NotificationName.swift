@@ -1,6 +1,6 @@
 // NotificationName.swift
 
-import SwiftUI
+import Foundation
 
 extension Foundation.Notification.Name {
     static let authorizationStateWaitTdlibParameters = Self("authorizationStateWaitTdlibParameters")
@@ -16,8 +16,4 @@ extension Foundation.Notification.Name {
     static let authorizationStateClosing = Self("authorizationStateClosing")
     static let authorizationStateClosed = Self("authorizationStateClosed")
     static let authorizationStateWaitPremiumPurchase = Self("authorizationStateWaitPremiumPurchase")
-
-    static let localScrollToLastOnFocus = Self("localScrollToLastOnFocus")
-    static let localPasteImages = Self("localPasteImages")
-    static let localOnSelectedImagesDrop = Self("localOnSelectedImagesDrop")
 }

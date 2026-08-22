@@ -51,8 +51,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: ""
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_ASSET_PATHS: "\"BetterTG/Preview Assets.xcassets\""
-        ENABLE_PREVIEWS: YES
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: BetterTG/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: BetterTG
@@ -62,7 +60,6 @@ targets:
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: We would like to access Photos to save images you request.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: We would like to access your Photos to let you send them in chats.
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UIStatusBarHidden: YES
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent

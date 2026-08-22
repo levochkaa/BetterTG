@@ -1,18 +1,16 @@
 // CustomFolder.swift
 
-import SwiftUI
+import Combine
 import TDLibKit
 
-// MARK: - CustomFolder
-
-@Observable final class CustomFolder {
+@MainActor final class CustomFolder: ObservableObject {
     // MARK: Lifecycle
 
     init(chats: [CustomChat], type: CustomFolderType) {
         self.chats = chats
         self.type = type
     }
-    
+
     // MARK: Internal
 
     enum CustomFolderType: Equatable, Hashable {
@@ -21,54 +19,9 @@ import TDLibKit
         case folder(ChatFolderInfo, ChatFolder)
     }
 
-    var chats: [CustomChat]
-    var type: CustomFolderType
-    var rect = CGRect.zero
-    var scrollViewProxy: ScrollViewProxy?
-    
-    var chatList: ChatList {
-        switch type {
-        case .main: .chatListMain
-        case .archive: .chatListArchive
-        case .folder(let info, _): .chatListFolder(.init(chatFolderId: info.id))
-        }
-    }
-    
-    var name: String {
-        switch type {
-        case .main: "All"
-        case .archive: "Archive"
-        case .folder(let info, _): info.name.text.text
-        }
-    }
-    
-    var info: ChatFolderInfo? {
-        switch type {
-        case .folder(let info, _): info
-        default: nil
-        }
-    }
-    
-    var folder: ChatFolder? {
-        switch type {
-        case .folder(_, let folder): folder
-        default: nil
-        }
-    }
-}
+    @Published var chats: [CustomChat]
+    let type: CustomFolderType
 
-// MARK: Hashable
-
-extension CustomFolder: Hashable {
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(chats)
-        hasher.combine(type)
-    }
-}
-
-// MARK: Identifiable
-
-extension CustomFolder: Identifiable {
     var id: Int {
         switch type {
         case .main: 0
@@ -76,12 +29,20 @@ extension CustomFolder: Identifiable {
         case .folder(let info, _): info.id
         }
     }
-}
 
-// MARK: Equatable
+    var chatList: ChatList {
+        switch type {
+        case .main: .chatListMain
+        case .archive: .chatListArchive
+        case .folder(let info, _): .chatListFolder(.init(chatFolderId: info.id))
+        }
+    }
 
-extension CustomFolder: Equatable {
-    static func == (lhs: CustomFolder, rhs: CustomFolder) -> Bool {
-        lhs.hashValue == rhs.hashValue
+    var name: String {
+        switch type {
+        case .main: "All"
+        case .archive: "Archive"
+        case .folder(let info, _): info.name.text.text
+        }
     }
 }

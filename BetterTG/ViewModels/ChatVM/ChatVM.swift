@@ -1,15 +1,17 @@
 // ChatVM.swift
 
-import AVKit
+import AVFoundation
 import Combine
-import SwiftUI
+import ImageIO
 import TDLibKit
+import UIKit
 
-@Observable final class ChatVM: ObservableObject {
+@MainActor final class ChatVM: ObservableObject {
     // MARK: Lifecycle
 
     init(customChat: CustomChat) {
         self.customChat = customChat
+        self.chatID = customChat.id
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
@@ -26,75 +28,59 @@ import TDLibKit
             self.text = getAttributedString(from: draftMessageContentText.text)
         }
         
-        Task.background {
-            guard let draftMessage = customChat.draftMessage else { return }
-            let replyMessage = await self.getInputReplyToMessage(draftMessage.replyTo)
-            withAnimation { self.replyMessage = replyMessage }
+        let draftMessage = customChat.draftMessage
+        Task { [weak self] in
+            guard let self, let draftMessage else { return }
+            let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
+            self.replyMessage = replyMessage
         }
     }
-    
+
     deinit {
-        log("deinit \(customChat.chat.id)")
-        try? td.closeChat(chatId: customChat.chat.id) { _ in }
+        log("deinit \(chatID)")
+        loadingMessagesTask?.cancel()
+        sendMessageTask?.cancel()
+        timer?.invalidate()
+        audioRecorder?.stop()
+        try? td.closeChat(chatId: chatID) { _ in }
         Media.shared.onChatDismiss()
     }
     
     // MARK: Internal
 
-    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
-    @ObservationIgnored let messagesDidChange = PassthroughSubject<Void, Never>()
+    let messagesDidChange = PassthroughSubject<Void, Never>()
 
-    var customChat: CustomChat
-    
-    var focused = false { didSet { objectWillChange.send() } }
-    var bottomAreaHeight = CGFloat.zero { didSet { objectWillChange.send() } }
-    var actionStatus = "" { didSet { objectWillChange.send() } }
-    var onlineStatus = "" { didSet { objectWillChange.send() } }
-    var editCustomMessage: CustomMessage? { didSet { objectWillChange.send() } }
-    var replyMessage: CustomMessage? { didSet { objectWillChange.send() } }
-    var highlightedMessageId: Int64? { didSet { objectWillChange.send() } }
-    var messages = [CustomMessage]() {
-        didSet {
-            objectWillChange.send()
-            messagesDidChange.send()
-        }
+    let customChat: CustomChat
+    nonisolated let chatID: Int64
+
+    @Published var actionStatus = ""
+    @Published var onlineStatus = ""
+    @Published var editCustomMessage: CustomMessage?
+    @Published var replyMessage: CustomMessage?
+    @Published var highlightedMessageId: Int64?
+    @Published var displayedImages = [SelectedImage]()
+    @Published var timerCount = 0.0
+    @Published var text: AttributedString = ""
+    @Published var editMessageText: AttributedString = ""
+    @Published var recordingVoiceNote = false
+    @Published var errorShown = false
+
+    var loadingMessagesTask: Task<Void, Never>?
+    var cancellables = Set<AnyCancellable>()
+    var timer: Timer?
+    var wave = [Float]()
+    var sendMessageTask: Task<Void, Never>?
+    var savedVoiceNoteUrl = URL(filePath: "")
+    var audioRecorder: AVAudioRecorder?
+
+    @Published var messages = [CustomMessage]() {
+        didSet { messagesDidChange.send() }
     }
-    @ObservationIgnored var dateFormatter: DateFormatter = {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "HH:mm"
-        return dateFormatter
-    }()
-
-    @ObservationIgnored var loadingMessagesTask: Task<Void, Never>?
-    // Scroll
-    let chatScrollNamespaceId = "chatScrollNamespaceId"
-    @ObservationIgnored var scrollOnFocus = true
-    var showScrollToBottomButton = false { didSet { objectWillChange.send() } }
-    @ObservationIgnored var scrollViewProxy: ScrollViewProxy?
-    @ObservationIgnored var cancellables = Set<AnyCancellable>()
-    var displayedImages = [SelectedImage]() { didSet { objectWillChange.send() } }
-    var timerCount = 0.0 { didSet { objectWillChange.send() } }
-    @ObservationIgnored var timer: Timer?
-    @ObservationIgnored var wave = [Float]()
-    @ObservationIgnored var sendMessageTask: Task<Void, Never>?
-    @ObservationIgnored var setDisplayedImagesTask: Task<Void, Never>?
-    var showDetail = false { didSet { objectWillChange.send() } }
-    var showSendButton = false { didSet { objectWillChange.send() } }
-    var text: AttributedString = "" { didSet { objectWillChange.send() } }
-    var editMessageText: AttributedString = "" { didSet { objectWillChange.send() } }
-    var recordingVoiceNote = false { didSet { objectWillChange.send() } }
-    var errorShown = false { didSet { objectWillChange.send() } }
-    var showCameraView = false { didSet { objectWillChange.send() } }
-    var showPhotoPickerView = false { didSet { objectWillChange.send() } }
-    @ObservationIgnored var savedVoiceNoteUrl = URL(filePath: "")
-    @ObservationIgnored var audioRecorder: AVAudioRecorder?
-    
-    var extraBottomPadding: CGFloat { bottomAreaHeight + (focused ? 0 : UIApplication.safeAreaInsets.bottom) + 5 }
 
     var canEditMessage: Bool {
         guard let editCustomMessage else { return false }
         switch editCustomMessage.message.content {
-        case .messagePhoto, .messageVoiceNote:
+        case .messageAnimation, .messagePhoto, .messageVideo, .messageVoiceNote:
             return true
         case .messageText:
             return !editMessageText.characters.isEmpty
@@ -110,33 +96,14 @@ import TDLibKit
         if seconds >= 60 {
             resultString += "\(seconds / 60):" // seconds / 60 == minutes
             var estimatedSeconds = String(seconds % 60)
-            if estimatedSeconds.count == 1 { estimatedSeconds = "0\(estimatedSeconds)" }
+            if estimatedSeconds.count == 1 {
+                estimatedSeconds = "0\(estimatedSeconds)"
+            }
             resultString += "\(estimatedSeconds)"
         } else {
             resultString += "\(seconds).\(time[1])" // time[1] == millisecongs
         }
         return resultString
-    }
-    
-    func onPreferenceChange(_ value: CGRect) {
-        if Int(value.maxY) > Int(Utils.screen.bounds.height) {
-            scrollOnFocus = false
-            if !showScrollToBottomButton {
-                withAnimation {
-                    showScrollToBottomButton = true
-                }
-            }
-        } else {
-            scrollOnFocus = true
-            if showScrollToBottomButton {
-                withAnimation {
-                    showScrollToBottomButton = false
-                }
-            }
-        }
-        
-        guard Int(value.minY) > -500 else { return }
-        loadMessages()
     }
     
     func getLastSeenTime(_ time: Int) -> String {
@@ -159,26 +126,6 @@ import TDLibKit
         }
     }
     
-    func scrollToLast() {
-        guard let lastId = messages.first?.id, let scrollViewProxy else { return }
-        withAnimation { scrollViewProxy.scrollTo(lastId, anchor: .bottom) }
-    }
-    
-    func scrollTo(id: Int64?, anchor: UnitPoint = .center) {
-        guard let scrollViewProxy, let id else { return }
-        
-        withAnimation {
-            scrollViewProxy.scrollTo(id, anchor: anchor)
-            highlightedMessageId = id
-        }
-        
-        Task.main(delay: 0.5) {
-            withAnimation {
-                self.highlightedMessageId = nil
-            }
-        }
-    }
-    
     func getOnlineStatus(from userStatus: UserStatus) -> String {
         switch userStatus {
         case .userStatusEmpty: "empty"
@@ -191,9 +138,11 @@ import TDLibKit
     }
     
     func loadMessages() {
-        guard loadingMessagesTask == nil else { return }
+        guard loadingMessagesTask == nil, hasMoreMessages else { return }
         let fromMessageID = messages.last?.message.id ?? 0
-        loadingMessagesTask = Task.background { await self._loadMessages(fromMessageID: fromMessageID) }
+        loadingMessagesTask = Task { [weak self] in
+            await self?._loadMessages(fromMessageID: fromMessageID)
+        }
     }
     
     func _loadMessages(fromMessageID: Int64) async {
@@ -206,6 +155,13 @@ import TDLibKit
         )
         .messages else {
             await main { self.loadingMessagesTask = nil }
+            return
+        }
+        guard !chatHistory.isEmpty else {
+            await main {
+                self.hasMoreMessages = false
+                self.loadingMessagesTask = nil
+            }
             return
         }
         
@@ -230,39 +186,25 @@ import TDLibKit
         }
         
         await main { [savedMessages] in
-            self.messages.append(contentsOf: savedMessages)
+            let existingIDs = Set(self.messages.map(\.id))
+            self.messages.append(contentsOf: savedMessages.filter { !existingIDs.contains($0.id) })
+            self.hasMoreMessages = chatHistory.count == 30
             self.loadingMessagesTask = nil
         }
     }
 
-    func notifyChange() {
-        objectWillChange.send()
-    }
-    
     func deleteMessage(id: Int64, deleteForBoth: Bool) {
         guard let customMessage = messages.first(where: { $0.message.id == id }) else { return }
-        Task.background {
-            if customMessage.album.isEmpty {
-                _ = try? await td.deleteMessages(
-                    chatId: self.customChat.chat.id,
-                    messageIds: [id],
-                    revoke: deleteForBoth,
-                )
-            } else {
-                let ids = customMessage.album.map(\.id)
-                _ = try? await td.deleteMessages(
-                    chatId: self.customChat.chat.id,
-                    messageIds: ids,
-                    revoke: deleteForBoth,
-                )
-            }
+        let ids = customMessage.album.isEmpty ? [id] : customMessage.album.map(\.id)
+        Task {
+            _ = try? await td.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
         }
     }
     
     func viewMessage(id: Int64) {
-        Task.background {
+        Task {
             try await td.viewMessages(
-                chatId: self.customChat.chat.id,
+                chatId: chatID,
                 forceRead: true,
                 messageIds: [id],
                 source: nil,
@@ -401,13 +343,11 @@ import TDLibKit
         }
         
         await main {
-            withAnimation {
-                self.displayedImages.removeAll()
-                self.editMessageText = ""
-                self.text = ""
-                self.replyMessage = nil
-                self.editCustomMessage = nil
-            }
+            self.displayedImages.removeAll()
+            self.editMessageText = ""
+            self.text = ""
+            self.replyMessage = nil
+            self.editCustomMessage = nil
         }
     }
     
@@ -424,8 +364,9 @@ import TDLibKit
                 topicId: nil,
             )
         } else {
-            let messageContents = displayedImages.map {
-                makeInputMessageContent(for: $0.url)
+            var messageContents = [InputMessageContent]()
+            for image in displayedImages {
+                await messageContents.append(makeInputMessageContent(for: image.url))
             }
             _ = try? await td.sendMessageAlbum(
                 chatId: customChat.chat.id,
@@ -439,21 +380,28 @@ import TDLibKit
         try? await tdSendChatAction(.chatActionCancel)
     }
     
-    func makeInputMessageContent(for url: URL) -> InputMessageContent {
+    func makeInputMessageContent(for url: URL) async -> InputMessageContent {
         let path = url.path()
-        let image = UIImage(contentsOfFile: path) ?? UIImage()
+        let dimensions = await Task.detached(priority: .userInitiated) {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            else { return CGSize.zero }
+            let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue ?? 0
+            let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 0
+            return CGSize(width: width, height: height)
+        }.value
         let input = InputFile.inputFileLocal(.init(path: path))
         let photo = InputPhoto(
             addedStickerFileIds: [],
-            height: Int(image.size.height),
+            height: Int(dimensions.height),
             photo: input,
             thumbnail: InputThumbnail(
-                height: Int(image.size.height),
+                height: Int(dimensions.height),
                 thumbnail: input,
-                width: Int(image.size.width),
+                width: Int(dimensions.width),
             ),
             video: nil,
-            width: Int(image.size.width),
+            width: Int(dimensions.width),
         )
         return .inputMessagePhoto(
             InputMessagePhoto(
@@ -509,7 +457,7 @@ import TDLibKit
                 messageId: message.id,
                 replyMarkup: nil,
             )
-        case .messagePhoto, .messageVoiceNote:
+        case .messageAnimation, .messagePhoto, .messageVideo, .messageVoiceNote:
             _ = try? await td.editMessageCaption(
                 caption: FormattedText(
                     entities: getEntities(from: editMessageText),
@@ -548,24 +496,20 @@ import TDLibKit
         )
     }
     
-    func setShowSendButton() {
-        guard editCustomMessage == nil else { return withAnimation { showSendButton = true } }
-        let value = !displayedImages.isEmpty || !editMessageText.characters.isEmpty || !text.characters.isEmpty
-        withAnimation { showSendButton = value }
-    }
-    
     func setEditMessageText(from message: Message?) {
-        withAnimation {
-            switch message?.content {
-            case .messageText(let messageText):
-                editMessageText = getAttributedString(from: messageText.text)
-            case .messagePhoto(let messagePhoto):
-                editMessageText = getAttributedString(from: messagePhoto.caption)
-            case .messageVoiceNote(let messageVoiceNote):
-                editMessageText = getAttributedString(from: messageVoiceNote.caption)
-            default:
-                break
-            }
+        switch message?.content {
+        case .messageText(let messageText):
+            editMessageText = getAttributedString(from: messageText.text)
+        case .messagePhoto(let messagePhoto):
+            editMessageText = getAttributedString(from: messagePhoto.caption)
+        case .messageVoiceNote(let messageVoiceNote):
+            editMessageText = getAttributedString(from: messageVoiceNote.caption)
+        case .messageAnimation(let messageAnimation):
+            editMessageText = getAttributedString(from: messageAnimation.caption)
+        case .messageVideo(let messageVideo):
+            editMessageText = getAttributedString(from: messageVideo.caption)
+        default:
+            break
         }
     }
     
@@ -580,11 +524,13 @@ import TDLibKit
     }
     
     func startTimer() {
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { [weak self] timer in
-            guard let self, let audioRecorder else { return }
-            audioRecorder.updateMeters()
-            wave.append(audioRecorder.peakPower(forChannel: 0))
-            timerCount += timer.timeInterval
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+            Task { @MainActor [weak self] in
+                guard let self, let audioRecorder else { return }
+                audioRecorder.updateMeters()
+                wave.append(audioRecorder.peakPower(forChannel: 0))
+                timerCount += timer.timeInterval
+            }
         }
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -669,7 +615,7 @@ import TDLibKit
             audioRecorder?.isMeteringEnabled = true
             audioRecorder?.prepareToRecord()
             audioRecorder?.record()
-            withAnimation { recordingVoiceNote = true }
+            recordingVoiceNote = true
             try? await tdSendChatAction(.chatActionRecordingVoiceNote)
         } catch {
             log("Error creating AudioRecorder: \(error)")
@@ -678,13 +624,15 @@ import TDLibKit
     
     func mediaStopRecordingVoice(duration: Int, wave: [Float]) {
         audioRecorder?.stop()
-        withAnimation { recordingVoiceNote = false }
+        recordingVoiceNote = false
         self.wave.removeAll(keepingCapacity: true)
-        Task.background { try? await self.tdSendChatAction(.chatActionCancel) }
+        Task { try? await self.tdSendChatAction(.chatActionCancel) }
         
         let intWave: [Int] = wave.compactMap { wave in
             let intWave = abs(Int(wave))
-            if intWave == 120 || intWave == 160 { return nil }
+            if intWave == 120 || intWave == 160 {
+                return nil
+            }
             return intWave
         }
         let resultWave: [Int] = intWave.map { wave in
@@ -692,14 +640,16 @@ import TDLibKit
             return value < 0 ? 0 : value
         }
         let collapsedWave: [Int] = resultWave.reduce([]) { result, element in
-            if result.last != element { return result + [element] }
+            if result.last != element {
+                return result + [element]
+            }
             return result
         }
         let endWave = collapsedWave.map { UInt8($0) }
         let bytesWave = getBytesWave(from: endWave)
         let waveform = Data(bytesWave).prefix(63)
         
-        Task.background {
+        Task {
             try? await self.tdSendChatAction(.chatActionUploadingVoiceNote(.init(progress: 0)))
             await self.sendMessageVoiceNote(duration: duration, waveform: waveform)
         }
@@ -711,6 +661,10 @@ import TDLibKit
         wave.removeAll(keepingCapacity: true)
         stopTimer()
         recordingVoiceNote = false
-        Task.background { try? await self.tdSendChatAction(.chatActionCancel) }
+        Task { try? await self.tdSendChatAction(.chatActionCancel) }
     }
+
+    // MARK: Private
+
+    private var hasMoreMessages = true
 }

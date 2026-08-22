@@ -1,85 +1,58 @@
 // RootVM.swift
 
 import Combine
-import SwiftUI
+import Foundation
 import TDLibKit
 
 // MARK: - Route
 
-enum Route: Hashable {
+enum Route {
     case customChat(CustomChat)
     case archive(CustomFolder)
 }
 
 // MARK: - RootVM
 
-@Observable final class RootVM: ObservableObject {
+@MainActor final class RootVM: ObservableObject {
     // MARK: Lifecycle
 
-    init() {
+    private init() {
         setPublishers()
     }
-    
+
     // MARK: Internal
 
-    @ObservationIgnored static let shared = RootVM()
-    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
-    
-    var path = [Route]()
-    var confirmChatDelete = ConfirmChatDelete(chat: nil, show: false, forAll: false) {
-        didSet { objectWillChange.send() }
-    }
-    var folders = [CustomFolder]() {
-        didSet { objectWillChange.send() }
-    }
-    var archive: CustomFolder? {
-        didSet { objectWillChange.send() }
-    }
-    var currentFolder: Int? {
-        didSet { objectWillChange.send() }
-    }
-    var scrollPosition = ScrollPosition(x: 0)
-    var query = "" {
-        didSet { objectWillChange.send() }
-    }
-    @ObservationIgnored var cancellables = Set<AnyCancellable>()
-    
-    var loggedIn: Bool {
-        get {
-            access(keyPath: \.loggedIn)
-            return UserDefaults.standard.bool(forKey: "loggedIn")
-        }
-        set {
-            withMutation(keyPath: \.loggedIn) {
-                UserDefaults.standard.set(newValue, forKey: "loggedIn")
+    static let shared = RootVM()
+
+    @Published var folders = [CustomFolder]()
+    @Published var archive: CustomFolder?
+    @Published var query = ""
+    var cancellables = Set<AnyCancellable>()
+
+    @Published var currentFolder = UserDefaults.standard.object(forKey: "currentFolder") as? Int {
+        didSet {
+            if let currentFolder {
+                UserDefaults.standard.set(currentFolder, forKey: "currentFolder")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "currentFolder")
             }
-            objectWillChange.send()
         }
-    }
-    
-    var mainFolder: CustomFolder? { folders.first(where: { $0.type == .main }) }
-    var allChats: [CustomChat] {
-        var chats = [CustomChat]()
-        if let archive { chats.append(contentsOf: archive.chats) }
-        if let mainFolder { chats.append(contentsOf: mainFolder.chats) }
-        return chats
-    }
-    
-    func scrollToTop(folderID: Int) {
-        guard let scrollViewProxy = folders.first(where: { $0.id == folderID })?.scrollViewProxy else { return }
-        scrollViewProxy.scrollTo("top", anchor: .top)
     }
 
-    func notifyChange() {
-        objectWillChange.send()
+    @Published var loggedIn = UserDefaults.standard.bool(forKey: "loggedIn") {
+        didSet { UserDefaults.standard.set(loggedIn, forKey: "loggedIn") }
     }
-    
+
+    var allFolders: [CustomFolder] {
+        folders + [archive].compactMap(\.self)
+    }
+
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {
         guard let chat = try? await td.getChat(chatId: id),
               let position = chat.positions.first(chatList) else { return nil }
         switch chat.type {
-        case .chatTypePrivate(let chatTypePrivate):
-            guard let user = try? await td.getUser(userId: chatTypePrivate.userId) else { return nil }
+        case .chatTypePrivate(let privateChat):
+            guard let user = try? await td.getUser(userId: privateChat.userId) else { return nil }
             switch user.type {
             case .userTypeRegular:
                 return CustomChat(
@@ -90,32 +63,30 @@ enum Route: Hashable {
                     lastMessage: chat.lastMessage,
                     draftMessage: chat.draftMessage,
                 )
-            case .userTypeBot(let userTypeBot):
+            case .userTypeBot(let bot):
                 return CustomChat(
                     chat: chat,
                     position: position,
                     unreadCount: chat.unreadCount,
-                    type: .bot(userTypeBot),
+                    type: .bot(bot),
                     lastMessage: chat.lastMessage,
                     draftMessage: chat.draftMessage,
                 )
             case .userTypeDeleted, .userTypeUnknown:
                 return nil
             }
-        case .chatTypeSupergroup(let chatTypeSupergroup):
-            guard let supergroup = try? await td.getSupergroup(supergroupId: chatTypeSupergroup.supergroupId)
-            else { return nil }
+        case .chatTypeSupergroup(let type):
+            guard let group = try? await td.getSupergroup(supergroupId: type.supergroupId) else { return nil }
             return CustomChat(
                 chat: chat,
                 position: position,
                 unreadCount: chat.unreadCount,
-                type: .supergroup(supergroup),
+                type: .supergroup(group),
                 lastMessage: chat.lastMessage,
                 draftMessage: chat.draftMessage,
             )
-        case .chatTypeBasicGroup(let chatTypeBasicGroup):
-            guard let group = try? await td.getBasicGroup(basicGroupId: chatTypeBasicGroup.basicGroupId)
-            else { return nil }
+        case .chatTypeBasicGroup(let type):
+            guard let group = try? await td.getBasicGroup(basicGroupId: type.basicGroupId) else { return nil }
             return CustomChat(
                 chat: chat,
                 position: position,
@@ -128,19 +99,16 @@ enum Route: Hashable {
             return nil
         }
     }
-    
+
     func getCustomFolder(from info: ChatFolderInfo) async -> CustomFolder? {
         guard let folder = try? await td.getChatFolder(chatFolderId: info.id),
-              let customChats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)))
+              let chats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)))
         else { return nil }
-        return CustomFolder(
-            chats: customChats,
-            type: .folder(info, folder),
-        )
+        return CustomFolder(chats: chats, type: .folder(info, folder))
     }
-    
+
     func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {
-        guard let chatIds = try? await td.getChats(chatList: chatList, limit: 200).chatIds else { return nil }
-        return await chatIds.asyncCompactMap { await getCustomChat(from: $0, for: chatList) }
+        guard let ids = try? await td.getChats(chatList: chatList, limit: 200).chatIds else { return nil }
+        return await ids.asyncCompactMap { await getCustomChat(from: $0, for: chatList) }
     }
 }

@@ -1,8 +1,8 @@
 // TDLib.swift
 
 import Combine
-import SwiftUI
 import TDLibKit
+import UIKit
 
 var td: TDLibClient { TDLib.shared.td }
 

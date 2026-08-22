@@ -1,6 +1,6 @@
 // FormattedText.swift
 
-import SwiftUI
+import Foundation
 import TDLibKit
 
 extension FormattedText {

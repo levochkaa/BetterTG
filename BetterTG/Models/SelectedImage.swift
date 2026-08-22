@@ -2,7 +2,7 @@
 
 import UIKit
 
-struct SelectedImage: Identifiable, Equatable {
+struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     let id = UUID()
     let image: UIImage
     let url: URL

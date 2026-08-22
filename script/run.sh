@@ -57,4 +57,10 @@ fi
 xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
 open -a Simulator
 xcrun simctl install "$SIMULATOR_ID" "$APP_BUNDLE"
-xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID"
+launch_arguments=()
+if [[ -n "${RUN_ARGUMENTS:-}" ]]; then
+  read -r -a launch_arguments <<< "$RUN_ARGUMENTS"
+  xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID" "${launch_arguments[@]}"
+else
+  xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID"
+fi

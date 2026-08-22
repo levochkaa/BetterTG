@@ -5,8 +5,8 @@
 <p align="center">A Telegram client for iOS</p>
 
 ![](https://img.shields.io/badge/platform-iOS-000000?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/minimum%20OS-iOS%2017-blueviolet?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/SwiftUI-2E00F1?style=flat&logo=swift&logoColor=white)
+![](https://img.shields.io/badge/minimum%20OS-iOS%2026-blueviolet?style=flat&logo=apple&logoColor=white)
+![](https://img.shields.io/badge/UIKit-2396F3?style=flat&logo=apple&logoColor=white)
 ![](https://img.shields.io/badge/Telegram-2CA5E0?style=flat&logo=telegram&logoColor=white)
 [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg?style=flat)](https://opensource.org/licenses/)
 

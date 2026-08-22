@@ -10,9 +10,10 @@
 - `script/test.sh` currently runs the simulator build validation because the project has no dedicated test target.
 - The scripts own Xcode environment setup, project generation, TDLib model generation, package resolution, derived data location, and simulator selection.
 - Use `SIMULATOR_NAME="..."` or `SIMULATOR_ID="..."` only when the default simulator needs to be overridden.
+- Use `RUN_ARGUMENTS="..." ./run.sh` when an automated launch smoke needs app arguments; do not bypass `run.sh` with a direct simulator launch.
 
 ## Project Notes
 
 - Main project: `BetterTG.xcodeproj`.
 - Main scheme: `BetterTG`.
-- Prefer narrow, codebase-consistent SwiftUI/UIKit changes and preserve unrelated local edits.
+- Prefer narrow, codebase-consistent UIKit changes and preserve unrelated local edits.

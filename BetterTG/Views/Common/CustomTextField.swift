@@ -3,9 +3,10 @@
 import UIKit
 import UniformTypeIdentifiers
 
+// MARK: - FormattedTextView
+
 final class FormattedTextView: UITextView, UITextViewDelegate {
-    var onTextChange: ((AttributedString) -> Void)?
-    var onPasteImages: (([SelectedImage]) -> Void)?
+    // MARK: Lifecycle
 
     init(placeholder: String) {
         self.placeholder = placeholder
@@ -34,16 +35,20 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         updatePlaceholder()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override var intrinsicContentSize: CGSize {
         let width = bounds.width > 0 ? bounds.width : 220
         let fitting = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         return CGSize(width: UIView.noIntrinsicMetric, height: min(max(fitting.height, 36), 240))
     }
+
+    var onTextChange: ((AttributedString) -> Void)?
+    var onPasteImages: (([SelectedImage]) -> Void)?
 
     override func layoutSubviews() {
         let previousWidth = lastWidth
@@ -81,18 +86,18 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
 
     override func paste(_ sender: Any?) {
         if let images = UIPasteboard.general.images, !images.isEmpty {
-            onPasteImages?(images.compactMap { writeImage($0) })
+            let callback = onPasteImages
+            Task {
+                let selected = await Task.detached(priority: .userInitiated) {
+                    images.compactMap { writeImage($0) }
+                }.value
+                callback?(selected)
+            }
             return
         }
         isPastingText = true
         super.paste(sender)
     }
-
-    private let placeholder: String
-    private let placeholderLabel = UILabel()
-    private var lastWidth = CGFloat.zero
-    private var isPastingText = false
-    private var isApplyingValue = false
 
     func setAttributedText(_ value: AttributedString) {
         let value = NSAttributedString(value)
@@ -125,7 +130,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         guard let item = UIPasteboard.general.items.first,
               let rawRTF = item[UTType.rtf.identifier],
               let data = (rawRTF as? String)?.data(using: .utf8)
-                ?? rawRTF as? Data,
+              ?? rawRTF as? Data,
               let pasted = try? NSAttributedString(data: data, documentAttributes: nil)
         else { return true }
 
@@ -136,11 +141,19 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         return false
     }
 
+    // MARK: Private
+
+    private let placeholder: String
+    private let placeholderLabel = UILabel()
+    private var lastWidth = CGFloat.zero
+    private var isPastingText = false
+    private var isApplyingValue = false
+
     private func formattingAction(title: String, key: NSAttributedString.Key, value: Any) -> UIAction {
         UIAction(title: title) { [weak self] _ in
             guard let self else { return }
-            self.textStorage.addAttribute(key, value: value, range: self.selectedRange)
-            self.textViewDidChange(self)
+            textStorage.addAttribute(key, value: value, range: selectedRange)
+            textViewDidChange(self)
         }
     }
 
@@ -153,8 +166,8 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
                   let text = alert?.textFields?.first?.text,
                   let url = URL(string: text)
             else { return }
-            self.textStorage.addAttribute(.link, value: url, range: self.selectedRange)
-            self.textViewDidChange(self)
+            textStorage.addAttribute(.link, value: url, range: selectedRange)
+            textViewDidChange(self)
         })
         nearestViewController?.present(alert, animated: true)
     }

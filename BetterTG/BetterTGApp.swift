@@ -1,6 +1,5 @@
 // BetterTGApp.swift
 
-import AVKit
 import UIKit
 
 @main

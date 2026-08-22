@@ -1,8 +1,7 @@
 // UIPasteboard.swift
 
-import MobileCoreServices
-import SwiftUI
 import TDLibKit
+import UIKit
 import UniformTypeIdentifiers
 
 let defaultDocumentAttributes = [

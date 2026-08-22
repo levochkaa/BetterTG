@@ -1,6 +1,6 @@
 // UINavigationController.swift
 
-import SwiftUI
+import UIKit
 
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
