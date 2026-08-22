@@ -3,8 +3,7 @@
 import Combine
 import UIKit
 
-final class MainViewController: UIViewController, UISearchResultsUpdating, UIPageViewControllerDataSource,
-    UIPageViewControllerDelegate
+final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate
 {
     init(rootVM: RootVM) {
         self.rootVM = rootVM
@@ -22,6 +21,7 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         title = "BetterTG"
         configureNavigation()
         configurePageController()
+        configureSearchHeader()
         configureFolderSelector()
 
         rootVM.objectWillChange
@@ -40,19 +40,12 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         navigationOrientation: .horizontal,
     )
     private let folderSelector = FolderSelectorView()
-    private let searchController = UISearchController(searchResultsController: nil)
+    private let searchHeader = ChatListNavigationSearchView()
     private var folderControllers = [FolderViewController]()
     private var cancellables = Set<AnyCancellable>()
+    private var searchQuery = ""
 
     private func configureNavigation() {
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchResultsUpdater = self
-        searchController.searchBar.placeholder = "Search chats…"
-        navigationItem.searchController = searchController
-        navigationItem.preferredSearchBarPlacement = .stacked
-        navigationItem.hidesSearchBarWhenScrolling = false
-        definesPresentationContext = true
-
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "archivebox"),
             style: .plain,
@@ -92,6 +85,26 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         pageController.didMove(toParent: self)
     }
 
+    private func configureSearchHeader() {
+        searchHeader.translatesAutoresizingMaskIntoConstraints = false
+        searchHeader.onQueryChange = { [weak self] query in
+            guard let self else { return }
+            searchQuery = query
+            folderControllers.forEach { $0.updateQuery(query) }
+        }
+        searchHeader.onActiveChange = { [weak self] active in
+            guard active else { return }
+            self?.currentFolderController?.revealSearch(animated: true)
+        }
+        view.addSubview(searchHeader)
+        NSLayoutConstraint.activate([
+            searchHeader.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            searchHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            searchHeader.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            searchHeader.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
+        ])
+    }
+
     private func configureFolderSelector() {
         folderSelector.translatesAutoresizingMaskIntoConstraints = false
         folderSelector.onSelection = { [weak self] id in self?.selectFolder(id: id, animated: true) }
@@ -109,6 +122,7 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
             pageController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pageController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        view.bringSubviewToFront(searchHeader)
         view.bringSubviewToFront(folderSelector)
     }
 
@@ -118,14 +132,17 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         navigationItem.leftBarButtonItem?.isHidden = rootVM.archive == nil
 
         guard currentIDs != newIDs else {
-            folderControllers.forEach { $0.updateQuery(rootVM.query) }
+            folderControllers.forEach { $0.updateQuery(searchQuery) }
             return
         }
 
         folderControllers = rootVM.folders.map { folder in
             let controller = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: false)
-            controller.onScrollPositionChange = { [weak self] isAtTop in
-                self?.setSearchVisible(isAtTop)
+            controller.updateQuery(searchQuery)
+            controller.isSearchActive = { [weak self] in self?.searchHeader.isActive == true }
+            controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
+                guard let self, self.currentFolderController === controller else { return }
+                searchHeader.applyScroll(offset: offset)
             }
             return controller
         }
@@ -140,22 +157,12 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         let direction: UIPageViewController.NavigationDirection = targetIndex >= previousIndex ? .forward : .reverse
         rootVM.currentFolder = id
         folderSelector.select(id: id)
+        searchHeader.applyScroll(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
     }
 
-    func updateSearchResults(for searchController: UISearchController) {
-        rootVM.query = searchController.searchBar.text ?? ""
-        folderControllers.forEach { $0.updateQuery(rootVM.query) }
-    }
-
-    private func setSearchVisible(_ visible: Bool) {
-        guard !searchController.isActive else { return }
-        if visible, navigationItem.searchController == nil {
-            navigationItem.searchController = searchController
-            navigationItem.preferredSearchBarPlacement = .stacked
-        } else if !visible, navigationItem.searchController != nil {
-            navigationItem.searchController = nil
-        }
+    private var currentFolderController: FolderViewController? {
+        pageController.viewControllers?.first as? FolderViewController
     }
 
     func pageViewController(
@@ -184,6 +191,9 @@ final class MainViewController: UIViewController, UISearchResultsUpdating, UIPag
         guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else { return }
         rootVM.currentFolder = folder.id
         folderSelector.select(id: folder.id)
+        if let currentFolderController {
+            searchHeader.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
+        }
     }
 
     @objc private func openArchive() {

@@ -26,7 +26,6 @@ enum Route {
 
     @Published var folders = [CustomFolder]()
     @Published var archive: CustomFolder?
-    @Published var query = ""
     var cancellables = Set<AnyCancellable>()
 
     @Published var currentFolder = UserDefaults.standard.object(forKey: "currentFolder") as? Int {

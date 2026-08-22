@@ -29,7 +29,7 @@ final class NavigationStorage {
         case .customChat(let customChat):
             controller = ChatViewController(customChat: customChat)
         case .archive(let customFolder):
-            controller = FolderViewController(folder: customFolder, rootVM: .shared, showsStandaloneSearch: true)
+            controller = ArchiveViewController(folder: customFolder, rootVM: .shared)
         }
         navigationController.pushViewController(controller, animated: animated)
     }

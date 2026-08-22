@@ -8,6 +8,7 @@ final class MessageCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
         configureViews()
         configureConstraints()
     }

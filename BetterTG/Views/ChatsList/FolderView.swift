@@ -4,7 +4,57 @@ import Combine
 import TDLibKit
 import UIKit
 
-final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching, UISearchResultsUpdating {
+final class ArchiveViewController: UIViewController {
+    init(folder: CustomFolder, rootVM: RootVM) {
+        folderController = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: true)
+        searchHeader = ChatListNavigationSearchView(placeholder: "Search \(folder.name.lowercased())…")
+        super.init(nibName: nil, bundle: nil)
+        title = folder.name
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        addChild(folderController)
+        folderController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(folderController.view)
+        folderController.didMove(toParent: self)
+
+        searchHeader.translatesAutoresizingMaskIntoConstraints = false
+        searchHeader.onQueryChange = { [weak self] query in self?.folderController.updateQuery(query) }
+        searchHeader.onActiveChange = { [weak self] active in
+            guard active else { return }
+            self?.folderController.revealSearch(animated: true)
+        }
+        folderController.isSearchActive = { [weak self] in self?.searchHeader.isActive == true }
+        folderController.onSearchScrollOffsetChange = { [weak self] offset in
+            self?.searchHeader.applyScroll(offset: offset)
+        }
+        view.addSubview(searchHeader)
+
+        NSLayoutConstraint.activate([
+            folderController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            folderController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            folderController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            folderController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            searchHeader.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            searchHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            searchHeader.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            searchHeader.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
+        ])
+    }
+
+    private let folderController: FolderViewController
+    private let searchHeader: ChatListNavigationSearchView
+}
+
+final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
     // MARK: Lifecycle
 
     init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
@@ -25,7 +75,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     // MARK: Internal
 
     let folder: CustomFolder
-    var onScrollPositionChange: ((Bool) -> Void)?
+    var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
+    var isSearchActive: (() -> Bool)?
+
+    var searchScrollOffset: CGFloat {
+        guard isViewLoaded else { return 0 }
+        return min(
+            ChatListNavigationSearchView.scrollHeight,
+            max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
+        )
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -34,21 +93,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.separatorStyle = .none
         tableView.rowHeight = 84
         tableView.keyboardDismissMode = .interactive
+        tableView.contentInset.top = ChatListNavigationSearchView.scrollHeight
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 48
+        tableView.verticalScrollIndicatorInsets.top = ChatListNavigationSearchView.scrollHeight
         tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 48
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
         configureDataSource()
-        if showsStandaloneSearch {
-            title = folder.name
-            standaloneSearchController.obscuresBackgroundDuringPresentation = false
-            standaloneSearchController.searchResultsUpdater = self
-            standaloneSearchController.searchBar.placeholder = "Search \(folder.name.lowercased())…"
-            navigationItem.searchController = standaloneSearchController
-            navigationItem.preferredSearchBarPlacement = .stacked
-            navigationItem.hidesSearchBarWhenScrolling = false
-            definesPresentationContext = true
-        }
         updateSnapshot(animated: false)
         startStateUpdates()
     }
@@ -59,22 +110,43 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-scroll-chats") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.tableView.setContentOffset(CGPoint(x: 0, y: 50), animated: false)
+            guard let self else { return }
+            let top = -tableView.adjustedContentInset.top
+            tableView.setContentOffset(CGPoint(x: 0, y: top + 30), animated: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.tableView.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
+                guard let self else { return }
+                tableView.setContentOffset(CGPoint(x: 0, y: top + 300), animated: false)
             }
         }
         #endif
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard !didSetInitialSearchOffset else { return }
+        didSetInitialSearchOffset = true
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+        onSearchScrollOffsetChange?(0)
+    }
+
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
-        let isAtTop = scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 1
-        if showsStandaloneSearch {
-            setStandaloneSearchVisible(isAtTop)
-        } else {
-            onScrollPositionChange?(isAtTop)
-        }
+        onSearchScrollOffsetChange?(searchScrollOffset)
+    }
+
+    override func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity _: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>,
+    ) {
+        guard scrollView === tableView, isSearchActive?() != true else { return }
+        let top = -scrollView.adjustedContentInset.top
+        let distance = targetContentOffset.pointee.y - top
+        guard distance > 0, distance < ChatListNavigationSearchView.scrollHeight else { return }
+        let targetDistance = distance < ChatListNavigationSearchView.scrollHeight * 0.5
+            ? CGFloat.zero
+            : ChatListNavigationSearchView.scrollHeight
+        targetContentOffset.pointee.y = top + targetDistance
     }
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -118,19 +190,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    func updateSearchResults(for searchController: UISearchController) {
-        updateQuery(searchController.searchBar.text ?? "")
-    }
-
     func updateQuery(_ query: String) {
         guard self.query != query else { return }
         self.query = query
-        updateSnapshot(animated: true)
+        updateSnapshot(animated: false)
     }
 
     func scrollToTop() {
         guard !filteredChats.isEmpty else { return }
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
+    }
+
+    func revealSearch(animated: Bool) {
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated)
     }
 
     // MARK: Private
@@ -141,8 +213,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private let rootVM: RootVM
     private let showsStandaloneSearch: Bool
-    private let standaloneSearchController = UISearchController(searchResultsController: nil)
     private var query = ""
+    private var didSetInitialSearchOffset = false
     private var cancellables = Set<AnyCancellable>()
     private var chatCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
@@ -157,16 +229,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     || $0.user?.firstName.localizedCaseInsensitiveContains(query) == true
                     || $0.user?.lastName.localizedCaseInsensitiveContains(query) == true
             }
-    }
-
-    private func setStandaloneSearchVisible(_ visible: Bool) {
-        guard !standaloneSearchController.isActive else { return }
-        if visible, navigationItem.searchController == nil {
-            navigationItem.searchController = standaloneSearchController
-            navigationItem.preferredSearchBarPlacement = .stacked
-        } else if !visible, navigationItem.searchController != nil {
-            navigationItem.searchController = nil
-        }
     }
 
     private func configureDataSource() {

@@ -21,12 +21,21 @@ final class ChatComposerView: UIView {
     var onTakePhoto: (() -> Void)?
     var onScrollToMessage: ((Int64) -> Void)?
 
+    var isInputFocused: Bool {
+        textView.isFirstResponder
+    }
+
     func focusInput() {
         textView.becomeFirstResponder()
     }
 
     private let chatVM: ChatVM
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let blurView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        effect.tintColor = UIColor(white: 0, alpha: 0.18)
+        return UIVisualEffectView(effect: effect)
+    }()
     private let rootStack = UIStackView()
     private let replyRow = UIStackView()
     private let replySnippet = ReplySnippetView()
