@@ -18,6 +18,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         searchField.layer.cornerRadius = searchField.bounds.height / 2
+        updateSearchContentAlpha(lastContentAlpha)
     }
 
     @available(*, unavailable)
@@ -31,13 +32,17 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         requestedScrollOffset = min(max(0, offset), Self.scrollHeight)
         let appliedOffset = isActive ? CGFloat.zero : requestedScrollOffset
         let fraction = appliedOffset / Self.scrollHeight
+        let fieldHeight = 36 * (1 - fraction)
+        let contentAlpha = min(1, max(0, (fieldHeight - 10) / 10))
+        let capsuleAlpha = min(1, max(0, fieldHeight / 10))
         let changes = {
-            self.transform = CGAffineTransform(translationX: 0, y: -appliedOffset)
-            self.searchHeightConstraint.constant = max(8, 36 * (1 - fraction * 0.78))
-            let contentAlpha = 1 - min(1, max(0, fraction - 0.55) / 0.45)
-            self.searchField.alpha = contentAlpha
-            self.closeButton.alpha = (self.isActive ? 1 : 0) * contentAlpha
-            self.isUserInteractionEnabled = fraction < 0.96
+            self.searchHeightConstraint.constant = max(0.01, fieldHeight)
+            self.searchCenterYConstraint.constant = -appliedOffset / 2
+            self.searchField.alpha = capsuleAlpha
+            self.lastContentAlpha = contentAlpha
+            self.updateSearchContentAlpha(contentAlpha)
+            self.closeButton.alpha = self.isActive ? 1 : 0
+            self.isUserInteractionEnabled = self.isActive || fieldHeight > 12
             self.layoutIfNeeded()
         }
         guard animated else {
@@ -63,7 +68,9 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     private let placeholder: String
     private var closeWidthConstraint: NSLayoutConstraint!
     private var searchHeightConstraint: NSLayoutConstraint!
+    private var searchCenterYConstraint: NSLayoutConstraint!
     private var requestedScrollOffset = CGFloat.zero
+    private var lastContentAlpha: CGFloat = 1
 
     private func configureViews() {
         clipsToBounds = false
@@ -94,6 +101,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
         closeWidthConstraint = closeButton.widthAnchor.constraint(equalToConstant: 0)
         searchHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: 36)
+        searchCenterYConstraint = searchField.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
@@ -101,7 +109,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             closeWidthConstraint,
             searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
-            searchField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            searchCenterYConstraint,
             searchHeightConstraint,
         ])
     }
@@ -122,9 +130,11 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     private func setActive(_ active: Bool) {
         closeWidthConstraint.constant = active ? 36 : 0
         if active {
-            transform = .identity
             searchHeightConstraint.constant = 36
+            searchCenterYConstraint.constant = 0
             searchField.alpha = 1
+            lastContentAlpha = 1
+            updateSearchContentAlpha(1)
             isUserInteractionEnabled = true
             layoutIfNeeded()
         }
@@ -141,6 +151,16 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
                 self.applyScroll(offset: self.requestedScrollOffset, animated: true)
             }
         }
+    }
+
+    private func updateSearchContentAlpha(_ alpha: CGFloat) {
+        searchField.leftView?.alpha = alpha
+        searchField.textColor = UIColor.label.withAlphaComponent(alpha)
+        searchField.tintColor = UIColor.systemBlue.withAlphaComponent(alpha)
+        searchField.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [.foregroundColor: UIColor.placeholderText.withAlphaComponent(alpha)],
+        )
     }
 
     @objc private func queryChanged() {

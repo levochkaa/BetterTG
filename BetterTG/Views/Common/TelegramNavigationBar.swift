@@ -10,9 +10,7 @@ final class TelegramListNavigationBar: UIView {
     var onQueryChange: ((String) -> Void)? {
         didSet { searchView.onQueryChange = onQueryChange }
     }
-    var onSearchActiveChange: ((Bool) -> Void)? {
-        didSet { searchView.onActiveChange = onSearchActiveChange }
-    }
+    var onSearchActiveChange: ((Bool) -> Void)?
     var onVisibleHeightChange: ((CGFloat) -> Void)?
 
     init(
@@ -41,7 +39,12 @@ final class TelegramListNavigationBar: UIView {
     var isSearchActive: Bool { searchView.isActive }
 
     func applyScroll(offset: CGFloat, animated: Bool = false) {
-        let clipped = isSearchActive ? CGFloat.zero : min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
+        let clipped = min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
+        currentScrollOffset = clipped
+        guard !isSearchActive else {
+            onVisibleHeightChange?(Self.titleHeight)
+            return
+        }
         searchView.applyScroll(offset: clipped, animated: animated)
         onVisibleHeightChange?(Self.expandedContentHeight - clipped)
     }
@@ -61,6 +64,7 @@ final class TelegramListNavigationBar: UIView {
     private let searchView: ChatListNavigationSearchView
     private let leftAction: (() -> Void)?
     private let rightAction: (() -> Void)?
+    private var currentScrollOffset = CGFloat.zero
 
     private func configureViews() {
         clipsToBounds = true
@@ -87,6 +91,9 @@ final class TelegramListNavigationBar: UIView {
         addSubview(titleLabel)
 
         searchView.translatesAutoresizingMaskIntoConstraints = false
+        searchView.onActiveChange = { [weak self] active in
+            self?.setSearchActive(active)
+        }
         addSubview(searchView)
 
         let separator = UIView()
@@ -128,6 +135,34 @@ final class TelegramListNavigationBar: UIView {
 
     @objc private func leftPressed() { leftAction?() }
     @objc private func rightPressed() { rightAction?() }
+
+    private func setSearchActive(_ active: Bool) {
+        let parentView = superview
+        parentView?.layoutIfNeeded()
+        onVisibleHeightChange?(active ? Self.titleHeight : Self.expandedContentHeight - currentScrollOffset)
+        onSearchActiveChange?(active)
+
+        let titleTranslation = -(safeAreaInsets.top + Self.titleHeight)
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+        ) {
+            let titleTransform = active
+                ? CGAffineTransform(translationX: 0, y: titleTranslation)
+                : .identity
+            self.titleLabel.transform = titleTransform
+            self.leftButton.transform = titleTransform
+            self.rightButton.transform = titleTransform
+            self.titleLabel.alpha = active ? 0 : 1
+            self.leftButton.alpha = active ? 0 : 1
+            self.rightButton.alpha = active ? 0 : 1
+            self.searchView.transform = active
+                ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
+                : .identity
+            parentView?.layoutIfNeeded()
+        }
+    }
 }
 
 final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
