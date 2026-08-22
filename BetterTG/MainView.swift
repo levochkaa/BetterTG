@@ -3,7 +3,7 @@
 import Combine
 import UIKit
 
-final class MainViewController: UIViewController, UIPageViewControllerDataSource,
+final class MainViewController: UIViewController, UISearchResultsUpdating, UIPageViewControllerDataSource,
     UIPageViewControllerDelegate
 {
     init(rootVM: RootVM) {
@@ -40,10 +40,19 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         navigationOrientation: .horizontal,
     )
     private let folderSelector = FolderSelectorView()
+    private let searchController = UISearchController(searchResultsController: nil)
     private var folderControllers = [FolderViewController]()
     private var cancellables = Set<AnyCancellable>()
 
     private func configureNavigation() {
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.searchResultsUpdater = self
+        searchController.searchBar.placeholder = "Search chats…"
+        navigationItem.searchController = searchController
+        navigationItem.preferredSearchBarPlacement = .stacked
+        navigationItem.hidesSearchBarWhenScrolling = false
+        definesPresentationContext = true
+
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "archivebox"),
             style: .plain,
@@ -113,8 +122,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             return
         }
 
-        folderControllers = rootVM.folders.map {
-            FolderViewController(folder: $0, rootVM: rootVM, showsStandaloneSearch: false)
+        folderControllers = rootVM.folders.map { folder in
+            let controller = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: false)
+            controller.onScrollPositionChange = { [weak self] isAtTop in
+                self?.setSearchVisible(isAtTop)
+            }
+            return controller
         }
         folderSelector.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
         guard let selected = rootVM.currentFolder ?? rootVM.folders.first?.id else { return }
@@ -128,6 +141,21 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         rootVM.currentFolder = id
         folderSelector.select(id: id)
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        rootVM.query = searchController.searchBar.text ?? ""
+        folderControllers.forEach { $0.updateQuery(rootVM.query) }
+    }
+
+    private func setSearchVisible(_ visible: Bool) {
+        guard !searchController.isActive else { return }
+        if visible, navigationItem.searchController == nil {
+            navigationItem.searchController = searchController
+            navigationItem.preferredSearchBarPlacement = .stacked
+        } else if !visible, navigationItem.searchController != nil {
+            navigationItem.searchController = nil
+        }
     }
 
     func pageViewController(

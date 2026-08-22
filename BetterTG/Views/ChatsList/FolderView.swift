@@ -4,7 +4,7 @@ import Combine
 import TDLibKit
 import UIKit
 
-final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching, UISearchBarDelegate {
+final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching, UISearchResultsUpdating {
     // MARK: Lifecycle
 
     init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
@@ -25,6 +25,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     // MARK: Internal
 
     let folder: CustomFolder
+    var onScrollPositionChange: ((Bool) -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -38,9 +39,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
         configureDataSource()
-        configureSearch()
         if showsStandaloneSearch {
             title = folder.name
+            standaloneSearchController.obscuresBackgroundDuringPresentation = false
+            standaloneSearchController.searchResultsUpdater = self
+            standaloneSearchController.searchBar.placeholder = "Search \(folder.name.lowercased())…"
+            navigationItem.searchController = standaloneSearchController
+            navigationItem.preferredSearchBarPlacement = .stacked
+            navigationItem.hidesSearchBarWhenScrolling = false
+            definesPresentationContext = true
         }
         updateSnapshot(animated: false)
         startStateUpdates()
@@ -49,13 +56,25 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         warmVisibleChats()
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-scroll-chats") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.tableView.setContentOffset(CGPoint(x: 0, y: 50), animated: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.tableView.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
+            }
+        }
+        #endif
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        guard searchBar.frame.width != tableView.bounds.width else { return }
-        searchBar.frame.size.width = tableView.bounds.width
-        tableView.tableHeaderView = searchBar
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === tableView else { return }
+        let isAtTop = scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 1
+        if showsStandaloneSearch {
+            setStandaloneSearchVisible(isAtTop)
+        } else {
+            onScrollPositionChange?(isAtTop)
+        }
     }
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -99,19 +118,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    func searchBar(_: UISearchBar, textDidChange searchText: String) {
-        if !showsStandaloneSearch {
-            rootVM.query = searchText
-        }
-        updateQuery(searchText)
+    func updateSearchResults(for searchController: UISearchController) {
+        updateQuery(searchController.searchBar.text ?? "")
     }
 
     func updateQuery(_ query: String) {
         guard self.query != query else { return }
         self.query = query
-        if searchBar.text != query {
-            searchBar.text = query
-        }
         updateSnapshot(animated: true)
     }
 
@@ -128,7 +141,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private let rootVM: RootVM
     private let showsStandaloneSearch: Bool
-    private let searchBar = UISearchBar(frame: CGRect(x: 0, y: 0, width: 0, height: 52))
+    private let standaloneSearchController = UISearchController(searchResultsController: nil)
     private var query = ""
     private var cancellables = Set<AnyCancellable>()
     private var chatCancellables = Set<AnyCancellable>()
@@ -146,15 +159,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
     }
 
-    private func configureSearch() {
-        searchBar.delegate = self
-        searchBar.searchBarStyle = .minimal
-        searchBar.placeholder = showsStandaloneSearch ? "Search \(folder.name.lowercased())…" : "Search chats…"
-        searchBar.autocapitalizationType = .none
-        let initialQuery = showsStandaloneSearch ? "" : rootVM.query
-        searchBar.text = initialQuery
-        query = initialQuery
-        tableView.tableHeaderView = searchBar
+    private func setStandaloneSearchVisible(_ visible: Bool) {
+        guard !standaloneSearchController.isActive else { return }
+        if visible, navigationItem.searchController == nil {
+            navigationItem.searchController = standaloneSearchController
+            navigationItem.preferredSearchBarPlacement = .stacked
+        } else if !visible, navigationItem.searchController != nil {
+            navigationItem.searchController = nil
+        }
     }
 
     private func configureDataSource() {
