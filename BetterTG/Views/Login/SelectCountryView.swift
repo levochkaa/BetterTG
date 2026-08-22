@@ -76,6 +76,7 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
     private func loadCountries() {
         Task { [weak self] in
             guard let self, let result = try? await td.getCountries().countries else { return }
+            let detectedCountryCode = try? await td.getCountryCode().text
             let mapped = result.compactMap { country -> PhoneNumberInfo? in
                 guard let callingCode = country.callingCodes.first else { return nil }
                 return PhoneNumberInfo(
@@ -87,6 +88,11 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             await MainActor.run {
                 self.countries = mapped
+                if let detectedCountryCode,
+                   let detected = mapped.first(where: { $0.country == detectedCountryCode })
+                {
+                    self.onSelection(detected)
+                }
                 self.filterCountries()
             }
         }
