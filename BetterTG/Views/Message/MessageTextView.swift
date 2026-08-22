@@ -67,10 +67,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private var maximumLayoutWidth = Utils.maxMessageContentWidth
     private let statusLabel = UILabel()
 
-    private static let transparentPixel: UIImage = UIGraphicsImageRenderer(
-        size: CGSize(width: 1, height: 1),
-    ).image { _ in }
-
     func configure(
         formattedText: FormattedText,
         statusText: String,
@@ -83,15 +79,22 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.textColor = statusColor
         statusLabel.sizeToFit()
         let result = NSMutableAttributedString(attributedString: NSAttributedString(getAttributedString(from: formattedText)))
-        let statusSpacer = NSTextAttachment()
-        statusSpacer.image = Self.transparentPixel
-        statusSpacer.bounds = CGRect(
-            x: 0,
-            y: -2,
-            width: ceil(statusLabel.bounds.width) + 9,
-            height: statusLabel.font.lineHeight,
+        let spacerCharacter = "\u{00a0}"
+        let spacerText = "\u{200b}" + spacerCharacter + spacerCharacter
+        let characterWidth = (spacerCharacter as NSString).size(withAttributes: [.font: statusLabel.font as Any]).width
+        let statusSpacer = NSMutableAttributedString(
+            string: spacerText,
+            attributes: [
+                .font: statusLabel.font as Any,
+                .foregroundColor: UIColor.clear,
+            ],
         )
-        result.append(NSAttributedString(attachment: statusSpacer))
+        statusSpacer.addAttribute(
+            .kern,
+            value: max(0, ceil(statusLabel.bounds.width) + 9 - characterWidth * 2),
+            range: NSRange(location: 1, length: 1),
+        )
+        result.append(statusSpacer)
         attributedText = result
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
