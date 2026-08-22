@@ -1,11 +1,12 @@
 // CustomMessage.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
 
 // MARK: - CustomMessage
 
-@Observable final class CustomMessage {
+@Observable final class CustomMessage: ObservableObject {
     // MARK: Lifecycle
 
     init(
@@ -32,15 +33,17 @@ import TDLibKit
     
     // MARK: Internal
 
-    var message: Message
-    var senderUser: User?
-    var replyUser: User?
-    var replyToMessage: Message?
-    var album = [Message]()
-    var sendFailed = false
-    var forwardedFrom: String?
-    var formattedText: FormattedText?
-    var properties: MessageProperties
+    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
+
+    var message: Message { didSet { objectWillChange.send() } }
+    var senderUser: User? { didSet { objectWillChange.send() } }
+    var replyUser: User? { didSet { objectWillChange.send() } }
+    var replyToMessage: Message? { didSet { objectWillChange.send() } }
+    var album = [Message]() { didSet { objectWillChange.send() } }
+    var sendFailed = false { didSet { objectWillChange.send() } }
+    var forwardedFrom: String? { didSet { objectWillChange.send() } }
+    var formattedText: FormattedText? { didSet { objectWillChange.send() } }
+    var properties: MessageProperties { didSet { objectWillChange.send() } }
     
     var date: Foundation.Date { Date(timeIntervalSince1970: TimeInterval(message.date)) }
     

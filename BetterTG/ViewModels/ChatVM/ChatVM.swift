@@ -5,7 +5,7 @@ import Combine
 import SwiftUI
 import TDLibKit
 
-@Observable final class ChatVM {
+@Observable final class ChatVM: ObservableObject {
     // MARK: Lifecycle
 
     init(customChat: CustomChat) {
@@ -41,16 +41,18 @@ import TDLibKit
     
     // MARK: Internal
 
+    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
+
     var customChat: CustomChat
     
-    var focused = false
-    var bottomAreaHeight = CGFloat.zero
-    var actionStatus = ""
-    var onlineStatus = ""
-    var editCustomMessage: CustomMessage?
-    var replyMessage: CustomMessage?
-    var highlightedMessageId: Int64?
-    var messages = [CustomMessage]()
+    var focused = false { didSet { objectWillChange.send() } }
+    var bottomAreaHeight = CGFloat.zero { didSet { objectWillChange.send() } }
+    var actionStatus = "" { didSet { objectWillChange.send() } }
+    var onlineStatus = "" { didSet { objectWillChange.send() } }
+    var editCustomMessage: CustomMessage? { didSet { objectWillChange.send() } }
+    var replyMessage: CustomMessage? { didSet { objectWillChange.send() } }
+    var highlightedMessageId: Int64? { didSet { objectWillChange.send() } }
+    var messages = [CustomMessage]() { didSet { objectWillChange.send() } }
     @ObservationIgnored var dateFormatter: DateFormatter = {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm"
@@ -61,23 +63,23 @@ import TDLibKit
     // Scroll
     let chatScrollNamespaceId = "chatScrollNamespaceId"
     @ObservationIgnored var scrollOnFocus = true
-    var showScrollToBottomButton = false
+    var showScrollToBottomButton = false { didSet { objectWillChange.send() } }
     @ObservationIgnored var scrollViewProxy: ScrollViewProxy?
     @ObservationIgnored var cancellables = Set<AnyCancellable>()
-    var displayedImages = [SelectedImage]()
-    var timerCount = 0.0
+    var displayedImages = [SelectedImage]() { didSet { objectWillChange.send() } }
+    var timerCount = 0.0 { didSet { objectWillChange.send() } }
     @ObservationIgnored var timer: Timer?
     @ObservationIgnored var wave = [Float]()
     @ObservationIgnored var sendMessageTask: Task<Void, Never>?
     @ObservationIgnored var setDisplayedImagesTask: Task<Void, Never>?
-    var showDetail = false
-    var showSendButton = false
-    var text: AttributedString = ""
-    var editMessageText: AttributedString = ""
-    var recordingVoiceNote = false
-    var errorShown = false
-    var showCameraView = false
-    var showPhotoPickerView = false
+    var showDetail = false { didSet { objectWillChange.send() } }
+    var showSendButton = false { didSet { objectWillChange.send() } }
+    var text: AttributedString = "" { didSet { objectWillChange.send() } }
+    var editMessageText: AttributedString = "" { didSet { objectWillChange.send() } }
+    var recordingVoiceNote = false { didSet { objectWillChange.send() } }
+    var errorShown = false { didSet { objectWillChange.send() } }
+    var showCameraView = false { didSet { objectWillChange.send() } }
+    var showPhotoPickerView = false { didSet { objectWillChange.send() } }
     @ObservationIgnored var savedVoiceNoteUrl = URL(filePath: "")
     @ObservationIgnored var audioRecorder: AVAudioRecorder?
     
@@ -184,18 +186,22 @@ import TDLibKit
     
     func loadMessages() {
         guard loadingMessagesTask == nil else { return }
-        loadingMessagesTask = Task.background { await self._loadMessages() }
+        let fromMessageID = messages.last?.message.id ?? 0
+        loadingMessagesTask = Task.background { await self._loadMessages(fromMessageID: fromMessageID) }
     }
     
-    func _loadMessages() async {
+    func _loadMessages(fromMessageID: Int64) async {
         guard let chatHistory = try? await td.getChatHistory(
             chatId: customChat.chat.id,
-            fromMessageId: messages.last?.message.id ?? 0,
+            fromMessageId: fromMessageID,
             limit: 30,
             offset: 0,
             onlyLocal: false,
         )
-        .messages else { return }
+        .messages else {
+            await main { self.loadingMessagesTask = nil }
+            return
+        }
         
         let customMessages = await chatHistory.asyncMap { chatMessage in
             await getCustomMessage(from: chatMessage)
@@ -219,11 +225,12 @@ import TDLibKit
         
         await main { [savedMessages] in
             self.messages.append(contentsOf: savedMessages)
-            
-            Task.main(delay: 0.5) {
-                self.loadingMessagesTask = nil
-            }
+            self.loadingMessagesTask = nil
         }
+    }
+
+    func notifyChange() {
+        objectWillChange.send()
     }
     
     func deleteMessage(id: Int64, deleteForBoth: Bool) {
@@ -296,6 +303,16 @@ import TDLibKit
             if !messageVoiceNote.caption.text.isEmpty {
                 customMessage.formattedText = messageVoiceNote.caption
             }
+        case .messageAnimation(let messageAnimation):
+            if !messageAnimation.caption.text.isEmpty {
+                customMessage.formattedText = messageAnimation.caption
+            }
+        case .messageVideo(let messageVideo):
+            if !messageVideo.caption.text.isEmpty {
+                customMessage.formattedText = messageVideo.caption
+            }
+        case .messageSticker:
+            break
         case .messageUnsupported:
             customMessage.formattedText = FormattedText(entities: [], text: "TDLib not supported")
         default:

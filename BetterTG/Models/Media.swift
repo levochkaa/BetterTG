@@ -6,7 +6,7 @@ import MobileVLCKit
 import Observation
 import SwiftUI
 
-@Observable final class Media {
+@Observable final class Media: ObservableObject {
     // MARK: Lifecycle
 
     init() {
@@ -18,9 +18,11 @@ import SwiftUI
 
     static let shared = Media()
 
-    var savedMediaPath = ""
-    var isPlaying = false
-    var currentTime: Int32 = 0
+    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
+
+    var savedMediaPath = "" { didSet { objectWillChange.send() } }
+    var isPlaying = false { didSet { objectWillChange.send() } }
+    var currentTime: Int32 = 0 { didSet { objectWillChange.send() } }
 
     func stop() {
         withAnimation {
