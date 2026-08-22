@@ -1,215 +1,172 @@
 // CustomTextField.swift
 
-import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
-// MARK: - CustomUITextView
+final class FormattedTextView: UITextView, UITextViewDelegate {
+    var onTextChange: ((AttributedString) -> Void)?
+    var onPasteImages: (([SelectedImage]) -> Void)?
 
-private final class CustomUITextView: UITextView {
-    var isPastingText = false
-    
+    init(placeholder: String) {
+        self.placeholder = placeholder
+        super.init(frame: .zero, textContainer: nil)
+        delegate = self
+        font = .body
+        textColor = .white
+        backgroundColor = .clear
+        isEditable = true
+        isSelectable = true
+        isScrollEnabled = false
+        textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
+        textContainer.lineFragmentPadding = 0
+        typingAttributes = defaultAttributes()
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.text = placeholder
+        placeholderLabel.textColor = .placeholderText
+        placeholderLabel.font = .body
+        placeholderLabel.isUserInteractionEnabled = false
+        addSubview(placeholderLabel)
+        NSLayoutConstraint.activate([
+            placeholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            placeholderLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
+            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -5),
+        ])
+        updatePlaceholder()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let width = bounds.width > 0 ? bounds.width : 220
+        let fitting = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: UIView.noIntrinsicMetric, height: min(max(fitting.height, 36), 240))
+    }
+
+    override func layoutSubviews() {
+        let previousWidth = lastWidth
+        super.layoutSubviews()
+        lastWidth = bounds.width
+        if abs(previousWidth - bounds.width) > 0.5 {
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        guard let textInRange = text(in: textRange), !textInRange.isEmpty else {
+        guard let selected = text(in: textRange), !selected.isEmpty else {
             return UIMenu(children: suggestedActions)
         }
-        
-        let formatMenu = UIMenu(title: "Format", children: [
-            UIAction(title: "Bold") { [weak self] _ in
-                guard let self else { return }
-                textStorage.addAttribute(.font, value: UIFont.bold, range: selectedRange)
-                delegate?.textViewDidChange?(self)
-            },
-            UIAction(title: "Italic") { [weak self] _ in
-                guard let self else { return }
-                textStorage.addAttribute(.font, value: UIFont.italic, range: selectedRange)
-                delegate?.textViewDidChange?(self)
-            },
-            UIAction(title: "Monospace") { [weak self] _ in
-                guard let self else { return }
-                textStorage.addAttribute(.font, value: UIFont.monospaced, range: selectedRange)
-                delegate?.textViewDidChange?(self)
-            },
-            UIAction(title: "Link") { [weak self] _ in
-                guard let self else { return }
-                let alert = UIAlertController(title: "Enter URL", message: nil, preferredStyle: .alert)
-                alert.addTextField { textField in
-                    textField.placeholder = "https://google.com/"
-                }
-                alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert, weak self] _ in
-                    guard let self, let text = alert?.textFields?.first?.text else { return }
-                    textStorage.addAttribute(.link, value: URL(string: text) as Any, range: selectedRange)
-                    delegate?.textViewDidChange?(self)
-                })
-                alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-                UIApplication.currentKeyWindow?.rootViewController?.present(alert, animated: true)
-            },
-            UIAction(title: "Strikethrough") { [weak self] _ in
-                guard let self else { return }
-                textStorage.addAttribute(.strikethroughStyle, value: 1, range: selectedRange)
-                delegate?.textViewDidChange?(self)
-            },
-            UIAction(title: "Underline") { [weak self] _ in
-                guard let self else { return }
-                textStorage.addAttribute(.underlineStyle, value: 1, range: selectedRange)
-                delegate?.textViewDidChange?(self)
-            },
-            UIAction(title: "Spoiler") { [weak self] _ in
-                guard let self else { return }
-                textStorage.addAttribute(.backgroundColor, value: UIColor.gray, range: selectedRange)
-                delegate?.textViewDidChange?(self)
-            },
+        let format = UIMenu(title: "Format", children: [
+            formattingAction(title: "Bold", key: .font, value: UIFont.bold),
+            formattingAction(title: "Italic", key: .font, value: UIFont.italic),
+            formattingAction(title: "Monospace", key: .font, value: UIFont.monospaced),
+            UIAction(title: "Link") { [weak self] _ in self?.showLinkAlert() },
+            formattingAction(title: "Strikethrough", key: .strikethroughStyle, value: 1),
+            formattingAction(title: "Underline", key: .underlineStyle, value: 1),
+            formattingAction(title: "Spoiler", key: .backgroundColor, value: UIColor.systemGray),
         ])
-        
         var actions = suggestedActions
-        actions.insert(formatMenu, at: 1)
-        
+        actions.insert(format, at: min(1, actions.count))
         return UIMenu(children: actions)
     }
-    
+
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {
             return UIPasteboard.general.hasImages || UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
         }
         return super.canPerformAction(action, withSender: sender)
     }
-    
+
     override func paste(_ sender: Any?) {
-        if UIPasteboard.general.hasImages, let images = UIPasteboard.general.images {
-            nc.post(name: .localPasteImages, object: images.compactMap { writeImage($0) })
-        } else {
-            isPastingText = true
+        if let images = UIPasteboard.general.images, !images.isEmpty {
+            onPasteImages?(images.compactMap { writeImage($0) })
+            return
         }
+        isPastingText = true
         super.paste(sender)
     }
-}
 
-// MARK: - UITextViewWrapper
+    private let placeholder: String
+    private let placeholderLabel = UILabel()
+    private var lastWidth = CGFloat.zero
+    private var isPastingText = false
+    private var isApplyingValue = false
 
-private struct UITextViewWrapper: UIViewRepresentable {
-    final class Coordinator: NSObject, UITextViewDelegate {
-        // MARK: Lifecycle
+    func setAttributedText(_ value: AttributedString) {
+        let value = NSAttributedString(value)
+        guard attributedText != value else { return }
+        isApplyingValue = true
+        attributedText = value.length == 0
+            ? NSAttributedString(string: "", attributes: defaultAttributes())
+            : value
+        isApplyingValue = false
+        updatePlaceholder()
+        invalidateIntrinsicContentSize()
+    }
 
-        init(parent: UITextViewWrapper) {
-            self.parent = parent
-        }
-        
-        // MARK: Internal
+    func textViewDidChange(_: UITextView) {
+        updatePlaceholder()
+        invalidateIntrinsicContentSize()
+        isScrollEnabled = intrinsicContentSize.height >= 240
+        guard !isApplyingValue else { return }
+        onTextChange?(AttributedString(attributedText))
+    }
 
-        let parent: UITextViewWrapper
-        
-        func textViewDidChange(_ uiView: UITextView) {
-            parent.text = AttributedString(uiView.attributedText)
-            parent.recalculateHeight(view: uiView)
-        }
-        
-        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText _: String) -> Bool {
-            guard let textView = textView as? CustomUITextView else { return false }
-            textView.typingAttributes = defaultAttributes()
-            
-            if textView.isPastingText {
-                defer { textView.isPastingText = false }
-                if let item = UIPasteboard.general.items.first,
-                   let data = (item[UTType.rtf.identifier] as? String)?.data(using: .utf8),
-                   let attributedString = try? NSAttributedString(data: data, documentAttributes: nil)
-                {
-                    let mutableAttributedString = NSMutableAttributedString(attributedString: textView.attributedText)
-                    mutableAttributedString.replaceCharacters(in: range, with: attributedString)
-                    textView.attributedText = mutableAttributedString
-                    textView.delegate?.textViewDidChange?(textView)
-                    return false
-                }
-            }
-            
-            return true
+    func textView(
+        _ textView: UITextView,
+        shouldChangeTextIn range: NSRange,
+        replacementText _: String,
+    ) -> Bool {
+        typingAttributes = defaultAttributes()
+        guard isPastingText else { return true }
+        defer { isPastingText = false }
+        guard let item = UIPasteboard.general.items.first,
+              let rawRTF = item[UTType.rtf.identifier],
+              let data = (rawRTF as? String)?.data(using: .utf8)
+                ?? rawRTF as? Data,
+              let pasted = try? NSAttributedString(data: data, documentAttributes: nil)
+        else { return true }
+
+        let updated = NSMutableAttributedString(attributedString: textView.attributedText)
+        updated.replaceCharacters(in: range, with: pasted)
+        textView.attributedText = updated
+        textViewDidChange(textView)
+        return false
+    }
+
+    private func formattingAction(title: String, key: NSAttributedString.Key, value: Any) -> UIAction {
+        UIAction(title: title) { [weak self] _ in
+            guard let self else { return }
+            self.textStorage.addAttribute(key, value: value, range: self.selectedRange)
+            self.textViewDidChange(self)
         }
     }
 
-    @Binding var text: AttributedString
-    @Binding var calculatedHeight: CGFloat
-    
-    var becomeFirstResponer: Bool
-    
-    let textView = CustomUITextView()
-    
-    func makeUIView(context: Context) -> CustomUITextView {
-        textView.delegate = context.coordinator
-        textView.attributedText = NSMutableAttributedString(string: text.string, attributes: defaultAttributes())
-        textView.font = .body
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.isUserInteractionEnabled = true
-        textView.isScrollEnabled = false
-        textView.backgroundColor = .clear
-        textView.typingAttributes = defaultAttributes()
-        
-        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        
-        if becomeFirstResponer {
-            textView.becomeFirstResponder()
-        }
-        
-        return textView
+    private func showLinkAlert() {
+        let alert = UIAlertController(title: "Enter URL", message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = "https://example.com/" }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self, weak alert] _ in
+            guard let self,
+                  let text = alert?.textFields?.first?.text,
+                  let url = URL(string: text)
+            else { return }
+            self.textStorage.addAttribute(.link, value: url, range: self.selectedRange)
+            self.textViewDidChange(self)
+        })
+        nearestViewController?.present(alert, animated: true)
     }
-    
-    func updateUIView(_ uiView: CustomUITextView, context _: Context) {
-        if AttributedString(uiView.attributedText) != text {
-            uiView.attributedText = NSAttributedString(text)
-        }
-        recalculateHeight(view: uiView)
-    }
-    
-    func recalculateHeight(view: UIView) {
-        let newSize = view.sizeThatFits(CGSize(width: view.frame.size.width, height: .greatestFiniteMagnitude))
-        let newCalculatedHeight = min(newSize.height, 302)
-        if calculatedHeight != newCalculatedHeight {
-            Task.main {
-                textView.isScrollEnabled = newCalculatedHeight == 302
-                calculatedHeight = newCalculatedHeight
-            }
-        }
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+
+    private func updatePlaceholder() {
+        placeholderLabel.text = placeholder
+        placeholderLabel.isHidden = !text.isEmpty
     }
 }
 
-// MARK: - CustomTextField
-
-struct CustomTextField: View {
-    // MARK: Lifecycle
-
-    init(_ placeholder: String = "", text: Binding<AttributedString>, focus: Bool = false) {
-        self.focus = focus
-        self.placeholder = placeholder
-        self._text = text
-        self._showingPlaceholder = State(initialValue: self.text.characters.isEmpty)
+private extension UIView {
+    var nearestViewController: UIViewController? {
+        sequence(first: next, next: { $0?.next }).first(where: { $0 is UIViewController }) as? UIViewController
     }
-    
-    // MARK: Internal
-
-    var body: some View {
-        UITextViewWrapper(text: $text, calculatedHeight: $dynamicHeight, becomeFirstResponer: focus)
-            .frame(height: dynamicHeight)
-            .onChange(of: text) { _, newText in
-                showingPlaceholder = newText.characters.isEmpty
-            }
-            .background(alignment: .topLeading) {
-                if showingPlaceholder {
-                    Text(placeholder)
-                        .foregroundStyle(.gray)
-                        .padding(.leading, 4)
-                        .padding(.top, 8)
-                }
-            }
-    }
-
-    // MARK: Private
-
-    @Binding private var text: AttributedString
-    @State private var dynamicHeight: CGFloat = 36.333333333333336
-    @State private var showingPlaceholder = true
-    
-    private var placeholder: String
-    private var focus: Bool
 }

@@ -1,22 +1,19 @@
 // Image.swift
 
-import SwiftUI
+import UIKit
 
-func writeImage(_ uiImage: UIImage?, withSaving saving: Bool = false) -> SelectedImage? {
-    guard let uiImage, let data = uiImage.jpegData(compressionQuality: 1) else { return nil }
-
+func writeImage(_ image: UIImage?, withSaving saving: Bool = false) -> SelectedImage? {
+    guard let image, let data = image.jpegData(compressionQuality: 0.92) else { return nil }
     if saving {
-        UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil)
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
     }
 
-    let imageUrl = URL(filePath: NSTemporaryDirectory())
-        .appending(path: "\(UUID().uuidString).jpeg")
-
+    let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).jpeg")
     do {
-        try data.write(to: imageUrl, options: .atomic)
-        return SelectedImage(image: Image(uiImage: uiImage), url: imageUrl)
+        try data.write(to: url, options: .atomic)
+        return SelectedImage(image: image, url: url)
     } catch {
-        log("Error getting data for an image: \(error)")
+        log("Error writing selected image: \(error)")
         return nil
     }
 }

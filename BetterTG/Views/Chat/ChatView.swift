@@ -1,10 +1,13 @@
 // ChatView.swift
 
 import Combine
+import PhotosUI
 import TDLibKit
 import UIKit
 
-final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching {
+final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
+    PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate
+{
     init(customChat: CustomChat) {
         chatVM = ChatVM(customChat: customChat)
         super.init(nibName: nil, bundle: nil)
@@ -44,6 +47,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
     private let avatarView = ProfileAvatarView()
+    private lazy var composerView = ChatComposerView(chatVM: chatVM)
+    private let scrollToLatestButton = UIButton(type: .system)
+    private let unreadBadgeLabel = UILabel()
+    private var didPresentMicrophoneError = false
+    private var lastHighlightedMessageID: Int64?
 
     private func makeLayout() -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
@@ -96,11 +104,60 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
         view.addSubview(collectionView)
-        NSLayoutConstraint.activate([
+        var constraints = [
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ]
+        if chatVM.customChat.canPostMessages {
+            composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
+            composerView.onTakePhoto = { [weak self] in self?.showCamera() }
+            composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
+            view.addSubview(composerView)
+            constraints.append(contentsOf: [
+                composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 5),
+                composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -5),
+                composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -5),
+                collectionView.bottomAnchor.constraint(equalTo: composerView.topAnchor, constant: -5),
+            ])
+        } else {
+            constraints.append(collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor))
+        }
+        configureScrollToLatestButton(bottomAnchor: chatVM.customChat.canPostMessages
+            ? composerView.topAnchor
+            : view.safeAreaLayoutGuide.bottomAnchor)
+        NSLayoutConstraint.activate(constraints)
+    }
+
+    private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {
+        scrollToLatestButton.translatesAutoresizingMaskIntoConstraints = false
+        scrollToLatestButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        scrollToLatestButton.backgroundColor = .secondarySystemBackground
+        scrollToLatestButton.tintColor = .systemBlue
+        scrollToLatestButton.layer.cornerRadius = 22
+        scrollToLatestButton.layer.borderWidth = 1
+        scrollToLatestButton.layer.borderColor = UIColor.systemBlue.cgColor
+        scrollToLatestButton.alpha = 0
+        scrollToLatestButton.accessibilityLabel = "Scroll to latest message"
+        scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
+        unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        unreadBadgeLabel.backgroundColor = .systemBlue
+        unreadBadgeLabel.textColor = .white
+        unreadBadgeLabel.font = .preferredFont(forTextStyle: .caption2)
+        unreadBadgeLabel.textAlignment = .center
+        unreadBadgeLabel.layer.cornerRadius = 9
+        unreadBadgeLabel.clipsToBounds = true
+        scrollToLatestButton.addSubview(unreadBadgeLabel)
+        view.addSubview(scrollToLatestButton)
+        NSLayoutConstraint.activate([
+            scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            scrollToLatestButton.widthAnchor.constraint(equalToConstant: 44),
+            scrollToLatestButton.heightAnchor.constraint(equalToConstant: 44),
+            unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -5),
+            unreadBadgeLabel.centerXAnchor.constraint(equalTo: scrollToLatestButton.centerXAnchor),
+            unreadBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 18),
         ])
     }
 
@@ -131,10 +188,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
-                DispatchQueue.main.async {
-                    self?.updateStatus()
-                    self?.updateSnapshot(animated: true, reconfigureExisting: true)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.updateStatus()
+                    self.composerView.update(from: self.chatVM)
+                    self.updateHighlightState()
+                    self.presentMicrophoneErrorIfNeeded()
                 }
+            }
+            .store(in: &cancellables)
+        chatVM.messagesDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                DispatchQueue.main.async { self?.updateSnapshot(animated: true) }
             }
             .store(in: &cancellables)
         subscribeToMessages()
@@ -145,8 +211,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         for message in chatVM.messages {
             message.objectWillChange
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self] in
-                    DispatchQueue.main.async { self?.updateSnapshot(animated: true, reconfigureExisting: true) }
+                .sink { [weak self, messageID = message.id] in
+                    DispatchQueue.main.async { self?.reconfigureMessage(id: messageID) }
                 }
                 .store(in: &messageCancellables)
         }
@@ -157,20 +223,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         statusLabel.text = status
         statusLabel.isHidden = status.isEmpty
         statusLabel.textColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
+        let unreadCount = chatVM.customChat.unreadCount
+        unreadBadgeLabel.text = unreadCount > 99 ? "99+" : "\(unreadCount)"
+        unreadBadgeLabel.isHidden = unreadCount == 0
+        scrollToLatestButton.accessibilityValue = unreadCount == 0 ? nil : "\(unreadCount) unread"
     }
 
-    private func updateSnapshot(animated: Bool, reconfigureExisting: Bool = false) {
+    private func updateSnapshot(animated: Bool) {
         guard isViewLoaded else { return }
         subscribeToMessages()
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.messages])
         snapshot.appendItems(chatVM.messages.map(\.id))
-        if reconfigureExisting {
-            let existing = Set(dataSource.snapshot().itemIdentifiers)
-            snapshot.reconfigureItems(snapshot.itemIdentifiers.filter { existing.contains($0) })
-        }
         dataSource.apply(snapshot, animatingDifferences: animated)
         collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
+    }
+
+    private func reconfigureMessage(id: Int64) {
+        var snapshot = dataSource.snapshot()
+        guard snapshot.indexOfItem(id) != nil else { return }
+        snapshot.reconfigureItems([id])
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
+    private func updateHighlightState() {
+        let changed = [lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self)
+        lastHighlightedMessageID = chatVM.highlightedMessageId
+        guard !changed.isEmpty else { return }
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems(changed.filter { snapshot.indexOfItem($0) != nil })
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     private func emptyLabel() -> UIView {
@@ -195,6 +277,84 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func showMedia(_ messages: [Message], selection: Int64) {
         present(MediaGalleryViewController(messages: messages, selection: selection), animated: true)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === collectionView else { return }
+        let isAwayFromLatest = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 160
+        let targetAlpha = isAwayFromLatest ? CGFloat(1) : 0
+        guard scrollToLatestButton.alpha != targetAlpha else { return }
+        UIView.animate(withDuration: 0.2) { self.scrollToLatestButton.alpha = targetAlpha }
+    }
+
+    @objc private func scrollToLatest() {
+        guard !chatVM.messages.isEmpty else { return }
+        collectionView.scrollToItem(at: IndexPath(item: 0, section: 0), at: .bottom, animated: true)
+    }
+
+    private func showPhotoPicker() {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 10
+        configuration.selection = .ordered
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func showCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            let alert = UIAlertController(title: "Camera unavailable", message: nil, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.allowsEditing = false
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func presentMicrophoneErrorIfNeeded() {
+        guard chatVM.errorShown, !didPresentMicrophoneError else { return }
+        didPresentMicrophoneError = true
+        chatVM.errorShown = false
+        let alert = UIAlertController(
+            title: "Microphone Access Required",
+            message: "Enable Microphone in Settings → BetterTG to record voice messages.",
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            self?.didPresentMicrophoneError = false
+        })
+        alert.addAction(UIAlertAction(title: "Open Settings", style: .default) { [weak self] _ in
+            self?.didPresentMicrophoneError = false
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        })
+        present(alert, animated: true)
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        PhotoPickerSelectionLoader.load(results) { [weak self] images in
+            self?.chatVM.displayedImages = images
+        }
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
+
+    func imagePickerController(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any],
+    ) {
+        picker.dismiss(animated: true)
+        guard let image = writeImage(info[.originalImage] as? UIImage, withSaving: true) else { return }
+        chatVM.displayedImages = [image]
     }
 
     func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {

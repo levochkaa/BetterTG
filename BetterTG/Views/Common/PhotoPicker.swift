@@ -1,60 +1,33 @@
 // PhotoPicker.swift
 
 import PhotosUI
-import SwiftUI
+import UIKit
 
-typealias PhotoPickerOnSelection = (_ index: Int, _ image: SelectedImage?, _ error: (any Error)?) -> Void
+enum PhotoPickerSelectionLoader {
+    static func load(_ results: [PHPickerResult], completion: @escaping ([SelectedImage]) -> Void) {
+        guard !results.isEmpty else { return completion([]) }
+        let lock = NSLock()
+        let group = DispatchGroup()
+        var selected = [Int: SelectedImage]()
 
-// MARK: - PhotoPicker
-
-struct PhotoPicker: UIViewControllerRepresentable {
-    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        // MARK: Lifecycle
-
-        init(onSelection: @escaping PhotoPickerOnSelection, clear: @escaping () -> Void) {
-            self.onSelection = onSelection
-            self.clear = clear
-        }
-        
-        // MARK: Internal
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            guard previousResultsCount != results.count else { return picker.dismiss(animated: true) }
-            previousResultsCount = results.count
-            for (index, result) in results.enumerated() where result.itemProvider.canLoadObject(ofClass: UIImage.self) {
-                result.itemProvider.loadObject(ofClass: UIImage.self) { [self] item, error in
-                    if let selectedImage = writeImage(item as? UIImage) {
-                        onSelection(index, selectedImage, error)
-                    } else {
-                        onSelection(index, nil, error)
-                    }
+        for (index, result) in results.prefix(10).enumerated() {
+            guard result.itemProvider.canLoadObject(ofClass: UIImage.self) else { continue }
+            group.enter()
+            result.itemProvider.loadObject(ofClass: UIImage.self) { object, error in
+                defer { group.leave() }
+                if let error {
+                    log("Error loading picked image: \(error)")
+                    return
                 }
+                guard let image = writeImage(object as? UIImage) else { return }
+                lock.lock()
+                selected[index] = image
+                lock.unlock()
             }
         }
 
-        // MARK: Private
-
-        private let onSelection: PhotoPickerOnSelection
-        private let clear: () -> Void
-        private var previousResultsCount = 0
-    }
-    
-    let onSelection: PhotoPickerOnSelection
-    let clear: () -> Void
-    
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 10
-        config.selection = .continuousAndOrdered
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = context.coordinator
-        return picker
-    }
-    
-    func updateUIViewController(_: PHPickerViewController, context _: Context) {}
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onSelection: onSelection, clear: clear)
+        group.notify(queue: .main) {
+            completion(selected.keys.sorted().compactMap { selected[$0] })
+        }
     }
 }

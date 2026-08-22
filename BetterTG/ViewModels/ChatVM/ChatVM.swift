@@ -42,6 +42,7 @@ import TDLibKit
     // MARK: Internal
 
     @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
+    @ObservationIgnored let messagesDidChange = PassthroughSubject<Void, Never>()
 
     var customChat: CustomChat
     
@@ -52,7 +53,12 @@ import TDLibKit
     var editCustomMessage: CustomMessage? { didSet { objectWillChange.send() } }
     var replyMessage: CustomMessage? { didSet { objectWillChange.send() } }
     var highlightedMessageId: Int64? { didSet { objectWillChange.send() } }
-    var messages = [CustomMessage]() { didSet { objectWillChange.send() } }
+    var messages = [CustomMessage]() {
+        didSet {
+            objectWillChange.send()
+            messagesDidChange.send()
+        }
+    }
     @ObservationIgnored var dateFormatter: DateFormatter = {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm"
@@ -636,6 +642,8 @@ import TDLibKit
     @MainActor func mediaStartRecordingVoice() async {
         Media.shared.setAudioSessionRecord()
         Media.shared.stop()
+        wave.removeAll(keepingCapacity: true)
+        timerCount = 0
         
         let granted = await AVAudioApplication.requestRecordPermission()
         if granted {
@@ -671,6 +679,7 @@ import TDLibKit
     func mediaStopRecordingVoice(duration: Int, wave: [Float]) {
         audioRecorder?.stop()
         withAnimation { recordingVoiceNote = false }
+        self.wave.removeAll(keepingCapacity: true)
         Task.background { try? await self.tdSendChatAction(.chatActionCancel) }
         
         let intWave: [Int] = wave.compactMap { wave in
@@ -694,5 +703,14 @@ import TDLibKit
             try? await self.tdSendChatAction(.chatActionUploadingVoiceNote(.init(progress: 0)))
             await self.sendMessageVoiceNote(duration: duration, waveform: waveform)
         }
+    }
+
+    func cancelVoiceRecording() {
+        audioRecorder?.stop()
+        try? FileManager.default.removeItem(at: savedVoiceNoteUrl)
+        wave.removeAll(keepingCapacity: true)
+        stopTimer()
+        recordingVoiceNote = false
+        Task.background { try? await self.tdSendChatAction(.chatActionCancel) }
     }
 }
