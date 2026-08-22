@@ -82,7 +82,7 @@ final class MessageCell: UICollectionViewCell {
 
         let timestamp = Self.timeFormatter.string(from: message.date)
         let timestampText = message.sendFailed ? "Failed • \(timestamp)" : timestamp
-        let timestampColor: UIColor = message.sendFailed ? .systemRed : .tertiaryLabel
+        let timestampColor: UIColor = message.sendFailed ? .systemRed : .secondaryLabel
         if let formatted = message.formattedText {
             textView.isHidden = false
             textView.configure(formattedText: formatted, statusText: timestampText, statusColor: timestampColor)
