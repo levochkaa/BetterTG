@@ -15,6 +15,11 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         configureViews()
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        searchField.layer.cornerRadius = searchField.bounds.height / 2
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -28,10 +33,12 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         let fraction = appliedOffset / Self.scrollHeight
         let changes = {
             self.transform = CGAffineTransform(translationX: 0, y: -appliedOffset)
+            self.searchHeightConstraint.constant = max(8, 36 * (1 - fraction * 0.78))
             let contentAlpha = 1 - min(1, max(0, fraction - 0.55) / 0.45)
             self.searchField.alpha = contentAlpha
             self.closeButton.alpha = (self.isActive ? 1 : 0) * contentAlpha
             self.isUserInteractionEnabled = fraction < 0.96
+            self.layoutIfNeeded()
         }
         guard animated else {
             changes()
@@ -55,6 +62,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     private let closeButton = UIButton(type: .system)
     private let placeholder: String
     private var closeWidthConstraint: NSLayoutConstraint!
+    private var searchHeightConstraint: NSLayoutConstraint!
     private var requestedScrollOffset = CGFloat.zero
 
     private func configureViews() {
@@ -66,7 +74,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
-        searchField.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.92)
+        searchField.borderStyle = .none
+        searchField.backgroundColor = UIColor(white: 0.13, alpha: 0.96)
+        searchField.layer.cornerCurve = .continuous
+        searchField.clipsToBounds = true
         searchField.textColor = .label
         searchField.tintColor = .systemBlue
         searchField.delegate = self
@@ -82,15 +93,16 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         addSubview(closeButton)
 
         closeWidthConstraint = closeButton.widthAnchor.constraint(equalToConstant: 0)
+        searchHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: 36)
         NSLayoutConstraint.activate([
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
             closeButton.heightAnchor.constraint(equalToConstant: 36),
             closeWidthConstraint,
-            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
-            searchField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            searchField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            searchHeightConstraint,
         ])
     }
 
@@ -111,8 +123,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         closeWidthConstraint.constant = active ? 36 : 0
         if active {
             transform = .identity
+            searchHeightConstraint.constant = 36
             searchField.alpha = 1
             isUserInteractionEnabled = true
+            layoutIfNeeded()
         }
         onActiveChange?(active)
         UIView.animate(

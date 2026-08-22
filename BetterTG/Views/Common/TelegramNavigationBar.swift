@@ -210,7 +210,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
-        searchField.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.92)
+        searchField.borderStyle = .none
+        searchField.backgroundColor = UIColor(white: 0.13, alpha: 0.96)
+        searchField.layer.cornerRadius = 18
+        searchField.layer.cornerCurve = .continuous
+        searchField.clipsToBounds = true
         searchField.delegate = self
         searchField.alpha = 0
         searchField.isHidden = true

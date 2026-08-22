@@ -234,7 +234,7 @@ final class FolderPickerView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        segmentedWidthConstraint?.constant = max(controlContainer.bounds.width - 32, totalSegmentWidth)
+        segmentedWidthConstraint?.constant = max(controlContainer.bounds.width, totalSegmentWidth)
     }
 
     @available(*, unavailable)
@@ -243,7 +243,7 @@ final class FolderPickerView: UIView {
     }
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
-    private let controlContainer = UIScrollView()
+    private let controlContainer = FolderPickerScrollView()
     private var segmentedControl: UISegmentedControl?
     private var segmentedWidthConstraint: NSLayoutConstraint?
     private var folders = [CustomFolder]()
@@ -262,6 +262,9 @@ final class FolderPickerView: UIView {
         controlContainer.showsHorizontalScrollIndicator = false
         controlContainer.alwaysBounceHorizontal = true
         controlContainer.isDirectionalLockEnabled = true
+        controlContainer.delaysContentTouches = false
+        controlContainer.canCancelContentTouches = true
+        controlContainer.clipsToBounds = true
         addSubview(controlContainer)
 
         let separator = UIView()
@@ -275,8 +278,8 @@ final class FolderPickerView: UIView {
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             controlContainer.topAnchor.constraint(equalTo: topAnchor),
-            controlContainer.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            controlContainer.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            controlContainer.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            controlContainer.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
             controlContainer.heightAnchor.constraint(equalToConstant: 58),
             separator.topAnchor.constraint(equalTo: topAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -286,14 +289,25 @@ final class FolderPickerView: UIView {
     }
 
     func configure(folders: [CustomFolder], selectedID: Int?) {
+        let needsRebuild = self.folders.count != folders.count || zip(self.folders, folders).contains { pair in
+            pair.0.id != pair.1.id || pair.0.name != pair.1.name
+        }
         self.folders = folders
-        self.selectedID = selectedID ?? folders.first?.id
+        let resolvedSelectedID = selectedID ?? folders.first?.id
+        guard needsRebuild else {
+            select(id: resolvedSelectedID)
+            return
+        }
+        self.selectedID = resolvedSelectedID
         rebuildControl()
     }
 
     func select(id: Int?) {
+        let selectedIndex = folders.firstIndex(where: { $0.id == id }) ?? UISegmentedControl.noSegment
+        let selectionChanged = selectedID != id || segmentedControl?.selectedSegmentIndex != selectedIndex
         selectedID = id
-        segmentedControl?.selectedSegmentIndex = folders.firstIndex(where: { $0.id == id }) ?? UISegmentedControl.noSegment
+        segmentedControl?.selectedSegmentIndex = selectedIndex
+        guard selectionChanged else { return }
         scrollSelectedSegmentIntoView(animated: true)
     }
 
@@ -309,11 +323,13 @@ final class FolderPickerView: UIView {
                 if selectedID == folder.id {
                     onReselection?(folder.id)
                 } else {
+                    selectedID = folder.id
+                    scrollSelectedSegmentIntoView(animated: true)
                     onSelection?(folder.id)
                 }
             }
         }
-        let control = UISegmentedControl(frame: .zero, actions: actions)
+        let control = FolderSegmentedControl(frame: .zero, actions: actions)
         control.translatesAutoresizingMaskIntoConstraints = false
         control.apportionsSegmentWidthsByContent = true
         control.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -324,12 +340,12 @@ final class FolderPickerView: UIView {
         control.accessibilityLabel = "Chat Folders"
         controlContainer.addSubview(control)
         segmentedControl = control
-        let widthConstraint = control.widthAnchor.constraint(equalToConstant: max(300, totalSegmentWidth))
+        let widthConstraint = control.widthAnchor.constraint(equalToConstant: totalSegmentWidth)
         segmentedWidthConstraint = widthConstraint
 
         NSLayoutConstraint.activate([
-            control.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor, constant: 16),
-            control.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor, constant: -16),
+            control.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor),
+            control.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor),
             control.centerYAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.centerYAnchor),
             control.heightAnchor.constraint(equalToConstant: 36),
             widthConstraint,
@@ -342,16 +358,24 @@ final class FolderPickerView: UIView {
     private func scrollSelectedSegmentIntoView(animated: Bool) {
         guard let control = segmentedControl, control.selectedSegmentIndex != UISegmentedControl.noSegment else { return }
         layoutIfNeeded()
-        let availableWidth = max(1, totalSegmentWidth)
-        let widthScale = control.bounds.width / availableWidth
+        let widthScale = control.bounds.width / max(1, totalSegmentWidth)
         let selectedX = segmentWidths.prefix(control.selectedSegmentIndex).reduce(0, +) * widthScale
         let selectedWidth = segmentWidths[control.selectedSegmentIndex] * widthScale
-        let selectedRect = CGRect(
-            x: control.frame.minX + selectedX,
-            y: control.frame.minY,
-            width: selectedWidth,
-            height: control.frame.height,
-        )
-        controlContainer.scrollRectToVisible(selectedRect.insetBy(dx: -24, dy: 0), animated: animated)
+        let selectedCenter = control.frame.minX + selectedX + selectedWidth / 2
+        let maximumOffset = max(0, controlContainer.contentSize.width - controlContainer.bounds.width)
+        let targetOffset = min(max(0, selectedCenter - controlContainer.bounds.width / 2), maximumOffset)
+        controlContainer.setContentOffset(CGPoint(x: targetOffset, y: 0), animated: animated)
+    }
+}
+
+private final class FolderPickerScrollView: UIScrollView {
+    override func touchesShouldCancel(in _: UIView) -> Bool {
+        true
+    }
+}
+
+private final class FolderSegmentedControl: UISegmentedControl {
+    override func gestureRecognizerShouldBegin(_: UIGestureRecognizer) -> Bool {
+        true
     }
 }
