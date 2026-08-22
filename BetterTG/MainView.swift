@@ -234,7 +234,7 @@ final class FolderPickerView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        segmentedWidthConstraint?.constant = max(controlContainer.bounds.width, totalSegmentWidth)
+        segmentedWidthConstraint?.constant = max(controlContainer.bounds.width - 8, totalSegmentWidth)
     }
 
     @available(*, unavailable)
@@ -344,8 +344,8 @@ final class FolderPickerView: UIView {
         segmentedWidthConstraint = widthConstraint
 
         NSLayoutConstraint.activate([
-            control.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor),
-            control.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor),
+            control.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor, constant: 4),
+            control.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor, constant: -4),
             control.centerYAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.centerYAnchor),
             control.heightAnchor.constraint(equalToConstant: 36),
             widthConstraint,
@@ -369,9 +369,38 @@ final class FolderPickerView: UIView {
 }
 
 private final class FolderPickerScrollView: UIScrollView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        selectionHoldRecognizer.minimumPressDuration = 0.18
+        selectionHoldRecognizer.allowableMovement = 8
+        selectionHoldRecognizer.cancelsTouchesInView = false
+        addGestureRecognizer(selectionHoldRecognizer)
+        panGestureRecognizer.require(toFail: selectionHoldRecognizer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let clipRect = bounds.insetBy(dx: 4, dy: 11)
+        clipMask.path = UIBezierPath(roundedRect: clipRect, cornerRadius: clipRect.height / 2).cgPath
+        layer.mask = clipMask
+    }
+
     override func touchesShouldCancel(in _: UIView) -> Bool {
         true
     }
+
+    private lazy var selectionHoldRecognizer = UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(selectionHoldChanged),
+    )
+    private let clipMask = CAShapeLayer()
+
+    @objc private func selectionHoldChanged() {}
 }
 
 private final class FolderSegmentedControl: UISegmentedControl {

@@ -58,7 +58,7 @@ final class ChatListCell: UITableViewCell {
     // MARK: Private
 
     private let cardView = UIView()
-    private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
+    private let pinView = UIImageView(image: UIImage(systemName: "pin"))
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
@@ -75,9 +75,9 @@ final class ChatListCell: UITableViewCell {
             item.translatesAutoresizingMaskIntoConstraints = false
             cardView.addSubview(item)
         }
-        pinView.tintColor = .white
+        pinView.tintColor = UIColor(red: 0x76 / 255, green: 0x76 / 255, blue: 0x77 / 255, alpha: 1)
         pinView.contentMode = .scaleAspectFit
-        pinView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        pinView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
         titleLabel.textColor = .white
         titleLabel.font = .preferredFont(forTextStyle: .title3)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -100,10 +100,10 @@ final class ChatListCell: UITableViewCell {
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-            pinView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 8),
-            pinView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -10),
-            pinView.widthAnchor.constraint(equalToConstant: 13),
-            pinView.heightAnchor.constraint(equalToConstant: 13),
+            pinView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
+            pinView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -14),
+            pinView.widthAnchor.constraint(equalToConstant: 14),
+            pinView.heightAnchor.constraint(equalToConstant: 14),
             avatarView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 10),
             avatarView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 60),
