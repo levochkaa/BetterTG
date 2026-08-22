@@ -385,7 +385,8 @@ private final class FolderPickerScrollView: UIScrollView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let clipRect = bounds.insetBy(dx: 4, dy: 11)
+        clipMask.frame = CGRect(origin: .zero, size: bounds.size)
+        let clipRect = clipMask.bounds.insetBy(dx: 4, dy: 11)
         clipMask.path = UIBezierPath(roundedRect: clipRect, cornerRadius: clipRect.height / 2).cgPath
         layer.mask = clipMask
     }

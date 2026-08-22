@@ -42,6 +42,7 @@ final class TelegramListNavigationBar: UIView {
         let clipped = min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
         currentScrollOffset = clipped
         guard !isSearchActive else {
+            searchView.applyScroll(offset: clipped, animated: false)
             onVisibleHeightChange?(Self.titleHeight)
             return
         }
