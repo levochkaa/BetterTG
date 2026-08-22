@@ -59,6 +59,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        if chatVM.customChat.canPostMessages {
+            let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
+                < view.bounds.maxY - view.safeAreaInsets.bottom - 1
+            composerView.setKeyboardAttached(keyboardAttached)
+        }
         updateHistoryInsets()
     }
 
@@ -491,10 +496,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let userIsScrolling = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
         let keepLatestVisible = !didPerformInitialScroll || (!userIsScrolling && isNearLatest)
         let previousOffset = collectionView.contentOffset
+        let previousVisualBottomInset = collectionView.contentInset.top
         collectionView.contentInset = updatedInsets
         collectionView.verticalScrollIndicatorInsets = updatedInsets
         if keepLatestVisible {
             pinToLatestEdge(animated: false)
+        } else if !userIsScrolling {
+            collectionView.setContentOffset(
+                CGPoint(
+                    x: previousOffset.x,
+                    y: previousOffset.y - (updatedInsets.top - previousVisualBottomInset),
+                ),
+                animated: false,
+            )
         } else {
             collectionView.setContentOffset(previousOffset, animated: false)
         }

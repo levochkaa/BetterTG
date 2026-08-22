@@ -29,6 +29,14 @@ final class ChatComposerView: UIView {
         textView.becomeFirstResponder()
     }
 
+    func setKeyboardAttached(_ attached: Bool) {
+        guard keyboardAttached != attached else { return }
+        keyboardAttached = attached
+        layer.maskedCorners = attached
+            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+    }
+
     func setHiddenForSearch(_ hidden: Bool) {
         hiddenForSearch = hidden
         if hidden {
@@ -51,12 +59,7 @@ final class ChatComposerView: UIView {
     }
 
     private let chatVM: ChatVM
-    private let blurView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        effect.tintColor = UIColor(white: 0, alpha: 0.18)
-        return UIVisualEffectView(effect: effect)
-    }()
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let rootStack = UIStackView()
     private let replyRow = UIStackView()
     private let replySnippet = ReplySnippetView()
@@ -76,12 +79,17 @@ final class ChatComposerView: UIView {
     private var typingTask: Task<Void, Never>?
     private var isApplyingState = false
     private var hiddenForSearch = false
+    private var keyboardAttached = false
     private var lastReplyID: Int64?
     private var lastEditID: Int64?
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
+        layer.cornerRadius = 22
+        layer.cornerCurve = .continuous
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        clipsToBounds = true
 
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
