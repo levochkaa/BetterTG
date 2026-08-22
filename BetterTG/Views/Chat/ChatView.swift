@@ -69,10 +69,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
-        let isAwayFromLatest = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 160
-        let targetAlpha = isAwayFromLatest ? CGFloat(1) : 0
-        guard scrollToLatestButton.alpha != targetAlpha else { return }
-        UIView.animate(withDuration: 0.2) { self.scrollToLatestButton.alpha = targetAlpha }
+        updateScrollToLatestButtonVisibility(animated: true)
     }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -147,7 +144,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
     private let scrollToLatestButton = UIButton(type: .system)
+    private let scrollToLatestEffectView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        effect.tintColor = UIColor.white.withAlphaComponent(0.04)
+        return UIVisualEffectView(effect: effect)
+    }()
     private let unreadBadgeLabel = UILabel()
+    private var scrollToLatestButtonVisible = false
     private var didPresentMicrophoneError = false
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
@@ -178,7 +182,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let self else { return }
             messageSearchActive = active
             composerView.setHiddenForSearch(active)
-            scrollToLatestButton.isHidden = active
+            updateScrollToLatestButtonVisibility(animated: true)
             if !active {
                 searchTask?.cancel()
                 customNavigationBar.setSearchResultFound(nil)
@@ -234,7 +238,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             collectionView.bottomAnchor.constraint(equalTo: historyContainerView.bottomAnchor),
         ]
         if chatVM.customChat.canPostMessages {
-            view.keyboardLayoutGuide.usesBottomSafeArea = true
+            view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
@@ -254,14 +258,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {
         scrollToLatestButton.translatesAutoresizingMaskIntoConstraints = false
         scrollToLatestButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
-        scrollToLatestButton.backgroundColor = .secondarySystemBackground
-        scrollToLatestButton.tintColor = .systemBlue
-        scrollToLatestButton.layer.cornerRadius = 22
-        scrollToLatestButton.layer.borderWidth = 1
-        scrollToLatestButton.layer.borderColor = UIColor.systemBlue.cgColor
+        scrollToLatestButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold),
+            forImageIn: .normal,
+        )
+        scrollToLatestButton.tintColor = .white
+        scrollToLatestButton.layer.cornerRadius = 20
         scrollToLatestButton.alpha = 0
+        scrollToLatestButton.transform = CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
         scrollToLatestButton.accessibilityLabel = "Scroll to latest message"
         scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
+
+        scrollToLatestEffectView.translatesAutoresizingMaskIntoConstraints = false
+        scrollToLatestEffectView.isUserInteractionEnabled = false
+        scrollToLatestEffectView.cornerConfiguration = .capsule()
+        scrollToLatestEffectView.clipsToBounds = true
+        scrollToLatestButton.insertSubview(scrollToLatestEffectView, at: 0)
         unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         unreadBadgeLabel.backgroundColor = .systemBlue
         unreadBadgeLabel.textColor = .white
@@ -272,15 +284,44 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         scrollToLatestButton.addSubview(unreadBadgeLabel)
         view.addSubview(scrollToLatestButton)
         NSLayoutConstraint.activate([
+            scrollToLatestEffectView.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor),
+            scrollToLatestEffectView.leadingAnchor.constraint(equalTo: scrollToLatestButton.leadingAnchor),
+            scrollToLatestEffectView.trailingAnchor.constraint(equalTo: scrollToLatestButton.trailingAnchor),
+            scrollToLatestEffectView.bottomAnchor.constraint(equalTo: scrollToLatestButton.bottomAnchor),
             scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
             scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            scrollToLatestButton.widthAnchor.constraint(equalToConstant: 44),
-            scrollToLatestButton.heightAnchor.constraint(equalToConstant: 44),
+            scrollToLatestButton.widthAnchor.constraint(equalToConstant: 40),
+            scrollToLatestButton.heightAnchor.constraint(equalToConstant: 40),
             unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -5),
             unreadBadgeLabel.centerXAnchor.constraint(equalTo: scrollToLatestButton.centerXAnchor),
             unreadBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
             unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 18),
         ])
+    }
+
+    private func updateScrollToLatestButtonVisibility(animated: Bool) {
+        let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top > 160
+        let visible = isAwayFromLatest && !messageSearchActive
+        guard scrollToLatestButtonVisible != visible else { return }
+        scrollToLatestButtonVisible = visible
+        let changes = {
+            self.scrollToLatestButton.alpha = visible ? 1 : 0
+            self.scrollToLatestButton.transform = visible
+                ? .identity
+                : CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
+        }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: visible ? 0.38 : 0.2,
+            delay: 0,
+            usingSpringWithDamping: 0.78,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: changes,
+        )
     }
 
     private func configureDataSource() {

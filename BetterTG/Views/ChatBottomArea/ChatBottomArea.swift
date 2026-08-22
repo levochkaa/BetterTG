@@ -98,7 +98,7 @@ final class ChatComposerView: UIView {
             rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            rootStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -7),
         ])
 
         replyRow.axis = .horizontal
@@ -128,12 +128,14 @@ final class ChatComposerView: UIView {
         inputRow.axis = .horizontal
         inputRow.alignment = .bottom
         inputRow.spacing = 8
-        attachmentButton.setImage(UIImage(systemName: "plus.circle.fill"), for: .normal)
-        attachmentButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 26), forImageIn: .normal)
+        attachmentButton.setImage(UIImage(systemName: "plus"), for: .normal)
+        attachmentButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 24, weight: .regular),
+            forImageIn: .normal,
+        )
         attachmentButton.showsMenuAsPrimaryAction = true
         attachmentButton.accessibilityLabel = "Attach"
         textView.backgroundColor = .clear
-        actionButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 28), forImageIn: .normal)
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
         inputRow.addArrangedSubview(actionButton)
@@ -146,7 +148,8 @@ final class ChatComposerView: UIView {
 
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
-        cancelRecordingButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        recordingRow.spacing = 10
+        cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
         recordingLabel.textColor = .white
         recordingLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
@@ -158,8 +161,17 @@ final class ChatComposerView: UIView {
         )
         recordingSendButton.accessibilityLabel = "Send voice message"
         recordingRow.addArrangedSubview(cancelRecordingButton)
+        let leadingRecordingSpacer = UIView()
+        leadingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingRow.addArrangedSubview(leadingRecordingSpacer)
         recordingRow.addArrangedSubview(recordingLabel)
+        let trailingRecordingSpacer = UIView()
+        trailingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingRow.addArrangedSubview(trailingRecordingSpacer)
         recordingRow.addArrangedSubview(recordingSendButton)
+        cancelRecordingButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        cancelRecordingButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        leadingRecordingSpacer.widthAnchor.constraint(equalTo: trailingRecordingSpacer.widthAnchor).isActive = true
         recordingSendButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
         recordingSendButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
 
@@ -306,6 +318,13 @@ final class ChatComposerView: UIView {
             || chatVM.editCustomMessage != nil
         let symbol = chatVM.recordingVoiceNote || hasContent ? "arrow.up.circle.fill" : "mic.fill"
         actionButton.setImage(UIImage(systemName: symbol), for: .normal)
+        actionButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(
+                pointSize: chatVM.recordingVoiceNote || hasContent ? 28 : 20,
+                weight: chatVM.recordingVoiceNote || hasContent ? .regular : .medium,
+            ),
+            forImageIn: .normal,
+        )
         actionButton.accessibilityLabel = chatVM.recordingVoiceNote || hasContent ? "Send" : "Record voice message"
     }
 

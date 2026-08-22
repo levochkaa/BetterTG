@@ -77,6 +77,7 @@ final class ChatListCell: UITableViewCell {
         }
         pinView.tintColor = .white
         pinView.contentMode = .scaleAspectFit
+        pinView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
         titleLabel.textColor = .white
         titleLabel.font = .preferredFont(forTextStyle: .title3)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -99,11 +100,11 @@ final class ChatListCell: UITableViewCell {
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-            pinView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 10),
-            pinView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            pinView.widthAnchor.constraint(equalToConstant: 22),
-            pinView.heightAnchor.constraint(equalToConstant: 22),
-            avatarView.leadingAnchor.constraint(equalTo: pinView.trailingAnchor, constant: 8),
+            pinView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 8),
+            pinView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -10),
+            pinView.widthAnchor.constraint(equalToConstant: 13),
+            pinView.heightAnchor.constraint(equalToConstant: 13),
+            avatarView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 10),
             avatarView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 60),
             avatarView.heightAnchor.constraint(equalToConstant: 60),
