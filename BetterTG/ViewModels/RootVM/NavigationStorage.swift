@@ -1,16 +1,13 @@
 // NavigationStorage.swift
 
-import SwiftUI
+import UIKit
 
-@MainActor final class NavigationStorage {
-    // MARK: Lifecycle
-
+@MainActor
+final class NavigationStorage {
     private init() {
         navigationController.navigationBar.prefersLargeTitles = false
-        navigationController.navigationBar.isTranslucent = true
+        navigationController.navigationBar.isTranslucent = false
     }
-
-    // MARK: Internal
 
     static let shared = NavigationStorage()
 
@@ -20,14 +17,20 @@ import SwiftUI
         navigationController.viewControllers
     }
 
-    func setDestinationBuilder(@ViewBuilder _ builder: @escaping (Route) -> some View) {
-        destinationBuilder = { AnyView(builder($0)) }
+    @discardableResult
+    func setRoot(_ controller: UIViewController) -> UINavigationController {
+        navigationController.setViewControllers([controller], animated: false)
+        return navigationController
     }
 
     func push(_ route: Route, animated: Bool = true) {
-        guard let destinationBuilder else { return }
-        let controller = UIHostingController(rootView: destinationBuilder(route))
-        controller.view.backgroundColor = .clear
+        let controller: UIViewController
+        switch route {
+        case .customChat(let customChat):
+            controller = ChatViewController(customChat: customChat)
+        case .archive(let customFolder):
+            controller = FolderViewController(folder: customFolder, rootVM: .shared, showsStandaloneSearch: true)
+        }
         navigationController.pushViewController(controller, animated: animated)
     }
 
@@ -38,8 +41,36 @@ import SwiftUI
     func popToRoot(animated: Bool = true) {
         navigationController.popToRootViewController(animated: animated)
     }
+}
 
-    // MARK: Private
+/// Replaced by the full UIKit chat controller in the chat/messages migration slice.
+final class ChatViewController: UIViewController {
+    init(customChat: CustomChat) {
+        self.customChat = customChat
+        super.init(nibName: nil, bundle: nil)
+    }
 
-    private var destinationBuilder: ((Route) -> AnyView)?
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        title = customChat.chat.title
+
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = "Migrating chat to UIKit…"
+        label.textColor = .secondaryLabel
+        label.font = .preferredFont(forTextStyle: .body)
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+    }
+
+    private let customChat: CustomChat
 }

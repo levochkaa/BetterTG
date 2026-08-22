@@ -1,91 +1,54 @@
 // LastOrDraftMessageView.swift
 
-import SwiftUI
 import TDLibKit
+import UIKit
 
-// MARK: - LastOrDraftMessageView
-
-struct LastOrDraftMessageView: View {
-    @State var customChat: CustomChat
-    
-    var body: some View {
-        ZStack {
-            if let draftMessage = customChat.draftMessage {
-                DraftMessageView(draftMessage: draftMessage)
-            } else if let lastMessage = customChat.lastMessage {
-                HStack(spacing: 3) {
-                    if lastMessage.forwardInfo != nil {
-                        Image(systemName: "arrowshape.turn.up.right.fill")
-                    }
-                    
-                    LastMesssageView(lastMessage: lastMessage)
-                }
+enum ChatSummary {
+    static func attributedText(for chat: CustomChat) -> NSAttributedString? {
+        if let draft = chat.draftMessage {
+            let result = NSMutableAttributedString(
+                string: "Draft: ",
+                attributes: [.foregroundColor: UIColor.systemRed],
+            )
+            if draft.replyTo != nil {
+                result.append(NSAttributedString(string: "reply ", attributes: [.foregroundColor: UIColor.white]))
             }
+            if case .draftMessageContentText(let text) = draft.content {
+                let draftText = NSMutableAttributedString(getAttributedString(from: text.text))
+                draftText.addAttribute(
+                    .foregroundColor,
+                    value: UIColor.secondaryLabel,
+                    range: NSRange(location: 0, length: draftText.length),
+                )
+                result.append(draftText)
+            }
+            return result
         }
-        .foregroundStyle(.gray)
-        .lineLimit(1)
-        .allowsHitTesting(false)
+        guard let message = chat.lastMessage else { return nil }
+        let prefix = message.forwardInfo == nil ? "" : "↗︎ "
+        return NSAttributedString(string: prefix + summary(for: message), attributes: [
+            .foregroundColor: UIColor.secondaryLabel,
+        ])
     }
-}
 
-// MARK: - DraftMessageView
-
-private struct DraftMessageView: View {
-    let draftMessage: DraftMessage
-    
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            Text("Draft: ")
-                .foregroundStyle(.red)
-            
-            if draftMessage.replyTo != nil {
-                Text("reply ")
-                    .foregroundStyle(.white)
-            }
-            
-            if case .draftMessageContentText(let draftMessageContentText) = draftMessage.content {
-                Text(getAttributedString(from: draftMessageContentText.text, .gray))
-            }
-        }
-    }
-}
-
-// MARK: - LastMesssageView
-
-private struct LastMesssageView: View {
-    let lastMessage: Message
-    
-    var body: some View {
-        switch lastMessage.content {
-        case .messagePhoto(let messagePhoto):
-            HStack(alignment: .center, spacing: 3) {
-                TdImage(photo: messagePhoto.photo, size: .sBox, contentMode: .fit)
-                    .frame(width: 20, height: 20)
-                    
-                if messagePhoto.caption.text.isEmpty {
-                    Text("Photo")
-                } else {
-                    Text(getAttributedString(from: messagePhoto.caption, .gray))
-                }
-            }
-        case .messageVoiceNote(let messageVoiceNote):
-            HStack(alignment: .bottom, spacing: 0) {
-                Text("Voice")
-                    .foregroundStyle(.white)
-                    
-                if !messageVoiceNote.caption.text.isEmpty {
-                    Text(": ")
-                        .foregroundStyle(.white)
-                        
-                    Text(getAttributedString(from: messageVoiceNote.caption, .gray))
-                }
-            }
-        case .messageText(let messageText):
-            Text(getAttributedString(from: messageText.text, .gray))
+    static func summary(for message: Message) -> String {
+        switch message.content {
+        case .messagePhoto(let photo):
+            return photo.caption.text.isEmpty ? "Photo" : "Photo: \(photo.caption.text)"
+        case .messageVoiceNote(let voice):
+            return voice.caption.text.isEmpty ? "Voice" : "Voice: \(voice.caption.text)"
+        case .messageText(let text):
+            return text.text.text
+        case .messageAnimation:
+            return "Animation"
+        case .messageSticker:
+            return "Sticker"
+        case .messageVideo:
+            return "Video"
         case .messageUnsupported:
-            Text("TDLib not supported")
+            return "TDLib not supported"
         default:
-            Text("BTG not supported")
+            return "BTG not supported"
         }
     }
 }

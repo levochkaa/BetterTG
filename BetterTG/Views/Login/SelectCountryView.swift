@@ -1,78 +1,105 @@
 // SelectCountryView.swift
 
-import SwiftUI
 import TDLibKit
+import UIKit
 
-struct SelectCountryView: View {
-    @Binding var showSelectCountryView: Bool
-    @Binding var selectedCountryNum: PhoneNumberInfo
-    
-    @State var countryNums = [PhoneNumberInfo]()
-    @State var query = ""
-    
-    var filteredCountries: [PhoneNumberInfo] {
-        countryNums
-            .filter { country in
-                query.isEmpty
-                    || country.name.lowercased().contains(query.lowercased())
-                    || country.phoneNumberPrefix.lowercased().contains(query.lowercased())
-                    || country.country.lowercased().contains(query.lowercased())
-            }
+final class SelectCountryViewController: UITableViewController, UISearchResultsUpdating {
+    init(selectedCountry: PhoneNumberInfo, onSelection: @escaping (PhoneNumberInfo) -> Void) {
+        self.selectedCountry = selectedCountry
+        self.onSelection = onSelection
+        super.init(style: .insetGrouped)
     }
-    
-    var body: some View {
-        NavigationStack {
-            List(filteredCountries, id: \.self) { info in
-                Button {
-                    selectedCountryNum = info
-                    showSelectCountryView.toggle()
-                } label: {
-                    HStack {
-                        Text(info.name)
-                        Spacer()
-                        Text("+\(info.phoneNumberPrefix)")
-                    }
-                    .foregroundStyle(.white)
-                }
-            }
-            .background(.black)
-            .padding(.top, -20)
-            .navigationTitle("Country")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        showSelectCountryView.toggle()
-                    }
-                }
-            }
-        }
-        .task { await loadCountries() }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
-    
-    func loadCountries() async {
-        guard let countries = try? await td.getCountries().countries,
-              let countryCode = try? await td.getCountryCode().text,
-              let country = countries.first(where: { $0.countryCode == countryCode })
-        else { return }
-        
-        let selectedCountryNum = PhoneNumberInfo(
-            country: country.countryCode,
-            phoneNumberPrefix: country.callingCodes[0],
-            name: country.englishName,
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Country"
+        tableView.backgroundColor = .black
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CountryCell")
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: self,
+            action: #selector(cancel),
         )
-        let countryNums = countries
-            .map {
-                PhoneNumberInfo(
-                    country: $0.countryCode,
-                    phoneNumberPrefix: $0.callingCodes[0],
-                    name: $0.englishName,
+
+        let searchController = UISearchController(searchResultsController: nil)
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.searchResultsUpdater = self
+        navigationItem.searchController = searchController
+        navigationItem.hidesSearchBarWhenScrolling = false
+        definesPresentationContext = true
+        loadCountries()
+    }
+
+    override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
+        filteredCountries.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let country = filteredCountries[indexPath.row]
+        let cell = tableView.dequeueReusableCell(withIdentifier: "CountryCell", for: indexPath)
+        var configuration = cell.defaultContentConfiguration()
+        configuration.text = country.name
+        configuration.secondaryText = "+\(country.phoneNumberPrefix)"
+        configuration.textProperties.color = .white
+        configuration.secondaryTextProperties.color = .secondaryLabel
+        cell.contentConfiguration = configuration
+        cell.accessoryType = country == selectedCountry ? .checkmark : .none
+        cell.backgroundColor = .secondarySystemBackground
+        return cell
+    }
+
+    override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
+        onSelection(filteredCountries[indexPath.row])
+        dismiss(animated: true)
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        query = searchController.searchBar.text ?? ""
+        filterCountries()
+    }
+
+    private let selectedCountry: PhoneNumberInfo
+    private let onSelection: (PhoneNumberInfo) -> Void
+    private var countries = [PhoneNumberInfo]()
+    private var filteredCountries = [PhoneNumberInfo]()
+    private var query = ""
+
+    @objc private func cancel() {
+        dismiss(animated: true)
+    }
+
+    private func loadCountries() {
+        Task { [weak self] in
+            guard let self, let result = try? await td.getCountries().countries else { return }
+            let mapped = result.compactMap { country -> PhoneNumberInfo? in
+                guard let callingCode = country.callingCodes.first else { return nil }
+                return PhoneNumberInfo(
+                    country: country.countryCode,
+                    phoneNumberPrefix: callingCode,
+                    name: country.englishName,
                 )
             }
-            .sorted { $0.name < $1.name }
-        
-        self.selectedCountryNum = selectedCountryNum
-        self.countryNums = countryNums
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            await MainActor.run {
+                self.countries = mapped
+                self.filterCountries()
+            }
+        }
+    }
+
+    private func filterCountries() {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        filteredCountries = countries.filter {
+            normalizedQuery.isEmpty
+                || $0.name.localizedCaseInsensitiveContains(normalizedQuery)
+                || $0.phoneNumberPrefix.localizedCaseInsensitiveContains(normalizedQuery)
+                || $0.country.localizedCaseInsensitiveContains(normalizedQuery)
+        }
+        tableView.reloadData()
     }
 }

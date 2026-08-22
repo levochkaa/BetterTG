@@ -1,281 +1,238 @@
 // MainView.swift
 
-import SwiftUI
-import TDLibKit
+import Combine
+import UIKit
 
-// MARK: - MainView
-
-struct MainView: View {
-    // MARK: Internal
-
-    var body: some View {
-        NavigationControllerWrapper(navigationController: navigationStorage.navigationController) {
-            MainNavigationRootView()
-                .ignoresSafeArea()
-        }
-        .ignoresSafeArea()
+final class MainViewController: UIViewController, UISearchResultsUpdating, UIPageViewControllerDataSource,
+    UIPageViewControllerDelegate
+{
+    init(rootVM: RootVM) {
+        self.rootVM = rootVM
+        super.init(nibName: nil, bundle: nil)
     }
 
-    // MARK: Private
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-    private let navigationStorage = NavigationStorage.shared
-}
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        title = "BetterTG"
+        configureNavigation()
+        configurePageController()
+        configureFolderSelector()
 
-// MARK: - MainNavigationRootView
-
-private struct MainNavigationRootView: View {
-    // MARK: Internal
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                ForEach(rootVM.folders) { folder in
-                    FolderView(
-                        folder: folder,
-                        navigationBarHeight: UIApplication.safeAreaInsets.top + navigationBarHeight,
-                        bottomBarHeight: UIApplication.safeAreaInsets.bottom + 40,
-                    )
-                    .frame(width: Utils.screen.bounds.width)
-                    .id(folder.id)
-                }
+        rootVM.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                DispatchQueue.main.async { self?.reloadFromState() }
             }
-            .scrollTargetLayout()
-            .readOffset(in: .scrollView(axis: .horizontal)) { progress = -$0.minX / Utils.screen.bounds.width }
-        }
-        .scrollPosition(id: $rootVM.currentFolder)
-        .scrollTargetBehavior(.paging)
-        .scrollIndicators(.hidden)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationTitle("BetterTG")
-        .navigationBarHeight($navigationBarHeight.animation())
-        .searchable(
-            text: $rootVM.query,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Search chats...",
+            .store(in: &cancellables)
+        reloadFromState()
+    }
+
+    private let rootVM: RootVM
+    private let pageController = UIPageViewController(
+        transitionStyle: .scroll,
+        navigationOrientation: .horizontal,
+    )
+    private let folderSelector = FolderSelectorView()
+    private var folderControllers = [FolderViewController]()
+    private var cancellables = Set<AnyCancellable>()
+
+    private func configureNavigation() {
+        let searchController = UISearchController(searchResultsController: nil)
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.searchResultsUpdater = self
+        searchController.searchBar.placeholder = "Search chats…"
+        navigationItem.searchController = searchController
+        navigationItem.hidesSearchBarWhenScrolling = false
+        definesPresentationContext = true
+
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "archivebox"),
+            style: .plain,
+            target: self,
+            action: #selector(openArchive),
         )
-        .confirmationDialog(
-            "Are you sure you want to delete chat with \(rootVM.confirmChatDelete.chat?.title ?? "User")?",
-            isPresented: $rootVM.confirmChatDelete.show,
-        ) {
-            Button("Delete", role: .destructive) {
-                guard let id = rootVM.confirmChatDelete.chat?.id else { return }
-                Task.background { [rootVM] in
-                    try await td.deleteChatHistory(
-                        chatId: id, removeFromChatList: true, revoke: rootVM.confirmChatDelete.forAll,
-                    )
-                }
-            }
-        }
-        .toolbar {
-            if let archive = rootVM.archive {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(systemImage: "archivebox") {
-                        navigationStorage.push(.archive(archive))
-                    }
-                }
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if !rootVM.folders.isEmpty {
-                bottomBarView
-            }
-        }
-        .onAppear {
-            navigationStorage.setDestinationBuilder { route in
-                switch route {
-                case .customChat(let customChat):
-                    ChatView(customChat: customChat)
-                case .archive(let customFolder):
-                    FolderView(folder: customFolder)
-                        .navigationTitle(customFolder.name)
-                        .navigationBarTitleDisplayMode(.inline)
-                        .searchable(
-                            text: $rootVM.query,
-                            placement: .navigationBarDrawer(displayMode: .always),
-                            prompt: "Search archive...",
-                        )
-                }
-            }
-        }
-    }
-    
-    var bottomBarView: some View {
-        ScrollView(.horizontal) {
-            CustomTabBar(
-                folders: rootVM.folders,
-                activeTab: $rootVM.currentFolder,
-                tabItemView: { index, folder, control in
-                    Button(folder.name) {
-                        withAnimation(.snappy) {
-                            if rootVM.currentFolder == folder.id {
-                                rootVM.scrollToTop(folderID: folder.id)
-                            } else {
-                                rootVM.currentFolder = folder.id
-                            }
-                        }
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal)
-                    .readSize { control.setWidth($0.width, forSegmentAt: index) }
-                },
-            )
-            .glassEffect()
-        }
-        .scrollIndicators(.hidden)
-        .scrollPosition($rootVM.scrollPosition, anchor: .center)
-        .frame(height: 40)
-        .padding(.bottom, UIApplication.safeAreaInsets.bottom)
-        .background {
-            LinearGradient(colors: [.black, .clear], startPoint: .bottom, endPoint: .top)
-                .frame(height: 40 + UIApplication.safeAreaInsets.bottom)
-        }
-        .safeAreaPadding(.horizontal)
-    }
-
-    // MARK: Private
-
-    @Bindable private var rootVM = RootVM.shared
-    @State private var progress = CGFloat.zero
-
-    @State private var navigationBarHeight = CGFloat.zero
-
-    private let navigationStorage = NavigationStorage.shared
-}
-
-// MARK: - SegmentedControl
-
-final class SegmentedControl: UISegmentedControl {
-    override func gestureRecognizerShouldBegin(_: UIGestureRecognizer) -> Bool {
-        true
-    }
-}
-
-// MARK: - CustomTabBar
-
-struct CustomTabBar<TabItemView: View>: UIViewRepresentable {
-    final class Coordinator: NSObject {
-        // MARK: Lifecycle
-
-        init(parent: CustomTabBar) {
-            self.parent = parent
-        }
-        
-        // MARK: Internal
-
-        var parent: CustomTabBar
-        var view: SegmentedControl!
-        
-        @objc func tabSelected(_ control: UISegmentedControl) {
-            guard control.selectedSegmentIndex >= 0,
-                  control.selectedSegmentIndex < parent.folders.count else { return }
-            withAnimation {
-                let selectedIndex = control.selectedSegmentIndex
-                parent.activeTab = parent.folders[selectedIndex].id
-                scrollToSelectedSegment(control, selectedIndex: selectedIndex)
-            }
-        }
-        
-        func scrollToSelectedSegment(_ control: UISegmentedControl, selectedIndex: Int) {
-            guard selectedIndex >= 0, selectedIndex < control.numberOfSegments else { return }
-            let leadingWidth = (0..<selectedIndex).reduce(CGFloat.zero) { result, index in
-                result + control.widthForSegment(at: index)
-            }
-            let selectedWidth = control.widthForSegment(at: selectedIndex)
-            let selectedCenter = leadingWidth + selectedWidth / 2
-            let metrics = scrollMetrics(for: control)
-            let visibleWidth = metrics?.visibleWidth ?? control.bounds.width
-            let contentWidth = metrics?.contentWidth ?? control.bounds.width
-            let maxOffset = max(0, contentWidth - visibleWidth)
-            let targetX = min(max(selectedCenter - visibleWidth / 2, 0), maxOffset)
-            
-            if selectedIndex == control.numberOfSegments - 1 {
-                RootVM.shared.scrollPosition.scrollTo(edge: .trailing)
-            } else {
-                RootVM.shared.scrollPosition.scrollTo(x: targetX)
-            }
-        }
-        
-        // MARK: Private
-
-        private func scrollMetrics(for view: UIView) -> (visibleWidth: CGFloat, contentWidth: CGFloat)? {
-            var currentSuperview = view.superview
-            while let superview = currentSuperview {
-                if let scrollView = superview as? UIScrollView {
-                    let visibleWidth = scrollView.bounds.width
-                    let contentWidth = scrollView.contentSize.width > 0 ? scrollView.contentSize.width : visibleWidth
-                    return (visibleWidth, contentWidth)
-                }
-                currentSuperview = superview.superview
-            }
-            return nil
-        }
-    }
-
-    let folders: [CustomFolder]
-    @Binding var activeTab: Int?
-
-    @ViewBuilder var tabItemView: (Int, CustomFolder, SegmentedControl) -> TabItemView
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-    
-    func makeUIView(context: Context) -> UISegmentedControl {
-        let control = SegmentedControl(items: folders.map {
-            UIAction(title: $0.name, handler: { _ in })
-        })
-        context.coordinator.view = control
-        for (index, folder) in folders.enumerated() {
-            let renderer = ImageRenderer(content: tabItemView(index, folder, control))
-            renderer.scale = Utils.screen.scale
-            control.setImage(renderer.uiImage, forSegmentAt: index)
-        }
-        Task.main {
-            for subview in control.subviews {
-                if subview is UIImageView, subview != control.subviews.last {
-                    // It's a background Image View!
-                    subview.alpha = 0
-                }
-            }
-            
-            log(control.subviews)
-        }
-        control.selectedSegmentIndex = 0
-        control.apportionsSegmentWidthsByContent = true
-        control.setTitleTextAttributes([
-            .foregroundColor: UIColor(.white),
-            .font: UIFont.systemFont(ofSize: 17),
-        ], for: .selected)
-        control.setTitleTextAttributes([
-            .foregroundColor: UIColor(.white),
-            .font: UIFont.systemFont(ofSize: 17),
-        ], for: .normal)
-        control.addTarget(
-            context.coordinator,
-            action: #selector(context.coordinator.tabSelected(_:)),
-            for: .valueChanged,
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "gearshape"),
+            style: .plain,
+            target: self,
+            action: #selector(openSettings),
         )
-        return control
     }
-    
-    func updateUIView(_ control: UISegmentedControl, context: Context) {
-        guard !folders.isEmpty, control.numberOfSegments > 0 else { return }
-        let maxIndex = control.numberOfSegments - 1
-        let selectedIndex = min(folders.firstIndex(where: { $0.id == activeTab }) ?? 0, maxIndex)
-        if control.selectedSegmentIndex != selectedIndex {
-            control.selectedSegmentIndex = selectedIndex
-            withAnimation {
-                context.coordinator.scrollToSelectedSegment(control, selectedIndex: selectedIndex)
-            }
-        }
+
+    private func configurePageController() {
+        pageController.dataSource = self
+        pageController.delegate = self
+        addChild(pageController)
+        pageController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(pageController.view)
+        pageController.didMove(toParent: self)
     }
-    
-    func sizeThatFits(_: ProposedViewSize, uiView control: UISegmentedControl, context _: Context) -> CGSize? {
-        var width: CGFloat = 0
-        for index in folders.indices {
-            width += control.widthForSegment(at: index)
+
+    private func configureFolderSelector() {
+        folderSelector.translatesAutoresizingMaskIntoConstraints = false
+        folderSelector.onSelection = { [weak self] id in self?.selectFolder(id: id, animated: true) }
+        folderSelector.onReselection = { [weak self] id in
+            self?.folderControllers.first(where: { $0.folder.id == id })?.scrollToTop()
         }
-        return CGSize(width: width, height: 40)
+        view.addSubview(folderSelector)
+        NSLayoutConstraint.activate([
+            folderSelector.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            folderSelector.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            folderSelector.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            folderSelector.heightAnchor.constraint(equalToConstant: 48),
+            pageController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            pageController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pageController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pageController.view.bottomAnchor.constraint(equalTo: folderSelector.topAnchor),
+        ])
+    }
+
+    private func reloadFromState() {
+        let currentIDs = folderControllers.map(\.folder.id)
+        let newIDs = rootVM.folders.map(\.id)
+        navigationItem.leftBarButtonItem?.isHidden = rootVM.archive == nil
+
+        guard currentIDs != newIDs else {
+            folderControllers.forEach { $0.updateQuery(rootVM.query) }
+            return
+        }
+
+        folderControllers = rootVM.folders.map {
+            FolderViewController(folder: $0, rootVM: rootVM, showsStandaloneSearch: false)
+        }
+        folderSelector.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
+        guard let selected = rootVM.currentFolder ?? rootVM.folders.first?.id else { return }
+        selectFolder(id: selected, animated: false)
+    }
+
+    private func selectFolder(id: Int, animated: Bool) {
+        guard let targetIndex = folderControllers.firstIndex(where: { $0.folder.id == id }) else { return }
+        let previousIndex = folderControllers.firstIndex(where: { $0.folder.id == rootVM.currentFolder }) ?? targetIndex
+        let direction: UIPageViewController.NavigationDirection = targetIndex >= previousIndex ? .forward : .reverse
+        rootVM.currentFolder = id
+        folderSelector.select(id: id)
+        pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        rootVM.query = searchController.searchBar.text ?? ""
+        folderControllers.forEach { $0.updateQuery(rootVM.query) }
+    }
+
+    func pageViewController(
+        _: UIPageViewController,
+        viewControllerBefore viewController: UIViewController,
+    ) -> UIViewController? {
+        guard let index = folderControllers.firstIndex(where: { $0 === viewController }), index > 0 else { return nil }
+        return folderControllers[index - 1]
+    }
+
+    func pageViewController(
+        _: UIPageViewController,
+        viewControllerAfter viewController: UIViewController,
+    ) -> UIViewController? {
+        guard let index = folderControllers.firstIndex(where: { $0 === viewController }),
+              index + 1 < folderControllers.count else { return nil }
+        return folderControllers[index + 1]
+    }
+
+    func pageViewController(
+        _: UIPageViewController,
+        didFinishAnimating _: Bool,
+        previousViewControllers _: [UIViewController],
+        transitionCompleted completed: Bool,
+    ) {
+        guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else { return }
+        rootVM.currentFolder = folder.id
+        folderSelector.select(id: folder.id)
+    }
+
+    @objc private func openArchive() {
+        guard let archive = rootVM.archive else { return }
+        NavigationStorage.shared.push(.archive(archive))
+    }
+
+    @objc private func openSettings() {
+        present(UINavigationController(rootViewController: SettingsViewController()), animated: true)
+    }
+}
+
+final class FolderSelectorView: UIView {
+    var onSelection: ((Int) -> Void)?
+    var onReselection: ((Int) -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor.black.withAlphaComponent(0.9)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .horizontal
+        stackView.alignment = .fill
+        stackView.spacing = 8
+        scrollView.showsHorizontalScrollIndicator = false
+        addSubview(scrollView)
+        scrollView.addSubview(stackView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 4),
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 12),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -12),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -4),
+            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -8),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private let scrollView = UIScrollView()
+    private let stackView = UIStackView()
+    private var selectedID: Int?
+    private var buttons = [Int: UIButton]()
+
+    func configure(folders: [CustomFolder], selectedID: Int?) {
+        stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        buttons.removeAll()
+        for folder in folders {
+            var configuration = UIButton.Configuration.gray()
+            configuration.title = folder.name
+            configuration.cornerStyle = .capsule
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+            let button = UIButton(configuration: configuration)
+            button.tag = folder.id
+            button.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
+            stackView.addArrangedSubview(button)
+            buttons[folder.id] = button
+        }
+        select(id: selectedID ?? folders.first?.id)
+    }
+
+    func select(id: Int?) {
+        selectedID = id
+        for (buttonID, button) in buttons {
+            button.configuration?.baseBackgroundColor = buttonID == id ? .systemBlue : .secondarySystemBackground
+            button.configuration?.baseForegroundColor = .white
+        }
+        guard let id, let button = buttons[id] else { return }
+        scrollView.scrollRectToVisible(button.frame.insetBy(dx: -24, dy: 0), animated: true)
+    }
+
+    @objc private func buttonTapped(_ sender: UIButton) {
+        if selectedID == sender.tag {
+            onReselection?(sender.tag)
+        } else {
+            onSelection?(sender.tag)
+        }
     }
 }

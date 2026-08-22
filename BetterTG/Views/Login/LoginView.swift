@@ -1,172 +1,200 @@
 // LoginView.swift
 
 import Combine
-import SwiftUI
 import TDLibKit
+import UIKit
 
-struct LoginView: View {
-    // MARK: Internal
-
-    @State var loginState = LoginState.phoneNumber
-    
-    @State var showSelectCountryView = false
-    @State var selectedCountryNum = PhoneNumberInfo(country: "RU", phoneNumberPrefix: "7", name: "Russian Federation")
-    
-    @State var phoneNumber = ""
-    @State var code = ""
-    @State var hint = ""
-    @State var twoFactor = ""
-    
-    @State var errorShown = false
-    @State var waitPremiumErrorShown = false
-    @FocusState var focused: LoginState?
-    
-    var body: some View {
-        ZStack {
-            Group {
-                switch loginState {
-                case .phoneNumber:
-                    loginStateView {
-                        GroupBox {
-                            HStack {
-                                Text("+\(selectedCountryNum.phoneNumberPrefix)")
-                                    
-                                TextField("Phone Number", text: $phoneNumber)
-                                    .focused($focused, equals: .phoneNumber)
-                                    .keyboardType(.numberPad)
-                            }
-                        } label: {
-                            Button(selectedCountryNum.name) {
-                                showSelectCountryView.toggle()
-                            }
-                        }
-                    }
-                    .sheet(isPresented: $showSelectCountryView) {
-                        SelectCountryView(
-                            showSelectCountryView: $showSelectCountryView,
-                            selectedCountryNum: $selectedCountryNum,
-                        )
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.hidden)
-                    }
-                case .code:
-                    loginStateView {
-                        TextField("Code", text: $code)
-                            .focused($focused, equals: .code)
-                            .keyboardType(.numberPad)
-                            .padding()
-                            .background(Color.gray6)
-                            .clipShape(.rect(cornerRadius: 10))
-                    }
-                case .twoFactor:
-                    loginStateView {
-                        SecureField(hint.isEmpty ? "2FA" : hint, text: $twoFactor)
-                            .focused($focused, equals: .twoFactor)
-                            .textContentType(.password)
-                            .keyboardType(.alphabet)
-                            .padding()
-                            .background(Color.gray6)
-                            .clipShape(.rect(cornerRadius: 10))
-                    }
-                }
-            }
-            .transition(
-                .asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading),
-                )
-                .combined(with: .opacity),
-            )
-        }
-        .animation(.default, value: loginState)
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                withAnimation {
-                    guard let focused else { return }
-                    self.focused =
-                        switch focused {
-                        case .phoneNumber: .code
-                        case .code: .twoFactor
-                        case .twoFactor: nil
-                        }
-                }
-                Task.background {
-                    switch try? await td.getAuthorizationState() {
-                    case .authorizationStateWaitPassword:
-                        _ = try? await td.checkAuthenticationPassword(password: twoFactor)
-                    case .authorizationStateWaitCode:
-                        _ = try? await td.checkAuthenticationCode(code: code)
-                    case .authorizationStateWaitPhoneNumber:
-                        _ = try? await td.setAuthenticationPhoneNumber(
-                            phoneNumber: "\(selectedCountryNum.phoneNumberPrefix)\(phoneNumber)",
-                            settings: nil,
-                        )
-                    default:
-                        break
-                    }
-                }
-            } label: {
-                Text("Continue")
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding()
-        }
-        .alert("Error", isPresented: $errorShown) {
-            Text("There was an error with Authorization State. Please, restart the app.")
-        }
-        .alert("Error", isPresented: $waitPremiumErrorShown) {
-            Text("In order to login, you need to upgrade to Telegram Premium. Please, do it in the Telegram app.")
-        }
-        .task {
-            switch try? await td.getAuthorizationState() {
-            case .authorizationStateWaitPassword: loginState = .twoFactor
-            case .authorizationStateWaitCode: loginState = .code
-            case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
-                errorShown = true
-            case .authorizationStateWaitPremiumPurchase:
-                waitPremiumErrorShown = true
-            default: break
-            }
-        }
-        .onAppear(perform: setPublishers)
-    }
-    
-    func loginStateView(_ content: () -> some View) -> some View {
-        VStack(spacing: 10) {
-            Spacer()
-            Text(loginState.title)
-                .font(.system(.largeTitle, weight: .bold))
-            Spacer()
-            content()
-            Spacer()
-        }
-        .padding()
+final class LoginViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        configureViews()
+        configureConstraints()
+        configurePublishers()
+        refreshAuthorizationState()
     }
 
-    // MARK: Private
+    private var loginState = LoginState.phoneNumber
+    private var selectedCountry = PhoneNumberInfo(country: "RU", phoneNumberPrefix: "7", name: "Russian Federation")
+    private var cancellables = Set<AnyCancellable>()
 
-    @State private var cancellables = Set<AnyCancellable>()
-    
-    private func setPublishers() {
-        nc.publisher(&cancellables, for: .authorizationStateWaitPassword) { notification in
-            guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
-            Task.main {
-                loginState = .twoFactor
-                withAnimation { hint = waitPassword.passwordHint }
+    private let contentStack = UIStackView()
+    private let titleLabel = UILabel()
+    private let countryButton = UIButton(type: .system)
+    private let prefixLabel = UILabel()
+    private let inputField = UITextField()
+    private let continueButton = UIButton(type: .system)
+
+    private func configureViews() {
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .vertical
+        contentStack.spacing = 16
+        contentStack.alignment = .fill
+        view.addSubview(contentStack)
+
+        titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textAlignment = .center
+        titleLabel.textColor = .white
+
+        var countryConfiguration = UIButton.Configuration.plain()
+        countryConfiguration.titleAlignment = .leading
+        countryConfiguration.image = UIImage(systemName: "chevron.down")
+        countryConfiguration.imagePlacement = .trailing
+        countryConfiguration.imagePadding = 8
+        countryButton.configuration = countryConfiguration
+        countryButton.contentHorizontalAlignment = .fill
+        countryButton.addTarget(self, action: #selector(selectCountry), for: .touchUpInside)
+
+        prefixLabel.textColor = .white
+        prefixLabel.font = .preferredFont(forTextStyle: .body)
+
+        inputField.backgroundColor = .secondarySystemBackground
+        inputField.textColor = .white
+        inputField.tintColor = .systemBlue
+        inputField.layer.cornerRadius = 10
+        inputField.clearButtonMode = .whileEditing
+        inputField.font = .preferredFont(forTextStyle: .body)
+        inputField.adjustsFontForContentSizeCategory = true
+        inputField.heightAnchor.constraint(greaterThanOrEqualToConstant: 50).isActive = true
+        inputField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let inputRow = UIStackView(arrangedSubviews: [prefixLabel, inputField])
+        inputRow.axis = .horizontal
+        inputRow.alignment = .center
+        inputRow.spacing = 8
+        inputRow.backgroundColor = .secondarySystemBackground
+        inputRow.layer.cornerRadius = 10
+        inputRow.layoutMargins = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 8)
+        inputRow.isLayoutMarginsRelativeArrangement = true
+
+        var continueConfiguration = UIButton.Configuration.filled()
+        continueConfiguration.title = "Continue"
+        continueConfiguration.cornerStyle = .medium
+        continueButton.configuration = continueConfiguration
+        continueButton.addTarget(self, action: #selector(continueLogin), for: .touchUpInside)
+        continueButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+
+        contentStack.addArrangedSubview(titleLabel)
+        contentStack.addArrangedSubview(countryButton)
+        contentStack.addArrangedSubview(inputRow)
+        contentStack.addArrangedSubview(continueButton)
+        render()
+    }
+
+    private func configureConstraints() {
+        NSLayoutConstraint.activate([
+            contentStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            contentStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            contentStack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+        ])
+    }
+
+    private func configurePublishers() {
+        nc.publisher(for: .authorizationStateWaitPassword)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
+                self?.loginState = .twoFactor
+                self?.inputField.placeholder = waitPassword.passwordHint.isEmpty ? "2FA" : waitPassword.passwordHint
+                self?.render()
             }
-        }
-        nc.publisher(&cancellables, for: .authorizationStateWaitCode) { _ in
-            Task.main { loginState = .code }
-        }
-        nc.mergeMany(&cancellables, [
+            .store(in: &cancellables)
+
+        nc.publisher(for: .authorizationStateWaitCode)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.setState(.code) }
+            .store(in: &cancellables)
+
+        nc.mergeMany([
             .authorizationStateWaitPhoneNumber,
             .authorizationStateClosed,
             .authorizationStateClosing,
             .authorizationStateLoggingOut,
-        ]) { _ in
-            Task.main { loginState = .phoneNumber }
+        ])
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in self?.setState(.phoneNumber) }
+        .store(in: &cancellables)
+    }
+
+    private func refreshAuthorizationState() {
+        Task { [weak self] in
+            let state = try? await td.getAuthorizationState()
+            await MainActor.run {
+                guard let self else { return }
+                switch state {
+                case .authorizationStateWaitPassword:
+                    self.setState(.twoFactor)
+                case .authorizationStateWaitCode:
+                    self.setState(.code)
+                case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
+                    self.showError("There was an error with Authorization State. Please restart the app.")
+                case .authorizationStateWaitPremiumPurchase:
+                    self.showError("Login requires Telegram Premium. Please upgrade in the Telegram app.")
+                default:
+                    break
+                }
+            }
         }
+    }
+
+    private func setState(_ state: LoginState) {
+        loginState = state
+        inputField.text = nil
+        render()
+        inputField.becomeFirstResponder()
+    }
+
+    private func render() {
+        titleLabel.text = loginState.title
+        countryButton.isHidden = loginState != .phoneNumber
+        countryButton.configuration?.title = selectedCountry.name
+        prefixLabel.isHidden = loginState != .phoneNumber
+        prefixLabel.text = "+\(selectedCountry.phoneNumberPrefix)"
+        inputField.isSecureTextEntry = loginState == .twoFactor
+        inputField.keyboardType = loginState == .twoFactor ? .default : .numberPad
+        inputField.textContentType = loginState == .twoFactor ? .password : .oneTimeCode
+        inputField.placeholder = switch loginState {
+        case .phoneNumber: "Phone Number"
+        case .code: "Code"
+        case .twoFactor: inputField.placeholder ?? "2FA"
+        }
+    }
+
+    @objc private func selectCountry() {
+        let countries = SelectCountryViewController(selectedCountry: selectedCountry) { [weak self] country in
+            self?.selectedCountry = country
+            self?.render()
+        }
+        present(UINavigationController(rootViewController: countries), animated: true)
+    }
+
+    @objc private func continueLogin() {
+        let value = inputField.text ?? ""
+        continueButton.isEnabled = false
+        Task { [weak self] in
+            guard let self else { return }
+            let state = try? await td.getAuthorizationState()
+            switch state {
+            case .authorizationStateWaitPassword:
+                _ = try? await td.checkAuthenticationPassword(password: value)
+            case .authorizationStateWaitCode:
+                _ = try? await td.checkAuthenticationCode(code: value)
+            case .authorizationStateWaitPhoneNumber:
+                _ = try? await td.setAuthenticationPhoneNumber(
+                    phoneNumber: "\(selectedCountry.phoneNumberPrefix)\(value)",
+                    settings: nil,
+                )
+            default:
+                break
+            }
+            await MainActor.run { self.continueButton.isEnabled = true }
+        }
+    }
+
+    private func showError(_ message: String) {
+        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 }

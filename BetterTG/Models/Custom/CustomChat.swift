@@ -1,11 +1,12 @@
 // CustomChat.swift
 
+import Combine
 import SwiftUI
 import TDLibKit
 
 // MARK: - CustomChat
 
-@Observable final class CustomChat {
+@Observable final class CustomChat: ObservableObject {
     // MARK: Lifecycle
 
     init(
@@ -33,11 +34,21 @@ import TDLibKit
         case bot(UserTypeBot)
     }
 
+    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
+
     var chat: Chat
-    var position: ChatPosition
-    var unreadCount: Int
-    var lastMessage: Message?
-    var draftMessage: DraftMessage?
+    var position: ChatPosition {
+        didSet { objectWillChange.send() }
+    }
+    var unreadCount: Int {
+        didSet { objectWillChange.send() }
+    }
+    var lastMessage: Message? {
+        didSet { objectWillChange.send() }
+    }
+    var draftMessage: DraftMessage? {
+        didSet { objectWillChange.send() }
+    }
     var type: CustomChatType
     
     var bot: UserTypeBot? {

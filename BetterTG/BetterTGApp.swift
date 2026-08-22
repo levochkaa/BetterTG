@@ -1,59 +1,57 @@
 // BetterTGApp.swift
 
 import AVKit
-import SwiftUI
-import TDLibKit
+import UIKit
 
-// MARK: - BetterTGApp
-
-@main struct BetterTGApp: App {
-    // MARK: Lifecycle
-
-    init() {
+@main
+final class AppDelegate: UIResponder, UIApplicationDelegate {
+    func application(
+        _: UIApplication,
+        didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
+    ) -> Bool {
         TDLib.shared.startTdLibUpdateHandler()
-
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-//        UINavigationBar.appearance().compactAppearance = appearance
-//        UINavigationBar.appearance().standardAppearance = appearance
-//        UINavigationBar.appearance().compactScrollEdgeAppearance = appearance
+        configureAppearance()
+        return true
     }
 
-    // MARK: Internal
-
-    @UIApplicationDelegateAdaptor var delegate: AppDelegate
-
-    var body: some Scene {
-        WindowGroup {
-            RootView()
-        }
-    }
-}
-
-// MARK: - AppDelegate
-
-final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,
         options _: UIScene.ConnectionOptions,
     ) -> UISceneConfiguration {
-        let sceneConfig = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
-        sceneConfig.delegateClass = SceneDelegate.self
-        return sceneConfig
+        let configuration = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = SceneDelegate.self
+        return configuration
+    }
+
+    private func configureAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .black
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+        UINavigationBar.appearance().tintColor = .systemBlue
     }
 }
 
-// MARK: - SceneDelegate
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
 
-final class SceneDelegate: NSObject, UIWindowSceneDelegate {
     func scene(
         _ scene: UIScene,
         willConnectTo _: UISceneSession,
         options _: UIScene.ConnectionOptions,
     ) {
-        guard let scene = scene as? UIWindowScene else { return }
-        Utils.screen = scene.screen
+        guard let windowScene = scene as? UIWindowScene else { return }
+        Utils.screen = windowScene.screen
+
+        let window = UIWindow(windowScene: windowScene)
+        window.overrideUserInterfaceStyle = .dark
+        window.rootViewController = RootViewController(rootVM: .shared)
+        window.makeKeyAndVisible()
+        self.window = window
     }
 }

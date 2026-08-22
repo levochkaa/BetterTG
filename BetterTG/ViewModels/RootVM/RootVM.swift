@@ -13,7 +13,7 @@ enum Route: Hashable {
 
 // MARK: - RootVM
 
-@Observable final class RootVM {
+@Observable final class RootVM: ObservableObject {
     // MARK: Lifecycle
 
     init() {
@@ -23,14 +23,25 @@ enum Route: Hashable {
     // MARK: Internal
 
     @ObservationIgnored static let shared = RootVM()
+    @ObservationIgnored let objectWillChange = ObservableObjectPublisher()
     
     var path = [Route]()
-    var confirmChatDelete = ConfirmChatDelete(chat: nil, show: false, forAll: false)
-    var folders = [CustomFolder]()
-    var archive: CustomFolder?
-    var currentFolder: Int?
+    var confirmChatDelete = ConfirmChatDelete(chat: nil, show: false, forAll: false) {
+        didSet { objectWillChange.send() }
+    }
+    var folders = [CustomFolder]() {
+        didSet { objectWillChange.send() }
+    }
+    var archive: CustomFolder? {
+        didSet { objectWillChange.send() }
+    }
+    var currentFolder: Int? {
+        didSet { objectWillChange.send() }
+    }
     var scrollPosition = ScrollPosition(x: 0)
-    var query = ""
+    var query = "" {
+        didSet { objectWillChange.send() }
+    }
     @ObservationIgnored var cancellables = Set<AnyCancellable>()
     
     var loggedIn: Bool {
@@ -42,6 +53,7 @@ enum Route: Hashable {
             withMutation(keyPath: \.loggedIn) {
                 UserDefaults.standard.set(newValue, forKey: "loggedIn")
             }
+            objectWillChange.send()
         }
     }
     
@@ -56,6 +68,10 @@ enum Route: Hashable {
     func scrollToTop(folderID: Int) {
         guard let scrollViewProxy = folders.first(where: { $0.id == folderID })?.scrollViewProxy else { return }
         scrollViewProxy.scrollTo("top", anchor: .top)
+    }
+
+    func notifyChange() {
+        objectWillChange.send()
     }
     
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {
