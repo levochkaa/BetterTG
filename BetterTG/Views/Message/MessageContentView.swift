@@ -55,15 +55,29 @@ final class MessageMediaView: UIView {
                 ) { onTap([message.message], message.id) }
                 view = fileView
             case .messageSticker(let sticker):
-                let fileView = FileMediaPreviewView()
-                fileView.configure(
-                    file: sticker.sticker.sticker,
-                    thumbnail: sticker.sticker.thumbnail,
-                    minithumbnail: nil,
-                    size: CGSize(width: sticker.sticker.width, height: sticker.sticker.height),
-                    showsPlayIcon: sticker.sticker.format != .stickerFormatWebp,
-                ) { onTap([message.message], message.id) }
-                view = fileView
+                if sticker.sticker.format == .stickerFormatTgs {
+                    let stickerView = TGSStickerView()
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: sticker.sticker.width,
+                            height: sticker.sticker.height,
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = stickerView
+                } else {
+                    let fileView = FileMediaPreviewView()
+                    fileView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        minithumbnail: nil,
+                        size: CGSize(width: sticker.sticker.width, height: sticker.sticker.height),
+                        showsPlayIcon: sticker.sticker.format != .stickerFormatWebp,
+                    ) { onTap([message.message], message.id) }
+                    view = fileView
+                }
             case .messageVideo(let video):
                 let fileView = FileMediaPreviewView()
                 fileView.configure(
@@ -88,6 +102,7 @@ final class MessageMediaView: UIView {
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        (view as? ReusableMediaView)?.setPlaybackVisible(window != nil)
         return true
     }
 
@@ -96,13 +111,28 @@ final class MessageMediaView: UIView {
         contentView?.removeFromSuperview()
         contentView = nil
     }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        (contentView as? ReusableMediaView)?.setPlaybackVisible(isVisible)
+    }
+
+    // MARK: Private
+
+    private var contentView: UIView?
 }
 
 // MARK: - ReusableMediaView
 
 protocol ReusableMediaView where Self: UIView {
     func prepareForReuse()
+    func setPlaybackVisible(_ isVisible: Bool)
 }
+
+extension ReusableMediaView {
+    func setPlaybackVisible(_: Bool) {}
+}
+
+extension TGSStickerView: ReusableMediaView {}
 
 // MARK: - SinglePhotoView
 
@@ -508,32 +538,40 @@ final class TDImageLoadingView: UIImageView {
 
 enum TDMediaPrefetcher {
     static func prefetch(message: Message) async {
-        let fileIDs: [Int] =
+        let files: [(id: Int, preloadsTGS: Bool)] =
             switch message.content {
             case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox).map { [$0.photo.id] } ?? []
+                photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, false)] } ?? []
             case .messageVoiceNote(let voice):
-                [voice.voiceNote.voice.id]
+                [(voice.voiceNote.voice.id, false)]
             case .messageAnimation(let animation):
-                [animation.animation.thumbnail?.file.id ?? animation.animation.animation.id]
+                [(animation.animation.thumbnail?.file.id ?? animation.animation.animation.id, false)]
             case .messageSticker(let sticker):
-                [sticker.sticker.thumbnail?.file.id ?? sticker.sticker.sticker.id]
+                [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, false) }
+                    + [(sticker.sticker.sticker.id, sticker.sticker.format == .stickerFormatTgs)]
             case .messageVideo(let video):
-                [video.video.thumbnail?.file.id ?? video.video.video.id]
+                [(video.video.thumbnail?.file.id ?? video.video.video.id, false)]
             default:
                 []
             }
-        for fileID in fileIDs where !Task.isCancelled {
-            await withTaskCancellationHandler {
-                _ = try? await td.downloadFile(
-                    fileId: fileID,
+        for file in files where !Task.isCancelled {
+            let downloaded = await withTaskCancellationHandler {
+                try? await td.downloadFile(
+                    fileId: file.id,
                     limit: 0,
                     offset: 0,
                     priority: 1,
                     synchronous: false,
                 )
             } onCancel: {
-                Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
+                Task { try? await td.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
+            }
+            if file.preloadsTGS,
+               let downloaded,
+               downloaded.local.isDownloadingCompleted,
+               !downloaded.local.path.isEmpty
+            {
+                _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
             }
         }
     }

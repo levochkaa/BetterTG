@@ -242,15 +242,26 @@ final class MediaGalleryCell: UICollectionViewCell {
             )
             view = player
         case .messageSticker(let sticker):
-            let player = GalleryFilePlayerView()
-            player.configure(
-                file: sticker.sticker.sticker,
-                thumbnail: sticker.sticker.thumbnail,
-                minithumbnail: nil,
-                canPlay: sticker.sticker.format == .stickerFormatWebm,
-                loops: true,
-            )
-            view = player
+            if sticker.sticker.format == .stickerFormatTgs {
+                let stickerView = TGSStickerView(frame: .zero)
+                stickerView.configure(
+                    file: sticker.sticker.sticker,
+                    thumbnail: sticker.sticker.thumbnail,
+                    displaySize: nil,
+                    onTap: nil,
+                )
+                view = stickerView
+            } else {
+                let player = GalleryFilePlayerView()
+                player.configure(
+                    file: sticker.sticker.sticker,
+                    thumbnail: sticker.sticker.thumbnail,
+                    minithumbnail: nil,
+                    canPlay: sticker.sticker.format == .stickerFormatWebm,
+                    loops: true,
+                )
+                view = player
+            }
         default:
             view = ZoomableGalleryImageView()
         }
@@ -263,6 +274,7 @@ final class MediaGalleryCell: UICollectionViewCell {
             view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
+        view.setPlaybackVisible(window != nil)
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -281,7 +293,7 @@ extension GalleryMediaView {
     func setPlaybackVisible(_: Bool) {}
 }
 
-// MARK: - ZoomableGalleryImageView
+extension TGSStickerView: GalleryMediaView {}
 
 final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, GalleryMediaView {
     // MARK: Private

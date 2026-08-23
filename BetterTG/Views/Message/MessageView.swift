@@ -108,6 +108,10 @@ private final class SwipeToReplyIndicatorView: UIView {
 
     // MARK: Internal
 
+    func setMediaPlaybackVisible(_ isVisible: Bool) {
+        mediaView.setPlaybackVisible(isVisible)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         progressLayer.frame = bounds

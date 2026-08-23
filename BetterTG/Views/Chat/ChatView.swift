@@ -195,7 +195,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+    func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? MessageCell)?.setMediaPlaybackVisible(true)
         guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
         if presentationMode == .full {
             chatVM.viewMessage(id: messageID)
@@ -203,6 +204,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if indexPath.item >= max(chatVM.messages.count - 5, 0) {
             chatVM.loadMessages()
         }
+    }
+
+    func collectionView(
+        _: UICollectionView,
+        didEndDisplaying cell: UICollectionViewCell,
+        forItemAt _: IndexPath,
+    ) {
+        (cell as? MessageCell)?.setMediaPlaybackVisible(false)
     }
 
     func collectionView(_: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {

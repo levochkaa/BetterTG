@@ -26,6 +26,9 @@ settings:
     SWIFT_VERSION: "5.0"
     WATCHOS_DEPLOYMENT_TARGET: 9.0
 packages:
+  Lottie:
+    url: https://github.com/airbnb/lottie-ios.git
+    exactVersion: 4.6.1
   TDLibKit:
     url: https://github.com/Swiftgram/TDLibKit
     exactVersion: 1.5.2-tdlib-1.8.66-022d6020
@@ -40,6 +43,7 @@ targets:
           - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
+      - package: Lottie
       - package: TDLibKit
     settings:
       base:
@@ -65,7 +69,9 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - $(inherited)
           - "@executable_path/Frameworks"
-        OTHER_LDFLAGS: ""
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -lz
         PRODUCT_BUNDLE_IDENTIFIER: com.levochkaaa.BetterTG
         PRODUCT_NAME: $(TARGET_NAME)
         PROVISIONING_PROFILE_SPECIFIER: ""

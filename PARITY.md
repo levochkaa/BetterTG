@@ -11,8 +11,8 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof |
 | --- | --- | --- | --- | --- |
 | P0 | Remove MobileVLCKit; local audio/video playback seam | `submodules/TelegramUniversalVideoContent/Sources/PlatformVideoContent.swift` at the pre-Liquid baseline | `downloadFile`, `updateFile`, `cancelDownloadFile` | **partial** — `LocalMediaPlayer` uses AVFoundation, gallery playback pauses offscreen and has thumbnail fallback. `./test.sh` passes and `rg` finds no VLC dependency/import/API marker in `project.yml` or `BetterTG`. FFmpeg fixture coverage is still required for unsupported containers/codecs. |
-| P0 | TGS stickers and animated/custom emoji | `AnimatedStickerFrameSource.swift` gzip/rlottie path, `AnimatedStickerNode.swift` lifecycle, and the self-contained Watch `RLottieKit/TgsDecompress.swift` facade | `MessageSticker`, `Sticker`, `File`, `downloadFile`, `updateFile` | **next** — add gzip + Lottie/rlottie decode, looping, shared timing, cache, cancellation, and static fallback. |
-| P0 | Animated WebP | `submodules/WebPBinding/Sources/UIImage+WebP.m`; Telegram only uses its static frame fallback | `StickerFormat.webp`, `File`, `downloadFile`, `updateFile` | **queued** — implement the missing `libwebpdemux` frame/timing path, cache, visibility pause, and cancellation; there is no animated Telegram implementation to port. |
+| P0 | TGS stickers and animated/custom emoji | `AnimatedStickerFrameSource.swift` gzip/rlottie path, `AnimatedStickerNode.swift` lifecycle, and the self-contained Watch `RLottieKit/TgsDecompress.swift` facade | `MessageSticker`, `Sticker`, `File`, `downloadFile`, `updateFile` | **partial** — timeline/gallery TGS uses bounded zlib decode, pinned Lottie 4.6.1, synchronized loops, visibility pause, parsed cache, prefetch/cancel, and thumbnail fallback. `./test.sh` passes; the exact decoder turns Telegram's `tiny.tgs` (105 bytes) into valid 100×100@30 JSON (96 bytes). Simulator launch/chat smoke is stable, but no TGS existed in reachable history, so visual playback remains unproved; custom-emoji entity rendering is still queued. |
+| P0 | Animated WebP | `submodules/WebPBinding/Sources/UIImage+WebP.m`; Telegram only uses its static frame fallback | `StickerFormat.webp`, `File`, `downloadFile`, `updateFile` | **next** — implement the missing `libwebpdemux` frame/timing path, cache, visibility pause, and cancellation; there is no animated Telegram implementation to port. |
 | P0 | WebM/VP9 alpha stickers and generic FFmpeg playback | `AnimatedStickerNode/VideoStickerFrameSource.swift`, `FFMpegMediaVideoFrameDecoder.swift`, `FFMpegAVFrame.m` | `StickerFormat.webm`, `File`, `downloadFile`, `updateFile` | **queued** — add FFmpeg YUVA decode/render with alpha preservation, bounded cache, and Apple-media fast path. |
 | P0 | Voice notes: Ogg Opus, waveform, record/lock/edit/send | Telegram voice-message recorder/player paths; reference audit pending | `VoiceNote`, `InputMessageVoiceNote`, `downloadFile`, `sendMessage` | **partial** — downloaded playback, waveform display, and seeking exist; recording, lock/cancel, pause/resume, preview, trim, retry, and verified Ogg Opus coverage remain. |
 | P0 | Video notes | `submodules/TelegramUI/Components/VideoMessageCameraScreen`, `ResultPreviewView.swift` | `InputMessageVideoNote`, `sendMessage` | **queued** — AVFoundation capture/writer, round preview/playback, camera switching, gesture states, segments, trim, and limits. |
@@ -27,8 +27,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: remove MobileVLCKit from the durable project and replace both runtime consumers with a reusable
-  AVFoundation player seam.
-- Verification: `./test.sh` passes; exact marker scan and `git diff --check` pass. The implementation and ledger are
-  delivered together in one focused commit.
-- Next slice: TGS gzip decode and animated sticker lifecycle on top of the existing TDLib file loader.
+- Current slice: TGS gzip decode, Lottie rendering, timeline/gallery lifecycle, decoded-model cache, and prefetch.
+- Verification: `./test.sh`, `git diff --check`, Telegram `tiny.tgs` fixture probe, and stable logged-in launch/chat smoke
+  pass. Visual TGS playback is blocked only by the absence of a reachable TGS message in existing simulator data.
+- Next slice: animated WebP through a libwebp demux binding; retain the same visibility/cache/cancel surface.
