@@ -12,7 +12,10 @@ import UIKit
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
     ) -> Bool {
-        FFmpegCapabilities.assertRequiredDecodersAvailable()
+        FFmpegCapabilities.assertRequiredCodecsAvailable()
+        #if DEBUG
+            VoiceNoteCodec.runDebugProbeIfRequested()
+        #endif
         PushRelayCoordinator.shared.start()
         RichNotificationCacheCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()

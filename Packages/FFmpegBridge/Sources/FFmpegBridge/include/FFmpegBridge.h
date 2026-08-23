@@ -14,7 +14,20 @@
 const char *BetterTGFFmpegVersion(void);
 int BetterTGFFmpegHasVP9Decoder(void);
 int BetterTGFFmpegHasOpusDecoder(void);
+int BetterTGFFmpegHasOpusEncoder(void);
+int BetterTGFFmpegHasOggMuxer(void);
 int BetterTGFFmpegHasGIFDecoder(void);
+
+// Transcodes the first audio stream to a mono 48 kHz Ogg/Opus voice note.
+// Returns 0 on success or a negative FFmpeg error code on failure.
+int BetterTGFFmpegTranscodeVoiceNote(
+    const char *inputPath,
+    const char *outputPath,
+    int bitrate
+);
+
+// Returns 1 only for a decodable mono 48 kHz Ogg/Opus file with positive duration.
+int BetterTGFFmpegIsOggOpusFile(const char *path);
 
 typedef struct BetterTGFFmpegVideoDecoder BetterTGFFmpegVideoDecoder;
 

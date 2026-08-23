@@ -38,6 +38,14 @@ int BetterTGFFmpegHasOpusDecoder(void) {
     return avcodec_find_decoder(AV_CODEC_ID_OPUS) != NULL;
 }
 
+int BetterTGFFmpegHasOpusEncoder(void) {
+    return avcodec_find_encoder(AV_CODEC_ID_OPUS) != NULL;
+}
+
+int BetterTGFFmpegHasOggMuxer(void) {
+    return av_guess_format("ogg", NULL, NULL) != NULL;
+}
+
 int BetterTGFFmpegHasGIFDecoder(void) {
     return avcodec_find_decoder(AV_CODEC_ID_GIF) != NULL;
 }
