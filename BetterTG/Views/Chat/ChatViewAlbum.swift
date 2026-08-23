@@ -261,15 +261,14 @@ final class MediaGalleryCell: UICollectionViewCell {
                 )
                 view = stickerView
             } else {
-                let player = GalleryFilePlayerView()
-                player.configure(
+                let stickerView = AnimatedWebMView(frame: .zero)
+                stickerView.configure(
                     file: sticker.sticker.sticker,
                     thumbnail: sticker.sticker.thumbnail,
-                    minithumbnail: nil,
-                    canPlay: sticker.sticker.format == .stickerFormatWebm,
-                    loops: true,
+                    displaySize: nil,
+                    onTap: nil,
                 )
-                view = player
+                view = stickerView
             }
         default:
             view = ZoomableGalleryImageView()
@@ -304,6 +303,7 @@ extension GalleryMediaView {
 
 extension TGSStickerView: GalleryMediaView {}
 extension AnimatedWebPView: GalleryMediaView {}
+extension AnimatedWebMView: GalleryMediaView {}
 
 final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, GalleryMediaView {
     // MARK: Private

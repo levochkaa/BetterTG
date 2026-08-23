@@ -79,6 +79,18 @@ final class MessageMediaView: UIView {
                         onTap: { onTap([message.message], message.id) },
                     )
                     view = stickerView
+                } else if sticker.sticker.format == .stickerFormatWebm {
+                    let stickerView = AnimatedWebMView()
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: sticker.sticker.width,
+                            height: sticker.sticker.height,
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = stickerView
                 } else {
                     let fileView = FileMediaPreviewView()
                     fileView.configure(
@@ -146,6 +158,7 @@ extension ReusableMediaView {
 
 extension TGSStickerView: ReusableMediaView {}
 extension AnimatedWebPView: ReusableMediaView {}
+extension AnimatedWebMView: ReusableMediaView {}
 
 // MARK: - SinglePhotoView
 
@@ -554,6 +567,7 @@ enum TDMediaPrefetcher {
         case none
         case tgs
         case webP
+        case webM
     }
 
     static func prefetch(message: Message) async {
@@ -596,6 +610,8 @@ enum TDMediaPrefetcher {
                 _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
             case .webP:
                 _ = await AnimatedWebPRepository.asset(at: downloaded.local.path)
+            case .webM:
+                _ = await FFmpegVideoRepository.asset(at: downloaded.local.path)
             }
         }
     }
@@ -606,8 +622,8 @@ enum TDMediaPrefetcher {
             .tgs
         case .stickerFormatWebp:
             .webP
-        default:
-            .none
+        case .stickerFormatWebm:
+            .webM
         }
     }
 }
