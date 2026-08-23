@@ -35,8 +35,7 @@ final class ArchiveViewController: UIViewController {
         navigationBarView.translatesAutoresizingMaskIntoConstraints = false
         navigationBarView.onQueryChange = { [weak self] query in self?.folderController.updateQuery(query) }
         navigationBarView.onSearchActiveChange = { [weak self] active in
-            guard active else { return }
-            self?.folderController.revealSearch(animated: true)
+            self?.folderController.setSearchActive(active, animated: true)
         }
         navigationBarView.onVisibleHeightChange = { [weak self] contentHeight in
             guard let self else { return }
@@ -83,9 +82,8 @@ final class ArchiveViewController: UIViewController {
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
     // MARK: Lifecycle
 
-    init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
+    init(folder: CustomFolder, rootVM _: RootVM, showsStandaloneSearch: Bool) {
         self.folder = folder
-        self.rootVM = rootVM
         self.showsStandaloneSearch = showsStandaloneSearch
         super.init(style: .plain)
     }
@@ -119,9 +117,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.separatorStyle = .none
         tableView.rowHeight = 84
         tableView.keyboardDismissMode = .interactive
-        tableView.contentInset.top = TelegramListNavigationBar.expandedContentHeight
+        let initialTopInset = searchActive
+            ? TelegramListNavigationBar.titleHeight
+            : TelegramListNavigationBar.expandedContentHeight
+        tableView.contentInset.top = initialTopInset
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
-        tableView.verticalScrollIndicatorInsets.top = TelegramListNavigationBar.expandedContentHeight
+        tableView.verticalScrollIndicatorInsets.top = initialTopInset
         tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 58
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
@@ -223,19 +224,36 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated)
     }
 
+    func setSearchActive(_ active: Bool, animated: Bool) {
+        searchActive = active
+        guard isViewLoaded else { return }
+        let targetTopInset = active
+            ? TelegramListNavigationBar.titleHeight
+            : TelegramListNavigationBar.expandedContentHeight
+        tableView.contentInset.top = targetTopInset
+        tableView.verticalScrollIndicatorInsets.top = targetTopInset
+        tableView.layoutIfNeeded()
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
+            animated: animated,
+        )
+    }
+
     // MARK: Private
 
     private enum Section {
         case main
     }
 
-    private let rootVM: RootVM
     private let showsStandaloneSearch: Bool
     private var query = ""
+    private var searchActive = false
     private var didSetInitialSearchOffset = false
     private var cancellables = Set<AnyCancellable>()
     private var chatCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private var pendingChangedChatIDs = Set<Int64>()
+    private var chatUpdateScheduled = false
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
 
     private var filteredChats: [CustomChat] {
@@ -267,16 +285,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func startStateUpdates() {
-        rootVM.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in
-                DispatchQueue.main.async { self?.updateSnapshot(animated: true) }
-            }
-            .store(in: &cancellables)
         folder.$chats
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updateSnapshot(animated: true) }
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.subscribeToChats()
+                    self?.updateSnapshot(animated: true)
+                }
+            }
             .store(in: &cancellables)
         subscribeToChats()
     }
@@ -286,23 +303,35 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         for chat in folder.chats {
             chat.objectWillChange
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self] in
-                    DispatchQueue.main.async { self?.updateSnapshot(animated: true, reloadVisible: true) }
-                }
+                .sink { [weak self, chatID = chat.id] in self?.scheduleChatUpdate(id: chatID) }
                 .store(in: &chatCancellables)
         }
     }
 
-    private func updateSnapshot(animated: Bool, reloadVisible: Bool = false) {
+    private func scheduleChatUpdate(id: Int64) {
+        pendingChangedChatIDs.insert(id)
+        guard !chatUpdateScheduled else { return }
+        chatUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            chatUpdateScheduled = false
+            let changedIDs = pendingChangedChatIDs
+            pendingChangedChatIDs.removeAll()
+            updateSnapshot(animated: true, changedIDs: changedIDs)
+        }
+    }
+
+    private func updateSnapshot(animated: Bool, changedIDs: Set<Int64> = []) {
         guard isViewLoaded else { return }
-        subscribeToChats()
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.main])
         snapshot.appendItems(filteredChats.map(\.id))
-        if reloadVisible {
+        if !changedIDs.isEmpty {
             let current = Set(dataSource.snapshot().itemIdentifiers)
-            let visible = snapshot.itemIdentifiers.filter { current.contains($0) }
-            snapshot.reloadItems(visible)
+            let reconfigured = snapshot.itemIdentifiers.filter { changedIDs.contains($0) && current.contains($0) }
+            if !reconfigured.isEmpty {
+                snapshot.reconfigureItems(reconfigured)
+            }
         }
         dataSource.apply(snapshot, animatingDifferences: animated)
         tableView.backgroundView = filteredChats.isEmpty ? emptyLabel() : nil

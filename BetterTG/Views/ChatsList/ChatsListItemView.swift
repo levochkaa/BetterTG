@@ -166,20 +166,25 @@ final class ProfileAvatarView: UIView {
     }
 
     func configure(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
-        prepareForReuse()
         label.text = String(title.prefix(1)).uppercased()
         backgroundColor = UIColor(userID: id)
+        let thumbnailData = minithumbnail?.data
+        guard representedFile != file || representedMinithumbnailData != thumbnailData else { return }
+        imageView.cancel()
+        imageView.image = nil
         representedFile = file
+        representedMinithumbnailData = thumbnailData
         if let file {
-            imageView.load(file: file, placeholderData: minithumbnail?.data, maximumPixelSize: 160)
+            imageView.load(file: file, placeholderData: thumbnailData, maximumPixelSize: 160)
         } else {
-            imageView.image = minithumbnail.flatMap { UIImage(data: $0.data) }
+            imageView.image = thumbnailData.flatMap(UIImage.init(data:))
         }
     }
 
     func prepareForReuse() {
         imageView.cancel()
         representedFile = nil
+        representedMinithumbnailData = nil
         imageView.image = nil
     }
 
@@ -188,6 +193,7 @@ final class ProfileAvatarView: UIView {
     private let imageView = TDImageLoadingView()
     private let label = UILabel()
     private var representedFile: File?
+    private var representedMinithumbnailData: Data?
 
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, representedFile != nil, imageView.image != nil else { return }

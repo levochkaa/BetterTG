@@ -33,7 +33,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         let appliedOffset = isActive ? CGFloat.zero : requestedScrollOffset
         let fraction = appliedOffset / Self.scrollHeight
         let fieldHeight = 36 * (1 - fraction)
-        let contentAlpha = min(1, max(0, (fieldHeight - 10) / 10))
+        let contentAlpha = min(1, max(0, (fieldHeight - 18) / 8))
         let capsuleAlpha = min(1, max(0, fieldHeight / 10))
         let changes = {
             self.searchHeightConstraint.constant = max(0.01, fieldHeight)
