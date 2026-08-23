@@ -224,12 +224,13 @@ private final class TelegramContextMenuController: UIViewController {
         let menuX = sourceFrame.midX > view.bounds.midX
             ? view.bounds.width - horizontalInset - menuWidth
             : horizontalInset
-        let spacing: CGFloat = 10
-        let belowY = previewContainer.frame.maxY + spacing
+        let anchorFrame = presentationStyle == .menuOnly ? sourceFrame : previewContainer.frame
+        let spacing: CGFloat = presentationStyle == .menuOnly ? 4 : 10
+        let belowY = anchorFrame.maxY + spacing
         let maximumY = view.bounds.height - max(view.safeAreaInsets.bottom, CGFloat(12)) - menuHeight
         let menuY = belowY <= maximumY
             ? belowY
-            : max(verticalInset, previewContainer.frame.minY - spacing - menuHeight)
+            : max(verticalInset, anchorFrame.minY - spacing - menuHeight)
         menuEffectView.frame = CGRect(x: menuX, y: menuY, width: menuWidth, height: menuHeight)
     }
 
