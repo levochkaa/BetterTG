@@ -54,6 +54,14 @@ enum VoiceNoteCodec {
                     let inputURL = temporaryDirectory.appendingPathComponent("bettertg-voice-codec-probe.wav")
                     try makeProbeInput(at: inputURL)
                     let outputURL = try await encodeOggOpus(from: inputURL)
+                    let playbackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: outputURL)
+                    let reusedPlaybackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: outputURL)
+                    precondition(playbackURL != outputURL)
+                    precondition(reusedPlaybackURL == playbackURL)
+                    let playbackFile = try AVAudioFile(forReading: playbackURL)
+                    precondition(playbackFile.length > 0)
+                    precondition(playbackFile.processingFormat.sampleRate == 48000)
+                    precondition(playbackFile.processingFormat.channelCount == 1)
                     let attributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
                     let size = attributes[.size] as? NSNumber
                     let referenceSamples = (0..<100).map { UInt8($0 % 32) }
@@ -64,10 +72,12 @@ enum VoiceNoteCodec {
                     )
                     log(
                         "Voice codec probe: Ogg/Opus valid, \(size?.intValue ?? 0) bytes; "
-                            + "waveform round-trip \(packedWaveform.count) bytes",
+                            + "waveform round-trip \(packedWaveform.count) bytes; "
+                            + "cached PCM playback \(playbackFile.length) frames",
                     )
                     try? FileManager.default.removeItem(at: inputURL)
                     try? FileManager.default.removeItem(at: outputURL)
+                    try? FileManager.default.removeItem(at: playbackURL)
                 } catch {
                     assertionFailure("Voice codec probe failed: \(error)")
                 }

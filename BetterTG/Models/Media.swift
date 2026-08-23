@@ -54,7 +54,6 @@ final class Media: ObservableObject {
     }
 
     func seek(to timeInterval: TimeInterval) {
-        guard player.hasItem else { return }
         seekTo(max(0, min(TimeInterval(duration), timeInterval)))
     }
 
@@ -63,7 +62,11 @@ final class Media: ObservableObject {
         if savedMediaPath.isEmpty || savedMediaPath != path {
             stop()
             savedMediaPath = path
-            player.load(url: URL(fileURLWithPath: path), autoplay: false)
+            player.load(
+                url: URL(fileURLWithPath: path),
+                autoplay: false,
+                prefersFFmpegAudioFallback: true,
+            )
             play()
         } else {
             toggle()
@@ -116,7 +119,7 @@ final class Media: ObservableObject {
                     isPlaying = true
                 case .ended, .failed:
                     stop()
-                case .idle, .preparing, .buffering, .paused:
+                case .buffering, .idle, .paused, .preparing:
                     isPlaying = false
                 }
             }
@@ -183,7 +186,7 @@ final class Media: ObservableObject {
     }
 
     private func toggle() {
-        if isPlaying {
+        if player.isPlaybackRequested {
             pause()
         } else {
             play()

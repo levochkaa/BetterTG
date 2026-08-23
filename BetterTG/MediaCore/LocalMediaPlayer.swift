@@ -54,6 +54,10 @@ final class LocalMediaPlayer {
         player.currentItem != nil
     }
 
+    var isPlaybackRequested: Bool {
+        shouldAutoplay
+    }
+
     var duration: TimeInterval {
         guard let seconds = player.currentItem?.duration.seconds, seconds.isFinite else { return 0 }
         return max(0, seconds)
@@ -63,27 +67,49 @@ final class LocalMediaPlayer {
         layer.player = player
     }
 
-    func load(url: URL, autoplay: Bool, loops: Bool = false) {
+    func load(
+        url: URL,
+        autoplay: Bool,
+        loops: Bool = false,
+        prefersFFmpegAudioFallback: Bool = false,
+    ) {
+        preparationTask?.cancel()
+        preparationTask = nil
+        pendingSeek = nil
         resetItemObservers()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
         shouldAutoplay = autoplay
         shouldLoop = loops
         timeSubject.send(0)
         stateSubject.send(.preparing)
 
-        let item = AVPlayerItem(url: url)
-        observe(item: item)
-        player.replaceCurrentItem(with: item)
+        let requestIdentifier = UUID()
+        currentRequestIdentifier = requestIdentifier
+        guard prefersFFmpegAudioFallback else {
+            installItem(url: url)
+            return
+        }
+        preparationTask = Task { @MainActor [weak self] in
+            let playableURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: url)
+            guard let self,
+                  !Task.isCancelled,
+                  currentRequestIdentifier == requestIdentifier
+            else { return }
+            installItem(url: playableURL)
+            preparationTask = nil
+        }
     }
 
     func play() {
-        guard hasItem else { return }
         shouldAutoplay = true
+        guard hasItem else { return }
         player.play()
     }
 
     func pause() {
-        guard hasItem else { return }
         shouldAutoplay = false
+        guard hasItem else { return }
         player.pause()
         if stateSubject.value != .failed, stateSubject.value != .ended {
             stateSubject.send(.paused)
@@ -91,6 +117,10 @@ final class LocalMediaPlayer {
     }
 
     func stop() {
+        preparationTask?.cancel()
+        preparationTask = nil
+        currentRequestIdentifier = nil
+        pendingSeek = nil
         shouldAutoplay = false
         shouldLoop = false
         player.pause()
@@ -101,11 +131,11 @@ final class LocalMediaPlayer {
     }
 
     func seek(to time: TimeInterval, completion: (() -> Void)? = nil) {
-        guard hasItem else {
-            completion?()
+        let nonnegativeTime = max(0, time)
+        guard let item = player.currentItem, item.status == .readyToPlay else {
+            pendingSeek = (nonnegativeTime, completion)
             return
         }
-        let nonnegativeTime = max(0, time)
         let boundedTime = duration > 0 ? min(nonnegativeTime, duration) : nonnegativeTime
         player.seek(
             to: CMTime(seconds: boundedTime, preferredTimescale: 600),
@@ -129,6 +159,9 @@ final class LocalMediaPlayer {
     private var shouldAutoplay = false
     private var shouldLoop = false
     private var timeObserver: Any?
+    private var preparationTask: Task<Void, Never>?
+    private var currentRequestIdentifier: UUID?
+    private var pendingSeek: (time: TimeInterval, completion: (() -> Void)?)?
     private var itemCancellables = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
 
@@ -141,10 +174,15 @@ final class LocalMediaPlayer {
                 case .unknown:
                     stateSubject.send(.preparing)
                 case .readyToPlay:
-                    if shouldAutoplay {
-                        player.play()
+                    if let pendingSeek {
+                        self.pendingSeek = nil
+                        seek(to: pendingSeek.time) { [weak self, weak item] in
+                            guard let self, item === player.currentItem else { return }
+                            pendingSeek.completion?()
+                            applyReadyPlaybackState()
+                        }
                     } else {
-                        stateSubject.send(.paused)
+                        applyReadyPlaybackState()
                     }
                 case .failed:
                     shouldAutoplay = false
@@ -162,7 +200,10 @@ final class LocalMediaPlayer {
             .sink { [weak self, weak item] _ in
                 guard let self, item === player.currentItem else { return }
                 if shouldLoop {
-                    seek(to: 0) { [weak self] in self?.play() }
+                    seek(to: 0) { [weak self, weak item] in
+                        guard let self, item === player.currentItem else { return }
+                        applyReadyPlaybackState()
+                    }
                 } else {
                     shouldAutoplay = false
                     stateSubject.send(.ended)
@@ -179,6 +220,20 @@ final class LocalMediaPlayer {
                 stateSubject.send(.failed)
             }
             .store(in: &itemCancellables)
+    }
+
+    private func installItem(url: URL) {
+        let item = AVPlayerItem(url: url)
+        observe(item: item)
+        player.replaceCurrentItem(with: item)
+    }
+
+    private func applyReadyPlaybackState() {
+        if shouldAutoplay {
+            player.play()
+        } else {
+            stateSubject.send(.paused)
+        }
     }
 
     private func resetItemObservers() {

@@ -29,6 +29,17 @@ int BetterTGFFmpegTranscodeVoiceNote(
 // Returns 1 only for a decodable mono 48 kHz Ogg/Opus file with positive duration.
 int BetterTGFFmpegIsOggOpusFile(const char *path);
 
+typedef struct BetterTGFFmpegAudioDecodeJob BetterTGFFmpegAudioDecodeJob;
+
+BetterTGFFmpegAudioDecodeJob *BetterTGFFmpegAudioDecodeJobCreate(
+    const char *inputPath,
+    const char *outputPath,
+    int64_t maximumOutputBytes
+);
+void BetterTGFFmpegAudioDecodeJobCancel(BetterTGFFmpegAudioDecodeJob *job);
+int BetterTGFFmpegAudioDecodeJobRun(BetterTGFFmpegAudioDecodeJob *job);
+void BetterTGFFmpegAudioDecodeJobDestroy(BetterTGFFmpegAudioDecodeJob *job);
+
 typedef struct BetterTGFFmpegVideoDecoder BetterTGFFmpegVideoDecoder;
 
 BetterTGFFmpegVideoDecoder *BetterTGFFmpegVideoDecoderCreate(const char *path);
