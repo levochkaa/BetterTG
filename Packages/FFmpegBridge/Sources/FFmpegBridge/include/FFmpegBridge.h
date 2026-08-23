@@ -14,6 +14,7 @@
 const char *BetterTGFFmpegVersion(void);
 int BetterTGFFmpegHasVP9Decoder(void);
 int BetterTGFFmpegHasOpusDecoder(void);
+int BetterTGFFmpegHasGIFDecoder(void);
 
 typedef struct BetterTGFFmpegVideoDecoder BetterTGFFmpegVideoDecoder;
 

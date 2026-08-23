@@ -16,10 +16,15 @@ enum FFmpegCapabilities {
         BetterTGFFmpegHasOpusDecoder() != 0
     }
 
+    static var supportsGIF: Bool {
+        BetterTGFFmpegHasGIFDecoder() != 0
+    }
+
     static func assertRequiredDecodersAvailable() {
         #if DEBUG
             assert(supportsVP9, "FFmpeg \(version) is missing the VP9 decoder")
             assert(supportsOpus, "FFmpeg \(version) is missing the Opus decoder")
+            assert(supportsGIF, "FFmpeg \(version) is missing the GIF decoder")
         #endif
     }
 }

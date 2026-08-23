@@ -38,6 +38,10 @@ int BetterTGFFmpegHasOpusDecoder(void) {
     return avcodec_find_decoder(AV_CODEC_ID_OPUS) != NULL;
 }
 
+int BetterTGFFmpegHasGIFDecoder(void) {
+    return avcodec_find_decoder(AV_CODEC_ID_GIF) != NULL;
+}
+
 static void BetterTGFFmpegVideoDecoderClose(BetterTGFFmpegVideoDecoder *decoder) {
     if (decoder == NULL) {
         return;

@@ -1,4 +1,4 @@
-// AnimatedWebM.swift
+// FFmpegAnimatedVideo.swift
 
 import Combine
 import FFmpegBridge
@@ -288,9 +288,9 @@ actor FFmpegVideoFrameDecoder {
     }
 }
 
-// MARK: - AnimatedWebMView
+// MARK: - FFmpegAnimatedVideoView
 
-final class AnimatedWebMView: UIControl {
+final class FFmpegAnimatedVideoView: UIControl {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -584,4 +584,17 @@ private func makeFFmpegBGRAImage(data: Data, width: Int, height: Int) -> UIImage
           )
     else { return nil }
     return UIImage(cgImage: image)
+}
+
+func telegramAnimationUsesFFmpeg(_ animation: Animation) -> Bool {
+    mediaUsesFFmpeg(mimeType: animation.mimeType, fileName: animation.fileName)
+}
+
+private func mediaUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
+    let normalizedMimeType = mimeType.lowercased()
+    if normalizedMimeType == "video/mp4" || normalizedMimeType == "video/quicktime" {
+        return false
+    }
+    let fileExtension = URL(fileURLWithPath: fileName).pathExtension.lowercased()
+    return fileExtension != "mp4" && fileExtension != "m4v" && fileExtension != "mov"
 }

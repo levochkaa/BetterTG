@@ -45,15 +45,29 @@ final class MessageMediaView: UIView {
                 voiceView.configure(voiceNote: voice.voiceNote)
                 view = voiceView
             case .messageAnimation(let animation):
-                let fileView = FileMediaPreviewView()
-                fileView.configure(
-                    file: animation.animation.animation,
-                    thumbnail: animation.animation.thumbnail,
-                    minithumbnail: animation.animation.minithumbnail,
-                    size: CGSize(width: animation.animation.width, height: animation.animation.height),
-                    showsPlayIcon: true,
-                ) { onTap([message.message], message.id) }
-                view = fileView
+                if telegramAnimationUsesFFmpeg(animation.animation) {
+                    let animationView = FFmpegAnimatedVideoView()
+                    animationView.configure(
+                        file: animation.animation.animation,
+                        thumbnail: animation.animation.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: animation.animation.width,
+                            height: animation.animation.height,
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = animationView
+                } else {
+                    let fileView = FileMediaPreviewView()
+                    fileView.configure(
+                        file: animation.animation.animation,
+                        thumbnail: animation.animation.thumbnail,
+                        minithumbnail: animation.animation.minithumbnail,
+                        size: CGSize(width: animation.animation.width, height: animation.animation.height),
+                        showsPlayIcon: true,
+                    ) { onTap([message.message], message.id) }
+                    view = fileView
+                }
             case .messageSticker(let sticker):
                 if sticker.sticker.format == .stickerFormatTgs {
                     let stickerView = TGSStickerView()
@@ -80,7 +94,7 @@ final class MessageMediaView: UIView {
                     )
                     view = stickerView
                 } else if sticker.sticker.format == .stickerFormatWebm {
-                    let stickerView = AnimatedWebMView()
+                    let stickerView = FFmpegAnimatedVideoView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
                         thumbnail: sticker.sticker.thumbnail,
@@ -158,7 +172,7 @@ extension ReusableMediaView {
 
 extension TGSStickerView: ReusableMediaView {}
 extension AnimatedWebPView: ReusableMediaView {}
-extension AnimatedWebMView: ReusableMediaView {}
+extension FFmpegAnimatedVideoView: ReusableMediaView {}
 
 // MARK: - SinglePhotoView
 
@@ -567,7 +581,7 @@ enum TDMediaPrefetcher {
         case none
         case tgs
         case webP
-        case webM
+        case ffmpegVideo
     }
 
     static func prefetch(message: Message) async {
@@ -578,7 +592,12 @@ enum TDMediaPrefetcher {
             case .messageVoiceNote(let voice):
                 [(voice.voiceNote.voice.id, .none)]
             case .messageAnimation(let animation):
-                [(animation.animation.thumbnail?.file.id ?? animation.animation.animation.id, .none)]
+                if telegramAnimationUsesFFmpeg(animation.animation) {
+                    [animation.animation.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+                        + [(animation.animation.animation.id, .ffmpegVideo)]
+                } else {
+                    [(animation.animation.thumbnail?.file.id ?? animation.animation.animation.id, .none)]
+                }
             case .messageSticker(let sticker):
                 [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
                     + [(sticker.sticker.sticker.id, decodeKind(for: sticker.sticker.format))]
@@ -610,7 +629,7 @@ enum TDMediaPrefetcher {
                 _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
             case .webP:
                 _ = await AnimatedWebPRepository.asset(at: downloaded.local.path)
-            case .webM:
+            case .ffmpegVideo:
                 _ = await FFmpegVideoRepository.asset(at: downloaded.local.path)
             }
         }
@@ -623,7 +642,7 @@ enum TDMediaPrefetcher {
         case .stickerFormatWebp:
             .webP
         case .stickerFormatWebm:
-            .webM
+            .ffmpegVideo
         }
     }
 }

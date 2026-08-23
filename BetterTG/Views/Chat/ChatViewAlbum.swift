@@ -222,15 +222,26 @@ final class MediaGalleryCell: UICollectionViewCell {
             imageView.configure(photo: photo.photo)
             view = imageView
         case .messageAnimation(let animation):
-            let player = GalleryFilePlayerView()
-            player.configure(
-                file: animation.animation.animation,
-                thumbnail: animation.animation.thumbnail,
-                minithumbnail: animation.animation.minithumbnail,
-                canPlay: true,
-                loops: true,
-            )
-            view = player
+            if telegramAnimationUsesFFmpeg(animation.animation) {
+                let animationView = FFmpegAnimatedVideoView(frame: .zero)
+                animationView.configure(
+                    file: animation.animation.animation,
+                    thumbnail: animation.animation.thumbnail,
+                    displaySize: nil,
+                    onTap: nil,
+                )
+                view = animationView
+            } else {
+                let player = GalleryFilePlayerView()
+                player.configure(
+                    file: animation.animation.animation,
+                    thumbnail: animation.animation.thumbnail,
+                    minithumbnail: animation.animation.minithumbnail,
+                    canPlay: true,
+                    loops: true,
+                )
+                view = player
+            }
         case .messageVideo(let video):
             let player = GalleryFilePlayerView()
             player.configure(
@@ -261,7 +272,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 )
                 view = stickerView
             } else {
-                let stickerView = AnimatedWebMView(frame: .zero)
+                let stickerView = FFmpegAnimatedVideoView(frame: .zero)
                 stickerView.configure(
                     file: sticker.sticker.sticker,
                     thumbnail: sticker.sticker.thumbnail,
@@ -303,7 +314,7 @@ extension GalleryMediaView {
 
 extension TGSStickerView: GalleryMediaView {}
 extension AnimatedWebPView: GalleryMediaView {}
-extension AnimatedWebMView: GalleryMediaView {}
+extension FFmpegAnimatedVideoView: GalleryMediaView {}
 
 final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, GalleryMediaView {
     // MARK: Private
