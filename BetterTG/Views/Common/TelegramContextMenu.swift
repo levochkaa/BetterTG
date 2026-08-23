@@ -470,6 +470,19 @@ private final class TelegramContextMenuController: UIViewController {
                     y: sourceFrame.height / max(1, messageContentSize.height)
                 )
             }
+        } else if presentationStyle == .avatar {
+            previewContainer.bounds = CGRect(origin: .zero, size: targetPreviewFrame.size)
+            if hasAnimatedIn {
+                previewContainer.center = CGPoint(x: targetPreviewFrame.midX, y: targetPreviewFrame.midY)
+                previewContainer.transform = .identity
+            } else {
+                previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+                previewContainer.transform = CGAffineTransform(
+                    scaleX: sourceFrame.width / max(1, targetPreviewFrame.width),
+                    y: sourceFrame.height / max(1, targetPreviewFrame.height)
+                )
+                previewView?.layer.cornerRadius = targetPreviewFrame.width / 2
+            }
         } else if presentationStyle == .chatPreview {
             previewContainer.bounds = CGRect(origin: .zero, size: targetPreviewFrame.size)
             if hasAnimatedIn {
@@ -489,6 +502,9 @@ private final class TelegramContextMenuController: UIViewController {
         }
         menuEffectView.frame = targetMenuFrame
         previewView?.frame = previewContainer.bounds
+        if presentationStyle == .avatar {
+            previewView?.layoutIfNeeded()
+        }
     }
 
     private func animateIn() {
@@ -516,6 +532,12 @@ private final class TelegramContextMenuController: UIViewController {
                         scaleX: self.targetMessageScale,
                         y: self.targetMessageScale
                     )
+                } else if self.presentationStyle == .avatar {
+                    self.previewContainer.center = CGPoint(
+                        x: self.targetPreviewFrame.midX,
+                        y: self.targetPreviewFrame.midY
+                    )
+                    self.previewContainer.transform = .identity
                 } else if self.presentationStyle == .chatPreview {
                     self.previewContainer.center = CGPoint(
                         x: self.targetPreviewFrame.midX,
@@ -553,6 +575,12 @@ private final class TelegramContextMenuController: UIViewController {
                         scaleX: returnFrame.width / max(1, self.messageContentSize.width),
                         y: returnFrame.height / max(1, self.messageContentSize.height)
                     )
+                } else if self.presentationStyle == .avatar {
+                    self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
+                    self.previewContainer.transform = CGAffineTransform(
+                        scaleX: returnFrame.width / max(1, self.targetPreviewFrame.width),
+                        y: returnFrame.height / max(1, self.targetPreviewFrame.height)
+                    )
                 } else if self.presentationStyle == .chatPreview {
                     self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
                     self.previewContainer.transform = CGAffineTransform(
@@ -562,7 +590,9 @@ private final class TelegramContextMenuController: UIViewController {
                 } else {
                     self.previewContainer.frame = returnFrame
                 }
-                self.previewView?.layer.cornerRadius = self.originalContentCornerRadius
+                self.previewView?.layer.cornerRadius = self.presentationStyle == .avatar
+                    ? self.targetPreviewFrame.width / 2
+                    : self.originalContentCornerRadius
             }
             self.menuEffectView.alpha = 0
             self.menuEffectView.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
