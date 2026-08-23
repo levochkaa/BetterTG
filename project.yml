@@ -26,6 +26,8 @@ settings:
     SWIFT_VERSION: "5.0"
     WATCHOS_DEPLOYMENT_TARGET: 9.0
 packages:
+  FFmpegBridge:
+    path: Packages/FFmpegBridge
   Lottie:
     url: https://github.com/airbnb/lottie-ios.git
     exactVersion: 4.6.1
@@ -46,6 +48,7 @@ targets:
           - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
+      - package: FFmpegBridge
       - package: Lottie
       - package: TDLibKit
       - package: libwebp
