@@ -373,6 +373,7 @@ private final class TelegramContextMenuController: UIViewController {
         switch presentationStyle {
         case .message:
             let spacing: CGFloat = 10
+            let baseSourceFrame = sourceFrameAtBaseTransform()
             let maximumPreviewHeight = max(44, maximumBottom - verticalInset - menuHeight - spacing)
             messageContentSize = sourceView.bounds.size
             targetMessageScale = min(
@@ -382,11 +383,14 @@ private final class TelegramContextMenuController: UIViewController {
             )
             let previewHeight = messageContentSize.height * targetMessageScale
             let previewWidth = messageContentSize.width * targetMessageScale
-            let previewX = min(max(horizontalInset, sourceFrame.minX), view.bounds.width - horizontalInset - previewWidth)
+            let alignedPreviewX = baseSourceFrame.midX > view.bounds.midX
+                ? baseSourceFrame.maxX - previewWidth
+                : baseSourceFrame.minX
+            let previewX = min(max(0, alignedPreviewX), view.bounds.width - previewWidth)
             let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
-            let previewY = min(max(verticalInset, sourceFrame.minY), maximumPreviewY)
+            let previewY = min(max(verticalInset, baseSourceFrame.minY), maximumPreviewY)
             targetPreviewFrame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
-            let menuX = sourceFrame.midX > view.bounds.midX
+            let menuX = baseSourceFrame.midX > view.bounds.midX
                 ? view.bounds.width - horizontalInset - menuWidth
                 : horizontalInset
             targetMenuFrame = CGRect(
@@ -534,7 +538,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func dismissMenu(completion: (() -> Void)? = nil) {
         guard !isDismissing else { return }
         isDismissing = true
-        let returnFrame = sourceReturnFrame()
+        let returnFrame = sourceFrameAtBaseTransform()
         UIView.animate(
             withDuration: 0.24,
             delay: 0,
@@ -580,7 +584,7 @@ private final class TelegramContextMenuController: UIViewController {
         }
     }
 
-    private func sourceReturnFrame() -> CGRect {
+    private func sourceFrameAtBaseTransform() -> CGRect {
         guard let sourceView else { return sourceFrame }
         let currentTransform = sourceView.transform
         var result = sourceFrame
