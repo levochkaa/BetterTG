@@ -18,7 +18,7 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Country"
-        tableView.backgroundColor = .black
+        tableView.backgroundColor = .systemGroupedBackground
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CountryCell")
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .cancel,
@@ -45,7 +45,7 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
         var configuration = cell.defaultContentConfiguration()
         configuration.text = country.name
         configuration.secondaryText = "+\(country.phoneNumberPrefix)"
-        configuration.textProperties.color = .white
+        configuration.textProperties.color = .label
         configuration.secondaryTextProperties.color = .secondaryLabel
         cell.contentConfiguration = configuration
         cell.accessoryType = country == selectedCountry ? .checkmark : .none

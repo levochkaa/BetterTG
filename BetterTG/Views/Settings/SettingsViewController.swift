@@ -25,6 +25,7 @@ final class SettingsViewController: UITableViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
+        tableView.reloadData()
     }
 
     override func numberOfSections(in _: UITableView) -> Int { Section.allCases.count }
@@ -61,6 +62,8 @@ final class SettingsViewController: UITableViewController {
         cell.selectionStyle = row.isSelectable ? .default : .none
 
         switch row {
+        case .appearance:
+            cell.accessoryType = .disclosureIndicator
         case .animatedMedia:
             let toggle = UISwitch()
             toggle.isOn = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
@@ -76,7 +79,12 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard Section(rawValue: indexPath.section)?.rows[indexPath.row] == .logOut else { return }
+        guard let row = Section(rawValue: indexPath.section)?.rows[indexPath.row] else { return }
+        if row == .appearance {
+            navigationController?.pushViewController(AppearanceViewController(), animated: true)
+            return
+        }
+        guard row == .logOut else { return }
         let alert = UIAlertController(
             title: "Log Out?",
             message: "You can sign back in at any time.",
@@ -100,12 +108,14 @@ final class SettingsViewController: UITableViewController {
 
 private extension SettingsViewController {
     enum Section: Int, CaseIterable {
+        case appearance
         case media
         case about
         case account
 
         var title: String? {
             switch self {
+            case .appearance: "Appearance"
             case .media: "Media"
             case .about: "About"
             case .account: nil
@@ -114,6 +124,7 @@ private extension SettingsViewController {
 
         var rows: [Row] {
             switch self {
+            case .appearance: [.appearance]
             case .media: [.animatedMedia]
             case .about: [.version]
             case .account: [.logOut]
@@ -122,12 +133,14 @@ private extension SettingsViewController {
     }
 
     enum Row: Equatable {
+        case appearance
         case animatedMedia
         case version
         case logOut
 
         var title: String {
             switch self {
+            case .appearance: "Color Theme"
             case .animatedMedia: "Animated Media"
             case .version: "BetterTG Version"
             case .logOut: "Log Out"
@@ -136,6 +149,7 @@ private extension SettingsViewController {
 
         var subtitle: String? {
             switch self {
+            case .appearance: AppAppearance.current.title
             case .animatedMedia: "TGS, WebP and WebM"
             case .version: Utils.applicationVersion
             case .logOut: nil
@@ -144,6 +158,7 @@ private extension SettingsViewController {
 
         var symbolName: String {
             switch self {
+            case .appearance: "paintpalette.fill"
             case .animatedMedia: "sparkles.tv"
             case .version: "info.circle.fill"
             case .logOut: "rectangle.portrait.and.arrow.right"
@@ -152,13 +167,14 @@ private extension SettingsViewController {
 
         var tintColor: UIColor {
             switch self {
+            case .appearance: .systemBlue
             case .animatedMedia: .systemPurple
             case .version: .systemBlue
             case .logOut: .systemRed
             }
         }
 
-        var isSelectable: Bool { self == .logOut }
+        var isSelectable: Bool { self == .appearance || self == .logOut }
         var isDestructive: Bool { self == .logOut }
     }
 }

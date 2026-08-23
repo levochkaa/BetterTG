@@ -10,7 +10,7 @@ final class ChatListCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .black
+        backgroundColor = .systemBackground
         selectionStyle = .none
         configureViews()
         configureConstraints()
@@ -78,7 +78,7 @@ final class ChatListCell: UITableViewCell {
         pinView.tintColor = UIColor(red: 0x76 / 255, green: 0x76 / 255, blue: 0x77 / 255, alpha: 1)
         pinView.contentMode = .scaleAspectFit
         pinView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        titleLabel.textColor = .white
+        titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .title3)
         titleLabel.adjustsFontForContentSizeCategory = true
         messageLabel.textColor = .secondaryLabel

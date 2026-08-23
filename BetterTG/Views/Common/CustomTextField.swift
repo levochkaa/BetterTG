@@ -13,7 +13,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         super.init(frame: .zero, textContainer: nil)
         delegate = self
         font = .body
-        textColor = .white
+        textColor = .label
         backgroundColor = .clear
         isEditable = true
         isSelectable = true

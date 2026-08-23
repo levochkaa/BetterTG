@@ -67,7 +67,7 @@ final class MessageCell: UICollectionViewCell {
         self.onMediaTap = onMediaTap
         configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
 
-        bubbleView.backgroundColor = highlighted ? UIColor.white.withAlphaComponent(0.45) : .secondarySystemBackground
+        bubbleView.backgroundColor = highlighted ? .messageHighlight : .secondarySystemBackground
         forwardedLabel.isHidden = message.forwardedFrom == nil
         forwardedLabel.text = message.forwardedFrom.map { "Forwarded from \($0)" }
 
@@ -242,13 +242,13 @@ final class ReplySnippetView: UIControl {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
         accentView.translatesAutoresizingMaskIntoConstraints = false
-        accentView.backgroundColor = .white
+        accentView.backgroundColor = .label
         accentView.layer.cornerRadius = 1
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 0
         titleLabel.font = .preferredFont(forTextStyle: .caption1)
-        titleLabel.textColor = .white
+        titleLabel.textColor = .label
         textLabel.font = .preferredFont(forTextStyle: .caption1)
         textLabel.textColor = .secondaryLabel
         textLabel.lineBreakMode = .byTruncatingTail

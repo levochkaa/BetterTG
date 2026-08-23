@@ -3,7 +3,7 @@
 import TDLibKit
 import UIKit
 
-func defaultAttributes(_ foregroundColor: UIColor = .white) -> [NSAttributedString.Key: Any] {
+func defaultAttributes(_ foregroundColor: UIColor = .label) -> [NSAttributedString.Key: Any] {
     [
         .font: UIFont.body as Any,
         .foregroundColor: foregroundColor,
@@ -12,7 +12,7 @@ func defaultAttributes(_ foregroundColor: UIColor = .white) -> [NSAttributedStri
 
 func getAttributedString(
     from formattedText: FormattedText,
-    _ foregroundColor: UIColor = .white,
+    _ foregroundColor: UIColor = .label,
     withDate: Bool = false,
 ) -> AttributedString {
     let attributedString = NSMutableAttributedString(

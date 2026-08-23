@@ -82,7 +82,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
         searchField.borderStyle = .none
-        searchField.backgroundColor = UIColor(white: 0.13, alpha: 0.96)
+        searchField.backgroundColor = .tertiarySystemFill
         searchField.layer.cornerCurve = .continuous
         searchField.clipsToBounds = true
         searchField.textColor = .label

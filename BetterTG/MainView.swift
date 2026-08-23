@@ -16,7 +16,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = .systemBackground
         configurePageController()
         configureNavigationBar()
         configureFolderPicker()
@@ -281,7 +281,7 @@ final class FolderPickerView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let controlEffectView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = false
@@ -292,7 +292,7 @@ final class FolderPickerView: UIView {
     private let selectionEffectView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = false
-        effect.tintColor = UIColor.white.withAlphaComponent(0.08)
+        effect.tintColor = UIColor.label.withAlphaComponent(0.08)
         return UIVisualEffectView(effect: effect)
     }()
     private var folders = [CustomFolder]()
@@ -531,7 +531,7 @@ final class FolderPickerView: UIView {
             } else {
                 selectedAlpha = folders[index].id == selectedID ? 1 : 0
             }
-            button.setTitleColor(UIColor.white.withAlphaComponent(0.68 + selectedAlpha * 0.32), for: .normal)
+            button.setTitleColor(UIColor.label.withAlphaComponent(0.68 + selectedAlpha * 0.32), for: .normal)
         }
     }
 

@@ -25,7 +25,7 @@ final class ArchiveViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = .systemBackground
 
         addChild(folderController)
         folderController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -113,8 +113,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
-        tableView.backgroundColor = .black
+        view.backgroundColor = .systemBackground
+        tableView.backgroundColor = .systemBackground
         tableView.separatorStyle = .none
         tableView.rowHeight = 84
         tableView.keyboardDismissMode = .interactive

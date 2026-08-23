@@ -7,7 +7,7 @@ import UIKit
 final class LoginViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = .systemBackground
         configureViews()
         configureConstraints()
         configurePublishers()
@@ -35,7 +35,7 @@ final class LoginViewController: UIViewController {
         titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textAlignment = .center
-        titleLabel.textColor = .white
+        titleLabel.textColor = .label
 
         var countryConfiguration = UIButton.Configuration.plain()
         countryConfiguration.titleAlignment = .leading
@@ -46,11 +46,11 @@ final class LoginViewController: UIViewController {
         countryButton.contentHorizontalAlignment = .fill
         countryButton.addTarget(self, action: #selector(selectCountry), for: .touchUpInside)
 
-        prefixLabel.textColor = .white
+        prefixLabel.textColor = .label
         prefixLabel.font = .preferredFont(forTextStyle: .body)
 
         inputField.backgroundColor = .secondarySystemBackground
-        inputField.textColor = .white
+        inputField.textColor = .label
         inputField.tintColor = .systemBlue
         inputField.layer.cornerRadius = 10
         inputField.clearButtonMode = .whileEditing

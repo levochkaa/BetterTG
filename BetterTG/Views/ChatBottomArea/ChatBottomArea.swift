@@ -66,7 +66,7 @@ final class ChatComposerView: UIView {
     }
 
     private let chatVM: ChatVM
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let rootStack = UIStackView()
     private let replyRow = UIStackView()
     private let replySnippet = ReplySnippetView()
@@ -166,7 +166,7 @@ final class ChatComposerView: UIView {
         recordingRow.spacing = 10
         cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
-        recordingLabel.textColor = .white
+        recordingLabel.textColor = .label
         recordingLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
         recordingLabel.textAlignment = .center
         recordingSendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)

@@ -34,7 +34,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = .systemBackground
         configureCollectionView()
         configureNavigationBar()
         configureDataSource()
@@ -70,6 +70,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        scrollToLatestButton.layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
         if showsComposer {
             let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
                 < view.bounds.maxY - view.safeAreaInsets.bottom - 1
@@ -235,7 +236,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         view.addSubview(historyContainerView)
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .black
+        collectionView.backgroundColor = .systemBackground
         collectionView.alwaysBounceVertical = true
         collectionView.keyboardDismissMode = presentationMode == .full ? .interactive : .none
         collectionView.contentInsetAdjustmentBehavior = .never
@@ -297,11 +298,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             UIImage.SymbolConfiguration(pointSize: 15, weight: .bold),
             forImageIn: .normal,
         )
-        scrollToLatestButton.tintColor = .white
-        scrollToLatestButton.backgroundColor = UIColor(white: 0.14, alpha: 0.96)
+        scrollToLatestButton.tintColor = .label
+        scrollToLatestButton.backgroundColor = .secondarySystemBackground
         scrollToLatestButton.layer.cornerRadius = 18
         scrollToLatestButton.layer.borderWidth = 1 / view.traitCollection.displayScale
-        scrollToLatestButton.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
+        scrollToLatestButton.layer.borderColor = UIColor.separator.cgColor
         scrollToLatestButton.layer.shadowColor = UIColor.black.cgColor
         scrollToLatestButton.layer.shadowOpacity = 0.2
         scrollToLatestButton.layer.shadowRadius = 7

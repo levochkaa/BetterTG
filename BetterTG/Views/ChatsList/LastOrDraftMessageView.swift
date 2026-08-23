@@ -11,7 +11,7 @@ import UIKit
                 attributes: [.foregroundColor: UIColor.systemRed],
             )
             if draft.replyTo != nil {
-                result.append(NSAttributedString(string: "reply ", attributes: [.foregroundColor: UIColor.white]))
+                result.append(NSAttributedString(string: "reply ", attributes: [.foregroundColor: UIColor.label]))
             }
             if case .draftMessageContentText(let text) = draft.content {
                 let draftText = NSMutableAttributedString(getAttributedString(from: text.text))

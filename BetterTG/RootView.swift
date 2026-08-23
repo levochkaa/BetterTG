@@ -16,7 +16,7 @@ final class RootViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = .systemBackground
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in

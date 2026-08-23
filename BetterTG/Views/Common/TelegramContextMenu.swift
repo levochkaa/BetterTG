@@ -322,7 +322,7 @@ private final class TelegramContextMenuController: UIViewController {
         menuEffectView.alpha = 0
         view.addSubview(menuEffectView)
 
-        selectionHighlightView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        selectionHighlightView.backgroundColor = .contextMenuSelectionHighlight
         selectionHighlightView.layer.cornerRadius = 20
         selectionHighlightView.layer.cornerCurve = .continuous
         selectionHighlightView.alpha = 0
@@ -519,7 +519,7 @@ private final class TelegramContextMenuController: UIViewController {
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
             if self.presentationStyle != .menuOnly {
-                self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+                self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
             }
             self.dimView.alpha = 1
             if self.presentationStyle != .menuOnly {

@@ -9,7 +9,7 @@ extension String {
         let mutable = NSMutableAttributedString(string: self)
         mutable.addAttributes([
             .font: UIFont.systemFont(ofSize: 17),
-            .foregroundColor: UIColor.white,
+            .foregroundColor: UIColor.label,
         ], range: NSRange(location: 0, length: count))
         return AttributedString(mutable)
     }

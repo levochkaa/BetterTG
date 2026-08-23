@@ -26,11 +26,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     private func configureAppearance() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterialDark)
-        appearance.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
+        appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.18)
         appearance.shadowColor = UIColor.separator.withAlphaComponent(0.35)
-        appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
-        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.label]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.label]
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
@@ -50,7 +50,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Utils.screen = windowScene.screen
 
         let window = UIWindow(windowScene: windowScene)
-        window.overrideUserInterfaceStyle = .dark
+        window.overrideUserInterfaceStyle = AppAppearance.current.userInterfaceStyle
         window.rootViewController = RootViewController(rootVM: .shared)
         window.makeKeyAndVisible()
         self.window = window

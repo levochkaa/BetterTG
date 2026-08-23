@@ -58,7 +58,7 @@ final class TelegramListNavigationBar: UIView {
         leftButton.isHidden = hidden
     }
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let titleLabel = UILabel()
     private let leftButton = UIButton(type: .system)
     private let rightButton = UIButton(type: .system)
@@ -196,7 +196,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         backButton.isHidden = hidden
     }
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let backButton = UIButton(type: .system)
     private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
@@ -251,7 +251,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
         searchField.borderStyle = .none
-        searchField.backgroundColor = UIColor(white: 0.13, alpha: 0.96)
+        searchField.backgroundColor = .tertiarySystemFill
         searchField.layer.cornerRadius = 18
         searchField.layer.cornerCurve = .continuous
         searchField.clipsToBounds = true
