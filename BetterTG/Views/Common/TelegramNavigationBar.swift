@@ -192,6 +192,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.textColor = found == false ? .systemRed : .label
     }
 
+    func setBackButtonHidden(_ hidden: Bool) {
+        backButton.isHidden = hidden
+    }
+
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let backButton = UIButton(type: .system)
     private let titleControl = TelegramNavigationTitleControl()
@@ -324,7 +328,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         beginSearch()
     }
 
-    @objc private func beginSearch() {
+    @objc func beginSearch() {
         guard !searchActive else { return }
         searchActive = true
         searchField.isHidden = false

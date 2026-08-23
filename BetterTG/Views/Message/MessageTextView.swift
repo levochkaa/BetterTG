@@ -11,7 +11,10 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         backgroundColor = .clear
         isScrollEnabled = false
         isEditable = false
-        isSelectable = true
+        // Telegram owns long-press handling at the message level. Links stay
+        // tappable through our recognizer without installing UITextView's
+        // selection/link context menus.
+        isSelectable = false
         textContainerInset = .zero
         self.textContainer.lineFragmentPadding = 0
         self.textContainer.lineBreakMode = .byWordWrapping
@@ -24,11 +27,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.isUserInteractionEnabled = false
         addSubview(statusLabel)
 
-        // Keep links tappable, but let the cell's custom context-menu gesture own long presses.
-        gestureRecognizers?
-            .compactMap { $0 as? UILongPressGestureRecognizer }
-            .forEach { $0.isEnabled = false }
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleCodeTap(_:))))
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleEntityTap(_:))))
     }
 
     @available(*, unavailable)
@@ -117,7 +116,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         textView.selectedTextRange = nil
     }
 
-    @objc private func handleCodeTap(_ gesture: UITapGestureRecognizer) {
+    @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, let formattedText else { return }
         let point = gesture.location(in: self)
         var fraction = CGFloat.zero
@@ -131,15 +130,29 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             guard range.contains(index) else { continue }
             switch entity.type {
             case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
-                let stringRange = stringRange(
-                    for: formattedText.text,
-                    start: entity.offset,
-                    length: entity.length,
-                )
-                UIPasteboard.setPlainText(String(formattedText.text[stringRange]))
+                UIPasteboard.setPlainText(rawText(for: entity, in: formattedText.text))
+            case .textEntityTypeUrl:
+                open(getUrl(from: rawText(for: entity, in: formattedText.text)))
+            case .textEntityTypeTextUrl(let textUrl):
+                open(getUrl(from: textUrl.url))
+            case .textEntityTypeEmailAddress:
+                open(URL(string: "mailto:\(rawText(for: entity, in: formattedText.text))"))
+            case .textEntityTypePhoneNumber:
+                open(URL(string: "tel:\(rawText(for: entity, in: formattedText.text))"))
             default:
                 break
             }
+            return
         }
+    }
+
+    private func rawText(for entity: TextEntity, in text: String) -> String {
+        let range = stringRange(for: text, start: entity.offset, length: entity.length)
+        return String(text[range])
+    }
+
+    private func open(_ url: URL?) {
+        guard let url else { return }
+        UIApplication.shared.open(url)
     }
 }

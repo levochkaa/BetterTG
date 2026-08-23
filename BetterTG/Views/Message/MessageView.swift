@@ -6,7 +6,7 @@ import UIKit
 final class MessageCell: UICollectionViewCell {
     static let reuseIdentifier = "MessageCell"
 
-    var contextPreviewView: UIView { bubbleView }
+    var contextPreviewView: UIView { bubbleContainerView }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -41,7 +41,8 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private let rowStack = UIStackView()
-    private let bubbleView = UIView()
+    private let bubbleContainerView = TelegramContextMenuExtractableView()
+    private var bubbleView: UIView { bubbleContainerView.extractedContentView }
     private let bubbleStack = UIStackView()
     private let avatarView = ProfileAvatarView()
     private let forwardedLabel = UILabel()
@@ -161,7 +162,7 @@ final class MessageCell: UICollectionViewCell {
         bubbleStack.alignment = .fill
         bubbleStack.spacing = 2
         bubbleView.addSubview(bubbleStack)
-        rowStack.addArrangedSubview(bubbleView)
+        rowStack.addArrangedSubview(bubbleContainerView)
         rowStack.addArrangedSubview(trailingSpacer)
 
         forwardedLabel.textColor = .secondaryLabel
@@ -196,7 +197,10 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private func configureConstraints() {
-        let maxBubbleWidth = bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.82)
+        let maxBubbleWidth = bubbleContainerView.widthAnchor.constraint(
+            lessThanOrEqualTo: contentView.widthAnchor,
+            multiplier: 0.82
+        )
         maxBubbleWidth.priority = .required
         NSLayoutConstraint.activate([
             rowStack.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -218,17 +222,17 @@ final class MessageCell: UICollectionViewCell {
         }
         if outgoing {
             rowStack.addArrangedSubview(leadingSpacer)
-            rowStack.addArrangedSubview(bubbleView)
+            rowStack.addArrangedSubview(bubbleContainerView)
             leadingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            bubbleView.setContentHuggingPriority(.required, for: .horizontal)
+            bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
         } else {
             if showsAvatar {
                 rowStack.addArrangedSubview(avatarView)
             }
-            rowStack.addArrangedSubview(bubbleView)
+            rowStack.addArrangedSubview(bubbleContainerView)
             rowStack.addArrangedSubview(trailingSpacer)
             trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            bubbleView.setContentHuggingPriority(.required, for: .horizontal)
+            bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
         }
     }
 }

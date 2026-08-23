@@ -9,9 +9,10 @@ import UIKit
 @MainActor final class ChatVM: ObservableObject {
     // MARK: Lifecycle
 
-    init(customChat: CustomChat) {
+    init(customChat: CustomChat, previewing: Bool = false) {
         self.customChat = customChat
         self.chatID = customChat.id
+        self.previewing = previewing
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
@@ -20,15 +21,18 @@ import UIKit
         try? td.openChat(chatId: customChat.chat.id) { _ in }
         setPublishers()
         loadMessages()
-        Media.shared.onChatOpen(title: customChat.chat.title)
+        if !previewing {
+            Media.shared.onChatOpen(title: customChat.chat.title)
+        }
         
-        if let draftMessage = customChat.draftMessage,
+        if !previewing,
+           let draftMessage = customChat.draftMessage,
            case .draftMessageContentText(let draftMessageContentText) = draftMessage.content
         {
             self.text = getAttributedString(from: draftMessageContentText.text)
         }
         
-        let draftMessage = customChat.draftMessage
+        let draftMessage = previewing ? nil : customChat.draftMessage
         Task { [weak self] in
             guard let self, let draftMessage else { return }
             let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
@@ -43,7 +47,9 @@ import UIKit
         timer?.invalidate()
         audioRecorder?.stop()
         try? td.closeChat(chatId: chatID) { _ in }
-        Media.shared.onChatDismiss()
+        if !previewing {
+            Media.shared.onChatDismiss()
+        }
     }
     
     // MARK: Internal
@@ -52,6 +58,7 @@ import UIKit
 
     let customChat: CustomChat
     nonisolated let chatID: Int64
+    private let previewing: Bool
 
     @Published var actionStatus = ""
     @Published var onlineStatus = ""

@@ -124,33 +124,33 @@ final class ChatListCell: UITableViewCell {
 
 // MARK: - ProfileAvatarView
 
-final class ProfileAvatarView: UIView {
+final class ProfileAvatarView: TelegramContextMenuExtractableView {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        clipsToBounds = true
+        extractedContentView.clipsToBounds = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.contentMode = .scaleAspectFill
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
         label.textColor = .white
         label.font = .preferredFont(forTextStyle: .title2)
-        addSubview(label)
-        addSubview(imageView)
+        extractedContentView.addSubview(label)
+        extractedContentView.addSubview(imageView)
         isUserInteractionEnabled = true
         let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
         longPressGesture.minimumPressDuration = 0.3
         addGestureRecognizer(longPressGesture)
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            label.topAnchor.constraint(equalTo: topAnchor),
-            label.leadingAnchor.constraint(equalTo: leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor),
+            imageView.topAnchor.constraint(equalTo: extractedContentView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: extractedContentView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: extractedContentView.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: extractedContentView.bottomAnchor),
+            label.topAnchor.constraint(equalTo: extractedContentView.topAnchor),
+            label.leadingAnchor.constraint(equalTo: extractedContentView.leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: extractedContentView.trailingAnchor),
+            label.bottomAnchor.constraint(equalTo: extractedContentView.bottomAnchor),
         ])
     }
 
@@ -162,12 +162,13 @@ final class ProfileAvatarView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.cornerRadius = bounds.width / 2
+        guard extractedContentView.superview === self else { return }
+        extractedContentView.layer.cornerRadius = bounds.width / 2
     }
 
     func configure(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
         label.text = String(title.prefix(1)).uppercased()
-        backgroundColor = UIColor(userID: id)
+        extractedContentView.backgroundColor = UIColor(userID: id)
         let thumbnailData = minithumbnail?.data
         guard representedFile != file || representedMinithumbnailData != thumbnailData else { return }
         imageView.cancel()
@@ -196,8 +197,19 @@ final class ProfileAvatarView: UIView {
     private var representedMinithumbnailData: Data?
 
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, representedFile != nil, imageView.image != nil else { return }
-        nearestViewController?.presentTelegramContextMenu(sourceView: self, actions: [
+        guard gesture.state == .began, let hostController = nearestViewController else { return }
+        let chatController = hostController as? ChatViewController
+        hostController.presentTelegramContextMenu(sourceView: self, actions: [
+            TelegramContextMenuAction(
+                title: "Open Profile",
+                image: UIImage(systemName: "person.crop.circle"),
+            ) {},
+            TelegramContextMenuAction(
+                title: "Search",
+                image: UIImage(systemName: "magnifyingglass"),
+            ) { [weak chatController] in
+                chatController?.beginMessageSearch()
+            },
             TelegramContextMenuAction(
                 title: "Save Photo",
                 image: UIImage(systemName: "square.and.arrow.down"),
@@ -205,6 +217,6 @@ final class ProfileAvatarView: UIView {
                 guard let image = self?.imageView.image else { return }
                 UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
             },
-        ], tracking: gesture)
+        ], tracking: gesture, presentationStyle: .avatar)
     }
 }

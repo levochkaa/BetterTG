@@ -25,8 +25,68 @@ struct TelegramContextMenuAction {
 }
 
 enum TelegramContextMenuPresentationStyle: Equatable {
-    case extracted
+    case message
+    case avatar
+    case chatPreview
     case menuOnly
+}
+
+/// Keeps an extracted view's layout slot occupied while the real content is
+/// temporarily hosted by the context-menu overlay, mirroring Telegram's
+/// takeView/putBack contract.
+class TelegramContextMenuExtractableView: UIView {
+    let extractedContentView = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        extractedContentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(extractedContentView)
+        installContentConstraints()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    fileprivate func takeContextMenuContent() -> UIView? {
+        guard extractedContentView.superview === self else { return nil }
+        layoutIfNeeded()
+        placeholderConstraints = [
+            widthAnchor.constraint(equalToConstant: bounds.width),
+            heightAnchor.constraint(equalToConstant: bounds.height),
+        ]
+        NSLayoutConstraint.activate(placeholderConstraints)
+        NSLayoutConstraint.deactivate(contentConstraints)
+        extractedContentView.removeFromSuperview()
+        extractedContentView.translatesAutoresizingMaskIntoConstraints = true
+        return extractedContentView
+    }
+
+    fileprivate func putBackContextMenuContent(_ content: UIView) {
+        guard content === extractedContentView else { return }
+        content.removeFromSuperview()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        installContentConstraints()
+        setNeedsLayout()
+        layoutIfNeeded()
+        NSLayoutConstraint.deactivate(placeholderConstraints)
+        placeholderConstraints.removeAll()
+    }
+
+    private var contentConstraints = [NSLayoutConstraint]()
+    private var placeholderConstraints = [NSLayoutConstraint]()
+
+    private func installContentConstraints() {
+        contentConstraints = [
+            extractedContentView.topAnchor.constraint(equalTo: topAnchor),
+            extractedContentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            extractedContentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            extractedContentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(contentConstraints)
+    }
 }
 
 extension UIViewController {
@@ -37,19 +97,24 @@ extension UIViewController {
         tracking gesture: UIGestureRecognizer? = nil,
         sourceBaseTransform: CGAffineTransform? = nil,
         performsInitialFeedback: Bool = true,
-        presentationStyle: TelegramContextMenuPresentationStyle = .extracted,
+        presentationStyle: TelegramContextMenuPresentationStyle = .message,
+        previewController: UIViewController? = nil,
     ) -> Bool {
-        guard !actions.isEmpty, presentedViewController == nil else { return false }
+        guard !actions.isEmpty,
+              TelegramContextMenuController.activeController == nil,
+              let windowScene = sourceView.window?.windowScene
+        else { return false }
         let controller = TelegramContextMenuController(
             sourceView: sourceView,
             actions: actions,
             trackingGesture: gesture,
             sourceTransform: sourceBaseTransform ?? sourceView.transform,
             presentationStyle: presentationStyle,
+            previewController: previewController,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
-            if presentationStyle == .extracted {
+            if presentationStyle != .menuOnly {
                 UIView.animate(
                     withDuration: 0.12,
                     delay: 0,
@@ -59,27 +124,29 @@ extension UIViewController {
                 }
             }
         }
-        present(controller, animated: false)
+        controller.show(in: windowScene)
         return true
     }
 }
 
 private final class TelegramContextMenuController: UIViewController {
+    fileprivate static weak var activeController: TelegramContextMenuController?
+
     init(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
         trackingGesture: UIGestureRecognizer?,
         sourceTransform: CGAffineTransform,
         presentationStyle: TelegramContextMenuPresentationStyle,
+        previewController: UIViewController?,
     ) {
         self.sourceView = sourceView
         self.sourceTransform = sourceTransform
         self.actions = actions
         self.trackingGesture = trackingGesture
         self.presentationStyle = presentationStyle
+        self.previewController = previewController
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overFullScreen
-        modalPresentationCapturesStatusBarAppearance = true
         trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
@@ -97,11 +164,6 @@ private final class TelegramContextMenuController: UIViewController {
         configureViews()
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        animateIn()
-    }
-
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutPreviewAndMenu()
@@ -110,6 +172,7 @@ private final class TelegramContextMenuController: UIViewController {
     private weak var sourceView: UIView?
     private let sourceTransform: CGAffineTransform
     private let presentationStyle: TelegramContextMenuPresentationStyle
+    private let previewController: UIViewController?
     private weak var trackingGesture: UIGestureRecognizer?
     private let actions: [TelegramContextMenuAction]
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
@@ -123,10 +186,31 @@ private final class TelegramContextMenuController: UIViewController {
     private let menuStack = UIStackView()
     private let selectionHighlightView = UIView()
     private var previewView: UIView?
+    private weak var extractedSource: TelegramContextMenuExtractableView?
+    private var sourceFrame = CGRect.zero
+    private var targetPreviewFrame = CGRect.zero
+    private var targetMenuFrame = CGRect.zero
+    private var originalContentCornerRadius = CGFloat.zero
+    private var overlayWindow: UIWindow?
     private var actionButtons = [TelegramContextMenuActionButton]()
     private weak var trackedButton: TelegramContextMenuActionButton?
     private var hasAnimatedIn = false
     private var isPerformingAction = false
+
+    fileprivate func show(in windowScene: UIWindowScene) {
+        let overlayWindow = UIWindow(windowScene: windowScene)
+        overlayWindow.frame = windowScene.screen.bounds
+        overlayWindow.windowLevel = .alert + 2
+        overlayWindow.backgroundColor = .clear
+        overlayWindow.rootViewController = self
+        self.overlayWindow = overlayWindow
+        Self.activeController = self
+        overlayWindow.isHidden = false
+        loadViewIfNeeded()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        animateIn()
+    }
 
     private func configureViews() {
         view.backgroundColor = .clear
@@ -137,9 +221,9 @@ private final class TelegramContextMenuController: UIViewController {
 
         dimView.frame = view.bounds
         dimView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        dimView.backgroundColor = presentationStyle == .extracted
-            ? UIColor.black.withAlphaComponent(0.18)
-            : .clear
+        dimView.backgroundColor = presentationStyle == .menuOnly
+            ? .clear
+            : UIColor.black.withAlphaComponent(0.18)
         dimView.alpha = 0
         dimView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dismissMenu)))
         view.addSubview(dimView)
@@ -148,17 +232,35 @@ private final class TelegramContextMenuController: UIViewController {
         previewContainer.layer.shadowOpacity = 0.24
         previewContainer.layer.shadowRadius = 24
         previewContainer.layer.shadowOffset = CGSize(width: 0, height: 10)
-        previewContainer.alpha = 0
+        previewContainer.clipsToBounds = presentationStyle == .chatPreview
+        previewContainer.layer.cornerCurve = .continuous
+        previewContainer.layer.cornerRadius = presentationStyle == .chatPreview ? 24 : 0
         view.addSubview(previewContainer)
 
-        if presentationStyle == .extracted,
-           let sourceView,
-           let snapshot = sourceView.snapshotView(afterScreenUpdates: false)
-        {
-            snapshot.frame = previewContainer.bounds
-            snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            previewContainer.addSubview(snapshot)
-            previewView = snapshot
+        if let previewController {
+            addChild(previewController)
+            previewController.view.frame = previewContainer.bounds
+            previewController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            previewContainer.addSubview(previewController.view)
+            previewController.didMove(toParent: self)
+            previewView = previewController.view
+            sourceView?.alpha = 0
+        } else if presentationStyle != .menuOnly, let sourceView {
+            let extractedView: UIView?
+            if let source = sourceView as? TelegramContextMenuExtractableView {
+                extractedSource = source
+                extractedView = source.takeContextMenuContent()
+            } else {
+                extractedView = sourceView.snapshotView(afterScreenUpdates: false)
+                sourceView.alpha = 0
+            }
+            if let extractedView {
+                originalContentCornerRadius = extractedView.layer.cornerRadius
+                extractedView.frame = previewContainer.bounds
+                extractedView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                previewContainer.addSubview(extractedView)
+                previewView = extractedView
+            }
         }
 
         menuEffectView.layer.cornerRadius = 26
@@ -203,43 +305,107 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func layoutPreviewAndMenu() {
-        guard let sourceView, let window = sourceView.window else { return }
-        let sourceFrameInWindow = sourceView.convert(sourceView.bounds, to: window)
-        let sourceFrame = window.convert(sourceFrameInWindow, to: view)
+        guard let sourceView else { return }
+        sourceFrame = view.convert(sourceView.convert(sourceView.bounds, to: nil), from: nil)
         let horizontalInset: CGFloat = 12
         let verticalInset = max(view.safeAreaInsets.top, CGFloat(12))
         let availableWidth = view.bounds.width - horizontalInset * 2
-        let previewWidth = min(sourceFrame.width, availableWidth)
-        let previewX = min(max(horizontalInset, sourceFrame.minX), view.bounds.width - horizontalInset - previewWidth)
-        let previewHeight = min(sourceFrame.height, view.bounds.height * 0.45)
-        let previewY = min(max(verticalInset, sourceFrame.midY - previewHeight / 2), view.bounds.height - verticalInset - previewHeight)
-        previewContainer.frame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
-        previewView?.frame = previewContainer.bounds
-
         let separatorHeight = actions.dropFirst().reduce(CGFloat.zero) {
             $0 + ($1.startsNewSection ? 9 : 0)
         }
         let menuHeight = CGFloat(actions.count) * 52 + separatorHeight
         let menuWidth = min(CGFloat(260), availableWidth)
-        let menuX = sourceFrame.midX > view.bounds.midX
-            ? view.bounds.width - horizontalInset - menuWidth
-            : horizontalInset
-        let anchorFrame = presentationStyle == .menuOnly ? sourceFrame : previewContainer.frame
-        let spacing: CGFloat = presentationStyle == .menuOnly ? 4 : 10
-        let belowY = anchorFrame.maxY + spacing
-        let maximumY = view.bounds.height - max(view.safeAreaInsets.bottom, CGFloat(12)) - menuHeight
-        let menuY = belowY <= maximumY
-            ? belowY
-            : max(verticalInset, anchorFrame.minY - spacing - menuHeight)
-        menuEffectView.frame = CGRect(x: menuX, y: menuY, width: menuWidth, height: menuHeight)
+        let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
+        let maximumBottom = view.bounds.height - bottomInset
+
+        switch presentationStyle {
+        case .message:
+            let spacing: CGFloat = 10
+            let maximumPreviewHeight = max(44, maximumBottom - verticalInset - menuHeight - spacing)
+            let previewHeight = min(sourceFrame.height, maximumPreviewHeight)
+            let previewWidth = min(sourceFrame.width, availableWidth)
+            let previewX = min(max(horizontalInset, sourceFrame.minX), view.bounds.width - horizontalInset - previewWidth)
+            let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
+            let previewY = min(max(verticalInset, sourceFrame.minY), maximumPreviewY)
+            targetPreviewFrame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
+            let menuX = sourceFrame.midX > view.bounds.midX
+                ? view.bounds.width - horizontalInset - menuWidth
+                : horizontalInset
+            targetMenuFrame = CGRect(
+                x: menuX,
+                y: targetPreviewFrame.maxY + spacing,
+                width: menuWidth,
+                height: menuHeight
+            )
+        case .avatar:
+            let spacing: CGFloat = 10
+            let squareSize = min(
+                view.bounds.width - 32,
+                maximumBottom - verticalInset - menuHeight - spacing
+            )
+            let centeredY = view.bounds.midY - squareSize / 2
+            let previewY = min(
+                max(verticalInset, centeredY),
+                maximumBottom - menuHeight - spacing - squareSize
+            )
+            targetPreviewFrame = CGRect(
+                x: (view.bounds.width - squareSize) / 2,
+                y: previewY,
+                width: squareSize,
+                height: squareSize
+            )
+            targetMenuFrame = CGRect(
+                x: view.bounds.width - horizontalInset - menuWidth,
+                y: targetPreviewFrame.maxY + spacing,
+                width: menuWidth,
+                height: menuHeight
+            )
+        case .chatPreview:
+            let spacing: CGFloat = 10
+            let preferredHeight = view.bounds.height * 0.48
+            let previewHeight = min(
+                preferredHeight,
+                maximumBottom - verticalInset - menuHeight - spacing
+            )
+            targetPreviewFrame = CGRect(
+                x: horizontalInset,
+                y: verticalInset,
+                width: availableWidth,
+                height: max(220, previewHeight)
+            )
+            targetMenuFrame = CGRect(
+                x: view.bounds.width - horizontalInset - menuWidth,
+                y: targetPreviewFrame.maxY + spacing,
+                width: menuWidth,
+                height: menuHeight
+            )
+        case .menuOnly:
+            targetPreviewFrame = .zero
+            let menuX = min(
+                max(horizontalInset, sourceFrame.midX - menuWidth / 2),
+                view.bounds.width - horizontalInset - menuWidth
+            )
+            targetMenuFrame = CGRect(
+                x: menuX,
+                y: max(verticalInset, sourceFrame.minY - 4 - menuHeight),
+                width: menuWidth,
+                height: menuHeight
+            )
+        }
+
+        if hasAnimatedIn {
+            previewContainer.frame = targetPreviewFrame
+            menuEffectView.frame = targetMenuFrame
+        } else {
+            previewContainer.frame = presentationStyle == .menuOnly ? .zero : sourceFrame
+            menuEffectView.frame = targetMenuFrame
+        }
+        previewView?.frame = previewContainer.bounds
     }
 
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
-        if presentationStyle == .extracted {
-            previewContainer.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
-        }
         menuEffectView.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
         UIView.animate(
             withDuration: 0.34,
@@ -248,13 +414,16 @@ private final class TelegramContextMenuController: UIViewController {
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            if self.presentationStyle == .extracted {
+            if self.presentationStyle != .menuOnly {
                 self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
             }
             self.dimView.alpha = 1
-            if self.presentationStyle == .extracted {
-                self.previewContainer.alpha = 1
-                self.previewContainer.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+            if self.presentationStyle != .menuOnly {
+                self.previewContainer.frame = self.targetPreviewFrame
+                if self.presentationStyle == .avatar {
+                    self.previewView?.layer.cornerRadius = 28
+                    self.previewView?.layer.cornerCurve = .continuous
+                }
             }
             self.menuEffectView.alpha = 1
             self.menuEffectView.transform = .identity
@@ -262,32 +431,35 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func dismissMenu(completion: (() -> Void)? = nil) {
+        let returnFrame = sourceView.map { view.convert($0.convert($0.bounds, to: nil), from: nil) } ?? sourceFrame
         UIView.animate(
-            withDuration: 0.18,
+            withDuration: 0.24,
             delay: 0,
             options: [.curveEaseIn, .beginFromCurrentState],
         ) {
             self.backgroundEffectView.effect = nil
             self.dimView.alpha = 0
-            self.previewContainer.alpha = 0
-            self.previewContainer.transform = CGAffineTransform(scaleX: 0.97, y: 0.97)
+            if self.presentationStyle != .menuOnly {
+                self.previewContainer.frame = returnFrame
+                self.previewView?.layer.cornerRadius = self.originalContentCornerRadius
+            }
             self.menuEffectView.alpha = 0
             self.menuEffectView.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
         } completion: { _ in
-            self.dismiss(animated: false) {
-                if let sourceView = self.sourceView {
-                    UIView.animate(
-                        withDuration: 0.2,
-                        delay: 0,
-                        usingSpringWithDamping: 0.86,
-                        initialSpringVelocity: 0,
-                        options: [.allowUserInteraction, .beginFromCurrentState],
-                    ) {
-                        sourceView.transform = self.sourceTransform
-                    }
-                }
-                completion?()
+            if let previewView = self.previewView, let extractedSource = self.extractedSource {
+                extractedSource.putBackContextMenuContent(previewView)
             }
+            self.previewController?.willMove(toParent: nil)
+            self.previewController?.view.removeFromSuperview()
+            self.previewController?.removeFromParent()
+            self.sourceView?.alpha = 1
+            self.sourceView?.transform = self.sourceTransform
+            let window = self.overlayWindow
+            self.overlayWindow = nil
+            window?.isHidden = true
+            window?.rootViewController = nil
+            Self.activeController = nil
+            completion?()
         }
     }
 

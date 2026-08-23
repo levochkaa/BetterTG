@@ -9,10 +9,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
     UIGestureRecognizerDelegate
 {
+    enum PresentationMode {
+        case full
+        case contextPreview
+    }
+
     // MARK: Lifecycle
 
-    init(customChat: CustomChat) {
-        self.chatVM = ChatVM(customChat: customChat)
+    init(customChat: CustomChat, presentationMode: PresentationMode = .full) {
+        self.presentationMode = presentationMode
+        self.chatVM = ChatVM(customChat: customChat, previewing: presentationMode == .contextPreview)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -38,19 +44,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        guard presentationMode == .full else { return }
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         Task { [chatVM] in await chatVM.updateDraft() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationController?.setNavigationBarHidden(true, animated: animated)
+        if presentationMode == .full {
+            navigationController?.setNavigationBarHidden(true, animated: animated)
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-keyboard") else { return }
+        guard presentationMode == .full,
+              ProcessInfo.processInfo.arguments.contains("-ui-smoke-keyboard")
+        else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.composerView.focusInput()
         }
@@ -59,7 +70,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if chatVM.customChat.canPostMessages {
+        if showsComposer {
             let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
                 < view.bounds.maxY - view.safeAreaInsets.bottom - 1
             composerView.setKeyboardAttached(keyboardAttached)
@@ -106,7 +117,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
-        chatVM.viewMessage(id: messageID)
+        if presentationMode == .full {
+            chatVM.viewMessage(id: messageID)
+        }
         if indexPath.item >= max(chatVM.messages.count - 5, 0) {
             chatVM.loadMessages()
         }
@@ -139,6 +152,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case messages
     }
 
+    private let presentationMode: PresentationMode
     private let chatVM: ChatVM
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -163,6 +177,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var composerBottomConstraint: NSLayoutConstraint?
     private var composerKeyboardAttached = false
 
+    private var showsComposer: Bool {
+        presentationMode == .full && chatVM.customChat.canPostMessages
+    }
+
     private func makeLayout() -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .fractionalWidth(1),
@@ -178,7 +196,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func configureNavigationBar() {
         customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
-        customNavigationBar.onBack = { NavigationStorage.shared.pop() }
+        customNavigationBar.onBack = presentationMode == .full ? { NavigationStorage.shared.pop() } : nil
         customNavigationBar.onSearchQueryChange = { [weak self] query in
             self?.searchMessages(query: query)
         }
@@ -192,6 +210,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 customNavigationBar.setSearchResultFound(nil)
             }
             view.setNeedsLayout()
+        }
+        if presentationMode == .contextPreview {
+            customNavigationBar.isUserInteractionEnabled = false
+            customNavigationBar.setBackButtonHidden(true)
         }
         view.addSubview(customNavigationBar)
         navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
@@ -215,7 +237,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .black
         collectionView.alwaysBounceVertical = true
-        collectionView.keyboardDismissMode = .interactive
+        collectionView.keyboardDismissMode = presentationMode == .full ? .interactive : .none
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.showsVerticalScrollIndicator = false
         collectionView.topEdgeEffect.isHidden = true
@@ -223,12 +245,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped))
-        tapGesture.cancelsTouchesInView = false
-        tapGesture.delegate = self
-        collectionView.addGestureRecognizer(tapGesture)
-        messageContextGesture.delegate = self
-        collectionView.addGestureRecognizer(messageContextGesture)
+        if presentationMode == .full {
+            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped))
+            tapGesture.cancelsTouchesInView = false
+            tapGesture.delegate = self
+            collectionView.addGestureRecognizer(tapGesture)
+            messageContextGesture.delegate = self
+            collectionView.addGestureRecognizer(messageContextGesture)
+        }
         historyContainerView.addSubview(collectionView)
         var constraints = [
             historyContainerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -240,7 +264,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             collectionView.trailingAnchor.constraint(equalTo: historyContainerView.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: historyContainerView.bottomAnchor),
         ]
-        if chatVM.customChat.canPostMessages {
+        if showsComposer {
             view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
@@ -258,9 +282,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 bottomConstraint,
             ])
         }
-        configureScrollToLatestButton(bottomAnchor: chatVM.customChat.canPostMessages
-            ? composerView.topAnchor
-            : view.safeAreaLayoutGuide.bottomAnchor)
+        if presentationMode == .full {
+            configureScrollToLatestButton(bottomAnchor: showsComposer
+                ? composerView.topAnchor
+                : view.safeAreaLayoutGuide.bottomAnchor)
+        }
         NSLayoutConstraint.activate(constraints)
     }
 
@@ -346,8 +372,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 message: message,
                 chat: chatVM.customChat,
                 highlighted: chatVM.highlightedMessageId == messageID,
-                onReplyTap: { [weak self] id in self?.scrollToMessage(id: id) },
-                onMediaTap: { [weak self] messages, selection in self?.showMedia(messages, selection: selection) },
+                onReplyTap: { [weak self] id in
+                    guard self?.presentationMode == .full else { return }
+                    self?.scrollToMessage(id: id)
+                },
+                onMediaTap: { [weak self] messages, selection in
+                    guard self?.presentationMode == .full else { return }
+                    self?.showMedia(messages, selection: selection)
+                },
             )
             return cell
         }
@@ -486,7 +518,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 view.safeAreaInsets.bottom,
                 view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
             ) + 8
-        } else if chatVM.customChat.canPostMessages, composerView.frame.minY > 0 {
+        } else if showsComposer, composerView.frame.minY > 0 {
             visualBottomInset = max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
         } else {
             visualBottomInset = view.safeAreaInsets.bottom + 8
@@ -671,6 +703,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     @objc private func historyTapped() {
         view.endEditing(true)
+    }
+
+    func beginMessageSearch() {
+        guard presentationMode == .full else { return }
+        customNavigationBar.beginSearch()
     }
 
     func gestureRecognizer(
