@@ -554,15 +554,55 @@ final class FolderPickerView: UIView {
         let folder = folders[button.tag]
         nearestViewController?.presentTelegramContextMenu(
             sourceView: button,
-            actions: [
-                TelegramContextMenuAction(
-                    title: "Folder actions coming soon",
-                    image: UIImage(systemName: "ellipsis"),
-                ) {},
-            ],
+            actions: folderActions(for: folder),
             tracking: gesture,
+            presentationStyle: .menuOnly,
         )
         button.accessibilityHint = "Actions for \(folder.name)"
+    }
+
+    private func folderActions(for folder: CustomFolder) -> [TelegramContextMenuAction] {
+        if case .main = folder.type {
+            return [
+                TelegramContextMenuAction(
+                    title: "Edit Folders",
+                    image: UIImage(systemName: "square.and.pencil"),
+                ) {},
+                TelegramContextMenuAction(
+                    title: "Reorder Tabs",
+                    image: UIImage(systemName: "arrow.up.arrow.down"),
+                    startsNewSection: true,
+                ) {},
+            ]
+        }
+        return [
+            TelegramContextMenuAction(
+                title: "Edit Folder",
+                image: UIImage(systemName: "square.and.pencil"),
+            ) {},
+            TelegramContextMenuAction(
+                title: "Add Chats",
+                image: UIImage(systemName: "person.badge.plus"),
+            ) {},
+            TelegramContextMenuAction(
+                title: "Read All",
+                image: UIImage(systemName: "envelope.open"),
+            ) {},
+            TelegramContextMenuAction(
+                title: "Mute All",
+                image: UIImage(systemName: "bell.slash"),
+            ) {},
+            TelegramContextMenuAction(
+                title: "Remove",
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) {},
+            TelegramContextMenuAction(
+                title: "Reorder Tabs",
+                image: UIImage(systemName: "arrow.up.arrow.down"),
+                startsNewSection: true,
+            ) {},
+        ]
     }
 }
 

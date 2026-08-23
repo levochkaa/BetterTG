@@ -143,18 +143,11 @@ final class TelegramListNavigationBar: UIView {
         onVisibleHeightChange?(active ? Self.titleHeight : Self.expandedContentHeight - currentScrollOffset)
         onSearchActiveChange?(active)
 
-        let titleTranslation = -(safeAreaInsets.top + Self.titleHeight)
         UIView.animate(
             withDuration: 0.22,
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
         ) {
-            let titleTransform = active
-                ? CGAffineTransform(translationX: 0, y: titleTranslation)
-                : .identity
-            self.titleLabel.transform = titleTransform
-            self.leftButton.transform = titleTransform
-            self.rightButton.transform = titleTransform
             self.titleLabel.alpha = active ? 0 : 1
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
@@ -188,6 +181,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         statusLabel.text = status
         statusLabel.textColor = statusColor
         statusLabel.isHidden = status.isEmpty
+        titleControl.accessibilityLabel = status.isEmpty ? title : "\(title), \(status)"
     }
 
     func configureAvatar(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
@@ -200,6 +194,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let backButton = UIButton(type: .system)
+    private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
@@ -219,6 +214,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
         addSubview(backButton)
 
+        titleControl.translatesAutoresizingMaskIntoConstraints = false
+        titleControl.accessibilityHint = "Long press to search messages"
+        titleControl.accessibilityTraits = .button
+        titleControl.addGestureRecognizer(
+            UILongPressGestureRecognizer(target: self, action: #selector(titleLongPressed(_:))),
+        )
+        addSubview(titleControl)
+
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         titleStack.axis = .vertical
         titleStack.alignment = .center
@@ -226,16 +229,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.textColor = .label
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.accessibilityHint = "Long press to search messages"
         statusLabel.font = .preferredFont(forTextStyle: .caption1)
         statusLabel.textColor = .secondaryLabel
         titleStack.addArrangedSubview(titleLabel)
         titleStack.addArrangedSubview(statusLabel)
-        titleStack.isUserInteractionEnabled = true
-        titleStack.addGestureRecognizer(
-            UILongPressGestureRecognizer(target: self, action: #selector(titleLongPressed(_:))),
-        )
-        addSubview(titleStack)
+        titleStack.isUserInteractionEnabled = false
+        titleControl.highlightedContentView = titleStack
+        titleControl.addSubview(titleStack)
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(avatarView)
@@ -287,10 +287,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             avatarView.widthAnchor.constraint(equalToConstant: 34),
             avatarView.heightAnchor.constraint(equalToConstant: 34),
 
-            titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 4),
-            titleStack.trailingAnchor.constraint(lessThanOrEqualTo: avatarView.leadingAnchor, constant: -8),
-            titleStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            titleStack.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            titleControl.leadingAnchor.constraint(equalTo: backButton.trailingAnchor),
+            titleControl.trailingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            titleControl.topAnchor.constraint(equalTo: backButton.topAnchor),
+            titleControl.bottomAnchor.constraint(equalTo: backButton.bottomAnchor),
+            titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: titleControl.leadingAnchor, constant: 4),
+            titleStack.trailingAnchor.constraint(lessThanOrEqualTo: titleControl.trailingAnchor, constant: -8),
+            titleStack.centerXAnchor.constraint(equalTo: titleControl.centerXAnchor),
+            titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
 
             closeButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
             closeButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
@@ -329,10 +333,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         onSearchActiveChange?(true)
         searchField.becomeFirstResponder()
         UIView.animate(withDuration: 0.2) {
-            self.titleStack.alpha = 0
+            self.titleControl.alpha = 0
             self.avatarView.alpha = 0
             self.backButton.alpha = 0
-            self.backButton.transform = CGAffineTransform(translationX: -20, y: 0)
             self.searchField.alpha = 1
             self.closeButton.alpha = 1
         }
@@ -346,10 +349,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         onSearchQueryChange?("")
         onSearchActiveChange?(false)
         UIView.animate(withDuration: 0.2) {
-            self.titleStack.alpha = 1
+            self.titleControl.alpha = 1
             self.avatarView.alpha = 1
             self.backButton.alpha = 1
-            self.backButton.transform = .identity
             self.searchField.alpha = 0
             self.closeButton.alpha = 0
         } completion: { _ in
@@ -361,5 +363,41 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     @objc private func searchChanged() {
         searchField.textColor = .label
         onSearchQueryChange?(searchField.text ?? "")
+    }
+}
+
+private final class TelegramNavigationTitleControl: UIControl {
+    weak var highlightedContentView: UIView?
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        isHighlighted = true
+        return super.beginTracking(touch, with: event)
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        isHighlighted = bounds.contains(touch.location(in: self))
+        return super.continueTracking(touch, with: event)
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        isHighlighted = false
+        super.endTracking(touch, with: event)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        isHighlighted = false
+        super.cancelTracking(with: event)
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            UIView.animate(
+                withDuration: 0.16,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            ) {
+                self.highlightedContentView?.alpha = self.isHighlighted ? 0.2 : 1
+            }
+        }
     }
 }

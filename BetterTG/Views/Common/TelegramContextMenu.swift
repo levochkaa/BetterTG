@@ -24,6 +24,11 @@ struct TelegramContextMenuAction {
     }
 }
 
+enum TelegramContextMenuPresentationStyle: Equatable {
+    case extracted
+    case menuOnly
+}
+
 extension UIViewController {
     @discardableResult
     func presentTelegramContextMenu(
@@ -32,6 +37,7 @@ extension UIViewController {
         tracking gesture: UIGestureRecognizer? = nil,
         sourceBaseTransform: CGAffineTransform? = nil,
         performsInitialFeedback: Bool = true,
+        presentationStyle: TelegramContextMenuPresentationStyle = .extracted,
     ) -> Bool {
         guard !actions.isEmpty, presentedViewController == nil else { return false }
         let controller = TelegramContextMenuController(
@@ -39,15 +45,18 @@ extension UIViewController {
             actions: actions,
             trackingGesture: gesture,
             sourceTransform: sourceBaseTransform ?? sourceView.transform,
+            presentationStyle: presentationStyle,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
-            UIView.animate(
-                withDuration: 0.12,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-            ) {
-                sourceView.transform = sourceView.transform.scaledBy(x: 0.98, y: 0.98)
+            if presentationStyle == .extracted {
+                UIView.animate(
+                    withDuration: 0.12,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    sourceView.transform = sourceView.transform.scaledBy(x: 0.98, y: 0.98)
+                }
             }
         }
         present(controller, animated: false)
@@ -61,11 +70,13 @@ private final class TelegramContextMenuController: UIViewController {
         actions: [TelegramContextMenuAction],
         trackingGesture: UIGestureRecognizer?,
         sourceTransform: CGAffineTransform,
+        presentationStyle: TelegramContextMenuPresentationStyle,
     ) {
         self.sourceView = sourceView
         self.sourceTransform = sourceTransform
         self.actions = actions
         self.trackingGesture = trackingGesture
+        self.presentationStyle = presentationStyle
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
         modalPresentationCapturesStatusBarAppearance = true
@@ -98,6 +109,7 @@ private final class TelegramContextMenuController: UIViewController {
 
     private weak var sourceView: UIView?
     private let sourceTransform: CGAffineTransform
+    private let presentationStyle: TelegramContextMenuPresentationStyle
     private weak var trackingGesture: UIGestureRecognizer?
     private let actions: [TelegramContextMenuAction]
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
@@ -125,7 +137,9 @@ private final class TelegramContextMenuController: UIViewController {
 
         dimView.frame = view.bounds
         dimView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        dimView.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        dimView.backgroundColor = presentationStyle == .extracted
+            ? UIColor.black.withAlphaComponent(0.18)
+            : .clear
         dimView.alpha = 0
         dimView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dismissMenu)))
         view.addSubview(dimView)
@@ -137,7 +151,10 @@ private final class TelegramContextMenuController: UIViewController {
         previewContainer.alpha = 0
         view.addSubview(previewContainer)
 
-        if let sourceView, let snapshot = sourceView.snapshotView(afterScreenUpdates: false) {
+        if presentationStyle == .extracted,
+           let sourceView,
+           let snapshot = sourceView.snapshotView(afterScreenUpdates: false)
+        {
             snapshot.frame = previewContainer.bounds
             snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             previewContainer.addSubview(snapshot)
@@ -219,7 +236,9 @@ private final class TelegramContextMenuController: UIViewController {
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
-        previewContainer.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        if presentationStyle == .extracted {
+            previewContainer.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        }
         menuEffectView.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
         UIView.animate(
             withDuration: 0.34,
@@ -228,10 +247,14 @@ private final class TelegramContextMenuController: UIViewController {
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            if self.presentationStyle == .extracted {
+                self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            }
             self.dimView.alpha = 1
-            self.previewContainer.alpha = 1
-            self.previewContainer.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+            if self.presentationStyle == .extracted {
+                self.previewContainer.alpha = 1
+                self.previewContainer.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+            }
             self.menuEffectView.alpha = 1
             self.menuEffectView.transform = .identity
         }

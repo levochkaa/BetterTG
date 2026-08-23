@@ -30,10 +30,11 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
     func applyScroll(offset: CGFloat, animated: Bool = false) {
         requestedScrollOffset = min(max(0, offset), Self.scrollHeight)
-        let appliedOffset = isActive ? CGFloat.zero : requestedScrollOffset
+        guard !isActive else { return }
+        let appliedOffset = requestedScrollOffset
         let fraction = appliedOffset / Self.scrollHeight
         let fieldHeight = 36 * (1 - fraction)
-        let contentAlpha = min(1, max(0, (fieldHeight - 18) / 8))
+        let contentAlpha = min(1, max(0, (fieldHeight - 28) / 8))
         let capsuleAlpha = min(1, max(0, fieldHeight / 10))
         let changes = {
             self.searchHeightConstraint.constant = max(0.01, fieldHeight)
@@ -41,7 +42,6 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             self.searchField.alpha = capsuleAlpha
             self.lastContentAlpha = contentAlpha
             self.updateSearchContentAlpha(contentAlpha)
-            self.closeButton.alpha = self.isActive ? 1 : 0
             self.isUserInteractionEnabled = self.isActive || fieldHeight > 12
             self.layoutIfNeeded()
         }
@@ -96,6 +96,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         closeButton.tintColor = .secondaryLabel
         closeButton.accessibilityLabel = "Close Search"
         closeButton.alpha = 0
+        closeButton.transform = CGAffineTransform(translationX: 60, y: 0)
         closeButton.addTarget(self, action: #selector(closeSearch), for: .touchUpInside)
         addSubview(closeButton)
 
@@ -128,6 +129,8 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     }
 
     private func setActive(_ active: Bool) {
+        layoutIfNeeded()
+        onActiveChange?(active)
         closeWidthConstraint.constant = active ? 36 : 0
         if active {
             searchHeightConstraint.constant = 36
@@ -136,15 +139,16 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             lastContentAlpha = 1
             updateSearchContentAlpha(1)
             isUserInteractionEnabled = true
-            layoutIfNeeded()
         }
-        onActiveChange?(active)
         UIView.animate(
             withDuration: 0.22,
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
             self.closeButton.alpha = active ? 1 : 0
+            self.closeButton.transform = active
+                ? .identity
+                : CGAffineTransform(translationX: 60, y: 0)
             self.layoutIfNeeded()
         } completion: { _ in
             if !active {
