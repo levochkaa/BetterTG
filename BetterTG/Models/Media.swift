@@ -3,7 +3,6 @@
 import AVFoundation
 import Combine
 import MediaPlayer
-import MobileVLCKit
 
 final class Media: ObservableObject {
     // MARK: Internal
@@ -34,7 +33,6 @@ final class Media: ObservableObject {
         isPlaying = false
         currentTime = 0
         savedMediaPath = ""
-        player.media = nil
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
     }
@@ -44,19 +42,19 @@ final class Media: ObservableObject {
     }
 
     func onChatDismiss() {
-        player.stop()
+        stop()
     }
 
     func seekForward() {
-        player.jumpForward(5)
+        player.jump(by: 5)
     }
 
     func seekBackward() {
-        player.jumpBackward(5)
+        player.jump(by: -5)
     }
 
     func seek(to timeInterval: TimeInterval) {
-        guard player.media != nil else { return }
+        guard player.hasItem else { return }
         seekTo(max(0, min(TimeInterval(duration), timeInterval)))
     }
 
@@ -65,7 +63,7 @@ final class Media: ObservableObject {
         if savedMediaPath.isEmpty || savedMediaPath != path {
             stop()
             savedMediaPath = path
-            player.media = VLCMedia(path: path)
+            player.load(url: URL(fileURLWithPath: path), autoplay: false)
             play()
         } else {
             toggle()
@@ -88,24 +86,39 @@ final class Media: ObservableObject {
         }
     }
 
+    // MARK: Private
+
+    private var duration = 0
+    private var title = ""
+
+    private let player = LocalMediaPlayer()
+    private let audioSession = AVAudioSession.sharedInstance()
+    private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+    private let commandCenter = MPRemoteCommandCenter.shared()
+    private var cancellables = Set<AnyCancellable>()
+
     private func setPublishers() {
-        player
-            .publisher(for: \.time, options: [.new])
+        player.timePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }
-                currentTime = time.intValue / 1000
+                currentTime = Int32(time)
                 changeCurrentTime()
             }
             .store(in: &cancellables)
 
-        player
-            .publisher(for: \.state, options: [.new])
+        player.statePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
-                guard case .ended = state else { return }
-                stop()
+                switch state {
+                case .playing:
+                    isPlaying = true
+                case .ended, .failed:
+                    stop()
+                case .idle, .preparing, .buffering, .paused:
+                    isPlaying = false
+                }
             }
             .store(in: &cancellables)
     }
@@ -116,7 +129,7 @@ final class Media: ObservableObject {
 
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            if !savedMediaPath.isEmpty, player.media != nil, !isPlaying {
+            if !savedMediaPath.isEmpty, player.hasItem, !isPlaying {
                 DispatchQueue.main.async { self.play() }
                 return .success
             }
@@ -125,7 +138,7 @@ final class Media: ObservableObject {
 
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            if !savedMediaPath.isEmpty, player.media != nil, isPlaying {
+            if !savedMediaPath.isEmpty, player.hasItem, isPlaying {
                 DispatchQueue.main.async { self.pause() }
                 return .success
             }
@@ -134,7 +147,7 @@ final class Media: ObservableObject {
 
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            if !savedMediaPath.isEmpty, player.media != nil {
+            if !savedMediaPath.isEmpty, player.hasItem {
                 DispatchQueue.main.async { self.toggle() }
                 return .success
             }
@@ -152,7 +165,7 @@ final class Media: ObservableObject {
 
         commandCenter.skipForwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            if !savedMediaPath.isEmpty, player.media != nil {
+            if !savedMediaPath.isEmpty, player.hasItem {
                 DispatchQueue.main.async { self.seekForward() }
                 return .success
             }
@@ -161,7 +174,7 @@ final class Media: ObservableObject {
 
         commandCenter.skipBackwardCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            if !savedMediaPath.isEmpty, player.media != nil {
+            if !savedMediaPath.isEmpty, player.hasItem {
                 DispatchQueue.main.async { self.seekBackward() }
                 return .success
             }
@@ -207,9 +220,7 @@ final class Media: ObservableObject {
     }
 
     private func seekTo(_ timeInterval: TimeInterval) {
-        let number = NSNumber(floatLiteral: timeInterval * 1000)
-        let time = VLCTime(number: number)
-        player.time = time
+        player.seek(to: timeInterval)
     }
 
     private func setNowPlaying() {

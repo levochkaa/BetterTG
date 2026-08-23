@@ -26,11 +26,9 @@ settings:
     SWIFT_VERSION: "5.0"
     WATCHOS_DEPLOYMENT_TARGET: 9.0
 packages:
-  TDLibKitDynamic:
-    path: Packages/TDLibKitDynamic
-  MobileVLCKit:
-    url: https://github.com/levochkaa/MobileVLCKit
-    exactVersion: 3.7.3
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exactVersion: 1.5.2-tdlib-1.8.66-022d6020
 targets:
   BetterTG:
     type: application
@@ -42,11 +40,7 @@ targets:
           - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
-      - package: TDLibKitDynamic
-        embed: true
-      - package: MobileVLCKit
-      - target: BetterTGNotificationService
-        embed: true
+      - package: TDLibKit
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

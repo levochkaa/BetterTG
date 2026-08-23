@@ -1,8 +1,7 @@
 // ChatViewAlbum.swift
 
 import Combine
-import MobileVLCKit
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - MediaGalleryViewController
@@ -113,6 +112,27 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         ])
     }
 
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        selectedIndex = Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))
+        updateCounter()
+    }
+
+    func collectionView(
+        _: UICollectionView,
+        willDisplay cell: UICollectionViewCell,
+        forItemAt _: IndexPath,
+    ) {
+        (cell as? MediaGalleryCell)?.setPlaybackVisible(true)
+    }
+
+    func collectionView(
+        _: UICollectionView,
+        didEndDisplaying cell: UICollectionViewCell,
+        forItemAt _: IndexPath,
+    ) {
+        (cell as? MediaGalleryCell)?.setPlaybackVisible(false)
+    }
+
     private func updateCounter() {
         counterLabel.text = messages.count > 1 ? "\(selectedIndex + 1) of \(messages.count)" : ""
     }
@@ -208,6 +228,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 thumbnail: animation.animation.thumbnail,
                 minithumbnail: animation.animation.minithumbnail,
                 canPlay: true,
+                loops: true,
             )
             view = player
         case .messageVideo(let video):
@@ -217,6 +238,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 thumbnail: video.video.thumbnail,
                 minithumbnail: video.video.minithumbnail,
                 canPlay: true,
+                loops: false,
             )
             view = player
         case .messageSticker(let sticker):
@@ -226,6 +248,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 thumbnail: sticker.sticker.thumbnail,
                 minithumbnail: nil,
                 canPlay: sticker.sticker.format == .stickerFormatWebm,
+                loops: true,
             )
             view = player
         default:
@@ -241,12 +264,21 @@ final class MediaGalleryCell: UICollectionViewCell {
             view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        contentMediaView?.setPlaybackVisible(isVisible)
+    }
 }
 
 // MARK: - GalleryMediaView
 
 protocol GalleryMediaView: AnyObject {
     func prepareForReuse()
+    func setPlaybackVisible(_ isVisible: Bool)
+}
+
+extension GalleryMediaView {
+    func setPlaybackVisible(_: Bool) {}
 }
 
 // MARK: - ZoomableGalleryImageView
@@ -334,6 +366,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         preview.contentMode = .scaleAspectFit
         videoSurface.translatesAutoresizingMaskIntoConstraints = false
         videoSurface.backgroundColor = .black
+        player.attach(to: videoSurface.playerLayer)
         spinner.translatesAutoresizingMaskIntoConstraints = false
         addSubview(preview)
         addSubview(videoSurface)
@@ -356,11 +389,28 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: Internal
+    private let preview = TDImageLoadingView()
+    private let videoSurface = LocalVideoSurfaceView(frame: .zero)
+    private let spinner = UIActivityIndicatorView(style: .large)
+    private let player = LocalMediaPlayer()
+    private var fileID: Int?
+    private var task: Task<Void, Never>?
+    private var cancellable: AnyCancellable?
+    private var playbackCancellable: AnyCancellable?
+    private var isPlaybackVisible = false
+    private var loopsPlayback = false
+    private var loadedPath: String?
 
-    func configure(file: File, thumbnail: Thumbnail?, minithumbnail: Minithumbnail?, canPlay: Bool) {
+    func configure(
+        file: File,
+        thumbnail: Thumbnail?,
+        minithumbnail: Minithumbnail?,
+        canPlay: Bool,
+        loops: Bool,
+    ) {
         prepareForReuse()
         fileID = file.id
+        loopsPlayback = loops
         videoSurface.isHidden = true
         if let thumbnail {
             preview.load(file: thumbnail.file, placeholderData: minithumbnail?.data)
@@ -369,6 +419,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         }
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()
+        playbackCancellable = player.statePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in self?.render(state: state) }
         update(file: file)
         cancellable = nc.publisher(for: .updateFile)
             .receive(on: DispatchQueue.main)
@@ -389,11 +442,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
 
     func prepareForReuse() {
         player.stop()
-        player.media = nil
         task?.cancel()
         task = nil
         cancellable?.cancel()
         cancellable = nil
+        playbackCancellable?.cancel()
+        playbackCancellable = nil
         preview.cancel()
         spinner.stopAnimating()
         videoSurface.isHidden = true
@@ -401,14 +455,46 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
         }
         fileID = nil
+        isPlaybackVisible = false
+        loopsPlayback = false
+        loadedPath = nil
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        isPlaybackVisible = isVisible
+        if isVisible {
+            player.play()
+        } else {
+            player.pause()
+        }
     }
 
     private func update(file: File) {
-        guard file.id == fileID, file.local.isDownloadingCompleted else { return }
-        spinner.stopAnimating()
-        videoSurface.isHidden = false
-        player.drawable = videoSurface
-        player.media = VLCMedia(path: file.local.path)
-        player.play()
+        guard file.id == fileID,
+              file.local.isDownloadingCompleted,
+              loadedPath != file.local.path
+        else { return }
+        loadedPath = file.local.path
+        player.load(
+            url: URL(fileURLWithPath: file.local.path),
+            autoplay: isPlaybackVisible,
+            loops: loopsPlayback,
+        )
+    }
+
+    private func render(state: LocalMediaPlayer.State) {
+        switch state {
+        case .idle:
+            spinner.stopAnimating()
+            videoSurface.isHidden = true
+        case .preparing, .buffering:
+            spinner.startAnimating()
+        case .playing, .paused, .ended:
+            spinner.stopAnimating()
+            videoSurface.isHidden = false
+        case .failed:
+            spinner.stopAnimating()
+            videoSurface.isHidden = true
+        }
     }
 }
