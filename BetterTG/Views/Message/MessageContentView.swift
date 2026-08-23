@@ -67,6 +67,18 @@ final class MessageMediaView: UIView {
                         onTap: { onTap([message.message], message.id) },
                     )
                     view = stickerView
+                } else if sticker.sticker.format == .stickerFormatWebp {
+                    let stickerView = AnimatedWebPView()
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: sticker.sticker.width,
+                            height: sticker.sticker.height,
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = stickerView
                 } else {
                     let fileView = FileMediaPreviewView()
                     fileView.configure(
@@ -133,6 +145,7 @@ extension ReusableMediaView {
 }
 
 extension TGSStickerView: ReusableMediaView {}
+extension AnimatedWebPView: ReusableMediaView {}
 
 // MARK: - SinglePhotoView
 
@@ -537,20 +550,26 @@ final class TDImageLoadingView: UIImageView {
 // MARK: - TDMediaPrefetcher
 
 enum TDMediaPrefetcher {
+    private enum DecodeKind {
+        case none
+        case tgs
+        case webP
+    }
+
     static func prefetch(message: Message) async {
-        let files: [(id: Int, preloadsTGS: Bool)] =
+        let files: [(id: Int, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, false)] } ?? []
+                photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
             case .messageVoiceNote(let voice):
-                [(voice.voiceNote.voice.id, false)]
+                [(voice.voiceNote.voice.id, .none)]
             case .messageAnimation(let animation):
-                [(animation.animation.thumbnail?.file.id ?? animation.animation.animation.id, false)]
+                [(animation.animation.thumbnail?.file.id ?? animation.animation.animation.id, .none)]
             case .messageSticker(let sticker):
-                [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, false) }
-                    + [(sticker.sticker.sticker.id, sticker.sticker.format == .stickerFormatTgs)]
+                [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+                    + [(sticker.sticker.sticker.id, decodeKind(for: sticker.sticker.format))]
             case .messageVideo(let video):
-                [(video.video.thumbnail?.file.id ?? video.video.video.id, false)]
+                [(video.video.thumbnail?.file.id ?? video.video.video.id, .none)]
             default:
                 []
             }
@@ -561,18 +580,34 @@ enum TDMediaPrefetcher {
                     limit: 0,
                     offset: 0,
                     priority: 1,
-                    synchronous: false,
+                    synchronous: true,
                 )
             } onCancel: {
                 Task { try? await td.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
             }
-            if file.preloadsTGS,
-               let downloaded,
-               downloaded.local.isDownloadingCompleted,
-               !downloaded.local.path.isEmpty
-            {
+            guard let downloaded,
+                  downloaded.local.isDownloadingCompleted,
+                  !downloaded.local.path.isEmpty
+            else { continue }
+            switch file.decodeKind {
+            case .none:
+                break
+            case .tgs:
                 _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
+            case .webP:
+                _ = await AnimatedWebPRepository.asset(at: downloaded.local.path)
             }
+        }
+    }
+
+    private static func decodeKind(for format: StickerFormat) -> DecodeKind {
+        switch format {
+        case .stickerFormatTgs:
+            .tgs
+        case .stickerFormatWebp:
+            .webP
+        default:
+            .none
         }
     }
 }

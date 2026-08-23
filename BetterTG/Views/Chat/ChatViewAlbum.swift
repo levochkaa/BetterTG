@@ -251,6 +251,15 @@ final class MediaGalleryCell: UICollectionViewCell {
                     onTap: nil,
                 )
                 view = stickerView
+            } else if sticker.sticker.format == .stickerFormatWebp {
+                let stickerView = AnimatedWebPView(frame: .zero)
+                stickerView.configure(
+                    file: sticker.sticker.sticker,
+                    thumbnail: sticker.sticker.thumbnail,
+                    displaySize: nil,
+                    onTap: nil,
+                )
+                view = stickerView
             } else {
                 let player = GalleryFilePlayerView()
                 player.configure(
@@ -294,6 +303,7 @@ extension GalleryMediaView {
 }
 
 extension TGSStickerView: GalleryMediaView {}
+extension AnimatedWebPView: GalleryMediaView {}
 
 final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, GalleryMediaView {
     // MARK: Private

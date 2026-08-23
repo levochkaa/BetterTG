@@ -29,6 +29,9 @@ packages:
   Lottie:
     url: https://github.com/airbnb/lottie-ios.git
     exactVersion: 4.6.1
+  libwebp:
+    url: https://github.com/SDWebImage/libwebp-Xcode.git
+    exactVersion: 1.6.0
   TDLibKit:
     url: https://github.com/Swiftgram/TDLibKit
     exactVersion: 1.5.2-tdlib-1.8.66-022d6020
@@ -45,6 +48,7 @@ targets:
     dependencies:
       - package: Lottie
       - package: TDLibKit
+      - package: libwebp
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
