@@ -230,12 +230,21 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let targetTopInset = active
             ? TelegramListNavigationBar.titleHeight
             : TelegramListNavigationBar.expandedContentHeight
-        tableView.contentInset.top = targetTopInset
-        tableView.verticalScrollIndicatorInsets.top = targetTopInset
-        tableView.layoutIfNeeded()
-        tableView.setContentOffset(
-            CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
-            animated: animated,
+        let changes = {
+            self.tableView.contentInset.top = targetTopInset
+            self.tableView.verticalScrollIndicatorInsets.top = targetTopInset
+            self.tableView.layoutIfNeeded()
+            self.tableView.contentOffset = CGPoint(x: 0, y: -self.tableView.adjustedContentInset.top)
+        }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+            animations: changes,
         )
     }
 

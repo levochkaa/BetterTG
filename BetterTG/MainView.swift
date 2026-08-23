@@ -436,17 +436,9 @@ final class FolderPickerView: UIView {
         guard let index = folders.firstIndex(where: { $0.id == selectedID }), buttons.indices.contains(index) else { return }
         layoutIfNeeded()
         let selectedFrame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
-        let lookahead: CGFloat = 40
-        let desiredMinX = selectedFrame.minX - lookahead
-        let desiredMaxX = selectedFrame.maxX + lookahead
-        var targetOffset = controlContainer.contentOffset.x
-        if desiredMinX < targetOffset {
-            targetOffset = desiredMinX
-        } else if desiredMaxX > targetOffset + controlContainer.bounds.width {
-            targetOffset = desiredMaxX - controlContainer.bounds.width
-        }
         let maximumOffset = max(0, controlContainer.contentSize.width - controlContainer.bounds.width)
-        targetOffset = min(max(0, targetOffset), maximumOffset)
+        let centeredOffset = selectedFrame.midX - controlContainer.bounds.width / 2
+        let targetOffset = min(max(0, centeredOffset), maximumOffset)
         controlContainer.setContentOffset(CGPoint(x: targetOffset, y: 0), animated: animated)
     }
 

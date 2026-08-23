@@ -508,6 +508,7 @@ final class TelegramContextGestureRecognizer: UIGestureRecognizer {
                 onPressingChanged?(true)
             }
             activated = true
+            cancelCompetingParentGestures()
             state = .began
         }
         activationWorkItem = activation
@@ -554,6 +555,22 @@ final class TelegramContextGestureRecognizer: UIGestureRecognizer {
     private var initialLocation: CGPoint?
     private var feedbackStarted = false
     private var activated = false
+
+    private func cancelCompetingParentGestures() {
+        var ancestor = view
+        while let currentView = ancestor {
+            for gesture in currentView.gestureRecognizers ?? [] where gesture !== self {
+                switch gesture.state {
+                case .possible, .began, .changed:
+                    gesture.isEnabled = false
+                    gesture.isEnabled = true
+                default:
+                    break
+                }
+            }
+            ancestor = currentView.superview
+        }
+    }
 
     private func cancelBeforeActivation() {
         feedbackWorkItem?.cancel()

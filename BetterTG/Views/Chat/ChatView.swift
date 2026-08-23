@@ -150,12 +150,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
     private let scrollToLatestButton = UIButton(type: .system)
-    private let scrollToLatestEffectView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        effect.tintColor = UIColor.white.withAlphaComponent(0.09)
-        return UIVisualEffectView(effect: effect)
-    }()
     private let unreadBadgeLabel = UILabel()
     private var scrollToLatestButtonVisible = false
     private var didPresentMicrophoneError = false
@@ -278,19 +272,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             forImageIn: .normal,
         )
         scrollToLatestButton.tintColor = .white
+        scrollToLatestButton.backgroundColor = UIColor(white: 0.14, alpha: 0.96)
         scrollToLatestButton.layer.cornerRadius = 18
         scrollToLatestButton.layer.borderWidth = 1 / view.traitCollection.displayScale
         scrollToLatestButton.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
+        scrollToLatestButton.layer.shadowColor = UIColor.black.cgColor
+        scrollToLatestButton.layer.shadowOpacity = 0.2
+        scrollToLatestButton.layer.shadowRadius = 7
+        scrollToLatestButton.layer.shadowOffset = CGSize(width: 0, height: 3)
         scrollToLatestButton.alpha = 0
         scrollToLatestButton.transform = CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
         scrollToLatestButton.accessibilityLabel = "Scroll to latest message"
         scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
 
-        scrollToLatestEffectView.translatesAutoresizingMaskIntoConstraints = false
-        scrollToLatestEffectView.isUserInteractionEnabled = false
-        scrollToLatestEffectView.cornerConfiguration = .capsule()
-        scrollToLatestEffectView.clipsToBounds = true
-        scrollToLatestButton.insertSubview(scrollToLatestEffectView, at: 0)
         unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         unreadBadgeLabel.backgroundColor = .systemBlue
         unreadBadgeLabel.textColor = .white
@@ -301,10 +295,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         scrollToLatestButton.addSubview(unreadBadgeLabel)
         view.addSubview(scrollToLatestButton)
         NSLayoutConstraint.activate([
-            scrollToLatestEffectView.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor),
-            scrollToLatestEffectView.leadingAnchor.constraint(equalTo: scrollToLatestButton.leadingAnchor),
-            scrollToLatestEffectView.trailingAnchor.constraint(equalTo: scrollToLatestButton.trailingAnchor),
-            scrollToLatestEffectView.bottomAnchor.constraint(equalTo: scrollToLatestButton.bottomAnchor),
             scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
             scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             scrollToLatestButton.widthAnchor.constraint(equalToConstant: 36),
@@ -688,9 +678,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
     ) -> Bool {
         if gestureRecognizer === messageContextGesture || otherGestureRecognizer === messageContextGesture {
-            if gestureRecognizer === collectionView.panGestureRecognizer
-                || otherGestureRecognizer === collectionView.panGestureRecognizer
-            {
+            if gestureRecognizer is UIPanGestureRecognizer || otherGestureRecognizer is UIPanGestureRecognizer {
                 return false
             }
         }
