@@ -509,6 +509,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             })
         }
         picker.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        picker.popoverPresentationController?.sourceView = view
+        picker.popoverPresentationController?.sourceRect = CGRect(
+            x: view.bounds.midX,
+            y: view.bounds.maxY - view.safeAreaInsets.bottom,
+            width: 1,
+            height: 1
+        )
         present(picker, animated: true)
     }
 
