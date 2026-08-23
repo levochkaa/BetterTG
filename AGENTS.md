@@ -23,6 +23,9 @@
 - Commit all agent-authored changes before handing the task back to the user, unless the user explicitly asks to leave changes uncommitted.
 - For a large task, commit after every coherent, verified implementation stage. Do not wait until the end and put the entire large task into one oversized commit.
 - Keep every commit focused and stage only the files or hunks that belong to that stage; never include unrelated user changes.
+- Name commits as `<type>(<scope>): <imperative summary>`, with `feature`, `fix`, or `tech` as the type and a concise lowercase scope.
+- Keep the summary lowercase, imperative, and specific to the delivered behavior or technical change.
+- Add `Co-authored-by: Codex <noreply@openai.com>` to every agent-authored commit.
 
 ## UI Implementation
 
