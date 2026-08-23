@@ -152,6 +152,8 @@ func update(_ update: Update) {
             nc.post(name: .updateChatAction, object: updateChatAction)
         case .updatePendingMessage(let updatePendingMessage):
             nc.post(name: .updatePendingMessage, object: updatePendingMessage)
+        case .updateCommunity(let updateCommunity):
+            nc.post(name: .updateCommunity, object: updateCommunity)
         case .updateUserStatus(let updateUserStatus):
             nc.post(name: .updateUserStatus, object: updateUserStatus)
         case .updateUser(let updateUser):
@@ -296,14 +298,14 @@ func update(_ update: Update) {
             nc.post(name: .updateActiveLiveLocationMessages, object: updateActiveLiveLocationMessages)
         case .updateOwnedStarCount(let updateOwnedStarCount):
             nc.post(name: .updateOwnedStarCount, object: updateOwnedStarCount)
-        case .updateOwnedTonCount(let updateOwnedTonCount):
-            nc.post(name: .updateOwnedTonCount, object: updateOwnedTonCount)
+        case .updateOwnedGramCount(let updateOwnedGramCount):
+            nc.post(name: .updateOwnedGramCount, object: updateOwnedGramCount)
         case .updateChatRevenueAmount(let updateChatRevenueAmount):
             nc.post(name: .updateChatRevenueAmount, object: updateChatRevenueAmount)
         case .updateStarRevenueStatus(let updateStarRevenueStatus):
             nc.post(name: .updateStarRevenueStatus, object: updateStarRevenueStatus)
-        case .updateTonRevenueStatus(let updateTonRevenueStatus):
-            nc.post(name: .updateTonRevenueStatus, object: updateTonRevenueStatus)
+        case .updateGramRevenueStatus(let updateGramRevenueStatus):
+            nc.post(name: .updateGramRevenueStatus, object: updateGramRevenueStatus)
         case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):
             nc.post(name: .updateSpeechRecognitionTrial, object: updateSpeechRecognitionTrial)
         case .updateGroupCallMessageLevels(let updateGroupCallMessageLevels):
@@ -354,6 +356,8 @@ func update(_ update: Update) {
             nc.post(name: .updateNewCustomEvent, object: updateNewCustomEvent)
         case .updateNewCustomQuery(let updateNewCustomQuery):
             nc.post(name: .updateNewCustomQuery, object: updateNewCustomQuery)
+        case .updateUserSubscription(let updateUserSubscription):
+            nc.post(name: .updateUserSubscription, object: updateUserSubscription)
         case .updatePoll(let updatePoll):
             nc.post(name: .updatePoll, object: updatePoll)
         case .updatePollAnswer(let updatePollAnswer):
@@ -448,6 +452,7 @@ extension TdNotification {
     static var updateDeleteMessages: TdNotification<UpdateDeleteMessages> { .init(.updateDeleteMessages) }
     static var updateChatAction: TdNotification<UpdateChatAction> { .init(.updateChatAction) }
     static var updatePendingMessage: TdNotification<UpdatePendingMessage> { .init(.updatePendingMessage) }
+    static var updateCommunity: TdNotification<UpdateCommunity> { .init(.updateCommunity) }
     static var updateUserStatus: TdNotification<UpdateUserStatus> { .init(.updateUserStatus) }
     static var updateUser: TdNotification<UpdateUser> { .init(.updateUser) }
     static var updateBasicGroup: TdNotification<UpdateBasicGroup> { .init(.updateBasicGroup) }
@@ -520,10 +525,10 @@ extension TdNotification {
     static var updateSavedMessagesTags: TdNotification<UpdateSavedMessagesTags> { .init(.updateSavedMessagesTags) }
     static var updateActiveLiveLocationMessages: TdNotification<UpdateActiveLiveLocationMessages> { .init(.updateActiveLiveLocationMessages) }
     static var updateOwnedStarCount: TdNotification<UpdateOwnedStarCount> { .init(.updateOwnedStarCount) }
-    static var updateOwnedTonCount: TdNotification<UpdateOwnedTonCount> { .init(.updateOwnedTonCount) }
+    static var updateOwnedGramCount: TdNotification<UpdateOwnedGramCount> { .init(.updateOwnedGramCount) }
     static var updateChatRevenueAmount: TdNotification<UpdateChatRevenueAmount> { .init(.updateChatRevenueAmount) }
     static var updateStarRevenueStatus: TdNotification<UpdateStarRevenueStatus> { .init(.updateStarRevenueStatus) }
-    static var updateTonRevenueStatus: TdNotification<UpdateTonRevenueStatus> { .init(.updateTonRevenueStatus) }
+    static var updateGramRevenueStatus: TdNotification<UpdateGramRevenueStatus> { .init(.updateGramRevenueStatus) }
     static var updateSpeechRecognitionTrial: TdNotification<UpdateSpeechRecognitionTrial> { .init(.updateSpeechRecognitionTrial) }
     static var updateGroupCallMessageLevels: TdNotification<UpdateGroupCallMessageLevels> { .init(.updateGroupCallMessageLevels) }
     static var updateDiceEmojis: TdNotification<UpdateDiceEmojis> { .init(.updateDiceEmojis) }
@@ -549,6 +554,7 @@ extension TdNotification {
     static var updateNewPreCheckoutQuery: TdNotification<UpdateNewPreCheckoutQuery> { .init(.updateNewPreCheckoutQuery) }
     static var updateNewCustomEvent: TdNotification<UpdateNewCustomEvent> { .init(.updateNewCustomEvent) }
     static var updateNewCustomQuery: TdNotification<UpdateNewCustomQuery> { .init(.updateNewCustomQuery) }
+    static var updateUserSubscription: TdNotification<UpdateUserSubscription> { .init(.updateUserSubscription) }
     static var updatePoll: TdNotification<UpdatePoll> { .init(.updatePoll) }
     static var updatePollAnswer: TdNotification<UpdatePollAnswer> { .init(.updatePollAnswer) }
     static var updateManagedBot: TdNotification<UpdateManagedBot> { .init(.updateManagedBot) }
@@ -633,6 +639,7 @@ extension Foundation.Notification.Name {
     static let updateDeleteMessages = Self("updateDeleteMessages")
     static let updateChatAction = Self("updateChatAction")
     static let updatePendingMessage = Self("updatePendingMessage")
+    static let updateCommunity = Self("updateCommunity")
     static let updateUserStatus = Self("updateUserStatus")
     static let updateUser = Self("updateUser")
     static let updateBasicGroup = Self("updateBasicGroup")
@@ -705,10 +712,10 @@ extension Foundation.Notification.Name {
     static let updateSavedMessagesTags = Self("updateSavedMessagesTags")
     static let updateActiveLiveLocationMessages = Self("updateActiveLiveLocationMessages")
     static let updateOwnedStarCount = Self("updateOwnedStarCount")
-    static let updateOwnedTonCount = Self("updateOwnedTonCount")
+    static let updateOwnedGramCount = Self("updateOwnedGramCount")
     static let updateChatRevenueAmount = Self("updateChatRevenueAmount")
     static let updateStarRevenueStatus = Self("updateStarRevenueStatus")
-    static let updateTonRevenueStatus = Self("updateTonRevenueStatus")
+    static let updateGramRevenueStatus = Self("updateGramRevenueStatus")
     static let updateSpeechRecognitionTrial = Self("updateSpeechRecognitionTrial")
     static let updateGroupCallMessageLevels = Self("updateGroupCallMessageLevels")
     static let updateDiceEmojis = Self("updateDiceEmojis")
@@ -734,6 +741,7 @@ extension Foundation.Notification.Name {
     static let updateNewPreCheckoutQuery = Self("updateNewPreCheckoutQuery")
     static let updateNewCustomEvent = Self("updateNewCustomEvent")
     static let updateNewCustomQuery = Self("updateNewCustomQuery")
+    static let updateUserSubscription = Self("updateUserSubscription")
     static let updatePoll = Self("updatePoll")
     static let updatePollAnswer = Self("updatePollAnswer")
     static let updateManagedBot = Self("updateManagedBot")

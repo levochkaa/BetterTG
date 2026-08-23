@@ -28,7 +28,7 @@ settings:
 packages:
   TDLibKit:
     url: https://github.com/Swiftgram/TDLibKit
-    exactVersion: 1.5.2-tdlib-1.8.65-a17f87c4
+    exactVersion: 1.5.2-tdlib-1.8.66-022d6020
   MobileVLCKit:
     url: https://github.com/levochkaa/MobileVLCKit
     exactVersion: 3.7.3
