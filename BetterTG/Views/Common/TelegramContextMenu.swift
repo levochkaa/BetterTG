@@ -25,26 +25,33 @@ struct TelegramContextMenuAction {
 }
 
 extension UIViewController {
+    @discardableResult
     func presentTelegramContextMenu(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
-        tracking gesture: UILongPressGestureRecognizer? = nil,
-    ) {
-        guard !actions.isEmpty, presentedViewController == nil else { return }
+        tracking gesture: UIGestureRecognizer? = nil,
+        sourceBaseTransform: CGAffineTransform? = nil,
+        performsInitialFeedback: Bool = true,
+    ) -> Bool {
+        guard !actions.isEmpty, presentedViewController == nil else { return false }
         let controller = TelegramContextMenuController(
             sourceView: sourceView,
             actions: actions,
             trackingGesture: gesture,
+            sourceTransform: sourceBaseTransform ?? sourceView.transform,
         )
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
-        UIView.animate(
-            withDuration: 0.12,
-            delay: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-        ) {
-            sourceView.transform = sourceView.transform.scaledBy(x: 0.98, y: 0.98)
+        if performsInitialFeedback {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
+            UIView.animate(
+                withDuration: 0.12,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            ) {
+                sourceView.transform = sourceView.transform.scaledBy(x: 0.98, y: 0.98)
+            }
         }
         present(controller, animated: false)
+        return true
     }
 }
 
@@ -52,10 +59,11 @@ private final class TelegramContextMenuController: UIViewController {
     init(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
-        trackingGesture: UILongPressGestureRecognizer?,
+        trackingGesture: UIGestureRecognizer?,
+        sourceTransform: CGAffineTransform,
     ) {
         self.sourceView = sourceView
-        sourceTransform = sourceView.transform
+        self.sourceTransform = sourceTransform
         self.actions = actions
         self.trackingGesture = trackingGesture
         super.init(nibName: nil, bundle: nil)
@@ -90,7 +98,7 @@ private final class TelegramContextMenuController: UIViewController {
 
     private weak var sourceView: UIView?
     private let sourceTransform: CGAffineTransform
-    private weak var trackingGesture: UILongPressGestureRecognizer?
+    private weak var trackingGesture: UIGestureRecognizer?
     private let actions: [TelegramContextMenuAction]
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
     private let dimView = UIView()
@@ -101,6 +109,7 @@ private final class TelegramContextMenuController: UIViewController {
         return UIVisualEffectView(effect: effect)
     }()
     private let menuStack = UIStackView()
+    private let selectionHighlightView = UIView()
     private var previewView: UIView?
     private var actionButtons = [TelegramContextMenuActionButton]()
     private weak var trackedButton: TelegramContextMenuActionButton?
@@ -141,6 +150,13 @@ private final class TelegramContextMenuController: UIViewController {
         menuEffectView.clipsToBounds = true
         menuEffectView.alpha = 0
         view.addSubview(menuEffectView)
+
+        selectionHighlightView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        selectionHighlightView.layer.cornerRadius = 20
+        selectionHighlightView.layer.cornerCurve = .continuous
+        selectionHighlightView.alpha = 0
+        selectionHighlightView.isUserInteractionEnabled = false
+        menuEffectView.contentView.addSubview(selectionHighlightView)
 
         menuStack.axis = .vertical
         menuStack.alignment = .fill
@@ -267,7 +283,7 @@ private final class TelegramContextMenuController: UIViewController {
         dismissMenu(completion: handler)
     }
 
-    @objc private func trackingGestureChanged(_ gesture: UILongPressGestureRecognizer) {
+    @objc private func trackingGestureChanged(_ gesture: UIGestureRecognizer) {
         switch gesture.state {
         case .changed:
             updateTrackedButton(at: gesture.location(in: view))
@@ -304,11 +320,75 @@ private final class TelegramContextMenuController: UIViewController {
             actionButtons.first { $0.convert($0.bounds, to: view).contains(point) }
         }
         guard trackedButton !== button else { return }
-        trackedButton?.setTracked(false)
-        button?.setTracked(true)
+        let previousButton = trackedButton
         trackedButton = button
-        if button != nil {
+        updateSelectionHighlight(from: previousButton, to: button)
+        if button != nil, previousButton != nil {
             UISelectionFeedbackGenerator().selectionChanged()
+        }
+    }
+
+    private func updateSelectionHighlight(
+        from previousButton: TelegramContextMenuActionButton?,
+        to button: TelegramContextMenuActionButton?,
+    ) {
+        menuEffectView.layoutIfNeeded()
+        guard let button else {
+            UIView.animate(
+                withDuration: 0.08,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            ) {
+                self.selectionHighlightView.alpha = 0
+            }
+            return
+        }
+
+        let targetFrame = button.convert(button.bounds.insetBy(dx: 6, dy: 4), to: menuEffectView.contentView)
+        let crossesSectionDivider: Bool = {
+            guard let previousButton,
+                  let previousIndex = actionButtons.firstIndex(where: { $0 === previousButton }),
+                  let nextIndex = actionButtons.firstIndex(where: { $0 === button })
+            else { return false }
+            let lower = min(previousIndex, nextIndex)
+            let upper = max(previousIndex, nextIndex)
+            guard lower != upper else { return false }
+            return actions[(lower + 1) ... upper].contains(where: \.startsNewSection)
+        }()
+
+        if previousButton == nil || selectionHighlightView.alpha < 0.01 || crossesSectionDivider {
+            let placeAndReveal = {
+                self.selectionHighlightView.frame = targetFrame
+                UIView.animate(
+                    withDuration: 0.08,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    self.selectionHighlightView.alpha = 1
+                }
+            }
+            if crossesSectionDivider, selectionHighlightView.alpha > 0.01 {
+                UIView.animate(
+                    withDuration: 0.06,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    self.selectionHighlightView.alpha = 0
+                } completion: { _ in
+                    placeAndReveal()
+                }
+            } else {
+                placeAndReveal()
+            }
+        } else {
+            UIView.animate(
+                withDuration: 0.1,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+            ) {
+                self.selectionHighlightView.frame = targetFrame
+                self.selectionHighlightView.alpha = 1
+            }
         }
     }
 
@@ -349,14 +429,6 @@ private final class TelegramContextMenuActionButton: UIControl {
         menuAction = action
         super.init(frame: .zero)
 
-        highlightView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
-        highlightView.layer.cornerRadius = 20
-        highlightView.layer.cornerCurve = .continuous
-        highlightView.alpha = 0
-        highlightView.isUserInteractionEnabled = false
-        highlightView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(highlightView)
-
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
@@ -372,10 +444,6 @@ private final class TelegramContextMenuActionButton: UIControl {
         addSubview(iconView)
 
         NSLayoutConstraint.activate([
-            highlightView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            highlightView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            highlightView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            highlightView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: iconView.leadingAnchor, constant: -12),
@@ -393,35 +461,109 @@ private final class TelegramContextMenuActionButton: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override var isHighlighted: Bool {
-        didSet { updateHighlight(animated: true) }
-    }
-
-    func setTracked(_ tracked: Bool) {
-        isTracked = tracked
-        updateHighlight(animated: true)
-    }
-
-    private func updateHighlight(animated: Bool) {
-        let changes = {
-            self.highlightView.alpha = self.isHighlighted || self.isTracked ? 1 : 0
-        }
-        if animated {
-            UIView.animate(
-                withDuration: 0.16,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState],
-                animations: changes,
-            )
-        } else {
-            changes()
-        }
-    }
-
-    private let highlightView = UIView()
     private let titleLabel = UILabel()
     private let iconView = UIImageView()
-    private var isTracked = false
+}
+
+/// Telegram's context gesture starts showing press progress before activation and
+/// yields immediately to a real drag. This keeps scrolling responsive while making
+/// a stationary hold feel immediate.
+final class TelegramContextGestureRecognizer: UIGestureRecognizer {
+    var onPressingChanged: ((Bool) -> Void)?
+    var feedbackDelay: TimeInterval = 0.1
+    var activationDelay: TimeInterval = 0.26
+    var allowableMovement: CGFloat = 12
+
+    override func reset() {
+        super.reset()
+        feedbackWorkItem?.cancel()
+        activationWorkItem?.cancel()
+        feedbackWorkItem = nil
+        activationWorkItem = nil
+        initialLocation = nil
+        feedbackStarted = false
+        activated = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard touches.count == 1, let touch = touches.first, let view else {
+            state = .failed
+            return
+        }
+        initialLocation = touch.location(in: view)
+
+        let feedback = DispatchWorkItem { [weak self] in
+            guard let self, state == .possible else { return }
+            feedbackStarted = true
+            onPressingChanged?(true)
+        }
+        feedbackWorkItem = feedback
+        DispatchQueue.main.asyncAfter(deadline: .now() + feedbackDelay, execute: feedback)
+
+        let activation = DispatchWorkItem { [weak self] in
+            guard let self, state == .possible else { return }
+            if !feedbackStarted {
+                feedbackStarted = true
+                onPressingChanged?(true)
+            }
+            activated = true
+            state = .began
+        }
+        activationWorkItem = activation
+        DispatchQueue.main.asyncAfter(deadline: .now() + activationDelay, execute: activation)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard let touch = touches.first, let view, let initialLocation else { return }
+        let location = touch.location(in: view)
+        if state == .possible,
+           hypot(location.x - initialLocation.x, location.y - initialLocation.y) > allowableMovement
+        {
+            cancelBeforeActivation()
+        } else if state == .began || state == .changed {
+            state = .changed
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        feedbackWorkItem?.cancel()
+        activationWorkItem?.cancel()
+        if state == .began || state == .changed {
+            state = .ended
+        } else {
+            cancelBeforeActivation()
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        feedbackWorkItem?.cancel()
+        activationWorkItem?.cancel()
+        if state == .began || state == .changed {
+            state = .cancelled
+        } else {
+            cancelBeforeActivation()
+        }
+    }
+
+    private var feedbackWorkItem: DispatchWorkItem?
+    private var activationWorkItem: DispatchWorkItem?
+    private var initialLocation: CGPoint?
+    private var feedbackStarted = false
+    private var activated = false
+
+    private func cancelBeforeActivation() {
+        feedbackWorkItem?.cancel()
+        activationWorkItem?.cancel()
+        if feedbackStarted, !activated {
+            feedbackStarted = false
+            onPressingChanged?(false)
+        }
+        state = .failed
+    }
 }
 
 extension UIView {

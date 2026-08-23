@@ -159,7 +159,7 @@ final class TelegramListNavigationBar: UIView {
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
             self.searchView.transform = active
-                ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
+                ? CGAffineTransform(translationX: 0, y: -(Self.titleHeight + 4))
                 : .identity
             parentView?.layoutIfNeeded()
         }
@@ -296,7 +296,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             closeButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 38),
             closeButton.heightAnchor.constraint(equalToConstant: 38),
-            searchField.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 2),
+            searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
             searchField.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             searchField.heightAnchor.constraint(equalToConstant: 36),
@@ -327,13 +327,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         closeButton.isHidden = false
         searchField.textColor = .label
         onSearchActiveChange?(true)
+        searchField.becomeFirstResponder()
         UIView.animate(withDuration: 0.2) {
             self.titleStack.alpha = 0
             self.avatarView.alpha = 0
+            self.backButton.alpha = 0
+            self.backButton.transform = CGAffineTransform(translationX: -20, y: 0)
             self.searchField.alpha = 1
             self.closeButton.alpha = 1
-        } completion: { _ in
-            self.searchField.becomeFirstResponder()
         }
     }
 
@@ -347,6 +348,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         UIView.animate(withDuration: 0.2) {
             self.titleStack.alpha = 1
             self.avatarView.alpha = 1
+            self.backButton.alpha = 1
+            self.backButton.transform = .identity
             self.searchField.alpha = 0
             self.closeButton.alpha = 0
         } completion: { _ in

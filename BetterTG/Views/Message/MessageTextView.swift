@@ -38,14 +38,15 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     override var intrinsicContentSize: CGSize {
         guard attributedText.length > 0 else { return .zero }
-        let measured = attributedText.boundingRect(
-            with: CGSize(width: maximumLayoutWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            context: nil,
+        let measurement = measureText(maximumWidth: maximumLayoutWidth)
+        let statusWidth = ceil(statusLabel.bounds.width) + 9
+        let statusFitsTrailingLine = measurement.trailingLineWidth + statusWidth <= maximumLayoutWidth
+        let width = min(
+            maximumLayoutWidth,
+            ceil(max(measurement.width, statusFitsTrailingLine ? measurement.trailingLineWidth + statusWidth : statusWidth)),
         )
-        let width = min(maximumLayoutWidth, ceil(measured.width))
-        let fitted = sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: ceil(fitted.height))
+        let height = ceil(measurement.height + (statusFitsTrailingLine ? 0 : statusLabel.bounds.height))
+        return CGSize(width: width, height: height)
     }
 
     override func layoutSubviews() {
@@ -79,27 +80,37 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.text = statusText
         statusLabel.textColor = statusColor
         statusLabel.sizeToFit()
-        let result = NSMutableAttributedString(attributedString: NSAttributedString(getAttributedString(from: formattedText)))
-        let spacerCharacter = "\u{00a0}"
-        let spacerText = "\u{200b}" + spacerCharacter + spacerCharacter
-        let characterWidth = (spacerCharacter as NSString).size(withAttributes: [.font: statusLabel.font as Any]).width
-        let statusSpacer = NSMutableAttributedString(
-            string: spacerText,
-            attributes: [
-                .font: statusLabel.font as Any,
-                .foregroundColor: UIColor.clear,
-            ],
-        )
-        statusSpacer.addAttribute(
-            .kern,
-            value: max(0, ceil(statusLabel.bounds.width) + 9 - characterWidth * 2),
-            range: NSRange(location: 1, length: 1),
-        )
-        result.append(statusSpacer)
-        attributedText = result
+        attributedText = NSAttributedString(getAttributedString(from: formattedText))
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
         accessibilityLabel = formattedText.text
+    }
+
+    func setMaximumLayoutWidth(_ width: CGFloat) {
+        let resolvedWidth = max(1, width)
+        guard abs(maximumLayoutWidth - resolvedWidth) > 0.5 else { return }
+        maximumLayoutWidth = resolvedWidth
+        invalidateIntrinsicContentSize()
+    }
+
+    private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat, trailingLineWidth: CGFloat) {
+        let storage = NSTextStorage(attributedString: attributedText)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: maximumWidth, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        container.lineBreakMode = .byWordWrapping
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+
+        let usedRect = manager.usedRect(for: container)
+        var trailingLineWidth = CGFloat.zero
+        manager.enumerateLineFragments(
+            forGlyphRange: manager.glyphRange(for: container),
+        ) { _, lineUsedRect, _, _, _ in
+            trailingLineWidth = lineUsedRect.maxX
+        }
+        return (ceil(usedRect.width), ceil(usedRect.height), ceil(trailingLineWidth))
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {

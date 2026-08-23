@@ -63,6 +63,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
                 < view.bounds.maxY - view.safeAreaInsets.bottom - 1
             composerView.setKeyboardAttached(keyboardAttached)
+            updateComposerFloatingState(keyboardAttached)
         }
         updateHistoryInsets()
     }
@@ -152,7 +153,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let scrollToLatestEffectView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = false
-        effect.tintColor = UIColor.white.withAlphaComponent(0.04)
+        effect.tintColor = UIColor.white.withAlphaComponent(0.09)
         return UIVisualEffectView(effect: effect)
     }()
     private let unreadBadgeLabel = UILabel()
@@ -163,6 +164,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingScrollMessageID: Int64?
     private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
+    private var composerLeadingConstraint: NSLayoutConstraint?
+    private var composerTrailingConstraint: NSLayoutConstraint?
+    private var composerBottomConstraint: NSLayoutConstraint?
+    private var composerKeyboardAttached = false
 
     private func makeLayout() -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
@@ -228,10 +233,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         tapGesture.cancelsTouchesInView = false
         tapGesture.delegate = self
         collectionView.addGestureRecognizer(tapGesture)
-        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
-        longPressGesture.minimumPressDuration = 0.3
-        longPressGesture.delegate = self
-        collectionView.addGestureRecognizer(longPressGesture)
+        messageContextGesture.delegate = self
+        collectionView.addGestureRecognizer(messageContextGesture)
         historyContainerView.addSubview(collectionView)
         var constraints = [
             historyContainerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -249,10 +252,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
             view.addSubview(composerView)
+            let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+            let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+            let bottomConstraint = composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+            composerLeadingConstraint = leadingConstraint
+            composerTrailingConstraint = trailingConstraint
+            composerBottomConstraint = bottomConstraint
             constraints.append(contentsOf: [
-                composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+                leadingConstraint,
+                trailingConstraint,
+                bottomConstraint,
             ])
         }
         configureScrollToLatestButton(bottomAnchor: chatVM.customChat.canPostMessages
@@ -263,13 +272,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {
         scrollToLatestButton.translatesAutoresizingMaskIntoConstraints = false
-        scrollToLatestButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        scrollToLatestButton.setImage(UIImage(systemName: "arrow.down"), for: .normal)
         scrollToLatestButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold),
+            UIImage.SymbolConfiguration(pointSize: 15, weight: .bold),
             forImageIn: .normal,
         )
         scrollToLatestButton.tintColor = .white
-        scrollToLatestButton.layer.cornerRadius = 20
+        scrollToLatestButton.layer.cornerRadius = 18
+        scrollToLatestButton.layer.borderWidth = 1 / view.traitCollection.displayScale
+        scrollToLatestButton.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
         scrollToLatestButton.alpha = 0
         scrollToLatestButton.transform = CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
         scrollToLatestButton.accessibilityLabel = "Scroll to latest message"
@@ -296,8 +307,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             scrollToLatestEffectView.bottomAnchor.constraint(equalTo: scrollToLatestButton.bottomAnchor),
             scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
             scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            scrollToLatestButton.widthAnchor.constraint(equalToConstant: 40),
-            scrollToLatestButton.heightAnchor.constraint(equalToConstant: 40),
+            scrollToLatestButton.widthAnchor.constraint(equalToConstant: 36),
+            scrollToLatestButton.heightAnchor.constraint(equalToConstant: 36),
             unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -5),
             unreadBadgeLabel.centerXAnchor.constraint(equalTo: scrollToLatestButton.centerXAnchor),
             unreadBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
@@ -455,11 +466,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateHighlightState() {
-        let changed = [lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self)
+        let changed = Array(Set([lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self)))
         lastHighlightedMessageID = chatVM.highlightedMessageId
         guard !changed.isEmpty else { return }
         var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems(changed.filter { snapshot.indexOfItem($0) != nil })
+        let presentIdentifiers = changed.filter { snapshot.indexOfItem($0) != nil }
+        guard !presentIdentifiers.isEmpty else { return }
+        snapshot.reconfigureItems(presentIdentifiers)
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
@@ -513,6 +526,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         } else {
             collectionView.setContentOffset(previousOffset, animated: false)
         }
+    }
+
+    private func updateComposerFloatingState(_ keyboardAttached: Bool) {
+        guard composerKeyboardAttached != keyboardAttached else { return }
+        composerKeyboardAttached = keyboardAttached
+        composerLeadingConstraint?.constant = keyboardAttached ? 8 : 0
+        composerTrailingConstraint?.constant = keyboardAttached ? -8 : 0
+        composerBottomConstraint?.constant = keyboardAttached ? -8 : 0
     }
 
     private func message(for id: Int64) -> CustomMessage? {
@@ -634,19 +655,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
-    @objc private func messageLongPressed(_ gesture: UILongPressGestureRecognizer) {
+    @objc private func messageLongPressed(_ gesture: TelegramContextGestureRecognizer) {
         guard gesture.state == .began else { return }
+        cancelHistoryPanGesture()
         let point = gesture.location(in: collectionView)
         guard let indexPath = collectionView.indexPathForItem(at: point),
               let messageID = dataSource.itemIdentifier(for: indexPath),
               let message = message(for: messageID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
-        presentTelegramContextMenu(
+        let baseTransform = pressedMessageSourceView === cell.contextPreviewView
+            ? pressedMessageSourceTransform
+            : cell.contextPreviewView.transform
+        let presented = presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: menu(for: message),
             tracking: gesture,
+            sourceBaseTransform: baseTransform,
+            performsInitialFeedback: false,
         )
+        if !presented {
+            restorePressedMessageSource()
+        }
     }
 
     @objc private func historyTapped() {
@@ -654,10 +684,65 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     func gestureRecognizer(
-        _: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer,
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
     ) -> Bool {
-        true
+        if gestureRecognizer === messageContextGesture || otherGestureRecognizer === messageContextGesture {
+            if gestureRecognizer === collectionView.panGestureRecognizer
+                || otherGestureRecognizer === collectionView.panGestureRecognizer
+            {
+                return false
+            }
+        }
+        return true
+    }
+
+    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
+        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
+            guard let self, let gesture else { return }
+            if pressing {
+                let point = gesture.location(in: collectionView)
+                guard let indexPath = collectionView.indexPathForItem(at: point),
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+                else { return }
+                pressedMessageSourceView = cell.contextPreviewView
+                pressedMessageSourceTransform = cell.contextPreviewView.transform
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
+                UIView.animate(
+                    withDuration: 0.16,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
+                }
+            } else {
+                restorePressedMessageSource()
+            }
+        }
+        return gesture
+    }()
+    private weak var pressedMessageSourceView: UIView?
+    private var pressedMessageSourceTransform = CGAffineTransform.identity
+
+    private func cancelHistoryPanGesture() {
+        let panGesture = collectionView.panGestureRecognizer
+        guard panGesture.state == .began || panGesture.state == .changed else { return }
+        panGesture.isEnabled = false
+        panGesture.isEnabled = true
+    }
+
+    private func restorePressedMessageSource() {
+        guard let sourceView = pressedMessageSourceView else { return }
+        let transform = pressedMessageSourceTransform
+        pressedMessageSourceView = nil
+        UIView.animate(
+            withDuration: 0.16,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+        ) {
+            sourceView.transform = transform
+        }
     }
 
     private func menu(for message: CustomMessage) -> [TelegramContextMenuAction] {

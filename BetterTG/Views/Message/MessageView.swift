@@ -34,6 +34,12 @@ final class MessageCell: UICollectionViewCell {
         onMediaTap = nil
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let maximumBubbleWidth = contentView.bounds.width * 0.82
+        textView.setMaximumLayoutWidth(maximumBubbleWidth - 16)
+    }
+
     private let rowStack = UIStackView()
     private let bubbleView = UIView()
     private let bubbleStack = UIStackView()
@@ -85,7 +91,13 @@ final class MessageCell: UICollectionViewCell {
         let timestampColor: UIColor = message.sendFailed ? .systemRed : .secondaryLabel
         if let formatted = message.formattedText {
             textView.isHidden = false
-            textView.configure(formattedText: formatted, statusText: timestampText, statusColor: timestampColor)
+            let maximumBubbleWidth = contentView.bounds.width * 0.82
+            textView.configure(
+                formattedText: formatted,
+                statusText: timestampText,
+                statusColor: timestampColor,
+                maximumWidth: maximumBubbleWidth - 16,
+            )
         } else {
             textView.isHidden = true
         }

@@ -43,14 +43,21 @@ final class ChatComposerView: UIView {
             textView.resignFirstResponder()
         } else {
             isHidden = false
+            alpha = 0
+            transform = CGAffineTransform(translationX: 0, y: max(bounds.height, 72) + 12)
         }
         isUserInteractionEnabled = !hidden
         UIView.animate(
-            withDuration: 0.2,
+            withDuration: hidden ? 0.28 : 0.24,
             delay: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState],
+            usingSpringWithDamping: hidden ? 1 : 0.9,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
         ) {
             self.alpha = hidden ? 0 : 1
+            self.transform = hidden
+                ? CGAffineTransform(translationX: 0, y: max(self.bounds.height, 72) + 12)
+                : .identity
         } completion: { _ in
             if self.hiddenForSearch == hidden {
                 self.isHidden = hidden
