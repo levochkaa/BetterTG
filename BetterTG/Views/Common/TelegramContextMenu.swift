@@ -1,5 +1,6 @@
 // TelegramContextMenu.swift
 
+import ObjectiveC.runtime
 import UIKit
 
 struct TelegramContextMenuAction {
@@ -29,6 +30,52 @@ enum TelegramContextMenuPresentationStyle: Equatable {
     case avatar
     case chatPreview
     case menuOnly
+}
+
+private enum TelegramContextMenuKeyboardHost {
+    static func visibleKeyboardWindow(for sourceWindow: UIWindow) -> UIWindow? {
+        if #available(iOS 16.0, *),
+           let screen = sourceWindow.windowScene?.screen,
+           let keyboardWindow = remoteKeyboardWindow(on: screen),
+           !keyboardWindow.isHidden
+        {
+            return keyboardWindow
+        }
+
+        return UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { window in
+                let name = NSStringFromClass(type(of: window))
+                return !window.isHidden
+                    && (name.hasSuffix("RemoteKeyboardWindow") || name.hasSuffix("TextEffectsWindow"))
+            }
+    }
+
+    @available(iOS 16.0, *)
+    private static func remoteKeyboardWindow(on screen: UIScreen) -> UIWindow? {
+        guard let keyboardClass = NSClassFromString("UIRemoteKeyboardWindow"),
+              let method = class_getClassMethod(
+                  keyboardClass,
+                  NSSelectorFromString("remoteKeyboardWindowForScreen:create:")
+              )
+        else { return nil }
+
+        typealias GetKeyboardWindow = @convention(c) (
+            AnyClass,
+            Selector,
+            UIScreen,
+            Bool
+        ) -> UIWindow?
+        let implementation = method_getImplementation(method)
+        let getKeyboardWindow = unsafeBitCast(implementation, to: GetKeyboardWindow.self)
+        return getKeyboardWindow(
+            keyboardClass,
+            NSSelectorFromString("remoteKeyboardWindowForScreen:create:"),
+            screen,
+            false
+        )
+    }
 }
 
 /// Keeps an extracted view's layout slot occupied while the real content is
@@ -102,7 +149,7 @@ extension UIViewController {
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
-              let windowScene = sourceView.window?.windowScene
+              let sourceWindow = sourceView.window
         else { return false }
         let controller = TelegramContextMenuController(
             sourceView: sourceView,
@@ -124,13 +171,13 @@ extension UIViewController {
                 }
             }
         }
-        controller.show(in: windowScene)
+        controller.show(in: sourceWindow)
         return true
     }
 }
 
 private final class TelegramContextMenuController: UIViewController {
-    fileprivate static weak var activeController: TelegramContextMenuController?
+    fileprivate static var activeController: TelegramContextMenuController?
 
     init(
         sourceView: UIView,
@@ -190,23 +237,26 @@ private final class TelegramContextMenuController: UIViewController {
     private var sourceFrame = CGRect.zero
     private var targetPreviewFrame = CGRect.zero
     private var targetMenuFrame = CGRect.zero
+    private var messageContentSize = CGSize.zero
+    private var targetMessageScale = CGFloat(1)
     private var originalContentCornerRadius = CGFloat.zero
-    private var overlayWindow: UIWindow?
+    private weak var presentationHostView: UIView?
     private var actionButtons = [TelegramContextMenuActionButton]()
     private weak var trackedButton: TelegramContextMenuActionButton?
     private var hasAnimatedIn = false
     private var isPerformingAction = false
 
-    fileprivate func show(in windowScene: UIWindowScene) {
-        let overlayWindow = UIWindow(windowScene: windowScene)
-        overlayWindow.frame = windowScene.screen.bounds
-        overlayWindow.windowLevel = .alert + 2
-        overlayWindow.backgroundColor = .clear
-        overlayWindow.rootViewController = self
-        self.overlayWindow = overlayWindow
+    fileprivate func show(in sourceWindow: UIWindow) {
+        let hostView = TelegramContextMenuKeyboardHost.visibleKeyboardWindow(for: sourceWindow) ?? sourceWindow
+        presentationHostView = hostView
         Self.activeController = self
-        overlayWindow.isHidden = false
         loadViewIfNeeded()
+        view.frame = hostView.bounds
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.layer.zPosition = 1000
+        hostView.addSubview(view)
+        beginAppearanceTransition(true, animated: false)
+        endAppearanceTransition()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         animateIn()
@@ -322,8 +372,14 @@ private final class TelegramContextMenuController: UIViewController {
         case .message:
             let spacing: CGFloat = 10
             let maximumPreviewHeight = max(44, maximumBottom - verticalInset - menuHeight - spacing)
-            let previewHeight = min(sourceFrame.height, maximumPreviewHeight)
-            let previewWidth = min(sourceFrame.width, availableWidth)
+            messageContentSize = sourceView.bounds.size
+            targetMessageScale = min(
+                1,
+                availableWidth / max(1, messageContentSize.width),
+                maximumPreviewHeight / max(1, messageContentSize.height)
+            )
+            let previewHeight = messageContentSize.height * targetMessageScale
+            let previewWidth = messageContentSize.width * targetMessageScale
             let previewX = min(max(horizontalInset, sourceFrame.minX), view.bounds.width - horizontalInset - previewWidth)
             let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
             let previewY = min(max(verticalInset, sourceFrame.minY), maximumPreviewY)
@@ -393,13 +449,27 @@ private final class TelegramContextMenuController: UIViewController {
             )
         }
 
-        if hasAnimatedIn {
+        if presentationStyle == .message {
+            previewContainer.bounds = CGRect(origin: .zero, size: messageContentSize)
+            if hasAnimatedIn {
+                previewContainer.center = CGPoint(x: targetPreviewFrame.midX, y: targetPreviewFrame.midY)
+                previewContainer.transform = CGAffineTransform(
+                    scaleX: targetMessageScale,
+                    y: targetMessageScale
+                )
+            } else {
+                previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+                previewContainer.transform = CGAffineTransform(
+                    scaleX: sourceFrame.width / max(1, messageContentSize.width),
+                    y: sourceFrame.height / max(1, messageContentSize.height)
+                )
+            }
+        } else if hasAnimatedIn {
             previewContainer.frame = targetPreviewFrame
-            menuEffectView.frame = targetMenuFrame
         } else {
             previewContainer.frame = presentationStyle == .menuOnly ? .zero : sourceFrame
-            menuEffectView.frame = targetMenuFrame
         }
+        menuEffectView.frame = targetMenuFrame
         previewView?.frame = previewContainer.bounds
     }
 
@@ -419,7 +489,18 @@ private final class TelegramContextMenuController: UIViewController {
             }
             self.dimView.alpha = 1
             if self.presentationStyle != .menuOnly {
-                self.previewContainer.frame = self.targetPreviewFrame
+                if self.presentationStyle == .message {
+                    self.previewContainer.center = CGPoint(
+                        x: self.targetPreviewFrame.midX,
+                        y: self.targetPreviewFrame.midY
+                    )
+                    self.previewContainer.transform = CGAffineTransform(
+                        scaleX: self.targetMessageScale,
+                        y: self.targetMessageScale
+                    )
+                } else {
+                    self.previewContainer.frame = self.targetPreviewFrame
+                }
                 if self.presentationStyle == .avatar {
                     self.previewView?.layer.cornerRadius = 28
                     self.previewView?.layer.cornerCurve = .continuous
@@ -440,7 +521,15 @@ private final class TelegramContextMenuController: UIViewController {
             self.backgroundEffectView.effect = nil
             self.dimView.alpha = 0
             if self.presentationStyle != .menuOnly {
-                self.previewContainer.frame = returnFrame
+                if self.presentationStyle == .message {
+                    self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
+                    self.previewContainer.transform = CGAffineTransform(
+                        scaleX: returnFrame.width / max(1, self.messageContentSize.width),
+                        y: returnFrame.height / max(1, self.messageContentSize.height)
+                    )
+                } else {
+                    self.previewContainer.frame = returnFrame
+                }
                 self.previewView?.layer.cornerRadius = self.originalContentCornerRadius
             }
             self.menuEffectView.alpha = 0
@@ -454,10 +543,10 @@ private final class TelegramContextMenuController: UIViewController {
             self.previewController?.removeFromParent()
             self.sourceView?.alpha = 1
             self.sourceView?.transform = self.sourceTransform
-            let window = self.overlayWindow
-            self.overlayWindow = nil
-            window?.isHidden = true
-            window?.rootViewController = nil
+            self.beginAppearanceTransition(false, animated: false)
+            self.view.removeFromSuperview()
+            self.endAppearanceTransition()
+            self.presentationHostView = nil
             Self.activeController = nil
             completion?()
         }
@@ -640,13 +729,13 @@ private final class TelegramContextMenuActionButton: UIControl {
         addSubview(iconView)
 
         NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: iconView.leadingAnchor, constant: -12),
-            iconView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 22),
             iconView.heightAnchor.constraint(equalToConstant: 22),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
         ])
         accessibilityLabel = action.title
         accessibilityTraits = .button
