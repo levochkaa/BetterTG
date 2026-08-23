@@ -11,6 +11,7 @@
 - The scripts own Xcode environment setup, project generation, TDLib model generation, package resolution, derived data location, and simulator selection.
 - Use `SIMULATOR_NAME="..."` or `SIMULATOR_ID="..."` only when the default simulator needs to be overridden.
 - Use `RUN_ARGUMENTS="..." ./run.sh` when an automated launch smoke needs app arguments; do not bypass `run.sh` with a direct simulator launch.
+- Do not close or shut down a booted Simulator when finishing a task. Leave it running for the user unless the user explicitly asks to close or shut it down.
 
 ## Project Notes
 
