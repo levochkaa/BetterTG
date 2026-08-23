@@ -290,7 +290,7 @@ actor FFmpegVideoFrameDecoder {
 
 // MARK: - FFmpegAnimatedVideoView
 
-final class FFmpegAnimatedVideoView: UIControl {
+final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -333,6 +333,8 @@ final class FFmpegAnimatedVideoView: UIControl {
     }
 
     // MARK: Internal
+
+    var onFirstFrameReady: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -384,6 +386,7 @@ final class FFmpegAnimatedVideoView: UIControl {
         decoder = nil
         requestedFrameIndex = nil
         onTap = nil
+        onFirstFrameReady = nil
         isUserInteractionEnabled = false
         playbackVisible = false
 
@@ -479,6 +482,8 @@ final class FFmpegAnimatedVideoView: UIControl {
             frameView.image = firstFrame
             frameView.isHidden = false
             thumbnailView.isHidden = true
+            onFirstFrameReady?()
+            onFirstFrameReady = nil
         }
         loadedPath = path
         updatePlayback()

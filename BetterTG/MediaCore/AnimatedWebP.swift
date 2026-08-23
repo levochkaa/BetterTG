@@ -207,7 +207,7 @@ actor AnimatedWebPFrameDecoder {
 
 // MARK: - AnimatedWebPView
 
-final class AnimatedWebPView: UIControl {
+final class AnimatedWebPView: UIControl, AnimatedFileView {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -250,6 +250,8 @@ final class AnimatedWebPView: UIControl {
     }
 
     // MARK: Internal
+
+    var onFirstFrameReady: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -301,6 +303,7 @@ final class AnimatedWebPView: UIControl {
         decoder = nil
         requestedFrameIndex = nil
         onTap = nil
+        onFirstFrameReady = nil
         isUserInteractionEnabled = false
         playbackVisible = false
 
@@ -396,6 +399,8 @@ final class AnimatedWebPView: UIControl {
             frameView.image = firstFrame
             frameView.isHidden = false
             thumbnailView.isHidden = true
+            onFirstFrameReady?()
+            onFirstFrameReady = nil
         }
         loadedPath = path
         updatePlayback()

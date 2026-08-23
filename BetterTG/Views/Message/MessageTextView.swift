@@ -61,11 +61,21 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             y: bounds.maxY - statusLabel.bounds.height,
         )
         bringSubviewToFront(statusLabel)
+        layoutCustomEmojiViews()
         lastLayoutWidth = bounds.width
         if abs(oldWidth - bounds.width) > 0.5 {
             invalidateIntrinsicContentSize()
         }
     }
+
+    private var formattedText: FormattedText?
+    private var lastLayoutWidth = CGFloat.zero
+    private var maximumLayoutWidth = Utils.maxMessageContentWidth
+    private let statusLabel = UILabel()
+    private var customEmojiPlacements = [CustomEmojiPlacement]()
+    private var customEmojiTask: Task<Void, Never>?
+    private var customEmojiGeneration = 0
+    private var customEmojiPlaybackVisible = false
 
     func configure(
         formattedText: FormattedText,
@@ -73,16 +83,14 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusColor: UIColor,
         maximumWidth: CGFloat = Utils.maxMessageContentWidth,
     ) {
+        clearCustomEmojiViews()
         self.formattedText = formattedText
         maximumLayoutWidth = maximumWidth
         statusLabel.text = statusText
         statusLabel.textColor = statusColor
         statusLabel.sizeToFit()
-        let result = NSMutableAttributedString(
-            attributedString: NSAttributedString(getAttributedString(from: formattedText)),
-        )
-        result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
-        attributedText = result
+        attributedText = NSAttributedString(getAttributedString(from: formattedText))
+        loadCustomEmoji(from: formattedText)
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
         accessibilityLabel = formattedText.text
@@ -95,11 +103,22 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         invalidateIntrinsicContentSize()
     }
 
-    func textViewDidChangeSelection(_ textView: UITextView) {
-        textView.selectedTextRange = nil
+    func prepareForReuse() {
+        clearCustomEmojiViews()
+        customEmojiPlaybackVisible = false
+        formattedText = nil
+        attributedText = NSAttributedString()
+        statusLabel.text = nil
     }
 
-    private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
+    func setCustomEmojiPlaybackVisible(_ isVisible: Bool) {
+        customEmojiPlaybackVisible = isVisible
+        for placement in customEmojiPlacements {
+            placement.view.setPlaybackVisible(isVisible)
+        }
+    }
+
+    private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat, trailingLineWidth: CGFloat) {
         let storage = NSTextStorage(attributedString: attributedText)
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: maximumWidth, height: .greatestFiniteMagnitude))
@@ -113,27 +132,113 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         return (ceil(usedRect.width), ceil(usedRect.height))
     }
 
-    private func statusSpacer(width: CGFloat) -> NSAttributedString {
-        let spacerCharacter = "\u{00a0}"
-        let spacerText = "\u{200b}" + spacerCharacter + spacerCharacter
-        let characterWidth = (spacerCharacter as NSString)
-            .size(
-                withAttributes: [.font: statusLabel.font as Any],
+    private struct CustomEmojiRequest {
+        let identifier: TdInt64
+        let range: NSRange
+    }
+
+    private struct CustomEmojiPlacement {
+        let range: NSRange
+        let view: CustomEmojiInlineView
+    }
+
+    private func loadCustomEmoji(from formattedText: FormattedText) {
+        let requests = formattedText.entities.compactMap { entity -> CustomEmojiRequest? in
+            guard case .textEntityTypeCustomEmoji(let customEmoji) = entity.type else { return nil }
+            return CustomEmojiRequest(
+                identifier: customEmoji.customEmojiId,
+                range: NSRange(location: entity.offset, length: entity.length),
             )
-            .width
-        let spacer = NSMutableAttributedString(
-            string: spacerText,
-            attributes: [
-                .font: statusLabel.font as Any,
-                .foregroundColor: UIColor.clear,
-            ],
-        )
-        spacer.addAttribute(
-            .kern,
-            value: max(0, width - characterWidth * 2),
-            range: NSRange(location: 1, length: 1),
-        )
-        return spacer
+        }
+        guard !requests.isEmpty else { return }
+
+        let generation = customEmojiGeneration
+        customEmojiTask = Task { [weak self] in
+            let stickers = await CustomEmojiStickerRepository.shared.stickers(
+                for: requests.map(\.identifier),
+            )
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.customEmojiGeneration == generation else { return }
+                self.installCustomEmoji(requests: requests, stickers: stickers)
+            }
+        }
+    }
+
+    private func installCustomEmoji(
+        requests: [CustomEmojiRequest],
+        stickers: [TdInt64: Sticker],
+    ) {
+        for request in requests {
+            guard let sticker = stickers[request.identifier],
+                  NSMaxRange(request.range) <= textStorage.length
+            else { continue }
+            let emojiView = CustomEmojiInlineView()
+            emojiView.isUserInteractionEnabled = false
+            emojiView.configure(sticker: sticker)
+            emojiView.onFirstFrameReady = { [weak self, weak emojiView] in
+                guard let self, let emojiView,
+                      customEmojiPlacements.contains(where: { $0.view === emojiView }),
+                      NSMaxRange(request.range) <= textStorage.length
+                else { return }
+                textStorage.addAttribute(.foregroundColor, value: UIColor.clear, range: request.range)
+                setNeedsDisplay()
+            }
+            emojiView.setPlaybackVisible(customEmojiPlaybackVisible)
+            addSubview(emojiView)
+            customEmojiPlacements.append(CustomEmojiPlacement(
+                range: request.range,
+                view: emojiView,
+            ))
+        }
+        setNeedsLayout()
+    }
+
+    private func clearCustomEmojiViews() {
+        customEmojiGeneration += 1
+        customEmojiTask?.cancel()
+        customEmojiTask = nil
+        for placement in customEmojiPlacements {
+            placement.view.prepareForReuse()
+            placement.view.removeFromSuperview()
+        }
+        customEmojiPlacements.removeAll()
+    }
+
+    private func layoutCustomEmojiViews() {
+        guard !customEmojiPlacements.isEmpty else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        for placement in customEmojiPlacements {
+            guard NSMaxRange(placement.range) <= textStorage.length else {
+                placement.view.isHidden = true
+                continue
+            }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: placement.range,
+                actualCharacterRange: nil,
+            )
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            guard !rect.isNull, !rect.isEmpty else {
+                placement.view.isHidden = true
+                continue
+            }
+            rect.origin.x += textContainerInset.left
+            rect.origin.y += textContainerInset.top
+            let font = attributedText.attribute(.font, at: placement.range.location, effectiveRange: nil) as? UIFont
+            let side = ceil(font?.lineHeight ?? UIFont.body.lineHeight)
+            placement.view.frame = CGRect(
+                x: round(rect.midX - side / 2),
+                y: round(rect.midY - side / 2),
+                width: side,
+                height: side,
+            )
+            placement.view.isHidden = false
+        }
+        bringSubviewToFront(statusLabel)
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        textView.selectedTextRange = nil
     }
 
     @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {

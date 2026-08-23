@@ -48,7 +48,7 @@ enum TGSAnimationRepository {
 
 // MARK: - TGSStickerView
 
-final class TGSStickerView: UIControl {
+final class TGSStickerView: UIControl, AnimatedFileView {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -88,6 +88,8 @@ final class TGSStickerView: UIControl {
     }
 
     // MARK: Internal
+
+    var onFirstFrameReady: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -136,6 +138,7 @@ final class TGSStickerView: UIControl {
         representedFileID = nil
         loadedPath = nil
         onTap = nil
+        onFirstFrameReady = nil
         isUserInteractionEnabled = false
         playbackVisible = false
 
@@ -228,6 +231,8 @@ final class TGSStickerView: UIControl {
         animationView.forceDisplayUpdate()
         animationView.isHidden = false
         thumbnailView.isHidden = true
+        onFirstFrameReady?()
+        onFirstFrameReady = nil
         updatePlayback()
     }
 

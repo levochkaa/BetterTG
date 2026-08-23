@@ -106,10 +106,24 @@ private final class SwipeToReplyIndicatorView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: Internal
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        avatarView.prepareForReuse()
+        mediaView.prepareForReuse()
+        textView.prepareForReuse()
+        forwardedLabel.isHidden = true
+        replyView.isHidden = true
+        textView.isHidden = true
+        mediaView.isHidden = true
+        timestampLabel.isHidden = true
+        mediaTimestampLabel.isHidden = true
+        onReplyTap = nil
+        onMediaTap = nil
+    }
 
     func setMediaPlaybackVisible(_ isVisible: Bool) {
         mediaView.setPlaybackVisible(isVisible)
+        textView.setCustomEmojiPlaybackVisible(isVisible)
     }
 
     override func layoutSubviews() {
