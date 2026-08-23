@@ -213,6 +213,7 @@ private final class TelegramContextMenuController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        guard !isDismissing else { return }
         layoutPreviewAndMenu()
     }
 
@@ -244,6 +245,7 @@ private final class TelegramContextMenuController: UIViewController {
     private var actionButtons = [TelegramContextMenuActionButton]()
     private weak var trackedButton: TelegramContextMenuActionButton?
     private var hasAnimatedIn = false
+    private var isDismissing = false
     private var isPerformingAction = false
 
     fileprivate func show(in sourceWindow: UIWindow) {
@@ -464,6 +466,18 @@ private final class TelegramContextMenuController: UIViewController {
                     y: sourceFrame.height / max(1, messageContentSize.height)
                 )
             }
+        } else if presentationStyle == .chatPreview {
+            previewContainer.bounds = CGRect(origin: .zero, size: targetPreviewFrame.size)
+            if hasAnimatedIn {
+                previewContainer.center = CGPoint(x: targetPreviewFrame.midX, y: targetPreviewFrame.midY)
+                previewContainer.transform = .identity
+            } else {
+                previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+                previewContainer.transform = CGAffineTransform(
+                    scaleX: sourceFrame.width / max(1, targetPreviewFrame.width),
+                    y: sourceFrame.height / max(1, targetPreviewFrame.height)
+                )
+            }
         } else if hasAnimatedIn {
             previewContainer.frame = targetPreviewFrame
         } else {
@@ -498,6 +512,12 @@ private final class TelegramContextMenuController: UIViewController {
                         scaleX: self.targetMessageScale,
                         y: self.targetMessageScale
                     )
+                } else if self.presentationStyle == .chatPreview {
+                    self.previewContainer.center = CGPoint(
+                        x: self.targetPreviewFrame.midX,
+                        y: self.targetPreviewFrame.midY
+                    )
+                    self.previewContainer.transform = .identity
                 } else {
                     self.previewContainer.frame = self.targetPreviewFrame
                 }
@@ -512,7 +532,9 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func dismissMenu(completion: (() -> Void)? = nil) {
-        let returnFrame = sourceView.map { view.convert($0.convert($0.bounds, to: nil), from: nil) } ?? sourceFrame
+        guard !isDismissing else { return }
+        isDismissing = true
+        let returnFrame = sourceReturnFrame()
         UIView.animate(
             withDuration: 0.24,
             delay: 0,
@@ -527,6 +549,12 @@ private final class TelegramContextMenuController: UIViewController {
                         scaleX: returnFrame.width / max(1, self.messageContentSize.width),
                         y: returnFrame.height / max(1, self.messageContentSize.height)
                     )
+                } else if self.presentationStyle == .chatPreview {
+                    self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
+                    self.previewContainer.transform = CGAffineTransform(
+                        scaleX: returnFrame.width / max(1, self.targetPreviewFrame.width),
+                        y: returnFrame.height / max(1, self.targetPreviewFrame.height)
+                    )
                 } else {
                     self.previewContainer.frame = returnFrame
                 }
@@ -535,6 +563,7 @@ private final class TelegramContextMenuController: UIViewController {
             self.menuEffectView.alpha = 0
             self.menuEffectView.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
         } completion: { _ in
+            self.sourceView?.transform = self.sourceTransform
             if let previewView = self.previewView, let extractedSource = self.extractedSource {
                 extractedSource.putBackContextMenuContent(previewView)
             }
@@ -542,7 +571,6 @@ private final class TelegramContextMenuController: UIViewController {
             self.previewController?.view.removeFromSuperview()
             self.previewController?.removeFromParent()
             self.sourceView?.alpha = 1
-            self.sourceView?.transform = self.sourceTransform
             self.beginAppearanceTransition(false, animated: false)
             self.view.removeFromSuperview()
             self.endAppearanceTransition()
@@ -550,6 +578,18 @@ private final class TelegramContextMenuController: UIViewController {
             Self.activeController = nil
             completion?()
         }
+    }
+
+    private func sourceReturnFrame() -> CGRect {
+        guard let sourceView else { return sourceFrame }
+        let currentTransform = sourceView.transform
+        var result = sourceFrame
+        UIView.performWithoutAnimation {
+            sourceView.transform = sourceTransform
+            result = view.convert(sourceView.convert(sourceView.bounds, to: nil), from: nil)
+            sourceView.transform = currentTransform
+        }
+        return result
     }
 
     @objc private func dismissMenu() {
