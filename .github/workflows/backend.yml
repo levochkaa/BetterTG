@@ -1,0 +1,54 @@
+name: Backend
+
+on:
+  pull_request:
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/backend.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/backend.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun test
+      - run: bun run build
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose up -d postgres redis
+      - run: bun run migration:run
+      - run: bun run migration:revert
+      - run: bun run migration:run
+      - name: Encrypted relay smoke
+        run: |
+          PUBLIC_BASE_URL=http://127.0.0.1:3000 bun dist/main.js >/tmp/bettertg-api.log 2>&1 &
+          API_PID=$!
+          bun dist/worker.js >/tmp/bettertg-worker.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$API_PID" "$WORKER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:3000/health/ready && break
+            sleep 1
+          done
+          SMOKE_BASE_URL=http://127.0.0.1:3000 \
+            SMOKE_REDIS_URL=redis://127.0.0.1:6380/0 \
+            bun run smoke:relay
+      - if: always()
+        run: docker compose down --volumes

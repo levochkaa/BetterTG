@@ -49,7 +49,7 @@ targets:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        CODE_SIGN_ENTITLEMENTS: ""
+        CODE_SIGN_ENTITLEMENTS: BetterTG/BetterTG.entitlements
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: BetterTG/Info.plist
@@ -82,7 +82,14 @@ targets:
         TARGETED_DEVICE_FAMILY: 1
       configs:
         Debug:
+          APP_ATTEST_ENVIRONMENT: development
+          APS_ENVIRONMENT: development
+          BETTERTG_RELAY_BASE_URL: http://127.0.0.1:8080
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          APP_ATTEST_ENVIRONMENT: production
+          APS_ENVIRONMENT: production
+          BETTERTG_RELAY_BASE_URL: ""
     postCompileScripts:
       - name: SwiftFormat
         shell: /bin/sh

@@ -1,0 +1,436 @@
+// PushRelayCoordinator.swift
+
+import Combine
+import Foundation
+import TDLibKit
+import UIKit
+import UserNotifications
+
+@MainActor final class PushRelayCoordinator: NSObject, UNUserNotificationCenterDelegate {
+    // MARK: Lifecycle
+
+    override private init() {
+        self.configuration = .current
+        if let configuration {
+            let api = PushRelayAPIClient(baseURL: configuration.baseURL)
+            self.api = api
+            self.appAttest = AppAttestClient(stateStore: stateStore)
+        } else {
+            self.api = nil
+            self.appAttest = nil
+        }
+        super.init()
+    }
+
+    // MARK: Internal
+
+    static let shared = PushRelayCoordinator()
+
+    func start() {
+        guard !started else { return }
+        started = true
+
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: "TELEGRAM_MESSAGE",
+                actions: [],
+                intentIdentifiers: [],
+            ),
+        ])
+
+        NotificationCenter.default
+            .publisher(for: .authorizationStateReady)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                telegramReady = true
+                scheduleSynchronization()
+                openPendingRouteIfPossible()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default
+            .publisher(for: .authorizationStateLoggingOut)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task { await self.prepareForLogout() }
+            }
+            .store(in: &cancellables)
+
+        guard configuration != nil else {
+            log("Push relay disabled: BetterTGRelayBaseURL is not configured")
+            return
+        }
+
+        Task {
+            await retryPendingRevocation()
+            _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
+    func didRegisterForRemoteNotifications(deviceToken: Data) {
+        apnsToken = deviceToken.map { String(format: "%02x", $0) }.joined()
+        scheduleSynchronization()
+    }
+
+    func didFailToRegisterForRemoteNotifications(_ error: any Swift.Error) {
+        log("APNs registration failed: \(error.localizedDescription)")
+    }
+
+    func handleNotificationResponse(userInfo: [AnyHashable: Any]) {
+        guard let route = PushNotificationRoute(userInfo: userInfo) else { return }
+        if !telegramReady {
+            pendingRoute = route
+            return
+        }
+        open(route: route)
+    }
+
+    func handleBackgroundNotification(userInfo: [AnyHashable: Any]) async -> Bool {
+        guard let stateRoute = PushNotificationRoute(userInfo: userInfo),
+              ["MESSAGE_DELETED", "READ_HISTORY", "READ_REACTION"].contains(stateRoute.event)
+        else { return false }
+
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let identifiers = delivered.compactMap { notification -> String? in
+            guard let messageRoute = PushNotificationRoute(
+                userInfo: notification.request.content.userInfo,
+            ),
+                stateRoute.refersToSameConversation(as: messageRoute),
+                let messageId = messageRoute.serverMessageId
+            else { return nil }
+
+            switch stateRoute.event {
+            case "READ_HISTORY":
+                guard let maxId = stateRoute.maxId, messageId <= maxId else { return nil }
+            case "MESSAGE_DELETED", "READ_REACTION":
+                guard stateRoute.deletedMessageIds.contains(messageId) else { return nil }
+            default:
+                return nil
+            }
+            return notification.request.identifier
+        }
+        guard !identifiers.isEmpty else { return false }
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        return true
+    }
+
+    func prepareForLogout() async {
+        guard let api else {
+            telegramReady = false
+            return
+        }
+        do {
+            var state = try await stateStore.load()
+            guard let installation = state.installation,
+                  let subscription = state.subscription
+            else {
+                telegramReady = false
+                return
+            }
+
+            state.pendingSubscriptionRevocation = true
+            try await stateStore.save(state)
+            await deregisterFromTDLib(subscription)
+            try await api.deleteTelegramSubscription(subscription, installation: installation)
+            try await stateStore.update {
+                $0.subscription = nil
+                $0.pendingSubscriptionRevocation = false
+                $0.lastTDLibRegistrationAt = nil
+                $0.registeredTelegramUserId = nil
+                $0.pushReceiverId = nil
+            }
+        } catch {
+            log("Push relay logout cleanup failed: \(error.localizedDescription)")
+            scheduleRevocationRetry()
+        }
+        registrationRefreshTask?.cancel()
+        telegramReady = false
+    }
+
+    nonisolated func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        willPresent _: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void,
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    nonisolated func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+    ) async {
+        await handleNotificationResponse(userInfo: response.notification.request.content.userInfo)
+    }
+
+    // MARK: Private
+
+    private let configuration: PushRelayConfiguration?
+    private let stateStore = PushRelayStateStore()
+    private let api: PushRelayAPIClient?
+    private let appAttest: AppAttestClient?
+    private var apnsToken: String?
+    private var telegramReady = false
+    private var started = false
+    private var synchronizationTask: Task<Void, Never>?
+    private var synchronizationRetryTask: Task<Void, Never>?
+    private var registrationRefreshTask: Task<Void, Never>?
+    private var revocationRetryTask: Task<Void, Never>?
+    private var synchronizationRequested = false
+    private var pendingRoute: PushNotificationRoute?
+    private var lastOpenedRoute: PushNotificationRoute?
+    private var cancellables = Set<AnyCancellable>()
+
+    private func scheduleSynchronization() {
+        synchronizationRequested = true
+        guard synchronizationTask == nil else { return }
+        synchronizationTask = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                synchronizationRequested = false
+                do {
+                    try await synchronizeWithRecovery()
+                    synchronizationRetryTask?.cancel()
+                    synchronizationRetryTask = nil
+                } catch {
+                    log("Push relay synchronization failed: \(error.localizedDescription)")
+                    scheduleSynchronizationRetry()
+                }
+            } while synchronizationRequested
+            synchronizationTask = nil
+        }
+    }
+
+    private func synchronizeWithRecovery() async throws {
+        do {
+            try await synchronize()
+        } catch let error as RelayAPIError where error.statusCode == 401 {
+            try await stateStore.update {
+                $0.installation = nil
+                $0.subscription = nil
+                $0.apnsToken = nil
+                $0.lastTDLibRegistrationAt = nil
+                $0.registeredTelegramUserId = nil
+                $0.pushReceiverId = nil
+                $0.pendingSubscriptionRevocation = false
+            }
+            try await synchronize()
+        }
+    }
+
+    private func synchronize() async throws {
+        guard telegramReady,
+              let apnsToken,
+              let api,
+              let appAttest
+        else { return }
+
+        var state = try await stateStore.load()
+        if state.pendingSubscriptionRevocation,
+           state.installation != nil,
+           state.subscription != nil
+        {
+            try await revokePendingSubscription(api: api)
+            state = try await stateStore.load()
+        }
+
+        if state.installation == nil {
+            if state.installationIdempotencyKey == nil {
+                state.installationIdempotencyKey = UUID().uuidString.lowercased()
+                try await stateStore.save(state)
+            }
+            guard let idempotencyKey = state.installationIdempotencyKey else { return }
+            let signedRequest = try await appAttest.signedInstallationRequest(
+                api: api,
+                apnsToken: apnsToken,
+            )
+            let credentials: RelayInstallationCredentials
+            do {
+                credentials = try await api.createInstallation(
+                    signedRequest: signedRequest,
+                    idempotencyKey: idempotencyKey,
+                )
+            } catch let error as RelayAPIError where error.statusCode == 401 {
+                try await appAttest.resetKey()
+                let retry = try await appAttest.signedInstallationRequest(
+                    api: api,
+                    apnsToken: apnsToken,
+                )
+                credentials = try await api.createInstallation(
+                    signedRequest: retry,
+                    idempotencyKey: idempotencyKey,
+                )
+            }
+            state = try await stateStore.load()
+            state.installation = credentials
+            state.apnsToken = apnsToken
+            state.installationIdempotencyKey = nil
+            try await stateStore.save(state)
+        }
+
+        guard let installation = state.installation else { return }
+        if state.apnsToken != apnsToken {
+            try await api.updateAPNsToken(
+                installation: installation,
+                request: RelayUpdateAPNsTokenRequest(
+                    apnsToken: apnsToken,
+                    apnsEnvironment: .current,
+                    appVersion: Utils.applicationVersion,
+                    osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+                ),
+            )
+            state.apnsToken = apnsToken
+            try await stateStore.save(state)
+        }
+
+        if state.subscription == nil {
+            state.subscription = try await api.createTelegramSubscription(installation: installation)
+            try await stateStore.save(state)
+        }
+
+        guard let subscription = state.subscription else { return }
+        let currentUser = try await td.getMe()
+        let registrationExpired = state.lastTDLibRegistrationAt.map {
+            Date().timeIntervalSince($0) >= 24 * 60 * 60
+        } ?? true
+        guard registrationExpired || state.registeredTelegramUserId != currentUser.id else {
+            let age = Date().timeIntervalSince(state.lastTDLibRegistrationAt ?? .distantPast)
+            scheduleRegistrationRefresh(after: max(60, 24 * 60 * 60 - age))
+            return
+        }
+
+        let receiver = try await td.registerDevice(
+            deviceToken: .deviceTokenWebPush(
+                DeviceTokenWebPush(
+                    authBase64url: subscription.authBase64url,
+                    endpoint: subscription.endpoint,
+                    p256dhBase64url: subscription.p256dhBase64url,
+                ),
+            ),
+            otherUserIds: [],
+        )
+        state.lastTDLibRegistrationAt = Date()
+        state.registeredTelegramUserId = currentUser.id
+        state.pushReceiverId = receiver.id.rawValue
+        try await stateStore.save(state)
+        scheduleRegistrationRefresh(after: 24 * 60 * 60)
+    }
+
+    private func deregisterFromTDLib(_ subscription: RelayTelegramSubscription) async {
+        _ = try? await td.registerDevice(
+            deviceToken: .deviceTokenWebPush(
+                DeviceTokenWebPush(
+                    authBase64url: subscription.authBase64url,
+                    endpoint: "",
+                    p256dhBase64url: subscription.p256dhBase64url,
+                ),
+            ),
+            otherUserIds: [],
+        )
+    }
+
+    private func openPendingRouteIfPossible() {
+        guard let pendingRoute else { return }
+        self.pendingRoute = nil
+        open(route: pendingRoute)
+    }
+
+    private func scheduleSynchronizationRetry() {
+        guard synchronizationRetryTask == nil else { return }
+        synchronizationRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self, !Task.isCancelled else { return }
+            synchronizationRetryTask = nil
+            scheduleSynchronization()
+        }
+    }
+
+    private func scheduleRegistrationRefresh(after interval: TimeInterval) {
+        registrationRefreshTask?.cancel()
+        registrationRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(interval))
+            guard let self, !Task.isCancelled else { return }
+            registrationRefreshTask = nil
+            scheduleSynchronization()
+        }
+    }
+
+    private func scheduleRevocationRetry() {
+        guard revocationRetryTask == nil else { return }
+        revocationRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self, !Task.isCancelled else { return }
+            revocationRetryTask = nil
+            await retryPendingRevocation()
+        }
+    }
+
+    private func retryPendingRevocation() async {
+        guard let api else { return }
+        do {
+            try await revokePendingSubscription(api: api)
+        } catch {
+            log("Push relay revocation retry failed: \(error.localizedDescription)")
+            scheduleRevocationRetry()
+        }
+    }
+
+    private func revokePendingSubscription(api: PushRelayAPIClient) async throws {
+        let state = try await stateStore.load()
+        guard state.pendingSubscriptionRevocation,
+              let installation = state.installation,
+              let subscription = state.subscription
+        else { return }
+        try await api.deleteTelegramSubscription(subscription, installation: installation)
+        try await stateStore.update {
+            $0.subscription = nil
+            $0.pendingSubscriptionRevocation = false
+            $0.lastTDLibRegistrationAt = nil
+            $0.registeredTelegramUserId = nil
+            $0.pushReceiverId = nil
+        }
+    }
+
+    private func open(route: PushNotificationRoute) {
+        guard lastOpenedRoute != route else { return }
+        lastOpenedRoute = route
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard self?.lastOpenedRoute == route else { return }
+            self?.lastOpenedRoute = nil
+        }
+        Task {
+            do {
+                let currentUser = try await td.getMe()
+                guard route.accountId == nil || route.accountId == currentUser.id else { return }
+                let chat: Chat =
+                    switch route.peerType {
+                    case .privateChat:
+                        try await td.createPrivateChat(force: false, userId: route.peerId)
+                    case .basicGroup:
+                        try await td.createBasicGroupChat(basicGroupId: route.peerId, force: false)
+                    case .supergroup:
+                        try await td.createSupergroupChat(force: false, supergroupId: route.peerId)
+                    }
+                let position = chat.positions.first ?? ChatPosition(
+                    isPinned: false,
+                    list: .chatListMain,
+                    order: 0,
+                    source: nil,
+                )
+                guard let customChat = await RootVM.shared.getCustomChat(from: chat, position: position) else {
+                    return
+                }
+                NavigationStorage.shared.push(
+                    .customChat(customChat, targetMessageID: route.tdlibMessageId),
+                )
+            } catch {
+                log("Unable to open push route: \(error.localizedDescription)")
+            }
+        }
+    }
+}

@@ -1,0 +1,109 @@
+name: bettertg-backend
+
+x-app: &app
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+        DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://bettertg:bettertg@postgres:5432/bettertg}
+        REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+        postgres:
+            condition: service_healthy
+        redis:
+            condition: service_healthy
+    networks: [backend]
+
+services:
+    api:
+        <<: *app
+        command: ['bun', 'dist/main.js']
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            migrate:
+                condition: service_completed_successfully
+        expose: ['3000']
+        healthcheck:
+            test: ['CMD', 'curl', '--fail', 'http://127.0.0.1:3000/health/live']
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+
+    worker:
+        <<: *app
+        command: ['bun', 'dist/worker.js']
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            migrate:
+                condition: service_completed_successfully
+
+    migrate:
+        <<: *app
+        command: ['bun', 'run', 'migration:run:prod']
+        restart: 'no'
+
+    caddy:
+        image: caddy:2.10-alpine
+        restart: unless-stopped
+        environment:
+            SERVER_ADDRESS: ${SERVER_ADDRESS:-http://localhost}
+        ports:
+            - '${HTTP_PORT:-8080}:80'
+            - '${HTTPS_PORT:-8443}:443'
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        depends_on:
+            api:
+                condition: service_healthy
+        networks: [backend]
+
+    postgres:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: bettertg
+            POSTGRES_USER: bettertg
+            POSTGRES_PASSWORD: bettertg
+        ports:
+            - '127.0.0.1:${POSTGRES_PORT:-5433}:5432'
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U bettertg -d bettertg']
+            interval: 5s
+            timeout: 3s
+            retries: 10
+        networks: [backend]
+
+    redis:
+        image: redis:8.2-alpine
+        restart: unless-stopped
+        command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+        ports:
+            - '127.0.0.1:${REDIS_PORT:-6380}:6379'
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 5s
+            timeout: 3s
+            retries: 10
+        networks: [backend]
+
+volumes:
+    postgres_data:
+    redis_data:
+    caddy_data:
+    caddy_config:
+
+networks:
+    backend:

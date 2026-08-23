@@ -16,9 +16,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     // MARK: Lifecycle
 
-    init(customChat: CustomChat, presentationMode: PresentationMode = .full) {
+    init(
+        customChat: CustomChat,
+        presentationMode: PresentationMode = .full,
+        targetMessageID: Int64? = nil,
+    ) {
         self.presentationMode = presentationMode
         self.chatVM = ChatVM(customChat: customChat, previewing: presentationMode == .contextPreview)
+        self.targetMessageID = targetMessageID
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -40,6 +45,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configureDataSource()
         observeState()
         updateSnapshot(animated: false)
+        if let targetMessageID {
+            scrollToMessage(id: targetMessageID)
+        }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -154,6 +162,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private let presentationMode: PresentationMode
+    private let targetMessageID: Int64?
     private let chatVM: ChatVM
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())

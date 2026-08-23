@@ -26,8 +26,11 @@ final class NavigationStorage {
     func push(_ route: Route, animated: Bool = true) {
         let controller: UIViewController
         switch route {
-        case .customChat(let customChat):
-            controller = ChatViewController(customChat: customChat)
+        case .customChat(let customChat, let targetMessageID):
+            controller = ChatViewController(
+                customChat: customChat,
+                targetMessageID: targetMessageID,
+            )
         case .archive(let customFolder):
             controller = ArchiveViewController(folder: customFolder, rootVM: .shared)
         }

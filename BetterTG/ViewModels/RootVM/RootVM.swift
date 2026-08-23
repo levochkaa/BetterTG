@@ -7,7 +7,7 @@ import TDLibKit
 // MARK: - Route
 
 enum Route {
-    case customChat(CustomChat)
+    case customChat(CustomChat, targetMessageID: Int64? = nil)
     case archive(CustomFolder)
 }
 
@@ -49,6 +49,10 @@ enum Route {
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {
         guard let chat = try? await td.getChat(chatId: id),
               let position = chat.positions.first(chatList) else { return nil }
+        return await getCustomChat(from: chat, position: position)
+    }
+
+    func getCustomChat(from chat: Chat, position: ChatPosition) async -> CustomChat? {
         switch chat.type {
         case .chatTypePrivate(let privateChat):
             guard let user = try? await td.getUser(userId: privateChat.userId) else { return nil }

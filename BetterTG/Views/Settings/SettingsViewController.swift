@@ -92,7 +92,10 @@ final class SettingsViewController: UITableViewController {
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Log Out", style: .destructive) { _ in
-            Task { _ = try? await td.logOut() }
+            Task {
+                await PushRelayCoordinator.shared.prepareForLogout()
+                _ = try? await td.logOut()
+            }
         })
         if let popover = alert.popoverPresentationController {
             popover.sourceView = tableView.cellForRow(at: indexPath)

@@ -8,9 +8,35 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
     ) -> Bool {
+        PushRelayCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         configureAppearance()
         return true
+    }
+
+    func application(
+        _: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data,
+    ) {
+        PushRelayCoordinator.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
+    }
+
+    func application(
+        _: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error,
+    ) {
+        PushRelayCoordinator.shared.didFailToRegisterForRemoteNotifications(error)
+    }
+
+    func application(
+        _: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void,
+    ) {
+        Task {
+            let changed = await PushRelayCoordinator.shared.handleBackgroundNotification(userInfo: userInfo)
+            completionHandler(changed ? .newData : .noData)
+        }
     }
 
     func application(
@@ -44,7 +70,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(
         _ scene: UIScene,
         willConnectTo _: UISceneSession,
-        options _: UIScene.ConnectionOptions,
+        options connectionOptions: UIScene.ConnectionOptions,
     ) {
         guard let windowScene = scene as? UIWindowScene else { return }
         Utils.screen = windowScene.screen
@@ -54,5 +80,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = RootViewController(rootVM: .shared)
         window.makeKeyAndVisible()
         self.window = window
+
+        if let response = connectionOptions.notificationResponse {
+            PushRelayCoordinator.shared.handleNotificationResponse(
+                userInfo: response.notification.request.content.userInfo,
+            )
+        }
     }
 }

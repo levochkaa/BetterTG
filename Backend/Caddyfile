@@ -1,0 +1,25 @@
+{$SERVER_ADDRESS:http://localhost} {
+	encode zstd gzip
+
+	@webpush {
+		path /webpush/*
+		method POST
+	}
+	handle @webpush {
+		request_body {
+			max_size 8KB
+		}
+		reverse_proxy api:3000
+	}
+
+	handle /webpush/* {
+		respond "Method Not Allowed" 405
+	}
+
+	handle {
+		request_body {
+			max_size 64KB
+		}
+		reverse_proxy api:3000
+	}
+}
