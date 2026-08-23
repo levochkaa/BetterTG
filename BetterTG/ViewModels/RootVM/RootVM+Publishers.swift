@@ -45,6 +45,12 @@ extension RootVM {
         nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
             self?.refreshChat(id: update.chatId)
         }
+        nc.publisher(&cancellables, for: .updateChatNotificationSettings) { [weak self] update in
+            self?.refreshChat(id: update.chatId)
+        }
+        nc.publisher(&cancellables, for: .updateChatIsMarkedAsUnread) { [weak self] update in
+            self?.refreshChat(id: update.chatId)
+        }
     }
 
     func updateChatFolders(_ update: UpdateChatFolders) {
@@ -72,6 +78,7 @@ extension RootVM {
     }
 
     func updateChatPosition(_ update: UpdateChatPosition) {
+        defer { refreshChat(id: update.chatId) }
         guard let folder = allFolders.first(where: { $0.chatList == update.position.list }) else { return }
         guard update.position.order != 0 else {
             folder.chats.removeAll(where: { $0.id == update.chatId })

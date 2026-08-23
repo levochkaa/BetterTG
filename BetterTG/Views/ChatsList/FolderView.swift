@@ -82,8 +82,9 @@ final class ArchiveViewController: UIViewController {
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
     // MARK: Lifecycle
 
-    init(folder: CustomFolder, rootVM _: RootVM, showsStandaloneSearch: Bool) {
+    init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
         self.folder = folder
+        self.rootVM = rootVM
         self.showsStandaloneSearch = showsStandaloneSearch
         super.init(style: .plain)
     }
@@ -255,6 +256,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private let showsStandaloneSearch: Bool
+    private let rootVM: RootVM
     private var query = ""
     private var searchActive = false
     private var didSetInitialSearchOffset = false
@@ -365,44 +367,100 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {
         let pinned = chat.position.isPinned
-        let pin = TelegramContextMenuAction(
-            title: pinned ? "Unpin" : "Pin",
-            image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
-        ) {
-            Task {
-                try? await td.toggleChatIsPinned(
-                    chatId: chat.id,
-                    chatList: self.folder.chatList,
-                    isPinned: !pinned,
-                )
-            }
+        let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
+        let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
+        let muted = chat.chat.notificationSettings.muteFor > 0
+        let isCustomFolder: Bool
+        if case .folder = folder.type {
+            isCustomFolder = true
+        } else {
+            isCustomFolder = false
         }
 
-        var actions = [pin]
-        let deleteOnlyForSelf = TelegramContextMenuAction(
-            title: "Delete only for me",
-            image: UIImage(systemName: "trash"),
-            isDestructive: true,
-            startsNewSection: true,
-        ) { [weak self] in self?.confirmDelete(chat: chat, forAll: false) }
-        let deleteForAll = TelegramContextMenuAction(
-            title: "Delete for everyone",
-            image: UIImage(systemName: "trash.fill"),
-            isDestructive: true,
-            startsNewSection: true,
-        ) { [weak self] in self?.confirmDelete(chat: chat, forAll: true) }
+        var actions = [
+            TelegramContextMenuAction(
+                title: isCustomFolder ? "Remove from Folder" : "Add to Folder",
+                image: UIImage(systemName: isCustomFolder ? "folder.badge.minus" : "folder.badge.plus"),
+            ) { [weak self] in
+                self?.performFolderAction(for: chat)
+            },
+            TelegramContextMenuAction(
+                title: unread ? "Mark as Read" : "Mark as Unread",
+                image: UIImage(systemName: unread ? "envelope.open" : "envelope.badge"),
+            ) {
+                Task {
+                    if unread {
+                        if let messageID = chat.lastMessage?.id {
+                            _ = try? await td.viewMessages(
+                                chatId: chat.id,
+                                forceRead: true,
+                                messageIds: [messageID],
+                                source: nil
+                            )
+                        }
+                        _ = try? await td.toggleChatIsMarkedAsUnread(
+                            chatId: chat.id,
+                            isMarkedAsUnread: false
+                        )
+                    } else {
+                        _ = try? await td.toggleChatIsMarkedAsUnread(
+                            chatId: chat.id,
+                            isMarkedAsUnread: true
+                        )
+                    }
+                }
+            },
+            TelegramContextMenuAction(
+                title: archived ? "Unarchive" : "Archive",
+                image: UIImage(systemName: archived ? "tray.and.arrow.up" : "archivebox"),
+            ) {
+                Task {
+                    try? await td.addChatToList(
+                        chatId: chat.id,
+                        chatList: archived ? .chatListMain : .chatListArchive
+                    )
+                }
+            },
+            TelegramContextMenuAction(
+                title: pinned ? "Unpin" : "Pin",
+                image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
+            ) { [weak self] in
+                guard let self else { return }
+                Task {
+                    try? await td.toggleChatIsPinned(
+                        chatId: chat.id,
+                        chatList: self.folder.chatList,
+                        isPinned: !pinned
+                    )
+                }
+            },
+            TelegramContextMenuAction(
+                title: muted ? "Unmute" : "Mute",
+                image: UIImage(systemName: muted ? "speaker.wave.2.fill" : "speaker.slash.fill"),
+            ) {
+                Task {
+                    try? await td.setChatNotificationSettings(
+                        chatId: chat.id,
+                        notificationSettings: chat.chat.notificationSettings.withMuteFor(
+                            muted ? 0 : Int(Int32.max)
+                        )
+                    )
+                }
+            },
+        ]
 
-        if chat.chat.canBeDeletedOnlyForSelf, chat.chat.canBeDeletedForAllUsers {
-            actions.append(deleteOnlyForSelf)
+        if chat.chat.canBeDeletedOnlyForSelf || chat.chat.canBeDeletedForAllUsers {
             actions.append(TelegramContextMenuAction(
-                title: deleteForAll.title,
-                image: deleteForAll.image,
+                title: "Delete",
+                image: UIImage(systemName: "trash"),
                 isDestructive: true,
-            ) { [weak self] in self?.confirmDelete(chat: chat, forAll: true) })
-        } else if chat.chat.canBeDeletedForAllUsers {
-            actions.append(deleteForAll)
-        } else if chat.chat.canBeDeletedOnlyForSelf {
-            actions.append(deleteOnlyForSelf)
+                startsNewSection: true,
+            ) { [weak self] in
+                self?.confirmDelete(
+                    chat: chat,
+                    forAll: !chat.chat.canBeDeletedOnlyForSelf && chat.chat.canBeDeletedForAllUsers
+                )
+            })
         }
         return actions
     }
@@ -415,7 +473,43 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
               let chat = chat(for: chatID),
               let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
         else { return }
-        presentTelegramContextMenu(sourceView: cell.contextPreviewView, actions: menu(for: chat), tracking: gesture)
+        let previewController = ChatViewController(customChat: chat, presentationMode: .contextPreview)
+        presentTelegramContextMenu(
+            sourceView: cell.contextPreviewView,
+            actions: menu(for: chat),
+            tracking: gesture,
+            presentationStyle: .chatPreview,
+            previewController: previewController
+        )
+    }
+
+    private func performFolderAction(for chat: CustomChat) {
+        if case .folder(let info, let definition) = folder.type {
+            let updated = definition.removing(chatID: chat.id)
+            Task { try? await td.editChatFolder(chatFolderId: info.id, folder: updated) }
+            return
+        }
+
+        let targets = rootVM.folders.compactMap { folder -> (Int, String, ChatFolder)? in
+            guard case .folder(let info, let definition) = folder.type,
+                  !folder.chats.contains(where: { $0.id == chat.id })
+            else { return nil }
+            return (info.id, folder.name, definition)
+        }
+        guard !targets.isEmpty else { return }
+        let picker = UIAlertController(title: "Add to Folder", message: nil, preferredStyle: .actionSheet)
+        for target in targets {
+            picker.addAction(UIAlertAction(title: target.1, style: .default) { _ in
+                Task {
+                    try? await td.editChatFolder(
+                        chatFolderId: target.0,
+                        folder: target.2.adding(chatID: chat.id)
+                    )
+                }
+            })
+        }
+        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(picker, animated: true)
     }
 
     private func confirmDelete(chat: CustomChat, forAll: Bool) {
@@ -435,5 +529,70 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
         })
         present(alert, animated: true)
+    }
+}
+
+private extension ChatFolder {
+    func adding(chatID: Int64) -> ChatFolder {
+        copy(
+            excludedChatIds: excludedChatIds.filter { $0 != chatID },
+            includedChatIds: includedChatIds.contains(chatID) ? includedChatIds : includedChatIds + [chatID],
+            pinnedChatIds: pinnedChatIds
+        )
+    }
+
+    func removing(chatID: Int64) -> ChatFolder {
+        copy(
+            excludedChatIds: excludedChatIds.contains(chatID) ? excludedChatIds : excludedChatIds + [chatID],
+            includedChatIds: includedChatIds.filter { $0 != chatID },
+            pinnedChatIds: pinnedChatIds.filter { $0 != chatID }
+        )
+    }
+
+    private func copy(
+        excludedChatIds: [Int64],
+        includedChatIds: [Int64],
+        pinnedChatIds: [Int64]
+    ) -> ChatFolder {
+        ChatFolder(
+            colorId: colorId,
+            excludeArchived: excludeArchived,
+            excludeMuted: excludeMuted,
+            excludeRead: excludeRead,
+            excludedChatIds: excludedChatIds,
+            icon: icon,
+            includeBots: includeBots,
+            includeChannels: includeChannels,
+            includeContacts: includeContacts,
+            includeGroups: includeGroups,
+            includeNonContacts: includeNonContacts,
+            includedChatIds: includedChatIds,
+            isShareable: isShareable,
+            name: name,
+            pinnedChatIds: pinnedChatIds
+        )
+    }
+}
+
+private extension ChatNotificationSettings {
+    func withMuteFor(_ muteFor: Int) -> ChatNotificationSettings {
+        ChatNotificationSettings(
+            disableMentionNotifications: disableMentionNotifications,
+            disablePinnedMessageNotifications: disablePinnedMessageNotifications,
+            muteFor: muteFor,
+            muteStories: muteStories,
+            showPreview: showPreview,
+            showStoryPoster: showStoryPoster,
+            soundId: soundId,
+            storySoundId: storySoundId,
+            useDefaultDisableMentionNotifications: useDefaultDisableMentionNotifications,
+            useDefaultDisablePinnedMessageNotifications: useDefaultDisablePinnedMessageNotifications,
+            useDefaultMuteFor: false,
+            useDefaultMuteStories: useDefaultMuteStories,
+            useDefaultShowPreview: useDefaultShowPreview,
+            useDefaultShowStoryPoster: useDefaultShowStoryPoster,
+            useDefaultSound: useDefaultSound,
+            useDefaultStorySound: useDefaultStorySound
+        )
     }
 }
