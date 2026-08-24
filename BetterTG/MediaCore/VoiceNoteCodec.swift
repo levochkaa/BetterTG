@@ -98,6 +98,7 @@ enum VoiceNoteCodec {
                 let secondSegmentURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segment-2.wav")
                 let thirdSegmentURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segment-3.wav")
                 let mergedURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segments-merged.wav")
+                let trimURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segments-trimmed.wav")
                 let replacementURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segments-replaced.wav")
                 let temporaryURLs = [
                     inputURL,
@@ -106,6 +107,7 @@ enum VoiceNoteCodec {
                     secondSegmentURL,
                     thirdSegmentURL,
                     mergedURL,
+                    trimURL,
                     replacementURL,
                 ]
                 var recordingProbeDraftID: UUID?
@@ -195,6 +197,13 @@ enum VoiceNoteCodec {
                     let firstAverage = mergedSamples.prefix(50).reduce(0, +) / 50
                     let secondAverage = mergedSamples.dropFirst(50).prefix(50).reduce(0, +) / 50
                     precondition(firstAverage < secondAverage)
+                    let trimInspection = try await VoiceNotePCMEditor.trim(
+                        mergedURL,
+                        outputURL: trimURL,
+                        range: 0.25 ..< 1.75,
+                    )
+                    precondition(trimInspection.frameCount == 72_000)
+                    precondition(abs(trimInspection.duration - 1.5) < 0.000_001)
                     writeDebugProbeResult("Voice codec probe stage: PCM merge")
                     let recordingDraftID = UUID()
                     recordingProbeDraftID = recordingDraftID
@@ -241,7 +250,8 @@ enum VoiceNoteCodec {
                     let proof = "Voice codec probe: Ogg/Opus valid, \(size?.intValue ?? 0) bytes; "
                         + "waveform round-trip \(packedWaveform.count) bytes; "
                         + "cached PCM playback \(playbackFile.length) frames; durable retry reconciled; "
-                            + "PCM16 segments \(replacementInspection.frameCount) frames, order/revision restored"
+                            + "PCM16 segments \(replacementInspection.frameCount) frames, "
+                            + "trim \(trimInspection.frameCount), order/revision restored"
                     writeDebugProbeResult(proof)
                     log(proof)
                     try? FileManager.default.removeItem(at: playbackURL)

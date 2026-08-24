@@ -24,6 +24,7 @@ final class ChatComposerView: UIView {
     var onTakePhoto: (() -> Void)?
     var onScrollToMessage: ((Int64) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
+    var onConfirmVoiceTrimResume: (() -> Void)?
 
     var isInputFocused: Bool {
         textView.isFirstResponder
@@ -176,7 +177,9 @@ final class ChatComposerView: UIView {
     private let cancelRecordingButton = UIButton(type: .system)
     private let recordingPauseResumeButton = UIButton(type: .system)
     private let recordingPreviewPlayButton = UIButton(type: .system)
+    private let recordingPreviewContainer = UIView()
     private let recordingPreviewWaveform = TelegramWaveformView()
+    private let recordingTrimView = VoiceRecordingTrimView()
     private let recordingLabel = UILabel()
     private let recordingSendButton = UIButton(type: .system)
     private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
@@ -302,11 +305,45 @@ final class ChatComposerView: UIView {
         recordingPreviewWaveform.onSeek = { [weak self] progress in
             self?.seekRecordingPreview(to: progress)
         }
+        recordingPreviewContainer.translatesAutoresizingMaskIntoConstraints = false
+        recordingPreviewWaveform.translatesAutoresizingMaskIntoConstraints = false
+        recordingTrimView.translatesAutoresizingMaskIntoConstraints = false
+        recordingPreviewContainer.addSubview(recordingPreviewWaveform)
+        recordingPreviewContainer.addSubview(recordingTrimView)
+        NSLayoutConstraint.activate([
+            recordingPreviewWaveform.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
+            recordingPreviewWaveform.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
+            recordingPreviewWaveform.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
+            recordingPreviewWaveform.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
+            recordingTrimView.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
+            recordingTrimView.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
+            recordingTrimView.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
+            recordingTrimView.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
+        ])
+        recordingTrimView.onRangeChange = { [weak self] start, end, updatedEnd, finished in
+            guard let self else { return }
+            if !finished {
+                let selectedDuration = max(0, end - start)
+                recordingLabel.text = String(format: "%.2f", selectedDuration)
+                recordingPauseResumeButton.isEnabled = false
+                recordingPauseResumeButton.alpha = 0.45
+                recordingPreviewPlayButton.isEnabled = false
+                recordingPreviewPlayButton.alpha = 0.45
+                recordingSendButton.isEnabled = false
+                recordingSendButton.alpha = 0.45
+            }
+            chatVM.updateVoiceRecordingTrim(
+                start: start,
+                end: end,
+                updatedEnd: updatedEnd,
+                finished: finished,
+            )
+        }
         recordingLabel.textColor = .label
         recordingLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
         recordingLabel.textAlignment = .center
         recordingLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingPreviewWaveform.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingPreviewContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         recordingSendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
         recordingSendButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 28),
@@ -316,15 +353,15 @@ final class ChatComposerView: UIView {
         recordingRow.addArrangedSubview(cancelRecordingButton)
         recordingRow.addArrangedSubview(recordingPauseResumeButton)
         recordingRow.addArrangedSubview(recordingPreviewPlayButton)
-        recordingRow.addArrangedSubview(recordingPreviewWaveform)
+        recordingRow.addArrangedSubview(recordingPreviewContainer)
         recordingRow.addArrangedSubview(recordingLabel)
         recordingRow.addArrangedSubview(recordingSendButton)
         for button in [cancelRecordingButton, recordingPauseResumeButton, recordingPreviewPlayButton, recordingSendButton] {
             button.widthAnchor.constraint(equalToConstant: 34).isActive = true
             button.heightAnchor.constraint(equalToConstant: 36).isActive = true
         }
-        recordingPreviewWaveform.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        recordingPreviewWaveform.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
+        recordingPreviewContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        recordingPreviewContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
 
         rootStack.addArrangedSubview(replyRow)
         rootStack.addArrangedSubview(photosScroll)
@@ -695,7 +732,7 @@ final class ChatComposerView: UIView {
     private func updateRecordingStatus() {
         recordingLabel.textColor = .systemRed
         recordingPreviewPlayButton.isHidden = true
-        recordingPreviewWaveform.isHidden = true
+        recordingPreviewContainer.isHidden = true
         recordingPauseResumeButton.isHidden = true
         recordingSendButton.isEnabled = true
         recordingSendButton.alpha = 1
@@ -725,8 +762,8 @@ final class ChatComposerView: UIView {
             recordingPauseResumeButton.isHidden = false
             recordingPauseResumeButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
             recordingPauseResumeButton.accessibilityLabel = "Resume voice recording"
-            recordingPauseResumeButton.isEnabled = true
-            recordingPauseResumeButton.alpha = 1
+            recordingPauseResumeButton.isEnabled = chatVM.voiceRecordingPreviewReady
+            recordingPauseResumeButton.alpha = chatVM.voiceRecordingPreviewReady ? 1 : 0.45
             recordingPreviewPlayButton.isHidden = false
             recordingPreviewPlayButton.setImage(
                 UIImage(systemName: isPlaying ? "pause.fill" : "play.fill"),
@@ -736,13 +773,20 @@ final class ChatComposerView: UIView {
                 ? "Pause voice recording preview"
                 : "Play voice recording preview"
             recordingPreviewPlayButton.isEnabled = chatVM.voiceRecordingPreviewReady && previewPath != nil
-            recordingPreviewWaveform.isHidden = false
+            recordingPreviewContainer.isHidden = false
             recordingPreviewWaveform.isEnabled = chatVM.voiceRecordingPreviewReady && previewPath != nil
             recordingPreviewWaveform.samples = chatVM.voiceRecordingPreviewWaveform
             recordingPreviewWaveform.progress = chatVM.voiceRecordingPreviewProgress
-            recordingLabel.text = chatVM.formattedTimerCount
-            recordingLabel.accessibilityLabel = "Voice recording preview, \(chatVM.formattedTimerCount)"
+            if let range = chatVM.voiceRecordingTrimRange {
+                recordingTrimView.update(duration: chatVM.voiceRecordingPreviewExactDuration, range: range)
+            }
+            recordingTrimView.setEditingEnabled(chatVM.voiceRecordingTrimControlsEnabled)
+            recordingLabel.text = chatVM.formattedVoiceRecordingPreviewDuration
+            recordingLabel.accessibilityLabel =
+                "Voice recording preview, \(chatVM.formattedVoiceRecordingPreviewDuration)"
             recordingSendButton.isHidden = false
+            recordingSendButton.isEnabled = chatVM.voiceRecordingPreviewReady
+            recordingSendButton.alpha = chatVM.voiceRecordingPreviewReady ? 1 : 0.45
         case .pausing:
             recordingLabel.text = "Preparing…"
             recordingLabel.accessibilityLabel = "Preparing voice recording preview"
@@ -1119,7 +1163,11 @@ final class ChatComposerView: UIView {
         case .locked:
             chatVM.pauseVoiceRecording()
         case .preview:
-            chatVM.resumeVoiceRecording()
+            if chatVM.voiceRecordingResumeRequiresTrimConfirmation {
+                onConfirmVoiceTrimResume?()
+            } else {
+                chatVM.resumeVoiceRecording()
+            }
         case .holding, .idle, .pausing, .resuming:
             break
         }

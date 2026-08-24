@@ -351,6 +351,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 voiceGestureDefersSystemGestures = active
                 setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
             }
+            composerView.onConfirmVoiceTrimResume = { [weak self] in
+                self?.confirmVoiceTrimAndResume()
+            }
             view.addSubview(composerView)
             let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
             let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
@@ -370,6 +373,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 : view.safeAreaLayoutGuide.bottomAnchor)
         }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    private func confirmVoiceTrimAndResume() {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "Trim voice recording?",
+            message: "Audio outside the selected range will be removed before recording continues.",
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Trim and Continue", style: .destructive) { [weak self] _ in
+            self?.chatVM.resumeVoiceRecording(confirmingTrim: true)
+        })
+        present(alert, animated: true)
     }
 
     private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {

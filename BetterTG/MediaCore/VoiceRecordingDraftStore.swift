@@ -8,6 +8,7 @@ struct VoiceRecordingDraft: Equatable {
     let chatID: Int64
     let caption: FormattedText
     let createdAt: Foundation.Date
+    var editRevision = 0
     var exactDuration: Double
     var fileURL: URL
     let replyMessageID: Int64?
@@ -29,6 +30,7 @@ private struct VoiceRecordingDraftManifest: Codable {
     let chatID: Int64
     let caption: FormattedText
     let createdAt: Foundation.Date
+    let editRevision: Int?
     let exactDuration: Double
     let mediaFileName: String
     let replyMessageID: Int64?
@@ -43,6 +45,7 @@ private struct VoiceRecordingDraftManifest: Codable {
         chatID = draft.chatID
         caption = draft.caption
         createdAt = draft.createdAt
+        editRevision = draft.editRevision
         exactDuration = draft.exactDuration
         mediaFileName = draft.fileURL.lastPathComponent
         replyMessageID = draft.replyMessageID
@@ -63,6 +66,7 @@ private struct VoiceRecordingDraftManifest: Codable {
             chatID: chatID,
             caption: caption,
             createdAt: createdAt,
+            editRevision: editRevision ?? 0,
             exactDuration: exactDuration,
             fileURL: directoryURL.appendingPathComponent(mediaFileName),
             replyMessageID: replyMessageID,
@@ -128,7 +132,11 @@ actor VoiceRecordingDraftStore {
         guard canonicalDraft.revision == draft.revision else {
             throw VoiceRecordingDraftStoreError.staleRevision
         }
+        guard canonicalDraft.editRevision == draft.editRevision else {
+            throw VoiceRecordingDraftStoreError.staleRevision
+        }
         var updatedDraft = canonicalDraft
+        updatedDraft.editRevision += 1
         updatedDraft.exactDuration = inspection.duration
         updatedDraft.revision += 1
         updatedDraft.trimStart = nil
@@ -149,6 +157,40 @@ actor VoiceRecordingDraftStore {
             try? fileManager.removeItem(at: canonicalDraft.fileURL)
         }
         try? fileManager.removeItem(at: sourceURL)
+        return updatedDraft
+    }
+
+    func updateTrim(
+        in draft: VoiceRecordingDraft,
+        range: Range<Double>,
+    ) throws -> VoiceRecordingDraft {
+        try Task.checkCancellation()
+        guard !cancelledDraftIDs.contains(draft.id) else {
+            throw VoiceRecordingDraftStoreError.cancelled
+        }
+        guard let canonicalDraft = load(id: draft.id) else {
+            throw VoiceRecordingDraftStoreError.missingDraft
+        }
+        guard canonicalDraft.revision == draft.revision,
+              canonicalDraft.editRevision == draft.editRevision
+        else { throw VoiceRecordingDraftStoreError.staleRevision }
+        guard range.lowerBound >= 0,
+              range.lowerBound < range.upperBound,
+              range.upperBound <= canonicalDraft.exactDuration
+        else { throw VoiceRecordingDraftStoreError.staleRevision }
+        var updatedDraft = canonicalDraft
+        updatedDraft.editRevision += 1
+        if range.lowerBound <= 0.000_001,
+           abs(range.upperBound - canonicalDraft.exactDuration) <= 0.000_001
+        {
+            updatedDraft.trimStart = nil
+            updatedDraft.trimEnd = nil
+        } else {
+            updatedDraft.trimStart = range.lowerBound
+            updatedDraft.trimEnd = range.upperBound
+        }
+        try Task.checkCancellation()
+        try save(updatedDraft)
         return updatedDraft
     }
 

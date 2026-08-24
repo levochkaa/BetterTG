@@ -13,6 +13,7 @@ enum VoiceNotePCMEditor {
     enum EditorError: Swift.Error {
         case emptyAudio
         case incompatibleFormat
+        case invalidRange
         case unsupportedPCMFormat
     }
 
@@ -32,6 +33,28 @@ enum VoiceNotePCMEditor {
     static func concatenate(_ sourceURLs: [URL], outputURL: URL) async throws -> VoiceNotePCMInspection {
         let task = Task.detached(priority: .userInitiated) {
             try concatenateSynchronously(sourceURLs, outputURL: outputURL)
+        }
+        return try await withTaskCancellationHandler {
+            let inspection = try await task.value
+            do {
+                try Task.checkCancellation()
+                return inspection
+            } catch {
+                try? FileManager.default.removeItem(at: outputURL)
+                throw error
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    static func trim(
+        _ sourceURL: URL,
+        outputURL: URL,
+        range: Range<Double>,
+    ) async throws -> VoiceNotePCMInspection {
+        let task = Task.detached(priority: .userInitiated) {
+            try trimSynchronously(sourceURL, outputURL: outputURL, range: range)
         }
         return try await withTaskCancellationHandler {
             let inspection = try await task.value
@@ -134,6 +157,59 @@ enum VoiceNotePCMEditor {
                     }
                     guard sourceFile.framePosition == sourceFile.length else { throw EditorError.emptyAudio }
                 }
+            }
+            return try inspectSynchronously(outputURL)
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
+    }
+
+    private static func trimSynchronously(
+        _ sourceURL: URL,
+        outputURL: URL,
+        range: Range<Double>,
+    ) throws -> VoiceNotePCMInspection {
+        guard sourceURL.standardizedFileURL != outputURL.standardizedFileURL else {
+            throw EditorError.incompatibleFormat
+        }
+        let sourceFile = try AVAudioFile(forReading: sourceURL)
+        try validate(sourceFile, url: sourceURL)
+        let sourceDuration = Double(sourceFile.length) / sampleRate
+        guard range.lowerBound >= 0,
+              range.lowerBound < range.upperBound,
+              range.upperBound <= sourceDuration + 0.000_001
+        else { throw EditorError.invalidRange }
+        let startFrame = max(
+            AVAudioFramePosition.zero,
+            AVAudioFramePosition(floor(range.lowerBound * sampleRate)),
+        )
+        let endFrame = min(
+            sourceFile.length,
+            AVAudioFramePosition(ceil(range.upperBound * sampleRate)),
+        )
+        guard startFrame < endFrame else { throw EditorError.invalidRange }
+        try? FileManager.default.removeItem(at: outputURL)
+        do {
+            do {
+                let outputFile = try AVAudioFile(forWriting: outputURL, settings: recordingSettings)
+                sourceFile.framePosition = startFrame
+                guard let buffer = AVAudioPCMBuffer(
+                    pcmFormat: sourceFile.processingFormat,
+                    frameCapacity: bufferFrames,
+                ) else { throw EditorError.incompatibleFormat }
+                while sourceFile.framePosition < endFrame {
+                    try Task.checkCancellation()
+                    let remainingFrames = endFrame - sourceFile.framePosition
+                    buffer.frameLength = 0
+                    try sourceFile.read(
+                        into: buffer,
+                        frameCount: min(bufferFrames, AVAudioFrameCount(remainingFrames)),
+                    )
+                    guard buffer.frameLength > 0 else { throw EditorError.emptyAudio }
+                    try outputFile.write(from: buffer)
+                }
+                guard sourceFile.framePosition == endFrame else { throw EditorError.emptyAudio }
             }
             return try inspectSynchronously(outputURL)
         } catch {

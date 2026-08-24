@@ -76,6 +76,7 @@ import UIKit
         sendMessageTask?.cancel()
         voiceFinalizeTask?.cancel()
         voiceRecordingDraftTask?.cancel()
+        voiceRecordingTrimTask?.cancel()
         voiceRetryAvailabilityTask?.cancel()
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
@@ -128,6 +129,7 @@ import UIKit
     @Published private(set) var pendingVoiceReplyMessage: CustomMessage?
     @Published private(set) var voiceRecordingPreviewIsPlaying = false
     @Published private(set) var voiceRecordingPreviewPosition = 0.0
+    private(set) var voiceRecordingTrimIsUpdating = false
     @Published var voiceNoteErrorMessage: String?
     @Published var errorShown = false
 
@@ -149,6 +151,9 @@ import UIKit
     private var voiceRecordingPreviewLoadedURL: URL?
     private var voiceRecordingPreviewOwnsAudioSession = false
     private var voiceRecordingPreviewCancellables = Set<AnyCancellable>()
+    private var voiceRecordingTrimTask: Task<Void, Never>?
+    private var voiceRecordingTrimGeneration = 0
+    private var voiceRecordingTrimBaseDraft: VoiceRecordingDraft?
 
     @Published var messages = [CustomMessage]() {
         didSet { messagesDidChange.send() }
@@ -224,6 +229,35 @@ import UIKit
         voiceRecordingInteractionState == .preview
             && activeVoiceRecordingDraft != nil
             && voiceRecordingDraftTask == nil
+            && voiceRecordingTrimTask == nil
+            && !voiceRecordingTrimIsUpdating
+    }
+
+    var voiceRecordingTrimControlsEnabled: Bool {
+        voiceRecordingInteractionState == .preview
+            && activeVoiceRecordingDraft != nil
+            && voiceRecordingDraftTask == nil
+            && voiceRecordingTrimTask == nil
+    }
+
+    var voiceRecordingPreviewExactDuration: Double {
+        activeVoiceRecordingDraft?.exactDuration ?? timerCount
+    }
+
+    var voiceRecordingTrimRange: Range<Double>? {
+        activeVoiceRecordingDraft?.effectiveRange
+    }
+
+    var voiceRecordingResumeRequiresTrimConfirmation: Bool {
+        guard let draft = activeVoiceRecordingDraft else { return false }
+        let range = draft.effectiveRange
+        return range.lowerBound > 0.000_001 || abs(range.upperBound - draft.exactDuration) > 0.000_001
+    }
+
+    var formattedVoiceRecordingPreviewDuration: String {
+        guard let draft = activeVoiceRecordingDraft else { return formattedTimerCount }
+        let range = draft.effectiveRange
+        return formatVoiceDuration(range.upperBound - range.lowerBound)
     }
     
     init(customChat: CustomChat, previewing: Bool = false) {
@@ -848,12 +882,24 @@ import UIKit
         closeVoiceRecordingSegment(sendAfterPreparation: false)
     }
 
-    func resumeVoiceRecording() {
+    func resumeVoiceRecording(confirmingTrim: Bool = false) {
         guard recordingVoiceNote,
               voiceRecordingInteractionState == .preview,
               voiceRecordingDraftTask == nil,
+              voiceRecordingTrimTask == nil,
+              !voiceRecordingTrimIsUpdating,
               let draft = activeVoiceRecordingDraft
         else { return }
+        let range = draft.effectiveRange
+        if range.lowerBound > 0.000_001 || abs(range.upperBound - draft.exactDuration) > 0.000_001 {
+            guard confirmingTrim else { return }
+            materializeVoiceRecordingTrim(draft, continuation: .resume)
+            return
+        }
+        beginVoiceRecordingResume(draft)
+    }
+
+    private func beginVoiceRecordingResume(_ draft: VoiceRecordingDraft) {
         stopVoiceRecordingPreviewPlayback()
         Media.shared.stop()
         Media.shared.setAudioSessionRecord()
@@ -914,9 +960,89 @@ import UIKit
         }
         let range = draft.effectiveRange
         let boundedProgress = min(1, max(0, Double(progress)))
-        let position = range.lowerBound + (range.upperBound - range.lowerBound) * boundedProgress
+        let position = min(range.upperBound, max(range.lowerBound, draft.exactDuration * boundedProgress))
         voiceRecordingPreviewPlayer.seek(to: position)
         voiceRecordingPreviewPosition = position
+    }
+
+    func updateVoiceRecordingTrim(
+        start: Double,
+        end: Double,
+        updatedEnd: Bool,
+        finished: Bool,
+    ) {
+        guard voiceRecordingInteractionState == .preview,
+              voiceRecordingDraftTask == nil,
+              voiceRecordingTrimTask == nil,
+              let previousDraft = activeVoiceRecordingDraft,
+              previousDraft.exactDuration >= 2
+        else { return }
+        let duration = previousDraft.exactDuration
+        let minimumDuration = min(duration, 1.0)
+        var lowerBound = max(0, min(start, duration))
+        var upperBound = max(0, min(end, duration))
+        if upperBound - lowerBound < minimumDuration {
+            if updatedEnd {
+                upperBound = min(duration, lowerBound + minimumDuration)
+                lowerBound = min(lowerBound, upperBound - minimumDuration)
+            } else {
+                lowerBound = max(0, upperBound - minimumDuration)
+                upperBound = max(upperBound, lowerBound + minimumDuration)
+            }
+        }
+        guard lowerBound < upperBound else { return }
+        if !voiceRecordingTrimIsUpdating {
+            voiceRecordingTrimBaseDraft = previousDraft
+        }
+        let canonicalDraft = voiceRecordingTrimBaseDraft ?? previousDraft
+        voiceRecordingTrimIsUpdating = true
+        voiceRecordingPreviewPlayer.pause()
+        releaseVoiceRecordingPreviewAudioSession()
+        var editedDraft = previousDraft
+        if lowerBound <= 0.000_001, abs(upperBound - duration) <= 0.000_001 {
+            editedDraft.trimStart = nil
+            editedDraft.trimEnd = nil
+        } else {
+            editedDraft.trimStart = lowerBound
+            editedDraft.trimEnd = upperBound
+        }
+        activeVoiceRecordingDraft = editedDraft
+        voiceRecordingPreviewPosition = min(upperBound, max(lowerBound, voiceRecordingPreviewPosition))
+        voiceRecordingPreviewPlayer.seek(to: voiceRecordingPreviewPosition)
+        guard finished else { return }
+        voiceRecordingTrimGeneration &+= 1
+        let generation = voiceRecordingTrimGeneration
+        let range = lowerBound ..< upperBound
+        voiceRecordingTrimTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let storedDraft = try await VoiceRecordingDraftStore.shared.updateTrim(
+                    in: canonicalDraft,
+                    range: range,
+                )
+                try Task.checkCancellation()
+                guard voiceRecordingTrimGeneration == generation,
+                      activeVoiceRecordingDraft?.id == storedDraft.id
+                else { return }
+                activeVoiceRecordingDraft = storedDraft
+                voiceRecordingTrimTask = nil
+                voiceRecordingTrimIsUpdating = false
+                voiceRecordingTrimBaseDraft = nil
+                objectWillChange.send()
+                previewVoiceRecordingTrimEdge(storedDraft, updatedEnd: updatedEnd)
+            } catch {
+                guard voiceRecordingTrimGeneration == generation else { return }
+                activeVoiceRecordingDraft = canonicalDraft
+                voiceRecordingTrimTask = nil
+                voiceRecordingTrimIsUpdating = false
+                voiceRecordingTrimBaseDraft = nil
+                voiceRecordingPreviewIsPlaying = false
+                voiceNoteErrorMessage = "Couldn’t save the voice trim range."
+                objectWillChange.send()
+                loadVoiceRecordingPreview(canonicalDraft)
+            }
+        }
+        objectWillChange.send()
     }
 
     func cancelVoiceRecording() {
@@ -924,6 +1050,11 @@ import UIKit
         voiceRecordingDraftGeneration &+= 1
         voiceRecordingDraftTask?.cancel()
         voiceRecordingDraftTask = nil
+        voiceRecordingTrimGeneration &+= 1
+        voiceRecordingTrimTask?.cancel()
+        voiceRecordingTrimTask = nil
+        voiceRecordingTrimIsUpdating = false
+        voiceRecordingTrimBaseDraft = nil
         stopVoiceRecordingPreviewPlayback()
         audioRecorder?.stop()
         Media.shared.endAudioSessionRecord()
@@ -997,6 +1128,11 @@ import UIKit
     private enum VoiceNoteFailure: Swift.Error {
         case couldNotStartRecorder
         case resendUnavailable
+    }
+
+    private enum VoiceRecordingTrimContinuation {
+        case resume
+        case send
     }
 
     private let previewing: Bool
@@ -1193,17 +1329,91 @@ import UIKit
         )
     }
 
-    private func sendVoiceRecordingPreview() {
+    private func materializeVoiceRecordingTrim(
+        _ draft: VoiceRecordingDraft,
+        continuation: VoiceRecordingTrimContinuation,
+    ) {
         guard voiceRecordingInteractionState == .preview,
               voiceRecordingDraftTask == nil,
-              let draft = activeVoiceRecordingDraft
+              voiceRecordingTrimTask == nil,
+              !voiceRecordingTrimIsUpdating
         else { return }
         stopVoiceRecordingPreviewPlayback()
         voiceRecordingInteractionState = .pausing
         voiceRecordingDraftGeneration &+= 1
         let generation = voiceRecordingDraftGeneration
-        let reply = pendingVoiceReplyMessage ?? replyMessage
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-trimmed.wav")
+        voiceRecordingDraftTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let inspection = try await VoiceNotePCMEditor.trim(
+                    draft.fileURL,
+                    outputURL: outputURL,
+                    range: draft.effectiveRange,
+                )
+                try Task.checkCancellation()
+                let materializedDraft = try await VoiceRecordingDraftStore.shared.replaceMedia(
+                    in: draft,
+                    with: outputURL,
+                    inspection: inspection,
+                )
+                try Task.checkCancellation()
+                guard voiceRecordingDraftGeneration == generation else {
+                    await VoiceRecordingDraftStore.shared.discard(id: draft.id)
+                    return
+                }
+                activeVoiceRecordingDraft = materializedDraft
+                timerCount = materializedDraft.exactDuration
+                voiceRecordingTimerBaseline = materializedDraft.exactDuration
+                voiceRecordingDraftTask = nil
+                voiceRecordingInteractionState = .preview
+                loadVoiceRecordingPreview(materializedDraft)
+                #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+                        log(
+                            "Voice preview smoke: trim materialized duration=\(materializedDraft.exactDuration) "
+                                + "revision=\(materializedDraft.revision)",
+                        )
+                    }
+                #endif
+                switch continuation {
+                case .resume:
+                    beginVoiceRecordingResume(materializedDraft)
+                case .send:
+                    sendVoiceRecordingPreview()
+                }
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: outputURL)
+            } catch {
+                try? FileManager.default.removeItem(at: outputURL)
+                guard voiceRecordingDraftGeneration == generation else { return }
+                voiceRecordingDraftTask = nil
+                voiceRecordingInteractionState = .preview
+                voiceNoteErrorMessage = "Couldn’t apply the voice trim range."
+                activeVoiceRecordingDraft = draft
+                loadVoiceRecordingPreview(draft)
+            }
+        }
+    }
+
+    private func sendVoiceRecordingPreview() {
+        guard voiceRecordingInteractionState == .preview,
+              voiceRecordingDraftTask == nil,
+              voiceRecordingTrimTask == nil,
+              !voiceRecordingTrimIsUpdating,
+              let draft = activeVoiceRecordingDraft
+        else { return }
         let range = draft.effectiveRange
+        if range.lowerBound > 0.000_001 || abs(range.upperBound - draft.exactDuration) > 0.000_001 {
+            materializeVoiceRecordingTrim(draft, continuation: .send)
+            return
+        }
+        stopVoiceRecordingPreviewPlayback()
+        voiceRecordingInteractionState = .pausing
+        voiceRecordingDraftGeneration &+= 1
+        let generation = voiceRecordingDraftGeneration
+        let reply = pendingVoiceReplyMessage ?? replyMessage
         let sendDraft = VoiceNoteSendDraft(
             id: draft.id,
             chatID: draft.chatID,
@@ -1289,7 +1499,12 @@ import UIKit
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
-                voiceRecordingPreviewIsPlaying = voiceRecordingPreviewPlayer.isPlaybackRequested
+                let isPlaybackRequested = voiceRecordingPreviewPlayer.isPlaybackRequested
+                if !voiceRecordingTrimIsUpdating,
+                   voiceRecordingPreviewIsPlaying != isPlaybackRequested
+                {
+                    voiceRecordingPreviewIsPlaying = isPlaybackRequested
+                }
                 #if DEBUG
                     if state == .playing,
                        ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
@@ -1347,6 +1562,18 @@ import UIKit
         voiceRecordingPreviewPlayer.seek(to: draft.effectiveRange.lowerBound)
     }
 
+    private func previewVoiceRecordingTrimEdge(_ draft: VoiceRecordingDraft, updatedEnd: Bool) {
+        if voiceRecordingPreviewLoadedURL != draft.fileURL {
+            loadVoiceRecordingPreview(draft)
+        }
+        let range = draft.effectiveRange
+        let position = updatedEnd ? max(range.lowerBound, range.upperBound - 1) : range.lowerBound
+        activateVoiceRecordingPreviewAudioSession()
+        voiceRecordingPreviewPlayer.seek(to: position)
+        voiceRecordingPreviewPosition = position
+        voiceRecordingPreviewPlayer.play()
+    }
+
     private func stopVoiceRecordingPreviewPlayback() {
         voiceRecordingPreviewPlayer.stop()
         voiceRecordingPreviewLoadedURL = nil
@@ -1376,6 +1603,17 @@ import UIKit
         guard voiceRecordingPreviewOwnsAudioSession else { return }
         voiceRecordingPreviewOwnsAudioSession = false
         Media.shared.endAudioSessionRecord()
+    }
+
+    private func formatVoiceDuration(_ duration: Double) -> String {
+        let clippedDuration = max(0, duration)
+        let minutes = Int(clippedDuration) / 60
+        let seconds = Int(clippedDuration) % 60
+        let hundredths = Int((clippedDuration - floor(clippedDuration)) * 100)
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, seconds)
+        }
+        return String(format: "%d.%02d", seconds, hundredths)
     }
 
     private func finishVoiceRecording(sendWhenReady: Bool, pendingMessage: String?) {
