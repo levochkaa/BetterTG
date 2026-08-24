@@ -15,6 +15,7 @@ import UIKit
         FFmpegCapabilities.assertRequiredCodecsAvailable()
         #if DEBUG
             VoiceNoteCodec.runDebugProbeIfRequested()
+            VideoNoteAssetWriter.runDebugProbeIfRequested()
         #endif
         PushRelayCoordinator.shared.start()
         VoiceNoteDraftCoordinator.shared.start()
