@@ -250,6 +250,11 @@ final class MediaGalleryCell: UICollectionViewCell {
                 minithumbnail: video.video.minithumbnail,
                 canPlay: true,
                 loops: false,
+                mimeType: video.video.mimeType,
+                fileName: video.video.fileName,
+                supportsStreaming: video.video.supportsStreaming,
+                isSecret: video.isSecret,
+                startTimestamp: TimeInterval(video.startTimestamp),
             )
             view = player
         case .messageSticker(let sticker):
@@ -383,15 +388,7 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
 // MARK: - GalleryFilePlayerView
 
 final class GalleryFilePlayerView: UIView, GalleryMediaView {
-    // MARK: Private
-
-    private let preview = TDImageLoadingView()
-    private let videoSurface = UIView()
-    private let spinner = UIActivityIndicatorView(style: .large)
-    private let player = VLCMediaPlayer()
-    private var fileID: Int?
-    private var task: Task<Void, Never>?
-    private var cancellable: AnyCancellable?
+    // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -400,10 +397,24 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         videoSurface.translatesAutoresizingMaskIntoConstraints = false
         videoSurface.backgroundColor = .black
         player.attach(to: videoSurface.playerLayer)
+        self.displayCancellable = videoSurface.playerLayer
+            .publisher(for: \.isReadyForDisplay, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshSurfaceReady() }
+            }
         spinner.translatesAutoresizingMaskIntoConstraints = false
+        retryButton.translatesAutoresizingMaskIntoConstraints = false
+        retryButton.setTitle("Retry", for: .normal)
+        retryButton.setTitleColor(.white, for: .normal)
+        retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        retryButton.isHidden = true
+        retryButton.accessibilityHint = "Attempts to load this video again"
+        retryButton.addTarget(self, action: #selector(retryPlayback), for: .touchUpInside)
         addSubview(preview)
         addSubview(videoSurface)
         addSubview(spinner)
+        addSubview(retryButton)
         NSLayoutConstraint.activate([
             preview.topAnchor.constraint(equalTo: topAnchor),
             preview.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -415,6 +426,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             videoSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
             spinner.centerXAnchor.constraint(equalTo: centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
+            retryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            retryButton.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
         ])
     }
 
@@ -422,17 +435,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let preview = TDImageLoadingView()
-    private let videoSurface = LocalVideoSurfaceView(frame: .zero)
-    private let spinner = UIActivityIndicatorView(style: .large)
-    private let player = LocalMediaPlayer()
-    private var fileID: Int?
-    private var task: Task<Void, Never>?
-    private var cancellable: AnyCancellable?
-    private var playbackCancellable: AnyCancellable?
-    private var isPlaybackVisible = false
-    private var loopsPlayback = false
-    private var loadedPath: String?
+    // MARK: Internal
 
     func configure(
         file: File,
@@ -440,9 +443,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         minithumbnail: Minithumbnail?,
         canPlay: Bool,
         loops: Bool,
+        mimeType: String? = nil,
+        fileName: String? = nil,
+        supportsStreaming: Bool = false,
+        isSecret: Bool = false,
+        startTimestamp: TimeInterval = 0,
     ) {
         prepareForReuse()
         fileID = file.id
+        sourceFile = file
+        startPlaybackTimestamp = startTimestamp
         loopsPlayback = loops
         videoSurface.isHidden = true
         if let thumbnail {
@@ -452,45 +462,51 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         }
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()
+        retryButton.isHidden = true
         playbackCancellable = player.statePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.render(state: state) }
-        update(file: file)
-        cancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == file.id }
-            .sink { [weak self] in self?.update(file: $0.file) }
-        task = Task { [weak self] in
-            let downloaded = try? await td.downloadFile(
-                fileId: file.id,
-                limit: 0,
-                offset: 0,
-                priority: 2,
-                synchronous: false,
+        if file.local.isDownloadingCompleted {
+            update(file: file)
+        } else if supportsStreaming,
+                  !isSecret,
+                  let mimeType,
+                  let fileName
+        {
+            startVOD(
+                file: file,
+                mimeType: mimeType,
+                fileName: fileName,
+                startTimestamp: startTimestamp,
             )
-            guard let self, let downloaded else { return }
-            await MainActor.run { self.update(file: downloaded) }
+        } else {
+            startLegacyDownload(file: file)
         }
     }
 
     func prepareForReuse() {
+        loadIdentifier = nil
+        sourceFile = nil
+        usesLegacyDownload = false
+        usesVOD = false
         player.stop()
         task?.cancel()
         task = nil
-        cancellable?.cancel()
-        cancellable = nil
         playbackCancellable?.cancel()
         playbackCancellable = nil
         preview.cancel()
         spinner.stopAnimating()
+        retryButton.isHidden = true
+        videoSurface.playerLayer.player = nil
         videoSurface.isHidden = true
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
         fileID = nil
         isPlaybackVisible = false
+        isSurfaceReady = false
         loopsPlayback = false
         loadedPath = nil
+        startPlaybackTimestamp = 0
+        surfaceItemIdentifier = nil
+        currentPlaybackState = .idle
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -502,32 +518,220 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         }
     }
 
+    // MARK: Private
+
+    private let preview = TDImageLoadingView()
+    private let videoSurface = LocalVideoSurfaceView(frame: .zero)
+    private let spinner = UIActivityIndicatorView(style: .large)
+    private let retryButton = UIButton(type: .system)
+    private let player = LocalMediaPlayer()
+    private var fileID: Int?
+    private var task: Task<Void, Never>?
+    private var playbackCancellable: AnyCancellable?
+    private var displayCancellable: AnyCancellable?
+    private var isPlaybackVisible = false
+    private var isSurfaceReady = false
+    private var loopsPlayback = false
+    private var loadedPath: String?
+    private var loadIdentifier: UUID?
+    private var sourceFile: File?
+    private var startPlaybackTimestamp = TimeInterval.zero
+    private var surfaceItemIdentifier: ObjectIdentifier?
+    private var usesLegacyDownload = false
+    private var usesVOD = false
+    private var currentPlaybackState = LocalMediaPlayer.State.idle
+
+    private func startVOD(
+        file: File,
+        mimeType: String,
+        fileName: String,
+        startTimestamp: TimeInterval,
+    ) {
+        usesVOD = true
+        let identifier = UUID()
+        loadIdentifier = identifier
+        task = Task { [weak self] in
+            let lease = await TDLib.shared.vodRanges.acquire(file: file)
+            guard !Task.isCancelled else {
+                await lease.invalidate()
+                return
+            }
+            guard let session = TDLibVODResourceLoaderSession(
+                lease: lease,
+                mimeType: mimeType,
+                fileName: fileName,
+            ) else {
+                await lease.invalidate()
+                await MainActor.run {
+                    guard let self,
+                          self.loadIdentifier == identifier,
+                          self.fileID == file.id
+                    else { return }
+                    self.task = nil
+                    self.usesVOD = false
+                    self.startLegacyDownload(file: file)
+                }
+                return
+            }
+            await MainActor.run {
+                guard let self,
+                      !Task.isCancelled,
+                      self.loadIdentifier == identifier,
+                      self.fileID == file.id
+                else {
+                    session.invalidate()
+                    return
+                }
+                self.task = nil
+                self.prepareSurfaceForNewItem()
+                self.player.load(
+                    vodSession: session,
+                    autoplay: self.isPlaybackVisible,
+                    loops: self.loopsPlayback,
+                    initialTime: startTimestamp,
+                )
+                self.bindSurfaceToCurrentItem()
+            }
+        }
+    }
+
+    private func startLegacyDownload(file: File) {
+        guard file.id == fileID, !usesLegacyDownload else { return }
+        spinner.startAnimating()
+        retryButton.isHidden = true
+        usesLegacyDownload = true
+        usesVOD = false
+        let identifier = UUID()
+        loadIdentifier = identifier
+        task?.cancel()
+        task = Task { [weak self] in
+            let lease = await TDLib.shared.vodRanges.acquire(
+                file: file,
+                requiresFullDownload: true,
+            )
+            let downloaded: File
+            do {
+                downloaded = try await lease.source.completedFile()
+            } catch {
+                await lease.invalidate()
+                await MainActor.run {
+                    guard let self,
+                          !Task.isCancelled,
+                          self.fileID == file.id,
+                          self.loadIdentifier == identifier,
+                          self.usesLegacyDownload
+                    else { return }
+                    self.task = nil
+                    self.usesLegacyDownload = false
+                    self.showRetryState()
+                }
+                return
+            }
+            await lease.invalidate()
+            guard let self, !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.fileID == file.id,
+                      self.loadIdentifier == identifier,
+                      self.usesLegacyDownload
+                else { return }
+                self.task = nil
+                self.update(file: downloaded)
+            }
+        }
+    }
+
+    private func prepareSurfaceForNewItem() {
+        surfaceItemIdentifier = nil
+        isSurfaceReady = false
+        videoSurface.playerLayer.player = nil
+        videoSurface.isHidden = true
+    }
+
+    private func bindSurfaceToCurrentItem() {
+        player.attach(to: videoSurface.playerLayer)
+        surfaceItemIdentifier = player.currentItemIdentifier
+        isSurfaceReady = false
+        videoSurface.isHidden = true
+        DispatchQueue.main.async { [weak self] in self?.refreshSurfaceReady() }
+    }
+
+    private func refreshSurfaceReady() {
+        guard let surfaceItemIdentifier,
+              player.currentItemIdentifier == surfaceItemIdentifier
+        else { return }
+        isSurfaceReady = videoSurface.playerLayer.isReadyForDisplay
+        switch currentPlaybackState {
+        case .ended, .paused, .playing:
+            if isSurfaceReady {
+                spinner.stopAnimating()
+                videoSurface.isHidden = false
+            } else {
+                spinner.startAnimating()
+                videoSurface.isHidden = true
+            }
+        default:
+            videoSurface.isHidden = true
+        }
+    }
+
     private func update(file: File) {
         guard file.id == fileID,
               file.local.isDownloadingCompleted,
               loadedPath != file.local.path
         else { return }
         loadedPath = file.local.path
+        prepareSurfaceForNewItem()
         player.load(
             url: URL(fileURLWithPath: file.local.path),
             autoplay: isPlaybackVisible,
             loops: loopsPlayback,
+            initialTime: startPlaybackTimestamp,
         )
+        bindSurfaceToCurrentItem()
     }
 
     private func render(state: LocalMediaPlayer.State) {
+        currentPlaybackState = state
         switch state {
         case .idle:
             spinner.stopAnimating()
             videoSurface.isHidden = true
-        case .preparing, .buffering:
+        case .buffering, .preparing:
             spinner.startAnimating()
-        case .playing, .paused, .ended:
-            spinner.stopAnimating()
-            videoSurface.isHidden = false
+        case .ended, .paused, .playing:
+            if isSurfaceReady {
+                spinner.stopAnimating()
+                videoSurface.isHidden = false
+            } else {
+                spinner.startAnimating()
+                videoSurface.isHidden = true
+            }
         case .failed:
             spinner.stopAnimating()
             videoSurface.isHidden = true
+            if usesVOD, let sourceFile {
+                usesVOD = false
+                prepareSurfaceForNewItem()
+                player.stop()
+                startLegacyDownload(file: sourceFile)
+            } else if usesLegacyDownload || sourceFile != nil {
+                usesLegacyDownload = false
+                showRetryState()
+            }
         }
+    }
+
+    private func showRetryState() {
+        currentPlaybackState = .failed
+        spinner.stopAnimating()
+        videoSurface.isHidden = true
+        retryButton.isHidden = false
+    }
+
+    @objc private func retryPlayback() {
+        guard let sourceFile else { return }
+        retryButton.isHidden = true
+        loadedPath = nil
+        startLegacyDownload(file: sourceFile)
     }
 }

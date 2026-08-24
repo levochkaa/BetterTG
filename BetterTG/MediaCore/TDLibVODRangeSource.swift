@@ -130,6 +130,15 @@ actor TDLibVODRangeSource {
         }
     }
 
+    func completedFile() async throws -> File {
+        requiresFullDownload = true
+        _ = try await read(offset: 0, count: 1)
+        guard latestFile.local.isDownloadingCompleted else {
+            throw TDLibVODRangeError.readFailed
+        }
+        return latestFile
+    }
+
     /// Invalidates completion from a last-lease cancellation that is still crossing the
     /// TDLib command barrier. Existing non-empty lease sets never call this method.
     func reviveAfterLastLeaseRelease() {
@@ -1388,6 +1397,10 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
             reportsExactSize = value
         }
 
+        func setDownloadDelay(_ value: Duration?) {
+            downloadDelay = value
+        }
+
         func setSuspendCancel(_ value: Bool) {
             suspendCancel = value
         }
@@ -1418,6 +1431,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         private let fileURL: URL
         private var autoFulfill = false
+        private var downloadDelay: Duration?
         private var reportsExactSize = true
         private var suspendCancel = false
         private var cachedRanges = [Range<Int64>]()
@@ -1436,7 +1450,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
             completedCancelCount += 1
         }
 
-        private func download(offset: Int64, limit: Int64) -> File {
+        private func download(offset: Int64, limit: Int64) async -> File {
             let range = limit == 0
                 ? 0..<fileSize
                 : offset..<TDLibVODRangeSource.safeUpperBound(
@@ -1449,6 +1463,9 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 range: range,
             ))
             lastDownloadRange = range
+            if let downloadDelay {
+                try? await Task<Never, Never>.sleep(for: downloadDelay)
+            }
             if autoFulfill {
                 cachedRanges.append(range)
             }

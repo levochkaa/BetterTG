@@ -17,6 +17,7 @@ final class LocalMediaPlayer {
         ) { [weak self] time in
             guard time.seconds.isFinite else { return }
             self?.timeSubject.send(max(0, time.seconds))
+            self?.updateVODBufferingState()
         }
         player.publisher(for: \.timeControlStatus, options: [.initial, .new])
             .receive(on: DispatchQueue.main)
@@ -31,6 +32,8 @@ final class LocalMediaPlayer {
         player.pause()
         player.replaceCurrentItem(with: nil)
         compositionLease = nil
+        vodSession?.invalidate()
+        vodSession = nil
     }
 
     // MARK: Internal
@@ -65,6 +68,10 @@ final class LocalMediaPlayer {
         shouldAutoplay
     }
 
+    var currentItemIdentifier: ObjectIdentifier? {
+        player.currentItem.map(ObjectIdentifier.init)
+    }
+
     var duration: TimeInterval {
         guard let seconds = player.currentItem?.duration.seconds, seconds.isFinite else { return 0 }
         return max(0, seconds)
@@ -79,8 +86,13 @@ final class LocalMediaPlayer {
         autoplay: Bool,
         loops: Bool = false,
         prefersFFmpegAudioFallback: Bool = false,
+        initialTime: TimeInterval = 0,
     ) {
         prepareForLoad(autoplay: autoplay, loops: loops, playbackRange: nil)
+        if initialTime.isFinite, initialTime > 0 {
+            pendingSeek = (initialTime, 0, false, nil)
+            timeSubject.send(initialTime)
+        }
 
         let requestIdentifier = UUID()
         currentRequestIdentifier = requestIdentifier
@@ -111,9 +123,38 @@ final class LocalMediaPlayer {
         installItem(asset: composition.asset)
     }
 
+    func load(
+        vodSession: TDLibVODResourceLoaderSession,
+        autoplay: Bool,
+        loops: Bool = false,
+        initialTime: TimeInterval = 0,
+    ) {
+        prepareForLoad(autoplay: autoplay, loops: loops, playbackRange: nil)
+        currentRequestIdentifier = UUID()
+        usesExplicitVODBuffering = true
+        player.automaticallyWaitsToMinimizeStalling = false
+        self.vodSession = vodSession
+        if initialTime.isFinite, initialTime > 0 {
+            pendingSeek = (initialTime, 0, false, nil)
+            timeSubject.send(initialTime)
+        }
+        let item = AVPlayerItem(asset: vodSession.asset)
+        item.preferredForwardBufferDuration = 10
+        installItem(item)
+    }
+
     func play() {
         shouldAutoplay = true
         guard hasItem else { return }
+        if stateSubject.value == .ended {
+            shouldApplyReadyStateAfterSeek = true
+            seek(to: playbackRange?.lowerBound ?? 0, tolerance: 0)
+            return
+        }
+        if usesExplicitVODBuffering {
+            updateVODBufferingState()
+            return
+        }
         if let playbackRange {
             let current = player.currentTime().seconds
             if !current.isFinite
@@ -131,6 +172,10 @@ final class LocalMediaPlayer {
     func pause() {
         shouldAutoplay = false
         guard hasItem else { return }
+        if usesExplicitVODBuffering {
+            player.cancelPendingPrerolls()
+            vodPrerollIdentifier = nil
+        }
         player.pause()
         if stateSubject.value != .failed, stateSubject.value != .ended {
             stateSubject.send(.paused)
@@ -156,10 +201,16 @@ final class LocalMediaPlayer {
         shouldLoop = false
         playbackRange = nil
         currentSeekIdentifier = nil
+        vodPrerollIdentifier = nil
         shouldApplyReadyStateAfterSeek = false
+        player.cancelPendingPrerolls()
         player.pause()
         player.replaceCurrentItem(with: nil)
         compositionLease = nil
+        vodSession?.invalidate()
+        vodSession = nil
+        usesExplicitVODBuffering = false
+        player.automaticallyWaitsToMinimizeStalling = true
         resetItemObservers()
         timeSubject.send(0)
         stateSubject.send(.idle)
@@ -172,13 +223,14 @@ final class LocalMediaPlayer {
         completion: (() -> Void)? = nil,
     ) {
         let nonnegativeTime = max(0, time)
-        let boundedToRange = if constrainedToPlaybackRange {
-            playbackRange.map {
-                min($0.upperBound, max($0.lowerBound, nonnegativeTime))
-            } ?? nonnegativeTime
-        } else {
-            nonnegativeTime
-        }
+        let boundedToRange =
+            if constrainedToPlaybackRange {
+                playbackRange.map {
+                    min($0.upperBound, max($0.lowerBound, nonnegativeTime))
+                } ?? nonnegativeTime
+            } else {
+                nonnegativeTime
+            }
         guard let item = player.currentItem, item.status == .readyToPlay else {
             pendingSeek = (
                 boundedToRange,
@@ -192,6 +244,13 @@ final class LocalMediaPlayer {
         let seekIdentifier = UUID()
         currentSeekIdentifier = seekIdentifier
         item.cancelPendingSeeks()
+        if usesExplicitVODBuffering, shouldAutoplay {
+            player.cancelPendingPrerolls()
+            vodPrerollIdentifier = nil
+            shouldApplyReadyStateAfterSeek = true
+            player.pause()
+            stateSubject.send(.buffering)
+        }
         let seekTolerance = CMTime(seconds: max(0, tolerance), preferredTimescale: 600)
         player.seek(
             to: CMTime(seconds: boundedTime, preferredTimescale: 600),
@@ -237,15 +296,40 @@ final class LocalMediaPlayer {
     private var preparationTask: Task<Void, Never>?
     private var currentRequestIdentifier: UUID?
     private var compositionLease: VideoNoteCompositionResult?
+    private var vodSession: TDLibVODResourceLoaderSession?
+    private var usesExplicitVODBuffering = false
+    private var vodPrerollIdentifier: UUID?
     private var pendingSeek: (
         time: TimeInterval,
         tolerance: TimeInterval,
         constrainedToPlaybackRange: Bool,
-        completion: (() -> Void)?
+        completion: (() -> Void)?,
     )?
     private var currentSeekIdentifier: UUID?
     private var itemCancellables = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
+
+    private var hasSufficientVODBuffer: Bool {
+        guard let item = player.currentItem else { return false }
+        let current = player.currentTime().seconds
+        guard current.isFinite else { return false }
+        var bufferedEnd = current
+        for value in item.loadedTimeRanges {
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let end = range.end.seconds
+            guard start.isFinite, end.isFinite,
+                  start <= current + 0.05,
+                  end >= current - 0.05
+            else { continue }
+            bufferedEnd = max(bufferedEnd, end)
+        }
+        let duration = item.duration.seconds
+        let bufferedUntilEnd = duration.isFinite
+            && duration > 0
+            && bufferedEnd >= duration - 0.05
+        return bufferedUntilEnd || max(0, bufferedEnd - current) >= 1
+    }
 
     private func observe(item: AVPlayerItem) {
         item.publisher(for: \.status, options: [.initial, .new])
@@ -277,6 +361,30 @@ final class LocalMediaPlayer {
                     shouldAutoplay = false
                     stateSubject.send(.failed)
                 }
+            }
+            .store(in: &itemCancellables)
+
+        item.publisher(for: \.loadedTimeRanges, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] _ in
+                guard let self, item === player.currentItem else { return }
+                updateVODBufferingState()
+            }
+            .store(in: &itemCancellables)
+
+        item.publisher(for: \.isPlaybackBufferEmpty, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] _ in
+                guard let self, item === player.currentItem else { return }
+                updateVODBufferingState()
+            }
+            .store(in: &itemCancellables)
+
+        item.publisher(for: \.isPlaybackLikelyToKeepUp, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] _ in
+                guard let self, item === player.currentItem else { return }
+                updateVODBufferingState()
             }
             .store(in: &itemCancellables)
 
@@ -330,12 +438,18 @@ final class LocalMediaPlayer {
         preparationTask = nil
         pendingSeek = nil
         currentSeekIdentifier = nil
+        vodPrerollIdentifier = nil
         shouldApplyReadyStateAfterSeek = false
         resetItemObservers()
         player.currentItem?.cancelPendingSeeks()
+        player.cancelPendingPrerolls()
         player.pause()
         player.replaceCurrentItem(with: nil)
         compositionLease = nil
+        vodSession?.invalidate()
+        vodSession = nil
+        usesExplicitVODBuffering = false
+        player.automaticallyWaitsToMinimizeStalling = true
         shouldAutoplay = autoplay
         shouldLoop = loops
         self.playbackRange = normalizedPlaybackRange(playbackRange)
@@ -367,7 +481,11 @@ final class LocalMediaPlayer {
 
     private func applyReadyPlaybackState() {
         if shouldAutoplay {
-            player.play()
+            if usesExplicitVODBuffering {
+                updateVODBufferingState()
+            } else {
+                player.play()
+            }
         } else {
             stateSubject.send(.paused)
         }
@@ -381,9 +499,13 @@ final class LocalMediaPlayer {
         guard player.currentItem != nil else { return }
         switch timeControlStatus {
         case .paused:
-            if stateSubject.value != .preparing,
-               stateSubject.value != .ended,
-               stateSubject.value != .failed
+            if usesExplicitVODBuffering, shouldAutoplay, player.currentItem?.status == .readyToPlay {
+                if !hasSufficientVODBuffer {
+                    stateSubject.send(.buffering)
+                }
+            } else if stateSubject.value != .preparing,
+                      stateSubject.value != .ended,
+                      stateSubject.value != .failed
             {
                 stateSubject.send(.paused)
             }
@@ -395,6 +517,52 @@ final class LocalMediaPlayer {
             stateSubject.send(.playing)
         @unknown default:
             break
+        }
+    }
+
+    private func updateVODBufferingState() {
+        guard usesExplicitVODBuffering,
+              let item = player.currentItem,
+              item.status == .readyToPlay,
+              stateSubject.value != .failed,
+              stateSubject.value != .ended
+        else { return }
+        guard shouldAutoplay else {
+            if stateSubject.value != .paused {
+                stateSubject.send(.paused)
+            }
+            return
+        }
+        if hasSufficientVODBuffer {
+            player.cancelPendingPrerolls()
+            vodPrerollIdentifier = nil
+            if player.timeControlStatus != .playing {
+                player.play()
+            }
+        } else {
+            if player.timeControlStatus == .playing {
+                player.pause()
+            }
+            stateSubject.send(.buffering)
+            beginVODPrerollIfNeeded(item: item)
+        }
+    }
+
+    private func beginVODPrerollIfNeeded(item: AVPlayerItem) {
+        guard shouldAutoplay, vodPrerollIdentifier == nil else { return }
+        let identifier = UUID()
+        vodPrerollIdentifier = identifier
+        player.preroll(atRate: 1) { [weak self, weak item] finished in
+            DispatchQueue.main.async {
+                guard let self,
+                      item === self.player.currentItem,
+                      self.vodPrerollIdentifier == identifier
+                else { return }
+                self.vodPrerollIdentifier = nil
+                if finished {
+                    self.updateVODBufferingState()
+                }
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 // TDLibVODResourceLoader.swift
 
 import AVFoundation
+import Combine
 import Foundation
 import UniformTypeIdentifiers
 
@@ -528,6 +529,7 @@ private actor TDLibVODResourceReadGate {
 #if DEBUG
     private enum TDLibVODResourceLoaderProbeError: Swift.Error {
         case asset
+        case detail(String)
         case gate
     }
 
@@ -537,8 +539,10 @@ private actor TDLibVODResourceReadGate {
             let url = temporaryDirectory.appendingPathComponent("bettertg-vod-resource-loader-probe.mp4")
             try? FileManager.default.removeItem(at: url)
             defer { try? FileManager.default.removeItem(at: url) }
+            var stage = "gate"
             do {
                 try await TDLibVODResourceReadGate.runDebugProbe()
+                stage = "fixture"
                 _ = try await VideoNoteAssetWriter.makeDebugSegment(
                     outputURL: url,
                     duration: 18,
@@ -552,12 +556,14 @@ private actor TDLibVODResourceReadGate {
                 let network = TDLibVODProbeNetwork(available: true)
                 let backend = TDLibVODProbeBackend(fileURL: url, fileSize: size, network: network)
                 await backend.setAutoFulfill(true)
+                await backend.setDownloadDelay(.seconds(2))
                 let coordinator = TDLibVODRangeCoordinator(
                     accountID: "probe-resource-loader",
                     client: backend.client,
                     requestTimeout: .seconds(2),
                 )
                 let lease = await coordinator.acquire(file: backend.file(expectedSize: size * 2))
+                stage = "metadata"
                 guard let session = TDLibVODResourceLoaderSession(
                     lease: lease,
                     mimeType: "video/mp4",
@@ -584,6 +590,55 @@ private actor TDLibVODResourceReadGate {
                 session.invalidate()
                 try await waitUntil { await backend.completedCancelCount == 1 }
 
+                stage = "cold playback"
+                let playbackBackend = TDLibVODProbeBackend(
+                    fileURL: url,
+                    fileSize: size,
+                    network: network,
+                )
+                await playbackBackend.setAutoFulfill(true)
+                await playbackBackend.setDownloadDelay(.seconds(2))
+                let playbackCoordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-resource-loader-playback",
+                    client: playbackBackend.client,
+                    requestTimeout: .seconds(3),
+                )
+                let playbackLease = await playbackCoordinator.acquire(
+                    file: playbackBackend.file(expectedSize: size * 2),
+                )
+                guard let playbackSession = TDLibVODResourceLoaderSession(
+                    lease: playbackLease,
+                    mimeType: "video/mp4",
+                    fileName: "playback.mp4",
+                ) else { throw TDLibVODResourceLoaderProbeError.asset }
+                let playbackRecorder = TDLibVODNativePlaybackProbeRecorder()
+                let playbackProbe = await MainActor.run {
+                    TDLibVODNativePlaybackProbe(
+                        session: playbackSession,
+                        recorder: playbackRecorder,
+                    )
+                }
+                do {
+                    try await waitUntil { await playbackRecorder.didAdvance }
+                } catch {
+                    let detail = await playbackRecorder.proof
+                    let calls = await playbackBackend.downloadCalls
+                    throw TDLibVODResourceLoaderProbeError.detail(
+                        "playback \(detail), downloads=\(calls.map(\.range))",
+                    )
+                }
+                let playbackSnapshot = await playbackBackend.file(expectedSize: size)
+                let playbackDownloadCalls = await playbackBackend.downloadCalls
+                guard !playbackSnapshot.local.isDownloadingCompleted,
+                      playbackDownloadCalls.allSatisfy({ !$0.isFullDownload })
+                else {
+                    throw TDLibVODResourceLoaderProbeError.detail("playback used full-download semantics")
+                }
+                await MainActor.run { playbackProbe.stop() }
+                stage = "playback cleanup"
+                try await waitUntil { await playbackBackend.completedCancelCount == 1 }
+
+                stage = "blocked cancellation"
                 let blockedBackend = TDLibVODProbeBackend(
                     fileURL: url,
                     fileSize: size,
@@ -616,12 +671,12 @@ private actor TDLibVODResourceReadGate {
                 try await waitUntil { await blockedBackend.completedCancelCount == 1 }
 
                 let proof = "VOD resource-loader probe: duration=\(duration.seconds), tracks=A/V, "
-                    + "requests=\(downloadCalls.count), progressive-before-complete=true, "
-                    + "finite-priority/queued-cancel/no-full-download=true"
+                    + "requests=\(playbackDownloadCalls.count), progressive-before-complete=true, "
+                    + "native-playing-before-complete, finite-priority/queued-cancel/no-full-download=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {
-                let proof = "VOD resource-loader probe failed: \(error)"
+                let proof = "VOD resource-loader probe failed at \(stage): \(error)"
                 writeDebugProbeResult(proof)
                 assertionFailure(proof)
             }
@@ -630,7 +685,7 @@ private actor TDLibVODResourceReadGate {
         static func waitUntil(
             _ condition: @escaping @Sendable () async -> Bool,
         ) async throws {
-            for _ in 0..<300 {
+            for _ in 0..<1000 {
                 if await condition() {
                     return
                 }
@@ -647,5 +702,64 @@ private actor TDLibVODResourceReadGate {
                 options: .atomic,
             )
         }
+    }
+
+    private actor TDLibVODNativePlaybackProbeRecorder {
+        // MARK: Internal
+
+        private(set) var didAdvance = false
+
+        var proof: String {
+            "states=\(states), maxTime=\(maximumTime)"
+        }
+
+        func update(time: TimeInterval) {
+            maximumTime = max(maximumTime, time)
+            if time >= 0.2 {
+                didAdvance = true
+            }
+        }
+
+        func update(state: LocalMediaPlayer.State) {
+            states.append(String(describing: state))
+        }
+
+        // MARK: Private
+
+        private var maximumTime = TimeInterval.zero
+        private var states = [String]()
+    }
+
+    @MainActor private final class TDLibVODNativePlaybackProbe {
+        // MARK: Lifecycle
+
+        init(
+            session: TDLibVODResourceLoaderSession,
+            recorder: TDLibVODNativePlaybackProbeRecorder,
+        ) {
+            player.timePublisher
+                .sink { time in
+                    Task { await recorder.update(time: time) }
+                }
+                .store(in: &cancellables)
+            player.statePublisher
+                .sink { state in
+                    Task { await recorder.update(state: state) }
+                }
+                .store(in: &cancellables)
+            player.load(vodSession: session, autoplay: true)
+        }
+
+        // MARK: Internal
+
+        func stop() {
+            player.stop()
+            cancellables.removeAll()
+        }
+
+        // MARK: Private
+
+        private let player = LocalMediaPlayer()
+        private var cancellables = Set<AnyCancellable>()
     }
 #endif
