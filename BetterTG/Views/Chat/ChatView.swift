@@ -15,10 +15,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         customChat: CustomChat,
         presentationMode: PresentationMode = .full,
         targetMessageID: Int64? = nil,
+        tdlib: TDLib = .shared,
     ) {
         self.presentationMode = presentationMode
         self.chatVM = ChatVM(customChat: customChat, previewing: presentationMode == .contextPreview)
         self.targetMessageID = targetMessageID
+        self.tdlib = tdlib
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -28,8 +30,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     deinit {
         prefetchTasks.values.forEach { $0.cancel() }
-        messageNavigationTask?.cancel()
-        messageHighlightTask?.cancel()
+        MainActor.assumeIsolated {
+            inlineVideoPlaybackOwners.values.forEach { $0.invalidate() }
+        }
     }
 
     // MARK: Internal
@@ -59,6 +62,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        if !(presentedViewController is MediaGalleryViewController) {
+            pauseInlineVideoPlayback(excluding: nil)
+        }
         guard presentationMode == .full else { return }
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         isTerminatingNavigation = true
@@ -77,6 +83,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        restoreVisibleInlineVideoPlayback()
         #if DEBUG
         guard presentationMode == .full,
               ProcessInfo.processInfo.arguments.contains("-ui-smoke-keyboard")
@@ -107,6 +114,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
         updateScrollToLatestButtonVisibility(animated: true)
+        updateInlineVideoPlaybackVisibility()
     }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -136,8 +144,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        (cell as? MessageCell)?.setMediaPlaybackVisible(true)
         guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
+        if let cell = cell as? MessageCell,
+           let message = message(for: messageID),
+           let owner = inlineVideoPlaybackOwners[messageID] ?? inlineVideoPlaybackOwner(for: message)
+        {
+            if cell.restoreInlineVideoPlaybackOwner(owner) {
+                pendingInlineVideoOwnerReturns.remove(messageID)
+            }
+        }
+        (cell as? MessageCell)?.setMediaPlaybackVisible(
+            presentedViewController == nil,
+            allowsInlineVideoPlayback: false,
+        )
+        updateInlineVideoPlaybackVisibility()
         if presentationMode == .full {
             chatVM.viewMessage(id: messageID)
         }
@@ -152,6 +172,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         forItemAt _: IndexPath,
     ) {
         (cell as? MessageCell)?.setMediaPlaybackVisible(false)
+        DispatchQueue.main.async { [weak self] in
+            self?.pruneInlineVideoPlaybackOwners()
+            self?.updateInlineVideoPlaybackVisibility()
+        }
     }
 
     func collectionView(_: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
@@ -201,12 +225,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let presentationMode: PresentationMode
     private let targetMessageID: Int64?
     private let chatVM: ChatVM
+    private let tdlib: TDLib
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
     private var cancellables = Set<AnyCancellable>()
     private var messageCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
@@ -685,14 +712,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 message: message,
                 chat: chatVM.customChat,
                 highlighted: chatVM.highlightedMessageId == messageID,
-                onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
-                    ? { [weak self] in self?.chatVM.replyMessage = message }
-                    : nil,
+                videoPlaybackOwner: inlineVideoPlaybackOwner(for: message),
+                onReplyTap: { [weak self] id in
+                    guard self?.presentationMode == .full else { return }
+                    self?.scrollToMessage(id: id)
+                },
                 onMediaTap: { [weak self] messages, selection in
                     guard self?.presentationMode == .full else { return }
                     self?.showMedia(messages, selection: selection)
                 },
             )
+            pendingInlineVideoOwnerReturns.remove(messageID)
             return cell
         }
     }
@@ -939,7 +969,120 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func showMedia(_ messages: [Message], selection: Int64) {
-        present(MediaGalleryViewController(messages: messages, selection: selection), animated: true)
+        let transferredOwner = inlineVideoPlaybackOwners[selection]
+        pauseInlineVideoPlayback(excluding: transferredOwner?.messageID)
+        present(
+            MediaGalleryViewController(
+                messages: messages,
+                selection: selection,
+                tdlib: tdlib,
+                transferredPlaybackOwner: transferredOwner,
+            ),
+            animated: true,
+        )
+    }
+
+    private func inlineVideoPlaybackOwner(for message: CustomMessage) -> GalleryVideoPlaybackOwner? {
+        guard presentationMode == .full,
+              message.album.isEmpty,
+              case .messageVideo(let video) = message.message.content,
+              !video.isSecret
+        else { return nil }
+        if let owner = inlineVideoPlaybackOwners[message.id], !owner.isDeleted {
+            return owner
+        }
+        guard let owner = GalleryVideoPlaybackOwner(
+            message: message.message,
+            tdlib: tdlib,
+            deferPlaybackUntilVisible: true,
+        ) else { return nil }
+        owner.onReturnToInline = { [weak self, weak owner] returnedOwner in
+            guard let self,
+                  let owner,
+                  owner === returnedOwner,
+                  inlineVideoPlaybackOwners[returnedOwner.messageID] === returnedOwner
+            else { return false }
+            pendingInlineVideoOwnerReturns.insert(returnedOwner.messageID)
+            DispatchQueue.main.async { [weak self] in
+                self?.restoreVisibleInlineVideoPlayback()
+                self?.pruneInlineVideoPlaybackOwnerIfOffscreen(messageID: returnedOwner.messageID)
+            }
+            return true
+        }
+        owner.onPermanentDeletion = { [weak self] deletedOwner in
+            guard let self,
+                  inlineVideoPlaybackOwners[deletedOwner.messageID] === deletedOwner
+            else { return }
+            inlineVideoPlaybackOwners[deletedOwner.messageID] = nil
+            pendingInlineVideoOwnerReturns.remove(deletedOwner.messageID)
+        }
+        inlineVideoPlaybackOwners[message.id] = owner
+        return owner
+    }
+
+    private func pauseInlineVideoPlayback(excluding excludedMessageID: Int64?) {
+        for (messageID, owner) in inlineVideoPlaybackOwners where messageID != excludedMessageID {
+            owner.setPlaybackVisible(false)
+        }
+    }
+
+    private func restoreVisibleInlineVideoPlayback() {
+        guard presentedViewController == nil else { return }
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard let messageID = dataSource.itemIdentifier(for: indexPath),
+                  let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+            else { continue }
+            if let owner = inlineVideoPlaybackOwners[messageID],
+               pendingInlineVideoOwnerReturns.contains(messageID),
+               cell.restoreInlineVideoPlaybackOwner(owner)
+            {
+                pendingInlineVideoOwnerReturns.remove(messageID)
+            }
+            cell.setMediaPlaybackVisible(true, allowsInlineVideoPlayback: false)
+        }
+        updateInlineVideoPlaybackVisibility()
+    }
+
+    private func pruneInlineVideoPlaybackOwnerIfOffscreen(messageID: Int64) {
+        guard let owner = inlineVideoPlaybackOwners[messageID],
+              !owner.isAttachedToGallery,
+              !collectionView.indexPathsForVisibleItems.contains(where: {
+                  dataSource.itemIdentifier(for: $0) == messageID
+              })
+        else { return }
+        inlineVideoPlaybackOwners[messageID] = nil
+        pendingInlineVideoOwnerReturns.remove(messageID)
+        owner.onPermanentDeletion = nil
+        owner.onReturnToInline = nil
+        owner.invalidate()
+    }
+
+    private func pruneInlineVideoPlaybackOwners() {
+        let visibleMessageIDs = Set(collectionView.indexPathsForVisibleItems.compactMap {
+            dataSource.itemIdentifier(for: $0)
+        })
+        for messageID in Array(inlineVideoPlaybackOwners.keys) where !visibleMessageIDs.contains(messageID) {
+            pruneInlineVideoPlaybackOwnerIfOffscreen(messageID: messageID)
+        }
+    }
+
+    private func updateInlineVideoPlaybackVisibility() {
+        guard presentedViewController == nil, dataSource != nil else { return }
+        let visibleRect = CGRect(origin: collectionView.contentOffset, size: collectionView.bounds.size)
+        let activeMessageID = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> (Int64, CGFloat)? in
+            guard let messageID = dataSource.itemIdentifier(for: indexPath),
+                  inlineVideoPlaybackOwners[messageID] != nil,
+                  let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+            else { return nil }
+            let intersection = visibleRect.intersection(attributes.frame)
+            guard !intersection.isNull, !intersection.isEmpty else { return nil }
+            return (messageID, intersection.width * intersection.height)
+        }
+        .max { lhs, rhs in lhs.1 < rhs.1 }?
+        .0
+        for (messageID, owner) in inlineVideoPlaybackOwners where !owner.isAttachedToGallery {
+            owner.setPlaybackVisible(messageID == activeMessageID)
+        }
     }
 
     @objc private func scrollToLatest() {

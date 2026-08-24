@@ -11,6 +11,15 @@ enum GalleryPlaybackCommand: Equatable {
     case togglePlayback
 }
 
+enum VideoPlaybackAttachmentContext: Equatable {
+    case fullscreen
+    case inline
+}
+
+struct VideoPlaybackAttachmentToken: Hashable {
+    fileprivate let id = UUID()
+}
+
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate {
     init(
         messages: [Message],
@@ -258,6 +267,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         for owner in videoPlaybackOwners.values {
             if pictureInPictureCoordinator.isRetaining(owner) {
                 owner.detachFromGallery()
+            } else if owner.returnToInlineIfAvailable() {
+                continue
             } else {
                 owner.invalidate()
             }
@@ -280,7 +291,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             return message.id
         })
         let evictedMessageIDs = videoPlaybackOwners.compactMap { messageID, owner in
-            !retainedMessageIDs.contains(messageID) && !owner.isPictureInPictureRetained
+            !retainedMessageIDs.contains(messageID)
+                && !owner.isPictureInPictureRetained
+                && !owner.isBorrowedFromInline
                 ? messageID
                 : nil
         }
@@ -464,7 +477,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
 @MainActor final class GalleryVideoPlaybackOwner: NSObject, @preconcurrency AVPictureInPictureControllerDelegate {
     // MARK: Lifecycle
 
-    init?(message: Message, tdlib: TDLib) {
+    init?(
+        message: Message,
+        tdlib: TDLib,
+        deferPlaybackUntilVisible: Bool = false,
+    ) {
         guard case .messageVideo(let video) = message.content else { return nil }
         self.tdlib = tdlib
         chatID = message.chatId
@@ -483,18 +500,38 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             isSecret: video.isSecret,
             startTimestamp: TimeInterval(video.startTimestamp),
             vodRanges: tdlib.vodRanges,
+            deferPlaybackUntilVisible: deferPlaybackUntilVisible,
         )
         configurePictureInPicture()
         observeMessageDeletion()
     }
 
     #if DEBUG
-        private init(probeMessageID: Int64) {
+        private init(
+            probeMessageID: Int64,
+            videoFile: File? = nil,
+            vodRanges: TDLibVODRangeCoordinator = TDLib.shared.vodRanges,
+            supportsStreaming: Bool = false,
+        ) {
             tdlib = .shared
             chatID = 0
             messageID = probeMessageID
             allowsPictureInPicture = true
             super.init()
+            if let videoFile {
+                mediaView.configure(
+                    file: videoFile,
+                    thumbnail: nil,
+                    minithumbnail: nil,
+                    canPlay: true,
+                    loops: false,
+                    mimeType: "video/mp4",
+                    fileName: "inline-handoff-probe.mp4",
+                    supportsStreaming: supportsStreaming,
+                    vodRanges: vodRanges,
+                    deferPlaybackUntilVisible: true,
+                )
+            }
             configurePictureInPicture()
             observeMessageDeletion()
         }
@@ -506,6 +543,8 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
     let chatID: Int64
     let tdlib: TDLib
     weak var galleryController: MediaGalleryViewController?
+    var onPermanentDeletion: ((GalleryVideoPlaybackOwner) -> Void)?
+    var onReturnToInline: ((GalleryVideoPlaybackOwner) -> Bool)?
     private(set) var isDeleted = false
 
     var isPictureInPictureRetained: Bool {
@@ -514,15 +553,33 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             || pictureInPictureController?.isPictureInPictureActive == true
     }
 
+    var isBorrowedFromInline: Bool {
+        onReturnToInline != nil
+    }
+
+    var isAttachedToGallery: Bool {
+        galleryController != nil || attachmentContext == .fullscreen || isPictureInPictureRetained
+    }
+
     #if DEBUG
         static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-gallery-owner") else { return }
-            Task { @MainActor in runDebugProbe() }
+            Task { @MainActor in await runDebugProbe() }
         }
     #endif
 
-    func attach(to container: UIView) {
-        guard !isInvalidated else { return }
+    @discardableResult func attach(
+        to container: UIView,
+        context: VideoPlaybackAttachmentContext = .fullscreen,
+    ) -> VideoPlaybackAttachmentToken? {
+        let token = VideoPlaybackAttachmentToken()
+        guard !isInvalidated,
+              context != .inline || galleryController == nil && !isPictureInPictureRetained
+        else { return nil }
+        attachmentToken = token
+        attachmentContext = context
+        attachmentContainer = container
+        mediaView.setPresentationContext(context)
         if mediaView.superview !== container {
             mediaView.removeFromSuperview()
             mediaView.translatesAutoresizingMaskIntoConstraints = false
@@ -534,21 +591,32 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                 mediaView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             ])
         }
-        isPlaybackVisible = false
         applyEffectivePlaybackVisibility()
         updatePictureInPictureControl()
+        return token
     }
 
-    func detach(from container: UIView) {
-        guard mediaView.superview === container else { return }
+    func detach(attachment token: VideoPlaybackAttachmentToken) {
+        guard attachmentToken == token else { return }
+        attachmentToken = nil
+        attachmentContext = nil
+        attachmentContainer = nil
         isPlaybackVisible = false
         applyEffectivePlaybackVisibility()
         mediaView.removeFromSuperview()
         updatePictureInPictureControl()
     }
 
+    func setPlaybackVisible(
+        _ isVisible: Bool,
+        attachment token: VideoPlaybackAttachmentToken,
+    ) {
+        guard attachmentToken == token else { return }
+        setPlaybackVisible(isVisible)
+    }
+
     func setPlaybackVisible(_ isVisible: Bool) {
-        guard !isInvalidated else { return }
+        guard !isInvalidated, self.isPlaybackVisible != isVisible else { return }
         self.isPlaybackVisible = isVisible
         applyEffectivePlaybackVisibility()
         updatePictureInPictureControl()
@@ -563,10 +631,24 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
     }
 
     func detachFromGallery() {
+        guard attachmentContext == .fullscreen else { return }
+        attachmentToken = nil
+        attachmentContext = nil
+        attachmentContainer = nil
         isPlaybackVisible = false
         applyEffectivePlaybackVisibility()
         mediaView.removeFromSuperview()
         updatePictureInPictureControl()
+    }
+
+    func returnToInlineIfAvailable() -> Bool {
+        guard !isDeleted,
+              let onReturnToInline,
+              onReturnToInline(self)
+        else { return false }
+        galleryController = nil
+        detachFromGallery()
+        return true
     }
 
     func invalidate() {
@@ -666,6 +748,9 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
     private var rejectsLatePictureInPictureStart = false
     private var mediaTakeoverCancellable: AnyCancellable?
     private var tdUpdateCancellables = Set<AnyCancellable>()
+    private weak var attachmentContainer: UIView?
+    private var attachmentToken: VideoPlaybackAttachmentToken?
+    private var attachmentContext: VideoPlaybackAttachmentContext?
 
     private func configurePictureInPicture() {
         mediaView.onPictureInPictureToggle = { [weak self] in self?.togglePictureInPicture() }
@@ -737,6 +822,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
     private func handlePermanentDeletion() {
         guard !isDeleted else { return }
         isDeleted = true
+        onPermanentDeletion?(self)
         GalleryPictureInPictureCoordinator.shared.messageWasDeleted(owner: self)
         galleryController?.playbackOwnerWasDeleted(self)
         if isPictureInPictureStartRequested {
@@ -897,41 +983,176 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
         pictureInPicturePossibleCancellable = nil
         pictureInPictureController?.delegate = nil
         pictureInPictureController = nil
+        attachmentToken = nil
+        attachmentContext = nil
+        attachmentContainer = nil
+        onPermanentDeletion = nil
+        onReturnToInline = nil
         releasePictureInPictureAudioSession()
         mediaView.removeFromSuperview()
         mediaView.prepareForReuse()
     }
 
     #if DEBUG
-        private static func runDebugProbe() {
+        private static func runDebugProbe() async {
             let result: String
-            let owner = GalleryVideoPlaybackOwner(probeMessageID: 9001)
+            let probeURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bettertg-inline-handoff-probe.mp4")
+            try? FileManager.default.removeItem(at: probeURL)
+            let owner: GalleryVideoPlaybackOwner
+            let vodBackend: TDLibVODProbeBackend?
+            do {
+                _ = try await VideoNoteAssetWriter.makeDebugSegment(
+                    outputURL: probeURL,
+                    duration: 30,
+                    frameSeed: 930,
+                )
+                let attributes = try FileManager.default.attributesOfItem(atPath: probeURL.path)
+                guard let size = (attributes[.size] as? NSNumber)?.int64Value,
+                      size > TDLibVODRangeSource.normalFetchSize
+                else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                let network = TDLibVODProbeNetwork(available: true)
+                let backend = TDLibVODProbeBackend(
+                    fileURL: probeURL,
+                    fileSize: size,
+                    network: network,
+                )
+                await backend.setAutoFulfill(true)
+                await backend.setDownloadDelay(.seconds(2))
+                let vodRanges = TDLibVODRangeCoordinator(
+                    accountID: "probe-inline-handoff",
+                    client: backend.client,
+                    requestTimeout: .seconds(3),
+                )
+                owner = GalleryVideoPlaybackOwner(
+                    probeMessageID: 9001,
+                    videoFile: await backend.file(expectedSize: size * 2),
+                    vodRanges: vodRanges,
+                    supportsStreaming: true,
+                )
+                vodBackend = backend
+            } catch {
+                owner = GalleryVideoPlaybackOwner(probeMessageID: 9001)
+                vodBackend = nil
+            }
             let firstContainer = UIView()
             let secondContainer = UIView()
             let viewIdentifier = ObjectIdentifier(owner.mediaView)
 
-            owner.attach(to: firstContainer)
-            let startsPaused = !owner.isPlaybackVisible && owner.mediaView.superview === firstContainer
-            owner.setPlaybackVisible(true)
-            let becameVisible = owner.isPlaybackVisible
-            owner.detach(from: firstContainer)
-            let detachedWithoutInvalidation = !owner.isInvalidated
+            let inlineToken = owner.attach(to: firstContainer, context: .inline)
+            let startsPaused = inlineToken != nil
                 && !owner.isPlaybackVisible
-                && owner.mediaView.superview == nil
-            owner.attach(to: secondContainer)
+                && owner.mediaView.superview === firstContainer
+                && owner.mediaView.debugIsInlinePresentation
+            if let inlineToken {
+                owner.setPlaybackVisible(true, attachment: inlineToken)
+            }
+            let becameVisible = owner.isPlaybackVisible
+            let inlinePlaybackReady = await waitUntil {
+                owner.mediaView.debugCurrentItemIdentifier != nil
+                    && owner.mediaView.debugPlaybackTime >= 0.1
+                    && owner.mediaView.debugIsMuted
+            }
+            let inlineItemIdentifier = owner.mediaView.debugCurrentItemIdentifier
+            let inlinePlaybackTime = owner.mediaView.debugPlaybackTime
+            let transferCancelBaseline: Int
+            if let vodBackend {
+                transferCancelBaseline = await vodBackend.completedCancelCount
+            } else {
+                transferCancelBaseline = -1
+            }
+            let fullscreenToken = owner.attach(to: secondContainer, context: .fullscreen)
+            if let inlineToken {
+                owner.setPlaybackVisible(false, attachment: inlineToken)
+                owner.detach(attachment: inlineToken)
+            }
+            let staleInlineCallbacksIgnored = owner.isPlaybackVisible
+                && owner.mediaView.superview === secondContainer
+                && !owner.mediaView.debugIsInlinePresentation
             let reusedExactView = ObjectIdentifier(owner.mediaView) == viewIdentifier
                 && owner.mediaView.superview === secondContainer
+            try? await Task<Never, Never>.sleep(for: .milliseconds(120))
+            let itemAndPlayheadContinuous = inlinePlaybackReady
+                && inlineItemIdentifier != nil
+                && owner.mediaView.debugCurrentItemIdentifier == inlineItemIdentifier
+                && owner.mediaView.debugPlaybackTime >= inlinePlaybackTime
+                && !owner.mediaView.debugIsMuted
+            let returnGallery = MediaGalleryViewController(messages: [], selection: 0)
+            owner.galleryController = returnGallery
+            owner.onReturnToInline = { _ in true }
+            let borrowedOwnerReturned = owner.returnToInlineIfAvailable()
+            let detachedWithoutInvalidation = borrowedOwnerReturned
+                && !owner.isInvalidated
+                && !owner.isPlaybackVisible
+                && owner.mediaView.superview == nil
+            let returnedInlineToken = owner.attach(to: firstContainer, context: .inline)
+            if let returnedInlineToken {
+                owner.setPlaybackVisible(true, attachment: returnedInlineToken)
+            }
+            if let fullscreenToken {
+                owner.setPlaybackVisible(false, attachment: fullscreenToken)
+                owner.detach(attachment: fullscreenToken)
+            }
+            try? await Task<Never, Never>.sleep(for: .milliseconds(80))
+            let returnedInlineContinuity = borrowedOwnerReturned
+                && returnedInlineToken != nil
+                && owner.isPlaybackVisible
+                && owner.mediaView.superview === firstContainer
+                && owner.mediaView.debugIsInlinePresentation
+                && owner.mediaView.debugIsMuted
+                && owner.mediaView.debugCurrentItemIdentifier == inlineItemIdentifier
+                && owner.mediaView.debugPlaybackTime >= inlinePlaybackTime
+            let vodTransferContinuous: Bool
+            if let vodBackend {
+                let downloadCalls = await vodBackend.downloadCalls
+                let completedCancelCount = await vodBackend.completedCancelCount
+                vodTransferContinuous = !downloadCalls.isEmpty
+                    && downloadCalls.allSatisfy { !$0.isFullDownload }
+                    && completedCancelCount == transferCancelBaseline
+            } else {
+                vodTransferContinuous = false
+            }
             let readinessGated = owner.mediaView.pictureInPictureControlIsHidden
-            owner.performPlaybackCommand(.jump(-15))
-            owner.performPlaybackCommand(.jump(15))
-            owner.performPlaybackCommand(.togglePlayback)
-            let commandRouting = owner.mediaView.debugPlaybackCommandProbePassed
-            let accessibleControls = owner.mediaView.debugPlaybackControlsLayoutProbePassed
-            let autoHidePolicy = owner.mediaView.debugControlsAutoHidePolicyProbePassed
+            var terminalRequestActive = false
+            let terminalCancelBaseline: Int
+            if let vodBackend {
+                terminalRequestActive = await waitUntilAsync(timeout: .seconds(1)) {
+                    await vodBackend.activeDownloadCount > 0
+                }
+                if !terminalRequestActive {
+                    owner.mediaView.debugForceVODSeek(to: 25)
+                    terminalRequestActive = await waitUntilAsync {
+                        await vodBackend.activeDownloadCount > 0
+                    }
+                }
+                terminalCancelBaseline = await vodBackend.completedCancelCount
+            } else {
+                terminalCancelBaseline = -1
+            }
             owner.invalidate()
+            let terminalLeaseCancelled: Bool
+            if let vodBackend, terminalRequestActive {
+                terminalLeaseCancelled = await waitUntilAsync {
+                    await vodBackend.completedCancelCount == terminalCancelBaseline + 1
+                }
+            } else {
+                terminalLeaseCancelled = false
+            }
+            try? FileManager.default.removeItem(at: probeURL)
             let invalidatedCleanly = owner.isInvalidated
                 && !owner.isPlaybackVisible
                 && owner.mediaView.superview == nil
+
+            let controlsOwner = GalleryVideoPlaybackOwner(probeMessageID: 9_004)
+            controlsOwner.performPlaybackCommand(.jump(-15))
+            controlsOwner.performPlaybackCommand(.jump(15))
+            controlsOwner.performPlaybackCommand(.togglePlayback)
+            let commandRouting = controlsOwner.mediaView.debugPlaybackCommandProbePassed
+            let accessibleControls = controlsOwner.mediaView.debugPlaybackControlsLayoutProbePassed
+            let autoHidePolicy = controlsOwner.mediaView.debugControlsAutoHidePolicyProbePassed
+            controlsOwner.invalidate()
 
             let transferredOwner = GalleryVideoPlaybackOwner(probeMessageID: 9002)
             let probeGallery = MediaGalleryViewController(messages: [], selection: 0)
@@ -953,7 +1174,12 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             if startsPaused,
                becameVisible,
                detachedWithoutInvalidation,
+               staleInlineCallbacksIgnored,
                reusedExactView,
+               itemAndPlayheadContinuous,
+               returnedInlineContinuity,
+               vodTransferContinuous,
+               terminalLeaseCancelled,
                readinessGated,
                commandRouting,
                accessibleControls,
@@ -963,7 +1189,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                transferCleanedUp,
                deletionRevoked
             {
-                result = "Gallery playback owner probe: same-view=true, detach-retains-session=true, "
+                result = "Gallery playback owner probe: same-view=true, inline-handoff=true, "
+                    + "same-item=true, playhead-continuous=true, inline-muted=true, "
+                    + "borrowed-return=true, vod-session-continuous=true, no-full-download=true, "
+                    + "transfer-cancel-delta=0/final-cancel-delta=1, "
+                    + "stale-attachment-ignored=true, detach-retains-session=true, "
                     + "central-visibility=true, transfer-retains=true, delete-revokes=true, "
                     + "commands=back15+forward15+toggle, controls=two-row+44pt+auto-hide4s, "
                     + "pip-supported=\(AVPictureInPictureController.isPictureInPictureSupported()), "
@@ -971,7 +1201,13 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             } else {
                 result = "Gallery playback owner probe failed: startsPaused=\(startsPaused), "
                     + "becameVisible=\(becameVisible), detached=\(detachedWithoutInvalidation), "
-                    + "reused=\(reusedExactView), readinessGated=\(readinessGated), "
+                    + "staleIgnored=\(staleInlineCallbacksIgnored), reused=\(reusedExactView), "
+                    + "itemContinuity=\(itemAndPlayheadContinuous), "
+                    + "returnContinuity=\(returnedInlineContinuity), "
+                    + "vodContinuity=\(vodTransferContinuous), transferCancelBaseline=\(transferCancelBaseline), "
+                    + "terminalRequest=\(terminalRequestActive), terminalCancelBaseline=\(terminalCancelBaseline), "
+                    + "finalCancel=\(terminalLeaseCancelled), "
+                    + "readinessGated=\(readinessGated), "
                     + "commands=\(commandRouting), "
                     + "accessibleControls=\(accessibleControls), "
                     + "autoHide=\(autoHidePolicy), "
@@ -987,6 +1223,36 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                 )
             }
             log(result)
+        }
+
+        private static func waitUntil(
+            timeout: Duration = .seconds(5),
+            condition: @escaping @MainActor () -> Bool,
+        ) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            while clock.now < deadline {
+                if condition() {
+                    return true
+                }
+                try? await Task<Never, Never>.sleep(for: .milliseconds(20))
+            }
+            return condition()
+        }
+
+        private static func waitUntilAsync(
+            timeout: Duration = .seconds(5),
+            condition: @escaping () async -> Bool,
+        ) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            while clock.now < deadline {
+                if await condition() {
+                    return true
+                }
+                try? await Task<Never, Never>.sleep(for: .milliseconds(20))
+            }
+            return await condition()
         }
     #endif
 }
@@ -1237,7 +1503,9 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             gallery.pictureInPictureDidFinish(for: owner)
         } else {
             owner.galleryController = nil
-            owner.invalidate()
+            if !owner.returnToInlineIfAvailable() {
+                owner.invalidate()
+            }
         }
     }
 }
@@ -1262,7 +1530,10 @@ final class MediaGalleryCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        videoPlaybackOwner?.detach(from: contentView)
+        if let videoPlaybackAttachmentToken {
+            videoPlaybackOwner?.detach(attachment: videoPlaybackAttachmentToken)
+        }
+        videoPlaybackAttachmentToken = nil
         videoPlaybackOwner = nil
         contentMediaView?.prepareForReuse()
         contentMediaView?.removeFromSuperview()
@@ -1275,7 +1546,10 @@ final class MediaGalleryCell: UICollectionViewCell {
         prepareForReuse()
         if let videoPlaybackOwner {
             self.videoPlaybackOwner = videoPlaybackOwner
-            videoPlaybackOwner.attach(to: contentView)
+            videoPlaybackAttachmentToken = videoPlaybackOwner.attach(
+                to: contentView,
+                context: .fullscreen,
+            )
             return
         }
         let view: (UIView & GalleryMediaView)
@@ -1352,8 +1626,11 @@ final class MediaGalleryCell: UICollectionViewCell {
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
-        if let videoPlaybackOwner {
-            videoPlaybackOwner.setPlaybackVisible(isVisible)
+        if let videoPlaybackOwner, let videoPlaybackAttachmentToken {
+            videoPlaybackOwner.setPlaybackVisible(
+                isVisible,
+                attachment: videoPlaybackAttachmentToken,
+            )
         } else {
             contentMediaView?.setPlaybackVisible(isVisible)
         }
@@ -1368,6 +1645,7 @@ final class MediaGalleryCell: UICollectionViewCell {
     }
 
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
+    private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
 }
 
 // MARK: - GalleryMediaView
@@ -1481,6 +1759,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         let controlsTapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleControlsVisibility))
         controlsTapGesture.cancelsTouchesInView = false
         controlsTapGesture.delegate = self
+        self.controlsTapGesture = controlsTapGesture
         addGestureRecognizer(controlsTapGesture)
         addSubview(preview)
         addSubview(videoSurface)
@@ -1629,6 +1908,26 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                     isVoiceOverRunning: true,
                 )
         }
+
+        var debugIsInlinePresentation: Bool {
+            isInlinePresentation
+        }
+
+        var debugCurrentItemIdentifier: ObjectIdentifier? {
+            player.currentItemIdentifier
+        }
+
+        var debugPlaybackTime: TimeInterval {
+            player.currentTime
+        }
+
+        var debugIsMuted: Bool {
+            player.isMuted
+        }
+
+        func debugForceVODSeek(to time: TimeInterval) {
+            player.play(from: time)
+        }
     #endif
 
     func configure(
@@ -1643,6 +1942,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         isSecret: Bool = false,
         startTimestamp: TimeInterval = 0,
         vodRanges: TDLibVODRangeCoordinator = TDLib.shared.vodRanges,
+        deferPlaybackUntilVisible: Bool = false,
     ) {
         prepareForReuse()
         fileID = file.id
@@ -1700,21 +2000,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         streamingStatusCancellable = player.streamingStatusPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in self?.renderStreamingStatus(status) }
-        if file.local.isDownloadingCompleted {
-            update(file: file)
-        } else if supportsStreaming,
-                  !isSecret,
-                  let mimeType,
-                  let fileName
-        {
-            startVOD(
-                file: file,
-                mimeType: mimeType,
-                fileName: fileName,
-                startTimestamp: startTimestamp,
-            )
+        waitsForInitialPlaybackVisibility = deferPlaybackUntilVisible
+        if deferPlaybackUntilVisible {
+            spinner.stopAnimating()
         } else {
-            startLegacyDownload(file: file)
+            beginInitialPlayback(file: file)
         }
     }
 
@@ -1751,6 +2041,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         controlsView.isHidden = true
         controlsView.alpha = 1
         controlsAreVisible = false
+        controlsTapGesture?.isEnabled = true
+        isInlinePresentation = false
+        mutedBeforeInlinePresentation = nil
+        waitsForInitialPlaybackVisibility = false
+        videoSurface.playerLayer.videoGravity = .resizeAspect
         videoSurface.playerLayer.player = nil
         videoSurface.isHidden = true
         fileID = nil
@@ -1782,6 +2077,29 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         updatePictureInPictureEligibility()
     }
 
+    func setPresentationContext(_ context: VideoPlaybackAttachmentContext) {
+        let shouldPresentInline = context == .inline
+        guard isInlinePresentation != shouldPresentInline else { return }
+        isInlinePresentation = shouldPresentInline
+        controlsTapGesture?.isEnabled = !shouldPresentInline
+        videoSurface.playerLayer.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
+        if shouldPresentInline {
+            mutedBeforeInlinePresentation = isMuted
+            isMuted = true
+            player.setMuted(true)
+            setControlsVisible(false, animated: false)
+        } else {
+            isMuted = mutedBeforeInlinePresentation ?? isMuted
+            mutedBeforeInlinePresentation = nil
+            player.setMuted(isMuted)
+            if !loopsPlayback {
+                setControlsVisible(true, animated: false)
+                scheduleControlsAutoHideIfNeeded()
+            }
+        }
+        updateControlIcons()
+    }
+
     func setPlaybackVisible(_ isVisible: Bool) {
         if !isVisible, isSeeking {
             isSeeking = false
@@ -1790,6 +2108,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             updateTimeLabel(current: currentPlaybackTime)
         }
         isPlaybackVisible = isVisible
+        if isVisible, waitsForInitialPlaybackVisibility, let sourceFile {
+            waitsForInitialPlaybackVisibility = false
+            spinner.startAnimating()
+            beginInitialPlayback(file: sourceFile)
+        }
         if !isVisible {
             cancelControlsAutoHide()
         }
@@ -1934,6 +2257,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var vodRanges = TDLib.shared.vodRanges
     private var controlsAreVisible = false
     private var controlsAutoHideWorkItem: DispatchWorkItem?
+    private var controlsTapGesture: UITapGestureRecognizer?
+    private var isInlinePresentation = false
+    private var mutedBeforeInlinePresentation: Bool?
+    private var waitsForInitialPlaybackVisibility = false
     private var vodConfiguration: VODConfiguration?
     private var retryMode: RetryMode?
     private var retryStatusText: String?
@@ -2029,6 +2356,22 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         controlsStack.addArrangedSubview(scrubberStack)
         controlsStack.addArrangedSubview(transportStack)
         updateControlIcons()
+    }
+
+    private func beginInitialPlayback(file: File) {
+        guard file.id == fileID else { return }
+        if file.local.isDownloadingCompleted {
+            update(file: file)
+        } else if let vodConfiguration {
+            startVOD(
+                file: file,
+                mimeType: vodConfiguration.mimeType,
+                fileName: vodConfiguration.fileName,
+                startTimestamp: vodConfiguration.startTimestamp,
+            )
+        } else {
+            startLegacyDownload(file: file)
+        }
     }
 
     private func startVOD(
@@ -2353,7 +2696,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     @objc private func toggleControlsVisibility() {
-        guard !loopsPlayback else { return }
+        guard !loopsPlayback, !isInlinePresentation else { return }
         if UIAccessibility.isVoiceOverRunning {
             setControlsVisible(true, animated: false)
             cancelControlsAutoHide()
@@ -2418,7 +2761,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     private func setControlsVisible(_ isVisible: Bool, animated: Bool) {
-        guard !loopsPlayback else {
+        guard !loopsPlayback, !isInlinePresentation else {
             controlsAreVisible = false
             controlsView.isHidden = true
             return

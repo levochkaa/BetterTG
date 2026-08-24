@@ -26,6 +26,7 @@ final class MessageMediaView: UIView {
 
     @discardableResult func configure(
         message: CustomMessage,
+        videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
         prepareForReuse()
@@ -126,15 +127,25 @@ final class MessageMediaView: UIView {
                     view = fileView
                 }
             case .messageVideo(let video):
-                let fileView = FileMediaPreviewView()
-                fileView.configure(
-                    file: video.video.video,
-                    thumbnail: video.video.thumbnail,
-                    minithumbnail: video.video.minithumbnail,
-                    size: CGSize(width: video.video.width, height: video.video.height),
-                    showsPlayIcon: true,
-                ) { onTap([message.message], message.id) }
-                view = fileView
+                if let videoPlaybackOwner {
+                    let inlineView = InlineVideoMediaView()
+                    inlineView.configure(
+                        owner: videoPlaybackOwner,
+                        size: CGSize(width: video.video.width, height: video.video.height),
+                    ) { onTap([message.message], message.id) }
+                    view = inlineView
+                } else {
+                    let fileView = FileMediaPreviewView()
+                    fileView.configure(
+                        file: video.video.video,
+                        thumbnail: video.video.thumbnail,
+                        minithumbnail: video.video.minithumbnail,
+                        size: CGSize(width: video.video.width, height: video.video.height),
+                        showsPlayIcon: true,
+                        usesFileAsThumbnailFallback: false,
+                    ) { onTap([message.message], message.id) }
+                    view = fileView
+                }
             default:
                 view = nil
             }
@@ -149,7 +160,7 @@ final class MessageMediaView: UIView {
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        (view as? ReusableMediaView)?.setPlaybackVisible(window != nil)
+        (view as? ReusableMediaView)?.setPlaybackVisible(window != nil && !(view is InlineVideoMediaView))
         return true
     }
 
@@ -159,8 +170,16 @@ final class MessageMediaView: UIView {
         contentView = nil
     }
 
-    func setPlaybackVisible(_ isVisible: Bool) {
-        (contentView as? ReusableMediaView)?.setPlaybackVisible(isVisible)
+    func setPlaybackVisible(_ isVisible: Bool, allowsInlineVideoPlayback: Bool = true) {
+        let playbackVisible = contentView is InlineVideoMediaView
+            ? isVisible && allowsInlineVideoPlayback
+            : isVisible
+        (contentView as? ReusableMediaView)?.setPlaybackVisible(playbackVisible)
+    }
+
+    @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
+        guard let inlineView = contentView as? InlineVideoMediaView else { return false }
+        return inlineView.reattach(owner: owner)
     }
 
     // MARK: Private
@@ -352,7 +371,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
             if let thumbnail = video.video.thumbnail {
                 imageView.load(file: thumbnail.file, placeholderData: video.video.minithumbnail?.data)
             } else {
-                imageView.load(file: video.video.video, placeholderData: video.video.minithumbnail?.data)
+                imageView.loadPlaceholder(data: video.video.minithumbnail?.data)
             }
         case .messageAnimation(let animation):
             playIcon.isHidden = false
@@ -389,6 +408,96 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
 
     func prepareForReuse() {
         imageView.cancel()
+    }
+}
+
+// MARK: - InlineVideoMediaView
+
+private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestureRecognizerDelegate {
+    // MARK: Lifecycle
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        addGestureRecognizer(tapGesture)
+        accessibilityTraits = [.button, .playsSound]
+        accessibilityLabel = "Open video"
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    func configure(
+        owner: GalleryVideoPlaybackOwner,
+        size: CGSize,
+        onTap: @escaping () -> Void,
+    ) {
+        prepareForReuse()
+        messageID = owner.messageID
+        self.owner = owner
+        self.onTap = onTap
+        let displaySize = telegramMediaDisplaySize(source: size)
+        widthConstraint.constant = displaySize.width
+        heightConstraint.constant = displaySize.height
+        attachmentToken = owner.attach(to: self, context: .inline)
+    }
+
+    func prepareForReuse() {
+        if let attachmentToken {
+            owner?.detach(attachment: attachmentToken)
+        }
+        attachmentToken = nil
+        owner = nil
+        onTap = nil
+        messageID = nil
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        guard let owner, let attachmentToken else { return }
+        owner.setPlaybackVisible(isVisible, attachment: attachmentToken)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard let onTap else { return false }
+        onTap()
+        return true
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var touchedView = touch.view
+        while let view = touchedView, view !== self {
+            if view is UIControl {
+                return false
+            }
+            touchedView = view.superview
+        }
+        return true
+    }
+
+    @discardableResult func reattach(owner: GalleryVideoPlaybackOwner) -> Bool {
+        guard messageID == owner.messageID else { return false }
+        self.owner = owner
+        attachmentToken = owner.attach(to: self, context: .inline)
+        return attachmentToken != nil
+    }
+
+    // MARK: Private
+
+    private weak var owner: GalleryVideoPlaybackOwner?
+    private var attachmentToken: VideoPlaybackAttachmentToken?
+    private var messageID: Int64?
+    private var onTap: (() -> Void)?
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
+
+    @objc private func tapped() {
+        onTap?()
     }
 }
 
@@ -439,6 +548,7 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         minithumbnail: Minithumbnail?,
         size: CGSize,
         showsPlayIcon: Bool,
+        usesFileAsThumbnailFallback: Bool = true,
         onTap: @escaping () -> Void,
     ) {
         self.onTap = onTap
@@ -448,8 +558,10 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         playIcon.isHidden = !showsPlayIcon
         if let thumbnail {
             imageView.load(file: thumbnail.file, placeholderData: minithumbnail?.data)
-        } else {
+        } else if usesFileAsThumbnailFallback {
             imageView.load(file: file, placeholderData: minithumbnail?.data)
+        } else {
+            imageView.loadPlaceholder(data: minithumbnail?.data)
         }
     }
 
@@ -619,7 +731,7 @@ enum TDMediaPrefetcher {
                 [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
                     + [(sticker.sticker.sticker.id, decodeKind(for: sticker.sticker.format))]
             case .messageVideo(let video):
-                [(video.video.thumbnail?.file.id ?? video.video.video.id, .none)]
+                [video.video.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
             default:
                 []
             }

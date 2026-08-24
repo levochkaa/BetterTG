@@ -74,16 +74,24 @@ final class MessageCell: UICollectionViewCell {
         ).cgPath
     }
 
-    func setMediaPlaybackVisible(_ isVisible: Bool) {
-        mediaView.setPlaybackVisible(isVisible)
+    func setMediaPlaybackVisible(_ isVisible: Bool, allowsInlineVideoPlayback: Bool = true) {
+        mediaView.setPlaybackVisible(
+            isVisible,
+            allowsInlineVideoPlayback: allowsInlineVideoPlayback,
+        )
         textView.setCustomEmojiPlaybackVisible(isVisible)
+    }
+
+    @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
+        mediaView.restoreInlineVideoPlaybackOwner(owner)
     }
 
     func configure(
         message: CustomMessage,
         chat: CustomChat,
         highlighted: Bool,
-        onSwipeToReply: (() -> Void)?,
+        videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
+        onReplyTap: @escaping (Int64) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
         self.onSwipeToReply = onSwipeToReply
@@ -126,7 +134,10 @@ final class MessageCell: UICollectionViewCell {
             replyTargetMessageID = nil
         }
 
-        let hasMedia = mediaView.configure(message: message) { [weak self] messages, selection in
+        let hasMedia = mediaView.configure(
+            message: message,
+            videoPlaybackOwner: videoPlaybackOwner,
+        ) { [weak self] messages, selection in
             self?.onMediaTap?(messages, selection)
         }
         mediaView.isHidden = !hasMedia

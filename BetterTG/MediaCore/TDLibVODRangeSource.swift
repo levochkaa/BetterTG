@@ -1360,6 +1360,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         // MARK: Internal
 
         private(set) var downloadCalls = [TDLibVODProbeDownload]()
+        private(set) var activeDownloadCount = 0
         private(set) var cancelCount = 0
         private(set) var completedCancelCount = 0
         private(set) var cancelStarted = false
@@ -1462,6 +1463,8 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 isFullDownload: limit == 0,
                 range: range,
             ))
+            activeDownloadCount += 1
+            defer { activeDownloadCount -= 1 }
             lastDownloadRange = range
             if let downloadDelay {
                 try? await Task<Never, Never>.sleep(for: downloadDelay)
