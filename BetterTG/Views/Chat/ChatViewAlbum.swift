@@ -1503,12 +1503,13 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             controlsView.leadingAnchor.constraint(equalTo: leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: trailingAnchor),
             controlsView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            controlsView.heightAnchor.constraint(equalToConstant: 112),
+            controlsView.heightAnchor.constraint(equalToConstant: 136),
             controlsStack.leadingAnchor.constraint(equalTo: controlsView.contentView.leadingAnchor, constant: 12),
             controlsStack.trailingAnchor.constraint(equalTo: controlsView.contentView.trailingAnchor, constant: -12),
             controlsStack.topAnchor.constraint(equalTo: controlsView.contentView.topAnchor, constant: 8),
             controlsStack.bottomAnchor.constraint(equalTo: controlsView.contentView.bottomAnchor, constant: -8),
             timeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 86),
+            networkStatusLabel.heightAnchor.constraint(equalToConstant: 20),
             scrubberStack.heightAnchor.constraint(equalToConstant: 36),
             jumpBackwardButton.widthAnchor.constraint(equalToConstant: 44),
             jumpBackwardButton.heightAnchor.constraint(equalToConstant: 44),
@@ -1587,6 +1588,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             seekSlider.bufferedRanges = [0...0.25, 0.5...0.75]
             seekSlider.layoutIfNeeded()
             return controlsStack.axis == .vertical
+                && controlsStack.arrangedSubviews.first === networkStatusLabel
                 && scrubberStack.arrangedSubviews == [timeLabel, seekSlider]
                 && transportButtons.allSatisfy { button in
                     button.constraints.contains { $0.firstAttribute == .width && $0.constant == 44 }
@@ -1648,6 +1650,17 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         startPlaybackTimestamp = startTimestamp
         self.vodRanges = vodRanges
         loopsPlayback = loops
+        if supportsStreaming,
+           !isSecret,
+           let mimeType,
+           let fileName
+        {
+            vodConfiguration = VODConfiguration(
+                fileName: fileName,
+                mimeType: mimeType,
+                startTimestamp: startTimestamp,
+            )
+        }
         videoSurface.isHidden = true
         if let thumbnail {
             preview.load(file: thumbnail.file, placeholderData: minithumbnail?.data)
@@ -1684,6 +1697,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         bufferedRangesCancellable = player.bufferedRangesPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] ranges in self?.updateBufferedRanges(ranges) }
+        streamingStatusCancellable = player.streamingStatusPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in self?.renderStreamingStatus(status) }
         if file.local.isDownloadingCompleted {
             update(file: file)
         } else if supportsStreaming,
@@ -1725,6 +1741,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         durationCancellable = nil
         bufferedRangesCancellable?.cancel()
         bufferedRangesCancellable = nil
+        streamingStatusCancellable?.cancel()
+        streamingStatusCancellable = nil
         voiceOverCancellable?.cancel()
         voiceOverCancellable = nil
         preview.cancel()
@@ -1740,6 +1758,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         isSurfaceReady = false
         loopsPlayback = false
         loadedPath = nil
+        vodConfiguration = nil
+        retryMode = nil
+        retryStatusText = nil
+        currentStreamingStatus = .idle
         startPlaybackTimestamp = 0
         surfaceItemIdentifier = nil
         currentPlaybackState = .idle
@@ -1756,6 +1778,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         seekSlider.isEnabled = false
         updatePlaybackTime(0)
         updateControlIcons()
+        renderStreamingStatus(.idle)
         updatePictureInPictureEligibility()
     }
 
@@ -1848,6 +1871,17 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     // MARK: Private
 
+    private struct VODConfiguration {
+        let fileName: String
+        let mimeType: String
+        var startTimestamp: TimeInterval
+    }
+
+    private enum RetryMode {
+        case fullDownload
+        case vod
+    }
+
     private let preview = TDImageLoadingView()
     private let videoSurface = LocalVideoSurfaceView(frame: .zero)
     private let spinner = UIActivityIndicatorView(style: .large)
@@ -1857,6 +1891,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private let scrubberStack = UIStackView()
     private let transportStack = UIStackView()
     private let transportSpacer = UIView()
+    private let networkStatusLabel = UILabel()
     private let playButton = UIButton(type: .system)
     private let jumpBackwardButton = UIButton(type: .system)
     private let jumpForwardButton = UIButton(type: .system)
@@ -1872,6 +1907,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var timeCancellable: AnyCancellable?
     private var durationCancellable: AnyCancellable?
     private var bufferedRangesCancellable: AnyCancellable?
+    private var streamingStatusCancellable: AnyCancellable?
     private var voiceOverCancellable: AnyCancellable?
     private var displayCancellable: AnyCancellable?
     private var isPlaybackVisible = false
@@ -1893,10 +1929,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var currentPlaybackTime = TimeInterval.zero
     private var playbackDuration = TimeInterval.zero
     private var bufferedRanges = [LocalMediaPlayer.BufferedRange]()
+    private var currentStreamingStatus = TDLibVODResourceLoaderStatus.idle
     private var isPictureInPictureActive = false
     private var vodRanges = TDLib.shared.vodRanges
     private var controlsAreVisible = false
     private var controlsAutoHideWorkItem: DispatchWorkItem?
+    private var vodConfiguration: VODConfiguration?
+    private var retryMode: RetryMode?
+    private var retryStatusText: String?
     #if DEBUG
         private var debugPlaybackCommands = [GalleryPlaybackCommand]()
     #endif
@@ -1911,7 +1951,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
         controlsStack.axis = .vertical
         controlsStack.alignment = .fill
-        controlsStack.spacing = 8
+        controlsStack.spacing = 4
         controlsView.contentView.addSubview(controlsStack)
         scrubberStack.axis = .horizontal
         scrubberStack.alignment = .center
@@ -1921,6 +1961,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         transportStack.spacing = 4
         transportSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         transportSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        networkStatusLabel.font = .preferredFont(forTextStyle: .caption2)
+        networkStatusLabel.textColor = UIColor.white.withAlphaComponent(0.8)
+        networkStatusLabel.textAlignment = .center
+        networkStatusLabel.adjustsFontForContentSizeCategory = true
+        networkStatusLabel.adjustsFontSizeToFitWidth = true
+        networkStatusLabel.minimumScaleFactor = 0.7
+        networkStatusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        networkStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         playButton.tintColor = .white
         playButton.accessibilityLabel = "Play"
@@ -1977,6 +2025,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         transportStack.addArrangedSubview(muteButton)
         transportStack.addArrangedSubview(rateButton)
         transportStack.addArrangedSubview(pictureInPictureButton)
+        controlsStack.addArrangedSubview(networkStatusLabel)
         controlsStack.addArrangedSubview(scrubberStack)
         controlsStack.addArrangedSubview(transportStack)
         updateControlIcons()
@@ -1989,6 +2038,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         startTimestamp: TimeInterval,
     ) {
         usesVOD = true
+        retryMode = nil
+        retryStatusText = nil
+        renderStreamingStatus(.loading)
         let identifier = UUID()
         loadIdentifier = identifier
         let rangeCoordinator = vodRanges
@@ -2045,6 +2097,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         retryButton.isHidden = true
         usesLegacyDownload = true
         usesVOD = false
+        retryMode = nil
+        retryStatusText = nil
+        renderStreamingStatus(.loading)
         let identifier = UUID()
         loadIdentifier = identifier
         task?.cancel()
@@ -2058,6 +2113,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             do {
                 downloaded = try await lease.source.completedFile()
             } catch {
+                let statusText = (error as? TDLibVODRangeError) == .offline
+                    ? "Offline"
+                    : "Couldn't load video"
                 await lease.invalidate()
                 await MainActor.run {
                     guard let self,
@@ -2068,7 +2126,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                     else { return }
                     self.task = nil
                     self.usesLegacyDownload = false
-                    self.showRetryState()
+                    self.showRetryState(statusText: statusText, retryMode: .fullDownload)
                 }
                 return
             }
@@ -2080,6 +2138,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                       self.usesLegacyDownload
                 else { return }
                 self.task = nil
+                self.usesLegacyDownload = false
+                self.renderStreamingStatus(.idle)
                 self.update(file: downloaded)
             }
         }
@@ -2159,18 +2219,30 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             spinner.stopAnimating()
             videoSurface.isHidden = true
             if usesVOD, let sourceFile {
-                usesVOD = false
-                prepareSurfaceForNewItem()
-                player.stop()
-                startLegacyDownload(file: sourceFile)
+                if currentStreamingStatus == .offline || currentStreamingStatus == .retrying {
+                    vodConfiguration?.startTimestamp = currentPlaybackTime
+                    usesVOD = false
+                    prepareSurfaceForNewItem()
+                    player.stop()
+                    let statusText = currentStreamingStatus == .offline ? "Offline" : "Stream timed out"
+                    showRetryState(statusText: statusText, retryMode: .vod)
+                } else {
+                    startPlaybackTimestamp = currentPlaybackTime
+                    vodConfiguration?.startTimestamp = currentPlaybackTime
+                    usesVOD = false
+                    prepareSurfaceForNewItem()
+                    player.stop()
+                    startLegacyDownload(file: sourceFile)
+                }
             } else if usesLegacyDownload || sourceFile != nil {
                 usesLegacyDownload = false
-                showRetryState()
+                showRetryState(statusText: "Couldn't load video", retryMode: .fullDownload)
             }
         }
         updateControlIcons()
         onPlaybackIntentChanged?()
         updatePictureInPictureEligibility()
+        renderStreamingStatus(currentStreamingStatus)
         switch state {
         case .playing:
             scheduleControlsAutoHideIfNeeded()
@@ -2182,12 +2254,15 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         }
     }
 
-    private func showRetryState() {
+    private func showRetryState(statusText: String, retryMode: RetryMode) {
         currentPlaybackState = .failed
+        self.retryMode = retryMode
+        retryStatusText = statusText
         spinner.stopAnimating()
         videoSurface.isHidden = true
         retryButton.isHidden = false
         updateControlIcons()
+        renderStreamingStatus(currentStreamingStatus)
     }
 
     @objc private func togglePlayback() {
@@ -2376,7 +2451,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     private func scheduleControlsAutoHideIfNeeded() {
         cancelControlsAutoHide()
-        guard controlsAreVisible,
+        guard !hasBlockingStreamingStatus,
+              controlsAreVisible,
               Self.shouldAutoHideControls(
                   state: currentPlaybackState,
                   isSeeking: isSeeking,
@@ -2387,6 +2463,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         else { return }
         let workItem = DispatchWorkItem { [weak self] in
             guard let self,
+                  !hasBlockingStreamingStatus,
                   Self.shouldAutoHideControls(
                       state: currentPlaybackState,
                       isSeeking: isSeeking,
@@ -2423,6 +2500,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             && isPlaybackVisible
             && !isPictureInPictureActive
             && !isVoiceOverRunning
+    }
+
+    private var hasBlockingStreamingStatus: Bool {
+        usesLegacyDownload
+            || retryStatusText != nil
+            || currentStreamingStatus == .failed
+            || currentStreamingStatus == .offline
+            || currentStreamingStatus == .retrying
     }
 
     private func commitSeek(to target: TimeInterval, shouldResume: Bool) {
@@ -2502,6 +2587,44 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         refreshBufferedSliderRanges()
     }
 
+    private func renderStreamingStatus(_ status: TDLibVODResourceLoaderStatus) {
+        let wasBlockingStreamingStatus = hasBlockingStreamingStatus
+        currentStreamingStatus = status
+        let text =
+            if let retryStatusText {
+                retryStatusText
+            } else if usesLegacyDownload {
+                "Downloading…"
+            } else {
+                switch status {
+                case .offline:
+                    "Offline"
+                case .retrying:
+                    "Retrying…"
+                case .failed:
+                    "Couldn't stream"
+                case .loading:
+                    if currentPlaybackState == .buffering || currentPlaybackState == .preparing {
+                        "Buffering…"
+                    } else {
+                        ""
+                    }
+                case .idle, .ready:
+                    currentPlaybackState == .buffering ? "Buffering…" : ""
+                }
+            }
+        networkStatusLabel.text = text
+        networkStatusLabel.accessibilityLabel = text.isEmpty ? nil : "Video status"
+        networkStatusLabel.accessibilityValue = text.isEmpty ? nil : text
+        networkStatusLabel.accessibilityElementsHidden = text.isEmpty
+        if hasBlockingStreamingStatus || currentPlaybackState == .buffering {
+            cancelControlsAutoHide()
+            setControlsVisible(true, animated: true)
+        } else if wasBlockingStreamingStatus {
+            scheduleControlsAutoHideIfNeeded()
+        }
+    }
+
     private func refreshBufferedSliderRanges() {
         guard playbackDuration > 0 else {
             seekSlider.bufferedRanges = []
@@ -2540,9 +2663,27 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     @objc private func retryPlayback() {
         guard let sourceFile else { return }
+        let retryMode = retryMode
+        self.retryMode = nil
+        retryStatusText = nil
         retryButton.isHidden = true
         loadedPath = nil
-        startLegacyDownload(file: sourceFile)
+        switch retryMode {
+        case .vod:
+            guard let vodConfiguration else {
+                startLegacyDownload(file: sourceFile)
+                return
+            }
+            spinner.startAnimating()
+            startVOD(
+                file: sourceFile,
+                mimeType: vodConfiguration.mimeType,
+                fileName: vodConfiguration.fileName,
+                startTimestamp: vodConfiguration.startTimestamp,
+            )
+        case .fullDownload, nil:
+            startLegacyDownload(file: sourceFile)
+        }
     }
 }
 

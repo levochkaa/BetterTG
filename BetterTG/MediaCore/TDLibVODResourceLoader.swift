@@ -5,6 +5,15 @@ import Combine
 import Foundation
 import UniformTypeIdentifiers
 
+enum TDLibVODResourceLoaderStatus: Equatable, Sendable {
+    case failed
+    case idle
+    case loading
+    case offline
+    case ready
+    case retrying
+}
+
 // MARK: - TDLibVODResourceLoaderSession
 
 final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
@@ -37,11 +46,14 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
             label: "bettertg.vod.resource-loader.\(lease.source.fileID)",
             qos: .userInitiated,
         )
+        let statusSubject = CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>(.idle)
         self.resourceURL = resourceURL
+        self.statusSubject = statusSubject
         self.state = TDLibVODResourceLoaderState(
             lease: lease,
             contentType: contentType,
             delegateQueue: delegateQueue,
+            statusSubject: statusSubject,
         )
         self.asset = AVURLAsset(
             url: resourceURL,
@@ -58,6 +70,10 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
     // MARK: Internal
 
     let asset: AVURLAsset
+
+    var statusPublisher: AnyPublisher<TDLibVODResourceLoaderStatus, Never> {
+        statusSubject.removeDuplicates().eraseToAnyPublisher()
+    }
 
     #if DEBUG
         static func runDebugProbeIfRequested() {
@@ -92,6 +108,7 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
 
     private let resourceURL: URL
     private let state: TDLibVODResourceLoaderState
+    private let statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>
 
     private static func contentType(forMIMEType mimeType: String) -> String? {
         switch mimeType.lowercased() {
@@ -125,10 +142,12 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         lease: TDLibVODRangeLease,
         contentType: String,
         delegateQueue: DispatchQueue,
+        statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>,
     ) {
         self.lease = lease
         self.contentType = contentType
         self.delegateQueue = delegateQueue
+        self.statusSubject = statusSubject
     }
 
     deinit {
@@ -173,6 +192,7 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         let currentOperations = Array(operations.values)
         operations.removeAll()
         lock.unlock()
+        publish(.idle, force: true)
 
         let cancellationError = URLError(.cancelled)
         for operation in currentOperations {
@@ -247,6 +267,8 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
     private let delegateQueue: DispatchQueue
     private let gate = TDLibVODResourceReadGate()
     private let lock = NSLock()
+    private let statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>
+    private var currentStatus = TDLibVODResourceLoaderStatus.idle
     private var invalidated = false
     private var leaseReleaseTask: Task<Void, Never>?
     private var operations = [ObjectIdentifier: LoadingOperation]()
@@ -257,13 +279,23 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         return !invalidated && operations[operation.identifier] === operation
     }
 
-    private func takeActive(_ operation: LoadingOperation) -> Bool {
+    private func takeActive(
+        _ operation: LoadingOperation,
+        terminalStatus: TDLibVODResourceLoaderStatus?,
+    ) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard operations[operation.identifier] === operation else { return false }
         operations[operation.identifier] = nil
         operation.finish()
-        return !invalidated
+        guard !invalidated,
+              !operation.request.isCancelled,
+              !operation.request.isFinished
+        else { return false }
+        if let terminalStatus {
+            publishLocked(terminalStatus, force: false)
+        }
+        return true
     }
 
     private func fulfill(_ operation: LoadingOperation) async {
@@ -278,9 +310,13 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         } catch is CancellationError {
             complete(operation, error: URLError(.cancelled))
         } catch let error as TDLibVODRangeError {
-            complete(operation, error: resourceError(for: error))
+            complete(
+                operation,
+                error: resourceError(for: error),
+                terminalStatus: status(for: error),
+            )
         } catch {
-            complete(operation, error: error)
+            complete(operation, error: error, terminalStatus: .failed)
         }
     }
 
@@ -315,7 +351,7 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
                     TDLibVODRangeSource.maximumReadSize,
                     upperBound - offset,
                 ))
-                let chunk = try await read(offset: offset, count: count)
+                let chunk = try await read(offset: offset, count: count, operation: operation)
                 guard !chunk.data.isEmpty else { throw ResourceError.shortRead }
                 guard await publish(
                     data: chunk.data,
@@ -339,10 +375,19 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         }
     }
 
-    private func read(offset: Int64, count: Int) async throws -> TDLibVODChunk {
+    private func read(
+        offset: Int64,
+        count: Int,
+        operation: LoadingOperation,
+    ) async throws -> TDLibVODChunk {
+        guard isActive(operation) else { throw CancellationError() }
+        publish(.loading, operation: operation)
         while true {
             do {
-                return try await lease.source.serializedRead(offset: offset, count: count)
+                let chunk = try await lease.source.serializedRead(offset: offset, count: count)
+                guard isActive(operation) else { throw CancellationError() }
+                publish(.ready, operation: operation)
+                return chunk
             } catch TDLibVODRangeError.staleRequest {
                 try Task.checkCancellation()
                 try await Task<Never, Never>.sleep(for: .milliseconds(10))
@@ -403,10 +448,13 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         }
     }
 
-    private func complete(_ operation: LoadingOperation, error: Swift.Error?) {
+    private func complete(
+        _ operation: LoadingOperation,
+        error: Swift.Error?,
+        terminalStatus: TDLibVODResourceLoaderStatus? = nil,
+    ) {
         delegateQueue.async { [weak self] in
-            guard let self, takeActive(operation) else { return }
-            guard !operation.request.isCancelled, !operation.request.isFinished else { return }
+            guard let self, takeActive(operation, terminalStatus: terminalStatus) else { return }
             if let error {
                 operation.request.finishLoading(with: error)
             } else {
@@ -427,6 +475,56 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
             ResourceError.invalidRange
         case .missingLocalPath, .readFailed, .unknownSize:
             ResourceError.unreadable
+        }
+    }
+
+    private func status(for error: TDLibVODRangeError) -> TDLibVODResourceLoaderStatus? {
+        switch error {
+        case .cancelled, .staleRequest:
+            nil
+        case .offline:
+            .offline
+        case .timedOut:
+            .retrying
+        case .invalidRange, .missingLocalPath, .readFailed, .unknownSize:
+            .failed
+        }
+    }
+
+    private func publish(
+        _ status: TDLibVODResourceLoaderStatus,
+        operation: LoadingOperation? = nil,
+        force: Bool = false,
+    ) {
+        lock.lock()
+        guard force || operation.map({ operations[$0.identifier] === $0 }) == true else {
+            lock.unlock()
+            return
+        }
+        publishLocked(status, force: force)
+        lock.unlock()
+    }
+
+    private func publishLocked(
+        _ status: TDLibVODResourceLoaderStatus,
+        force: Bool,
+    ) {
+        let currentIsBlocking = Self.statusPriority(currentStatus) >= Self.statusPriority(.failed)
+        let shouldPublish = force
+            || !currentIsBlocking
+            || Self.statusPriority(status) > Self.statusPriority(currentStatus)
+        if shouldPublish {
+            currentStatus = status
+            statusSubject.send(status)
+        }
+    }
+
+    private static func statusPriority(_ status: TDLibVODResourceLoaderStatus) -> Int {
+        switch status {
+        case .idle, .loading, .ready: 0
+        case .failed: 1
+        case .retrying: 2
+        case .offline: 3
         }
     }
 }
@@ -721,6 +819,73 @@ private actor TDLibVODResourceReadGate {
                 stage = "playback cleanup"
                 try await waitUntil { await playbackBackend.completedCancelCount == 1 }
 
+                stage = "offline status and retry"
+                let offlineNetwork = TDLibVODProbeNetwork(available: false)
+                let offlineBackend = TDLibVODProbeBackend(
+                    fileURL: url,
+                    fileSize: size,
+                    network: offlineNetwork,
+                )
+                await offlineBackend.setAutoFulfill(true)
+                let offlineCoordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-resource-loader-offline",
+                    client: offlineBackend.client,
+                    requestTimeout: .seconds(2),
+                )
+                let offlineLease = await offlineCoordinator.acquire(
+                    file: offlineBackend.file(expectedSize: size),
+                )
+                guard let offlineSession = TDLibVODResourceLoaderSession(
+                    lease: offlineLease,
+                    mimeType: "video/mp4",
+                    fileName: "offline.mp4",
+                ) else { throw TDLibVODResourceLoaderProbeError.asset }
+                let offlineRecorder = TDLibVODStatusProbeRecorder()
+                let offlineStatusCancellable = offlineSession.statusPublisher.sink { status in
+                    Task { await offlineRecorder.update(status) }
+                }
+                var offlineLoadFailed = false
+                do {
+                    _ = try await offlineSession.asset.load(.duration)
+                } catch {
+                    offlineLoadFailed = true
+                }
+                guard offlineLoadFailed else {
+                    throw TDLibVODResourceLoaderProbeError.detail("offline load unexpectedly succeeded")
+                }
+                try await waitUntil { await offlineRecorder.sawOffline }
+                offlineSession.invalidate()
+                offlineStatusCancellable.cancel()
+
+                offlineNetwork.available = true
+                let retryCoordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-resource-loader-offline-retry",
+                    client: offlineBackend.client,
+                    requestTimeout: .seconds(2),
+                )
+                let retryLease = await retryCoordinator.acquire(
+                    file: offlineBackend.file(expectedSize: size),
+                )
+                guard let retrySession = TDLibVODResourceLoaderSession(
+                    lease: retryLease,
+                    mimeType: "video/mp4",
+                    fileName: "offline-retry.mp4",
+                ) else { throw TDLibVODResourceLoaderProbeError.asset }
+                let retryRecorder = TDLibVODStatusProbeRecorder()
+                let retryStatusCancellable = retrySession.statusPublisher.sink { status in
+                    Task { await retryRecorder.update(status) }
+                }
+                let retryDuration = try await retrySession.asset.load(.duration)
+                try await waitUntil { await retryRecorder.sawReady }
+                let retryDownloadCalls = await offlineBackend.downloadCalls
+                guard retryDuration.seconds >= 17.5,
+                      retryDownloadCalls.allSatisfy({ !$0.isFullDownload })
+                else {
+                    throw TDLibVODResourceLoaderProbeError.detail("offline retry used full download")
+                }
+                retrySession.invalidate()
+                retryStatusCancellable.cancel()
+
                 stage = "blocked cancellation"
                 let blockedBackend = TDLibVODProbeBackend(
                     fileURL: url,
@@ -757,7 +922,7 @@ private actor TDLibVODResourceReadGate {
                     + "requests=\(playbackDownloadCalls.count), progressive-before-complete=true, "
                     + "native-playing-before-complete, controls=pause/seek/rate/mute/resume/"
                     + "external-rate+replay-race+paused-exit, buffered-segments=true, "
-                    + "finite-priority/queued-cancel/no-full-download=true"
+                    + "offline-status/retry=true, finite-priority/queued-cancel/no-full-download=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {
@@ -835,6 +1000,16 @@ private actor TDLibVODResourceReadGate {
         private var duration = TimeInterval.zero
         private var expectedTime = TimeInterval.greatestFiniteMagnitude
         private var states = [String]()
+    }
+
+    private actor TDLibVODStatusProbeRecorder {
+        private(set) var sawOffline = false
+        private(set) var sawReady = false
+
+        func update(_ status: TDLibVODResourceLoaderStatus) {
+            sawOffline = sawOffline || status == .offline
+            sawReady = sawReady || status == .ready
+        }
     }
 
     @MainActor private final class TDLibVODNativePlaybackProbe {

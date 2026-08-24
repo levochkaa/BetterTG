@@ -77,6 +77,10 @@ final class LocalMediaPlayer {
         bufferedRangesSubject.removeDuplicates().eraseToAnyPublisher()
     }
 
+    var streamingStatusPublisher: AnyPublisher<TDLibVODResourceLoaderStatus, Never> {
+        streamingStatusSubject.removeDuplicates().eraseToAnyPublisher()
+    }
+
     var loopPublisher: AnyPublisher<Void, Never> {
         loopSubject.eraseToAnyPublisher()
     }
@@ -172,6 +176,9 @@ final class LocalMediaPlayer {
         usesExplicitVODBuffering = true
         player.automaticallyWaitsToMinimizeStalling = false
         self.vodSession = vodSession
+        vodStatusCancellable = vodSession.statusPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in self?.streamingStatusSubject.send(status) }
         if initialTime.isFinite, initialTime > 0 {
             pendingSeek = (initialTime, 0, false, nil)
             timeSubject.send(initialTime)
@@ -327,6 +334,8 @@ final class LocalMediaPlayer {
         compositionLease = nil
         vodSession?.invalidate()
         vodSession = nil
+        vodStatusCancellable?.cancel()
+        vodStatusCancellable = nil
         usesExplicitVODBuffering = false
         isExternalPlaybackControlActive = false
         playbackRate = 1
@@ -336,6 +345,7 @@ final class LocalMediaPlayer {
         timeSubject.send(0)
         durationSubject.send(0)
         bufferedRangesSubject.send([])
+        streamingStatusSubject.send(.idle)
         stateSubject.send(.idle)
     }
 
@@ -412,6 +422,7 @@ final class LocalMediaPlayer {
     private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private let bufferedRangesSubject = CurrentValueSubject<[BufferedRange], Never>([])
+    private let streamingStatusSubject = CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>(.idle)
     private let loopSubject = PassthroughSubject<Void, Never>()
     private var shouldAutoplay = false
     private var shouldLoop = false
@@ -422,6 +433,7 @@ final class LocalMediaPlayer {
     private var currentRequestIdentifier: UUID?
     private var compositionLease: VideoNoteCompositionResult?
     private var vodSession: TDLibVODResourceLoaderSession?
+    private var vodStatusCancellable: AnyCancellable?
     private var usesExplicitVODBuffering = false
     private var isExternalPlaybackControlActive = false
     private var isRestartingAfterExternalEnd = false
@@ -588,6 +600,8 @@ final class LocalMediaPlayer {
         compositionLease = nil
         vodSession?.invalidate()
         vodSession = nil
+        vodStatusCancellable?.cancel()
+        vodStatusCancellable = nil
         usesExplicitVODBuffering = false
         isExternalPlaybackControlActive = false
         player.defaultRate = playbackRate
@@ -601,6 +615,7 @@ final class LocalMediaPlayer {
         timeSubject.send(self.playbackRange?.lowerBound ?? 0)
         durationSubject.send(0)
         bufferedRangesSubject.send([])
+        streamingStatusSubject.send(.idle)
         stateSubject.send(.preparing)
     }
 
