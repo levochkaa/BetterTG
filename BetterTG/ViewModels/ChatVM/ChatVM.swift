@@ -782,6 +782,7 @@ import UIKit
 
     func submitVideoNote(
         _ asset: VideoNoteAsset,
+        thumbnail: VideoNoteInputThumbnailAsset? = nil,
         originRecordingDraftID: UUID? = nil,
         replyingTo reply: CustomMessage?,
         storedReplyMessageID: Int64? = nil,
@@ -793,6 +794,7 @@ import UIKit
         do {
             let preparation = try await VideoNoteFileStore.shared.adoptAndPrepareEnqueue(
                 asset,
+                thumbnail: thumbnail,
                 chatID: chatID,
                 originRecordingDraftID: originRecordingDraftID,
                 replyMessageID: reply?.id ?? storedReplyMessageID,
@@ -1122,10 +1124,11 @@ import UIKit
     }
 
     private func sendMessageVideoNote(_ draft: VideoNoteSendDraft) async throws -> Message {
+        let thumbnail = await VideoNoteFileStore.shared.inputThumbnail(for: draft)
         let inputVideoNote = InputVideoNote(
             duration: min(60, max(1, Int(draft.duration))),
             length: min(640, max(1, draft.length)),
-            thumbnail: nil,
+            thumbnail: thumbnail,
             videoNote: .inputFileLocal(.init(path: draft.fileURL.path(percentEncoded: false))),
         )
         return try await td.sendMessage(

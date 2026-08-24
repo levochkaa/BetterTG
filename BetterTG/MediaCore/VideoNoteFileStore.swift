@@ -1,7 +1,10 @@
 // VideoNoteFileStore.swift
 
+import CoreGraphics
 import Foundation
+import ImageIO
 import TDLibKit
+import UniformTypeIdentifiers
 
 struct VideoNoteFailedSendState: Codable {
     let canRetry: Bool
@@ -20,6 +23,12 @@ struct VideoNoteFailedSendState: Codable {
     }
 }
 
+struct VideoNoteInputThumbnailAsset: Sendable {
+    let height: Int
+    let url: URL
+    let width: Int
+}
+
 struct VideoNoteSendDraft: Codable {
     let id: UUID
     let chatID: Int64
@@ -33,11 +42,15 @@ struct VideoNoteSendDraft: Codable {
     var removalRequestedAt: Foundation.Date?
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    let thumbnailFileURL: URL?
+    let thumbnailHeight: Int?
+    let thumbnailWidth: Int?
     var temporaryMessageID: Int64?
 
     var asset: VideoNoteAsset {
         VideoNoteAsset(duration: duration, length: length, url: fileURL)
     }
+
 }
 
 enum VideoNoteSendOutcome: String, Codable, Equatable {
@@ -73,6 +86,7 @@ private enum VideoNoteFileStoreError: Swift.Error {
     case draftBeingRemoved
     case enqueueAlreadyActive
     case managedFileMissing(String)
+    case invalidThumbnail
     case removalPersistenceFailed
     case unmanagedFile(String, root: String)
 }
@@ -89,12 +103,19 @@ actor VideoNoteFileStore {
 
     func adopt(
         _ asset: VideoNoteAsset,
+        thumbnail: VideoNoteInputThumbnailAsset? = nil,
         chatID: Int64,
         originRecordingDraftID: UUID? = nil,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
     ) throws -> VideoNoteSendDraft {
         try ensureDirectory()
+        if let thumbnail {
+            guard let dimensions = Self.validatedThumbnailDimensions(at: thumbnail.url),
+                  dimensions.width == thumbnail.width,
+                  dimensions.height == thumbnail.height
+            else { throw VideoNoteFileStoreError.invalidThumbnail }
+        }
         let allManifests = try loadAllManifests()
         if allManifests.contains(where: {
             (removingDraftIDs.contains($0.id) || $0.removalRequestedAt != nil)
@@ -125,18 +146,36 @@ actor VideoNoteFileStore {
             {
                 try? fileManager.removeItem(at: asset.url)
             }
+            discardUnmanagedThumbnailInput(thumbnail)
             return existing
         }
         if let existing = drafts.first(where: {
             $0.chatID == chatID && $0.fileURL.standardizedFileURL == asset.url.standardizedFileURL
         }) {
+            discardUnmanagedThumbnailInput(thumbnail)
             return existing
         }
         let id = UUID()
         let destination = directoryURL.appendingPathComponent(id.uuidString).appendingPathExtension("mp4")
+        let thumbnailDestination = thumbnail.map { _ in
+            directoryURL.appendingPathComponent("\(id.uuidString)-thumbnail").appendingPathExtension("jpg")
+        }
         try? fileManager.removeItem(at: destination)
         try fileManager.copyItem(at: asset.url, to: destination)
         applyFileProtection(to: destination)
+        do {
+            if let thumbnail, let thumbnailDestination {
+                try? fileManager.removeItem(at: thumbnailDestination)
+                try fileManager.copyItem(at: thumbnail.url, to: thumbnailDestination)
+                applyFileProtection(to: thumbnailDestination)
+            }
+        } catch {
+            try? fileManager.removeItem(at: destination)
+            if let thumbnailDestination {
+                try? fileManager.removeItem(at: thumbnailDestination)
+            }
+            throw error
+        }
         let draft = VideoNoteSendDraft(
             id: id,
             chatID: chatID,
@@ -150,15 +189,22 @@ actor VideoNoteFileStore {
             removalRequestedAt: nil,
             replyMessageID: replyMessageID,
             replyTo: replyTo,
+            thumbnailFileURL: thumbnailDestination,
+            thumbnailHeight: thumbnail?.height,
+            thumbnailWidth: thumbnail?.width,
             temporaryMessageID: nil,
         )
         do {
             try save(draft)
         } catch {
             try? fileManager.removeItem(at: destination)
+            if let thumbnailDestination {
+                try? fileManager.removeItem(at: thumbnailDestination)
+            }
             throw error
         }
         try? fileManager.removeItem(at: asset.url)
+        discardUnmanagedThumbnailInput(thumbnail)
         return draft
     }
 
@@ -183,6 +229,7 @@ actor VideoNoteFileStore {
 
     func adoptAndPrepareEnqueue(
         _ asset: VideoNoteAsset,
+        thumbnail: VideoNoteInputThumbnailAsset? = nil,
         chatID: Int64,
         originRecordingDraftID: UUID?,
         replyMessageID: Int64?,
@@ -190,6 +237,7 @@ actor VideoNoteFileStore {
     ) throws -> VideoNoteEnqueuePreparation {
         let draft = try adopt(
             asset,
+            thumbnail: thumbnail,
             chatID: chatID,
             originRecordingDraftID: originRecordingDraftID,
             replyMessageID: replyMessageID,
@@ -274,7 +322,10 @@ actor VideoNoteFileStore {
         do {
             try ensureDirectory()
             let drafts = try await reconcileInterruptedDrafts()
-            removeAbandonedFiles(referencedBy: Set(drafts.map(\.fileURL)))
+            let manifests = try loadAllManifests()
+            removeAbandonedFiles(referencedBy: Set(manifests.flatMap {
+                [$0.fileURL] + [$0.thumbnailFileURL].compactMap { $0 }
+            }))
             return drafts.filter { $0.chatID == chatID }.sorted { $0.createdAt < $1.createdAt }
         } catch {
             log("Video note draft load failed: \(error)")
@@ -284,6 +335,21 @@ actor VideoNoteFileStore {
 
     func recordingDraftOrigins() throws -> Set<UUID> {
         Set(try loadAllManifests().compactMap(\.originRecordingDraftID))
+    }
+
+    func inputThumbnail(for draft: VideoNoteSendDraft) -> InputThumbnail? {
+        guard let thumbnailFileURL = draft.thumbnailFileURL,
+              let expectedHeight = draft.thumbnailHeight,
+              let expectedWidth = draft.thumbnailWidth,
+              let dimensions = Self.validatedThumbnailDimensions(at: thumbnailFileURL),
+              dimensions.height == expectedHeight,
+              dimensions.width == expectedWidth
+        else { return nil }
+        return InputThumbnail(
+            height: dimensions.height,
+            thumbnail: .inputFileLocal(.init(path: thumbnailFileURL.path(percentEncoded: false))),
+            width: dimensions.width,
+        )
     }
 
     func reconcileRemovalTombstones() async throws -> Bool {
@@ -449,6 +515,9 @@ actor VideoNoteFileStore {
             return false
         }
         try? fileManager.removeItem(at: draft.fileURL)
+        if let thumbnailFileURL = draft.thumbnailFileURL {
+            try? fileManager.removeItem(at: thumbnailFileURL)
+        }
         removeOutcomes(draftID: draft.id)
         return true
     }
@@ -509,6 +578,11 @@ actor VideoNoteFileStore {
         url.standardizedFileURL.path.hasPrefix(directoryURL.standardizedFileURL.path + "/")
     }
 
+    private func discardUnmanagedThumbnailInput(_ thumbnail: VideoNoteInputThumbnailAsset?) {
+        guard let thumbnail, !isManagedFile(thumbnail.url) else { return }
+        try? fileManager.removeItem(at: thumbnail.url)
+    }
+
     private func manifestURL(for id: UUID) -> URL {
         directoryURL.appendingPathComponent(id.uuidString).appendingPathExtension("json")
     }
@@ -532,7 +606,9 @@ actor VideoNoteFileStore {
     }
 
     private func saveManifest(_ draft: VideoNoteSendDraft) throws {
-        guard isManagedFile(draft.fileURL) else {
+        guard isManagedFile(draft.fileURL),
+              draft.thumbnailFileURL.map(isManagedFile) ?? true
+        else {
             throw VideoNoteFileStoreError.unmanagedFile(
                 draft.fileURL.standardizedFileURL.path(percentEncoded: false),
                 root: directoryURL.standardizedFileURL.path(percentEncoded: false),
@@ -554,7 +630,8 @@ actor VideoNoteFileStore {
                   UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil,
                   let data = try? Data(contentsOf: url),
                   let draft = try? JSONDecoder().decode(VideoNoteSendDraft.self, from: data),
-                  isManagedFile(draft.fileURL)
+                  isManagedFile(draft.fileURL),
+                  draft.thumbnailFileURL.map(isManagedFile) ?? true
             else { return nil }
             return draft
         }
@@ -664,12 +741,36 @@ actor VideoNoteFileStore {
             options: [.skipsHiddenFiles],
         ) else { return }
         let cutoff = Foundation.Date().addingTimeInterval(-24 * 60 * 60)
-        for file in files where file.pathExtension == "mp4" && !referencedURLs.contains(file) {
+        for file in files where ["jpg", "mp4"].contains(file.pathExtension) && !referencedURLs.contains(file) {
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             if modified.map({ $0 < cutoff }) ?? true {
                 try? fileManager.removeItem(at: file)
             }
         }
+    }
+
+    private static func validatedThumbnailDimensions(
+        at url: URL,
+    ) -> (height: Int, width: Int)? {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              values.fileSize.map({ $0 > 0 && $0 < 200_000 }) == true,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetType(source) == UTType.jpeg.identifier as CFString,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              width > 0,
+              height > 0,
+              width <= 320,
+              height <= 320,
+              let image = CGImageSourceCreateImageAtIndex(source, 0, [
+                  kCGImageSourceShouldCache: true,
+                  kCGImageSourceShouldCacheImmediately: true,
+              ] as CFDictionary),
+              image.width == width,
+              image.height == height
+        else { return nil }
+        return (height, width)
     }
 
     #if DEBUG
@@ -707,29 +808,68 @@ actor VideoNoteFileStore {
                 let legacyObject = try JSONSerialization.jsonObject(with: encodedLegacyDraft)
                 guard let legacyDictionary = legacyObject as? [String: Any],
                       legacyDictionary["originRecordingDraftID"] == nil,
-                      legacyDictionary["removalRequestedAt"] == nil
+                      legacyDictionary["removalRequestedAt"] == nil,
+                      legacyDictionary["thumbnailFileURL"] == nil
                 else { throw CocoaError(.coderInvalidValue) }
                 let legacyDraft = try JSONDecoder().decode(
                     VideoNoteSendDraft.self,
                     from: encodedLegacyDraft,
                 )
                 guard legacyDraft.originRecordingDraftID == nil,
-                      legacyDraft.removalRequestedAt == nil
+                      legacyDraft.removalRequestedAt == nil,
+                      legacyDraft.thumbnailFileURL == nil
                 else {
                     throw CocoaError(.coderInvalidValue)
                 }
 
                 let failureSource = fileManager.temporaryDirectory
                     .appendingPathComponent("video-note-draft-failure-\(UUID().uuidString).mp4")
+                let failureThumbnailSource = fileManager.temporaryDirectory
+                    .appendingPathComponent("video-note-draft-failure-thumbnail-\(UUID().uuidString).jpg")
+                let corruptThumbnailSource = fileManager.temporaryDirectory
+                    .appendingPathComponent("video-note-draft-corrupt-thumbnail-\(UUID().uuidString).jpg")
                 try Data([4, 5, 6, 7]).write(to: failureSource, options: .atomic)
+                try Self.writeDebugThumbnail(to: failureThumbnailSource)
+                try Data([0xff, 0xd8, 0xff, 0xd9]).write(to: corruptThumbnailSource, options: .atomic)
+                stage = "corrupt thumbnail rejection"
+                var rejectedCorruptThumbnail = false
+                do {
+                    _ = try adopt(
+                        VideoNoteAsset(duration: 2, length: 400, url: failureSource),
+                        thumbnail: VideoNoteInputThumbnailAsset(
+                            height: 40,
+                            url: corruptThumbnailSource,
+                            width: 40,
+                        ),
+                        chatID: chatID,
+                        replyMessageID: 42,
+                        replyTo: nil,
+                    )
+                } catch VideoNoteFileStoreError.invalidThumbnail {
+                    rejectedCorruptThumbnail = true
+                }
+                guard rejectedCorruptThumbnail,
+                      fileManager.fileExists(atPath: failureSource.path(percentEncoded: false)),
+                      fileManager.fileExists(atPath: corruptThumbnailSource.path(percentEncoded: false))
+                else { throw CocoaError(.fileWriteUnknown) }
+                try? fileManager.removeItem(at: corruptThumbnailSource)
                 stage = "failure adopt"
                 var failureDraft = try adopt(
                     VideoNoteAsset(duration: 2, length: 400, url: failureSource),
+                    thumbnail: VideoNoteInputThumbnailAsset(
+                        height: 40,
+                        url: failureThumbnailSource,
+                        width: 40,
+                    ),
                     chatID: chatID,
                     replyMessageID: 42,
                     replyTo: nil,
                 )
                 draftsToRemove.append(failureDraft)
+                guard let managedFailureThumbnail = failureDraft.thumbnailFileURL,
+                      inputThumbnail(for: failureDraft) != nil,
+                      !fileManager.fileExists(atPath: failureThumbnailSource.path(percentEncoded: false))
+                else { throw CocoaError(.fileWriteUnknown) }
                 stage = "failure begin"
                 failureDraft = try beginEnqueue(failureDraft)
                 let failedState = VideoNoteFailedSendState(
@@ -757,6 +897,9 @@ actor VideoNoteFileStore {
                       await drafts(for: chatID).contains(where: { $0.id == failureDraft.id })
                 else { throw CocoaError(.fileWriteUnknown) }
                 await remove(failureRegistration.draft)
+                guard !fileManager.fileExists(atPath: managedFailureThumbnail.path(percentEncoded: false)) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
 
                 let relaunchSource = fileManager.temporaryDirectory
                     .appendingPathComponent("video-note-draft-relaunch-\(UUID().uuidString).mp4")
@@ -811,7 +954,7 @@ actor VideoNoteFileStore {
 
                 let proof = "Video note draft probe: outcome-before-register success/failure, "
                     + "atomic adopt+begin, legacy-origin decode, "
-                    + "relaunch reconciliation/removal-tombstone, cleanup=true"
+                    + "durable thumbnail, relaunch reconciliation/removal-tombstone, cleanup=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {
@@ -829,6 +972,34 @@ actor VideoNoteFileStore {
                 to: documentsURL.appendingPathComponent("video-note-draft-probe.txt"),
                 options: .atomic,
             )
+        }
+
+        private static func writeDebugThumbnail(to url: URL) throws {
+            guard let context = CGContext(
+                data: nil,
+                width: 40,
+                height: 40,
+                bitsPerComponent: 8,
+                bytesPerRow: 40 * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+            ) else { throw CocoaError(.fileWriteUnknown) }
+            context.setFillColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+            guard let image = context.makeImage(),
+                  let destination = CGImageDestinationCreateWithURL(
+                      url as CFURL,
+                      UTType.jpeg.identifier as CFString,
+                      1,
+                      nil,
+                  )
+            else { throw CocoaError(.fileWriteUnknown) }
+            CGImageDestinationAddImage(destination, image, [
+                kCGImageDestinationLossyCompressionQuality: 0.4,
+            ] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
         }
     #endif
 }

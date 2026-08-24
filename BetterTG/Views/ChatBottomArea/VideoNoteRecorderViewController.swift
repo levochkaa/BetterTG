@@ -91,7 +91,13 @@ enum VideoNoteSubmissionResult: Sendable {
     var onPreviewData: ((VideoNoteRecordingDraft, [VideoNoteThumbnailSample]) -> Void)?
     var onThumbnailData: (([VideoNoteThumbnailSample], [UUID]) -> Void)?
     var onStateChange: ((VideoNoteComposerState) -> Void)?
-    var onSubmit: ((VideoNoteAsset, UUID?, Int64?, InputMessageReplyTo?) async -> VideoNoteSubmissionResult)?
+    var onSubmit: ((
+        VideoNoteAsset,
+        VideoNoteInputThumbnailAsset?,
+        UUID?,
+        Int64?,
+        InputMessageReplyTo?
+    ) async -> VideoNoteSubmissionResult)?
 
     private(set) var state = VideoNoteComposerState.idle {
         didSet {
@@ -948,6 +954,7 @@ enum VideoNoteSubmissionResult: Sendable {
             guard let self else { return }
             defer { operationTask = nil }
             let asset: VideoNoteAsset
+            var thumbnail: VideoNoteInputThumbnailAsset?
             let originRecordingDraftID: UUID?
             if let draft {
                 let outputURL = FileManager.default.temporaryDirectory
@@ -957,10 +964,15 @@ enum VideoNoteSubmissionResult: Sendable {
                         draft,
                         outputURL: outputURL,
                     )
+                    thumbnail = try await makeOutgoingThumbnail(for: asset.url)
                     try Task.checkCancellation()
                     guard operationGeneration == generation else { throw CancellationError() }
                 } catch {
                     try? FileManager.default.removeItem(at: outputURL)
+                    if let thumbnail {
+                        try? FileManager.default.removeItem(at: thumbnail.url)
+                    }
+                    thumbnail = nil
                     guard operationGeneration == generation else { return }
                     if dismissAfterSubmission || exitDisposition == .discard {
                         thumbnailTask?.cancel()
@@ -991,6 +1003,7 @@ enum VideoNoteSubmissionResult: Sendable {
             }
             let result = await onSubmit(
                 asset,
+                thumbnail,
                 originRecordingDraftID,
                 replyMessageID,
                 replyTo,
@@ -1001,6 +1014,9 @@ enum VideoNoteSubmissionResult: Sendable {
                    draft != nil
                 {
                     try? FileManager.default.removeItem(at: staleAsset.url)
+                    if let thumbnail {
+                        try? FileManager.default.removeItem(at: thumbnail.url)
+                    }
                 }
                 return
             }
@@ -1019,6 +1035,9 @@ enum VideoNoteSubmissionResult: Sendable {
             case let .retained(asset, originConsumed, message):
                 if !originConsumed, let draft {
                     try? FileManager.default.removeItem(at: asset.url)
+                    if let thumbnail {
+                        try? FileManager.default.removeItem(at: thumbnail.url)
+                    }
                     if dismissAfterSubmission {
                         thumbnailTask?.cancel()
                         thumbnailTask = nil
@@ -1070,6 +1089,36 @@ enum VideoNoteSubmissionResult: Sendable {
                 state = .preview(duration: asset.duration, isPlaying: true, canRecordMore: false)
                 onError?(message)
             }
+        }
+    }
+
+    private func makeOutgoingThumbnail(
+        for videoURL: URL,
+    ) async throws -> VideoNoteInputThumbnailAsset? {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("video-note-thumbnail-\(UUID().uuidString).jpg")
+        do {
+            let sample = try await VideoNoteSegmentComposer.thumbnail(
+                for: AVURLAsset(url: videoURL),
+                at: 0,
+            )
+            let data = sample.jpegData
+            try await Task.detached(priority: .utility) {
+                try data.write(to: outputURL, options: .atomic)
+            }.value
+            try Task.checkCancellation()
+            return VideoNoteInputThumbnailAsset(
+                height: sample.height,
+                url: outputURL,
+                width: sample.width,
+            )
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw CancellationError()
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            log("Video-note outgoing thumbnail fallback: \(error)")
+            return nil
         }
     }
 

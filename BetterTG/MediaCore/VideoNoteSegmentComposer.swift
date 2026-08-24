@@ -29,8 +29,10 @@ final class VideoNoteCompositionResult: @unchecked Sendable {
 }
 
 struct VideoNoteThumbnailSample: Sendable {
+    let height: Int
     let jpegData: Data
     let time: Double
+    let width: Int
 }
 
 struct VideoNoteRecordingPreview: Sendable {
@@ -164,11 +166,18 @@ enum VideoNoteSegmentComposer {
                 let image = try await generator.image(
                     at: CMTime(seconds: time, preferredTimescale: 600),
                 ).image
+                let width = image.width
+                let height = image.height
                 let jpegData = try await Task.detached(priority: .utility) {
                     try encodeJPEG(SendableCGImage(image), quality: 0.72)
                 }.value
                 try Task.checkCancellation()
-                let sample = VideoNoteThumbnailSample(jpegData: jpegData, time: time)
+                let sample = VideoNoteThumbnailSample(
+                    height: height,
+                    jpegData: jpegData,
+                    time: time,
+                    width: width,
+                )
                 samples.append(sample)
                 if index == 0 {
                     onFirst?(sample)
@@ -176,6 +185,40 @@ enum VideoNoteSegmentComposer {
             }
             try Task.checkCancellation()
             return samples
+        } onCancel: {
+            generator.cancelAllCGImageGeneration()
+        }
+    }
+
+    static func thumbnail(
+        for asset: AVAsset,
+        at time: Double,
+        maximumPixelSize: Int = 320,
+        quality: Double = 0.4,
+    ) async throws -> VideoNoteThumbnailSample {
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: maximumPixelSize, height: maximumPixelSize)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            let image = try await generator.image(
+                at: CMTime(seconds: max(0, time), preferredTimescale: 600),
+            ).image
+            let width = image.width
+            let height = image.height
+            let jpegData = try await Task.detached(priority: .utility) {
+                try encodeJPEG(SendableCGImage(image), quality: quality)
+            }.value
+            try Task.checkCancellation()
+            guard !jpegData.isEmpty, jpegData.count < 200_000 else {
+                throw VideoNoteSegmentComposerError.invalidSegment
+            }
+            return VideoNoteThumbnailSample(
+                height: height,
+                jpegData: jpegData,
+                time: max(0, time),
+                width: width,
+            )
         } onCancel: {
             generator.cancelAllCGImageGeneration()
         }

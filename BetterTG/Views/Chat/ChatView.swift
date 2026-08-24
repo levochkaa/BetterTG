@@ -487,7 +487,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 await VideoNoteFileStore.shared.discardAsset(at: asset.url)
             }
         }
-        recorder.onSubmit = { [weak chatVM] asset, originRecordingDraftID, storedReplyMessageID, storedReplyTo in
+        recorder.onSubmit = {
+            [weak chatVM] asset,
+            thumbnail,
+            originRecordingDraftID,
+            storedReplyMessageID,
+            storedReplyTo in
             guard let chatVM else {
                 return .retained(
                     asset,
@@ -497,6 +502,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             return await chatVM.submitVideoNote(
                 asset,
+                thumbnail: thumbnail,
                 originRecordingDraftID: originRecordingDraftID,
                 replyingTo: replySnapshot,
                 storedReplyMessageID: storedReplyMessageID,
