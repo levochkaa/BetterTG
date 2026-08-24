@@ -88,9 +88,10 @@ import UIKit
     
     // MARK: Internal
 
-    struct PreparedMessageWindow {
-        let messages: [CustomMessage]
-        let displayedMessageID: Int64
+    enum VoiceRecordingInteractionState: Equatable {
+        case holding
+        case idle
+        case locked
     }
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
@@ -107,6 +108,7 @@ import UIKit
     @Published var text: AttributedString = ""
     @Published var editMessageText: AttributedString = ""
     @Published var recordingVoiceNote = false
+    @Published private(set) var voiceRecordingInteractionState = VoiceRecordingInteractionState.idle
     @Published private(set) var startingVoiceNote = false
     @Published private(set) var loadingVoiceDraft = true
     @Published private(set) var finalizingVoiceNote = false
@@ -708,13 +710,13 @@ import UIKit
         )
     }
     
-    @MainActor func mediaStartRecordingVoice() async {
+    @MainActor func mediaStartRecordingVoice() async -> Bool {
         guard !loadingVoiceDraft,
               !startingVoiceNote,
               !recordingVoiceNote,
               !finalizingVoiceNote,
               pendingVoiceNote == nil
-        else { return }
+        else { return false }
         startingVoiceNote = true
         defer { startingVoiceNote = false }
         wave.removeAll(keepingCapacity: true)
@@ -727,11 +729,11 @@ import UIKit
             log("Access to Microphone for Voice messages is not granted")
             errorShown = true
             await promoteNextPendingVoiceDraft()
-            return
+            return false
         }
         guard pendingVoiceNote == nil, !recordingVoiceNote, !finalizingVoiceNote else {
             await promoteNextPendingVoiceDraft()
-            return
+            return false
         }
         Media.shared.setAudioSessionRecord()
         Media.shared.stop()
@@ -757,21 +759,30 @@ import UIKit
             }
             audioRecorder = recorder
             recordingVoiceNote = true
+            voiceRecordingInteractionState = .holding
             startTimer()
-            try? await tdSendChatAction(.chatActionRecordingVoiceNote)
+            Task { [weak self] in try? await self?.tdSendChatAction(.chatActionRecordingVoiceNote) }
+            return true
         } catch {
             log("Error creating AudioRecorder: \(error)")
             try? FileManager.default.removeItem(at: url)
             recordingVoiceNoteURL = nil
             audioRecorder = nil
+            voiceRecordingInteractionState = .idle
             Media.shared.endAudioSessionRecord()
             voiceNoteErrorMessage = "Couldn’t start voice recording."
             await promoteNextPendingVoiceDraft()
+            return false
         }
     }
     
     func mediaStopRecordingVoice() {
         finishVoiceRecording(sendWhenReady: true, pendingMessage: nil)
+    }
+
+    func lockVoiceRecording() {
+        guard recordingVoiceNote, voiceRecordingInteractionState == .holding else { return }
+        voiceRecordingInteractionState = .locked
     }
 
     func cancelVoiceRecording() {
@@ -785,6 +796,7 @@ import UIKit
         wave.removeAll(keepingCapacity: true)
         stopTimer()
         recordingVoiceNote = false
+        voiceRecordingInteractionState = .idle
         Task { [weak self] in
             await self?.promoteNextPendingVoiceDraft()
             try? await self?.tdSendChatAction(.chatActionCancel)
@@ -878,6 +890,7 @@ import UIKit
         self.audioRecorder = nil
         recordingVoiceNoteURL = nil
         recordingVoiceNote = false
+        voiceRecordingInteractionState = .idle
         wave.removeAll(keepingCapacity: true)
         stopTimer()
         Task { try? await self.tdSendChatAction(.chatActionCancel) }

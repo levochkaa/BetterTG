@@ -39,6 +39,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case contextPreview
     }
 
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+        presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -215,6 +219,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var composerTrailingConstraint: NSLayoutConstraint?
     private var composerBottomConstraint: NSLayoutConstraint?
     private var composerKeyboardAttached = false
+    private var voiceGestureDefersSystemGestures = false
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
         let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
@@ -341,6 +346,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
+            composerView.onVoiceGestureActivityChange = { [weak self] active in
+                guard let self, voiceGestureDefersSystemGestures != active else { return }
+                voiceGestureDefersSystemGestures = active
+                setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+            }
             view.addSubview(composerView)
             let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
             let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
