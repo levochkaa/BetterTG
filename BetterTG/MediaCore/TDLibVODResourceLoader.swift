@@ -655,6 +655,45 @@ private actor TDLibVODResourceReadGate {
                 await playbackRecorder.expect(time: pausedTime + 0.2)
                 try await waitUntil { await playbackRecorder.didReachExpectedTime }
 
+                stage = "external playback controls"
+                await MainActor.run { playbackProbe.beginExternalPause() }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.didAdoptExternalPause }
+                }
+                let externalPauseTime = await playbackRecorder.maximumTime
+                await MainActor.run { playbackProbe.resumeExternally(atRate: 2) }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.didAdoptExternalPlay }
+                }
+                await playbackRecorder.expect(time: externalPauseTime + 0.2)
+                try await waitUntil { await playbackRecorder.didReachExpectedTime }
+                await MainActor.run { playbackProbe.simulateExternalEnd() }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.didReachExternalEnd }
+                }
+                await MainActor.run { playbackProbe.resumeExternally(atRate: 2) }
+                await MainActor.run { playbackProbe.pauseExternally() }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.didCancelExternalReplay }
+                }
+                try await Task<Never, Never>.sleep(for: .milliseconds(100))
+                let replayStayedPaused = await MainActor.run { playbackProbe.didCancelExternalReplay }
+                guard replayStayedPaused else {
+                    throw TDLibVODResourceLoaderProbeError.detail("external pause lost the EOF replay race")
+                }
+                await MainActor.run { playbackProbe.resumeExternally(atRate: 2) }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.didRestartAfterExternalEnd }
+                }
+                await MainActor.run { playbackProbe.pauseExternally() }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.didAdoptExternalPause }
+                }
+                let externalControlEnded = await MainActor.run { playbackProbe.endExternalControl() }
+                guard externalControlEnded else {
+                    throw TDLibVODResourceLoaderProbeError.detail("external playback intent was not retained")
+                }
+
                 let playbackDownloadCalls = await playbackBackend.downloadCalls
                 guard playbackDownloadCalls.allSatisfy({ !$0.isFullDownload })
                 else {
@@ -698,7 +737,8 @@ private actor TDLibVODResourceReadGate {
 
                 let proof = "VOD resource-loader probe: duration=\(duration.seconds), tracks=A/V, "
                     + "requests=\(playbackDownloadCalls.count), progressive-before-complete=true, "
-                    + "native-playing-before-complete, controls=pause/seek/rate/mute/resume, "
+                    + "native-playing-before-complete, controls=pause/seek/rate/mute/resume/"
+                    + "external-rate+replay-race+paused-exit, "
                     + "finite-priority/queued-cancel/no-full-download=true"
                 writeDebugProbeResult(proof)
                 log(proof)
@@ -818,6 +858,48 @@ private actor TDLibVODResourceReadGate {
         func resume() -> Bool {
             player.play()
             return player.isPlaybackRequested && player.isMuted && player.rate == 1.5
+        }
+
+        func beginExternalPause() {
+            player.setExternalPlaybackControlActive(true)
+            player.simulateExternalPauseForProbe()
+        }
+
+        var didAdoptExternalPause: Bool {
+            !player.isPlaybackRequested
+        }
+
+        func resumeExternally(atRate rate: Float) {
+            player.simulateExternalPlayForProbe(atRate: rate)
+        }
+
+        func pauseExternally() {
+            player.simulateExternalPauseForProbe()
+        }
+
+        var didAdoptExternalPlay: Bool {
+            player.isPlaybackRequested && player.rate == 2
+        }
+
+        func simulateExternalEnd() {
+            player.simulateExternalEndForProbe()
+        }
+
+        var didReachExternalEnd: Bool {
+            player.state == .ended && !player.isPlaybackRequested
+        }
+
+        var didRestartAfterExternalEnd: Bool {
+            player.isPlaybackRequested && player.currentTime < 2
+        }
+
+        var didCancelExternalReplay: Bool {
+            player.state == .ended && !player.isPlaybackRequested
+        }
+
+        func endExternalControl() -> Bool {
+            player.setExternalPlaybackControlActive(false)
+            return !player.isPlaybackRequested && player.rate == 2
         }
 
         func stop() {

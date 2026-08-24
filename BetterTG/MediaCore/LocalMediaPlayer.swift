@@ -23,6 +23,10 @@ final class LocalMediaPlayer {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in self?.update(timeControlStatus: status) }
             .store(in: &cancellables)
+        player.publisher(for: \.rate, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] rate in self?.update(externalRate: rate) }
+            .store(in: &cancellables)
     }
 
     deinit {
@@ -72,6 +76,10 @@ final class LocalMediaPlayer {
         shouldAutoplay
     }
 
+    var state: State {
+        stateSubject.value
+    }
+
     var currentItemIdentifier: ObjectIdentifier? {
         player.currentItem.map(ObjectIdentifier.init)
     }
@@ -87,6 +95,11 @@ final class LocalMediaPlayer {
     var duration: TimeInterval {
         guard let seconds = player.currentItem?.duration.seconds, seconds.isFinite else { return 0 }
         return max(0, seconds)
+    }
+
+    var currentTime: TimeInterval {
+        let seconds = player.currentTime().seconds
+        return seconds.isFinite ? max(0, seconds) : 0
     }
 
     func attach(to layer: AVPlayerLayer) {
@@ -163,7 +176,7 @@ final class LocalMediaPlayer {
             seek(to: playbackRange?.lowerBound ?? 0, tolerance: 0)
             return
         }
-        if usesExplicitVODBuffering {
+        if usesExplicitVODBuffering, !isExternalPlaybackControlActive {
             updateVODBufferingState()
             return
         }
@@ -184,6 +197,7 @@ final class LocalMediaPlayer {
     func pause() {
         shouldAutoplay = false
         shouldApplyReadyStateAfterSeek = false
+        isRestartingAfterExternalEnd = false
         guard hasItem else { return }
         if usesExplicitVODBuffering {
             player.cancelPendingPrerolls()
@@ -209,7 +223,7 @@ final class LocalMediaPlayer {
         let boundedRate = min(2, max(0.5, rate))
         guard playbackRate != boundedRate else { return }
         playbackRate = boundedRate
-        if usesExplicitVODBuffering, shouldAutoplay {
+        if usesExplicitVODBuffering, shouldAutoplay, !isExternalPlaybackControlActive {
             player.cancelPendingPrerolls()
             vodPrerollIdentifier = nil
         }
@@ -219,6 +233,44 @@ final class LocalMediaPlayer {
             updateVODBufferingState()
         }
     }
+
+    func setExternalPlaybackControlActive(_ isActive: Bool) {
+        guard isExternalPlaybackControlActive != isActive else { return }
+        if !isActive {
+            update(externalRate: player.rate)
+        }
+        isExternalPlaybackControlActive = isActive
+        guard usesExplicitVODBuffering else { return }
+        player.cancelPendingPrerolls()
+        vodPrerollIdentifier = nil
+        player.automaticallyWaitsToMinimizeStalling = isActive
+        if isActive, shouldAutoplay, player.currentItem?.status == .readyToPlay {
+            player.playImmediately(atRate: playbackRate)
+        } else if !isActive {
+            if player.timeControlStatus == .playing {
+                player.rate = playbackRate
+            }
+            if shouldAutoplay {
+                updateVODBufferingState()
+            }
+        }
+    }
+
+    #if DEBUG
+        func simulateExternalPauseForProbe() {
+            player.pause()
+        }
+
+        func simulateExternalPlayForProbe(atRate rate: Float? = nil) {
+            player.playImmediately(atRate: rate ?? playbackRate)
+        }
+
+        func simulateExternalEndForProbe() {
+            player.pause()
+            guard let item = player.currentItem else { return }
+            NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+        }
+    #endif
 
     func stop() {
         preparationTask?.cancel()
@@ -231,6 +283,7 @@ final class LocalMediaPlayer {
         currentSeekIdentifier = nil
         vodPrerollIdentifier = nil
         shouldApplyReadyStateAfterSeek = false
+        isRestartingAfterExternalEnd = false
         player.cancelPendingPrerolls()
         player.pause()
         player.isMuted = false
@@ -239,6 +292,7 @@ final class LocalMediaPlayer {
         vodSession?.invalidate()
         vodSession = nil
         usesExplicitVODBuffering = false
+        isExternalPlaybackControlActive = false
         playbackRate = 1
         player.automaticallyWaitsToMinimizeStalling = true
         resetItemObservers()
@@ -275,7 +329,7 @@ final class LocalMediaPlayer {
         let seekIdentifier = UUID()
         currentSeekIdentifier = seekIdentifier
         item.cancelPendingSeeks()
-        if usesExplicitVODBuffering, shouldAutoplay {
+        if usesExplicitVODBuffering, shouldAutoplay, !isExternalPlaybackControlActive {
             player.cancelPendingPrerolls()
             vodPrerollIdentifier = nil
             shouldApplyReadyStateAfterSeek = true
@@ -330,6 +384,8 @@ final class LocalMediaPlayer {
     private var compositionLease: VideoNoteCompositionResult?
     private var vodSession: TDLibVODResourceLoaderSession?
     private var usesExplicitVODBuffering = false
+    private var isExternalPlaybackControlActive = false
+    private var isRestartingAfterExternalEnd = false
     private var vodPrerollIdentifier: UUID?
     private var playbackRate: Float = 1
     private var pendingSeek: (
@@ -482,6 +538,7 @@ final class LocalMediaPlayer {
         currentSeekIdentifier = nil
         vodPrerollIdentifier = nil
         shouldApplyReadyStateAfterSeek = false
+        isRestartingAfterExternalEnd = false
         resetItemObservers()
         player.currentItem?.cancelPendingSeeks()
         player.cancelPendingPrerolls()
@@ -491,6 +548,7 @@ final class LocalMediaPlayer {
         vodSession?.invalidate()
         vodSession = nil
         usesExplicitVODBuffering = false
+        isExternalPlaybackControlActive = false
         player.automaticallyWaitsToMinimizeStalling = true
         shouldAutoplay = autoplay
         shouldLoop = loops
@@ -524,7 +582,7 @@ final class LocalMediaPlayer {
 
     private func applyReadyPlaybackState() {
         if shouldAutoplay {
-            if usesExplicitVODBuffering {
+            if usesExplicitVODBuffering, !isExternalPlaybackControlActive {
                 updateVODBufferingState()
             } else {
                 player.playImmediately(atRate: playbackRate)
@@ -540,6 +598,40 @@ final class LocalMediaPlayer {
 
     private func update(timeControlStatus: AVPlayer.TimeControlStatus) {
         guard player.currentItem != nil else { return }
+        if isExternalPlaybackControlActive {
+            switch timeControlStatus {
+            case .paused:
+                let wasRestartingAfterEnd = isRestartingAfterExternalEnd
+                if wasRestartingAfterEnd {
+                    isRestartingAfterExternalEnd = false
+                    shouldApplyReadyStateAfterSeek = false
+                    currentSeekIdentifier = nil
+                    player.currentItem?.cancelPendingSeeks()
+                }
+                shouldAutoplay = false
+                shouldApplyReadyStateAfterSeek = false
+                if stateSubject.value != .failed, stateSubject.value != .ended {
+                    stateSubject.send(wasRestartingAfterEnd ? .ended : .paused)
+                }
+            case .waitingToPlayAtSpecifiedRate:
+                if restartExternalPlaybackAfterEndIfNeeded() {
+                    return
+                }
+                shouldAutoplay = true
+                if stateSubject.value != .failed, stateSubject.value != .ended {
+                    stateSubject.send(.buffering)
+                }
+            case .playing:
+                if restartExternalPlaybackAfterEndIfNeeded() {
+                    return
+                }
+                shouldAutoplay = true
+                stateSubject.send(.playing)
+            @unknown default:
+                break
+            }
+            return
+        }
         switch timeControlStatus {
         case .paused:
             if usesExplicitVODBuffering, shouldAutoplay, player.currentItem?.status == .readyToPlay {
@@ -574,8 +666,34 @@ final class LocalMediaPlayer {
         }
     }
 
+    private func update(externalRate rate: Float) {
+        guard isExternalPlaybackControlActive, rate.isFinite, rate > 0 else { return }
+        let boundedRate = min(2, max(0.5, rate))
+        playbackRate = boundedRate
+        if rate != boundedRate {
+            player.rate = boundedRate
+        }
+        _ = restartExternalPlaybackAfterEndIfNeeded()
+    }
+
+    @discardableResult
+    private func restartExternalPlaybackAfterEndIfNeeded() -> Bool {
+        guard stateSubject.value == .ended, !isRestartingAfterExternalEnd else {
+            return isRestartingAfterExternalEnd
+        }
+        isRestartingAfterExternalEnd = true
+        shouldAutoplay = true
+        shouldApplyReadyStateAfterSeek = true
+        stateSubject.send(.buffering)
+        seek(to: playbackRange?.lowerBound ?? 0, tolerance: 0) { [weak self] in
+            self?.isRestartingAfterExternalEnd = false
+        }
+        return true
+    }
+
     private func updateVODBufferingState() {
         guard usesExplicitVODBuffering,
+              !isExternalPlaybackControlActive,
               let item = player.currentItem,
               item.status == .readyToPlay,
               stateSubject.value != .failed,
