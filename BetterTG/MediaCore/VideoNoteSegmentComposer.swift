@@ -33,6 +33,11 @@ struct VideoNoteThumbnailSample: Sendable {
     let time: Double
 }
 
+struct VideoNoteRecordingPreview: Sendable {
+    let composition: VideoNoteCompositionResult
+    let thumbnails: [VideoNoteThumbnailSample]
+}
+
 enum VideoNoteSegmentComposerError: Swift.Error {
     case exportFailed
     case invalidDuration
@@ -129,7 +134,18 @@ enum VideoNoteSegmentComposer {
         maximumPixelSize: Int = 160,
     ) async throws -> [VideoNoteThumbnailSample] {
         let result = try await compose(segments)
-        defer { withExtendedLifetime(result) {} }
+        return try await thumbnails(
+            for: result,
+            count: count,
+            maximumPixelSize: maximumPixelSize,
+        )
+    }
+
+    static func thumbnails(
+        for result: VideoNoteCompositionResult,
+        count: Int = 13,
+        maximumPixelSize: Int = 160,
+    ) async throws -> [VideoNoteThumbnailSample] {
         let range = 0 ..< result.duration
         let sampleCount = max(1, count)
         let generator = AVAssetImageGenerator(asset: result.asset)

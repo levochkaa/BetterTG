@@ -206,7 +206,9 @@ actor VideoNoteRecordingDraftStore {
     ) async throws -> VideoNoteRecordingDraft {
         let validated = try await VideoNoteAssetWriter.validate(url: asset.url, expectedLength: 400)
         try Task.checkCancellation()
-        guard !isManagedFile(asset.url) else {
+        guard validated.duration >= 0.5,
+              !isManagedFile(asset.url)
+        else {
             throw VideoNoteRecordingDraftStoreError.invalidAsset
         }
         guard !cancelledDraftIDs.contains(draft.id) else {
@@ -303,6 +305,16 @@ actor VideoNoteRecordingDraftStore {
         try Task.checkCancellation()
         try validateOperation(canonical)
         return result
+    }
+
+    func preview(for draft: VideoNoteRecordingDraft) async throws -> VideoNoteRecordingPreview {
+        let canonical = try beginOperation(draft)
+        defer { endOperation(id: draft.id) }
+        let composition = try await VideoNoteSegmentComposer.compose(canonical.assets)
+        let thumbnails = try await VideoNoteSegmentComposer.thumbnails(for: composition)
+        try Task.checkCancellation()
+        try validateOperation(canonical)
+        return VideoNoteRecordingPreview(composition: composition, thumbnails: thumbnails)
     }
 
     func materialize(
@@ -571,11 +583,9 @@ actor VideoNoteRecordingDraftStore {
                       restored.replyMessageID == 77
                 else { throw VideoNoteRecordingDraftStoreError.missingDraft }
                 stage = "derivations"
-                async let thumbnails = thumbnails(for: restored)
-                let composition = try await composition(for: restored)
-                let thumbnailSamples = try await thumbnails
-                guard composition.segmentRanges.count == 2,
-                      thumbnailSamples.count == 13
+                let derivedPreview = try await preview(for: restored)
+                guard derivedPreview.composition.segmentRanges.count == 2,
+                      derivedPreview.thumbnails.count == 13
                 else { throw VideoNoteRecordingDraftStoreError.invalidAsset }
                 stage = "materialization"
                 let materialized = try await materialize(restored, outputURL: outputURL)
@@ -621,7 +631,7 @@ actor VideoNoteRecordingDraftStore {
                 await VideoNoteFileStore.shared.remove(adoptedSendDraft)
                 sendDraft = nil
                 let proof = "Video note recording draft probe: ordered=2, revision=2, "
-                    + "short-preview=0.7, trim=1.2, thumbnails=13, "
+                    + "short-preview=0.7, trim=1.2, preview-lease/thumbnails=13, "
                     + "origin-dedupe/barrier/reload/discard=true"
                 writeDebugProbeResult(proof)
                 log(proof)

@@ -136,7 +136,10 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         }
     }
 
-    func startRecording(maximumDuration: Double = 60) async throws {
+    func startRecording(
+        maximumDuration: Double = 60,
+        automaticStopDuration: Double? = nil,
+    ) async throws {
         try Task.checkCancellation()
         let requestID = UUID()
         let registered = contextLock.withLock { () -> Bool in
@@ -159,6 +162,10 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                         }
                         do {
                             let normalizedMaximumDuration = min(60, max(0.5, maximumDuration))
+                            let normalizedAutomaticStopDuration = min(
+                                normalizedMaximumDuration,
+                                max(0.5, automaticStopDuration ?? min(59.5, normalizedMaximumDuration)),
+                            )
                             let outputURL = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("\(UUID().uuidString)-video-note.mp4")
                             let writer = try VideoNoteAssetWriter(
@@ -178,7 +185,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                                     position: self.position,
                                     orientation: self.interfaceOrientation,
                                     minimumPresentationTime: CMClockGetTime(CMClockGetHostTimeClock()),
-                                    automaticStopDuration: min(59.5, normalizedMaximumDuration),
+                                    automaticStopDuration: normalizedAutomaticStopDuration,
                                     startRequestID: requestID,
                                 )
                                 self.recordingContext = context
@@ -928,10 +935,19 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
         context.stopRequested = true
         contextLock.unlock()
         Task { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                context.writer.cancel()
+                return
+            }
             do {
                 let asset = try await finishRecording(context)
-                DispatchQueue.main.async { [weak self] in self?.onAutomaticStop?(.success(asset)) }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else {
+                        try? FileManager.default.removeItem(at: asset.url)
+                        return
+                    }
+                    self.onAutomaticStop?(.success(asset))
+                }
             } catch {
                 if isExpectedAutomaticStopCancellation(error) {
                     return
