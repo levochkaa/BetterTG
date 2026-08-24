@@ -145,6 +145,7 @@ enum VideoNoteSegmentComposer {
         for result: VideoNoteCompositionResult,
         count: Int = 13,
         maximumPixelSize: Int = 160,
+        onFirst: (@Sendable (VideoNoteThumbnailSample) -> Void)? = nil,
     ) async throws -> [VideoNoteThumbnailSample] {
         let range = 0 ..< result.duration
         let sampleCount = max(1, count)
@@ -167,7 +168,11 @@ enum VideoNoteSegmentComposer {
                     try encodeJPEG(SendableCGImage(image), quality: 0.72)
                 }.value
                 try Task.checkCancellation()
-                samples.append(VideoNoteThumbnailSample(jpegData: jpegData, time: time))
+                let sample = VideoNoteThumbnailSample(jpegData: jpegData, time: time)
+                samples.append(sample)
+                if index == 0 {
+                    onFirst?(sample)
+                }
             }
             try Task.checkCancellation()
             return samples

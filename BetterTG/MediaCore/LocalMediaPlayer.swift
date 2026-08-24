@@ -53,6 +53,10 @@ final class LocalMediaPlayer {
         timeSubject.eraseToAnyPublisher()
     }
 
+    var loopPublisher: AnyPublisher<Void, Never> {
+        loopSubject.eraseToAnyPublisher()
+    }
+
     var hasItem: Bool {
         player.currentItem != nil
     }
@@ -224,6 +228,7 @@ final class LocalMediaPlayer {
     private let player = AVPlayer()
     private let stateSubject = CurrentValueSubject<State, Never>(.idle)
     private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let loopSubject = PassthroughSubject<Void, Never>()
     private var shouldAutoplay = false
     private var shouldLoop = false
     private var shouldApplyReadyStateAfterSeek = false
@@ -281,6 +286,7 @@ final class LocalMediaPlayer {
             .sink { [weak self, weak item] _ in
                 guard let self, item === player.currentItem else { return }
                 if shouldLoop {
+                    loopSubject.send()
                     shouldApplyReadyStateAfterSeek = true
                     seek(to: playbackRange?.lowerBound ?? 0, tolerance: 0)
                 } else {

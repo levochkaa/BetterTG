@@ -430,6 +430,14 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         terminateCapture(matching: nil)
     }
 
+    func waitForCaptureShutdown() async {
+        await withCheckedContinuation { continuation in
+            configurationQueue.async {
+                continuation.resume()
+            }
+        }
+    }
+
     private final class RecordingContext: @unchecked Sendable {
         init(
             writer: VideoNoteAssetWriter,

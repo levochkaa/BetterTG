@@ -477,6 +477,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         recorder.onPreviewData = { [weak self] draft, thumbnails in
             self?.composerView.updateVideoNotePreview(draft: draft, thumbnails: thumbnails)
         }
+        recorder.onThumbnailData = { [weak self] thumbnails, segmentIDs in
+            self?.composerView.updateVideoNoteThumbnails(thumbnails, segmentIDs: segmentIDs)
+        }
         recorder.onDiscard = { [weak chatVM] asset in
             if let chatVM {
                 await chatVM.discardVideoNoteAsset(asset)

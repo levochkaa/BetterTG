@@ -63,9 +63,12 @@ enum VideoNoteSubmissionResult: Sendable {
 
     deinit {
         operationTask?.cancel()
+        thumbnailTask?.cancel()
+        previewAudioSessionTask?.cancel()
         captureSession.stopCapture()
         previewPlayer.stop()
         MainActor.assumeIsolated {
+            releasePreviewAudioSession()
             restoreScreenBrightness()
         }
         if ownsCurrentAsset, let currentAsset {
@@ -86,6 +89,7 @@ enum VideoNoteSubmissionResult: Sendable {
     var onDiscard: ((VideoNoteAsset) async -> Void)?
     var onError: ((String) -> Void)?
     var onPreviewData: ((VideoNoteRecordingDraft, [VideoNoteThumbnailSample]) -> Void)?
+    var onThumbnailData: (([VideoNoteThumbnailSample], [UUID]) -> Void)?
     var onStateChange: ((VideoNoteComposerState) -> Void)?
     var onSubmit: ((VideoNoteAsset, UUID?, Int64?, InputMessageReplyTo?) async -> VideoNoteSubmissionResult)?
 
@@ -120,7 +124,10 @@ enum VideoNoteSubmissionResult: Sendable {
         lastRecordMoreTimestamp = now
         exitDisposition = .none
         recordingDurationBaseline = recordingDraft.totalDuration
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
         previewPlayer.stop()
+        releasePreviewAudioSession()
         playbackPreview.isHidden = true
         cameraPreview.isHidden = false
         state = .preparing
@@ -147,12 +154,7 @@ enum VideoNoteSubmissionResult: Sendable {
             guard let self else { return }
             defer { operationTask = nil }
             do {
-                let preview = try await VideoNoteRecordingDraftStore.shared.preview(for: draft)
-                try Task.checkCancellation()
-                guard operationGeneration == generation, exitDisposition == .none else {
-                    throw CancellationError()
-                }
-                installPreview(draft: draft, preview: preview)
+                try await preparePreview(draft: draft, generation: generation)
             } catch is CancellationError {
                 return
             } catch {
@@ -231,9 +233,12 @@ enum VideoNoteSubmissionResult: Sendable {
         operationGeneration = UUID()
         operationTask?.cancel()
         operationTask = nil
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
         captureSession.cancelRecording()
         captureSession.stopCapture()
         previewPlayer.stop()
+        releasePreviewAudioSession()
         restoreScreenBrightness()
         if let recordingDraft {
             Task { await VideoNoteRecordingDraftStore.shared.discard(id: recordingDraft.id) }
@@ -380,9 +385,12 @@ enum VideoNoteSubmissionResult: Sendable {
         operationGeneration = UUID()
         operationTask?.cancel()
         operationTask = nil
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
         captureSession.cancelRecording()
         captureSession.stopCapture()
         previewPlayer.stop()
+        releasePreviewAudioSession()
         restoreScreenBrightness()
         currentAsset = nil
         ownsCurrentAsset = false
@@ -427,9 +435,11 @@ enum VideoNoteSubmissionResult: Sendable {
     private let replyMessageID: Int64?
     private let replyTo: InputMessageReplyTo?
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
-    private let previewContainer = UIView()
+    private let previewContainer = VideoNotePreviewContainerView()
     private let cameraPreview = VideoNoteCameraPreviewView()
     private let playbackPreview = LocalVideoSurfaceView()
+    private let muteBadgeView = UIView()
+    private let muteBadgeImageView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
     private let loadingIndicator = UIActivityIndicatorView(style: .large)
     private let statusLabel = UILabel()
     private let flipButton = UIButton(type: .system)
@@ -444,6 +454,12 @@ enum VideoNoteSubmissionResult: Sendable {
     private var currentAsset: VideoNoteAsset?
     private var recordingDraft: VideoNoteRecordingDraft?
     private var previewThumbnails = [VideoNoteThumbnailSample]()
+    private var previewMuted = true
+    private var previewOwnsAudioSession = false
+    private var previewAudioSessionTask: Task<Void, Never>?
+    private var thumbnailGeneration = UUID()
+    private var thumbnailAppliedStage = 0
+    private var thumbnailTask: Task<Void, Never>?
     private var recordingDurationBaseline = 0.0
     private var transientTrimRange: Range<Double>?
     private var trimBaseDraft: VideoNoteRecordingDraft?
@@ -471,6 +487,10 @@ enum VideoNoteSubmissionResult: Sendable {
         previewContainer.backgroundColor = .black
         previewContainer.clipsToBounds = true
         previewContainer.accessibilityIdentifier = "video-note-camera-circle"
+        previewContainer.accessibilityHint = "Double-tap to toggle preview sound."
+        previewContainer.onAccessibilityActivate = { [weak self] in
+            self?.togglePreviewMute() ?? false
+        }
         view.addSubview(previewContainer)
 
         cameraPreview.frame = previewContainer.bounds
@@ -484,6 +504,17 @@ enum VideoNoteSubmissionResult: Sendable {
         playbackPreview.isHidden = true
         previewPlayer.attach(to: playbackPreview.playerLayer)
         previewContainer.addSubview(playbackPreview)
+
+        muteBadgeView.backgroundColor = UIColor.black.withAlphaComponent(0.58)
+        muteBadgeView.layer.cornerRadius = 18
+        muteBadgeView.layer.cornerCurve = .continuous
+        muteBadgeView.isHidden = true
+        muteBadgeView.isAccessibilityElement = false
+        muteBadgeImageView.tintColor = .white
+        muteBadgeImageView.contentMode = .center
+        muteBadgeImageView.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
+        muteBadgeView.addSubview(muteBadgeImageView)
+        previewContainer.addSubview(muteBadgeView)
 
         progressLayer.fillColor = UIColor.clear.cgColor
         progressLayer.strokeColor = UIColor.white.withAlphaComponent(0.6).cgColor
@@ -570,6 +601,12 @@ enum VideoNoteSubmissionResult: Sendable {
         progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
 
         loadingIndicator.center = CGPoint(x: previewContainer.bounds.midX, y: previewContainer.bounds.midY)
+        muteBadgeView.frame = CGRect(
+            x: previewContainer.bounds.maxX - 54,
+            y: previewContainer.bounds.maxY - 54,
+            width: 36,
+            height: 36,
+        )
         statusLabel.frame = CGRect(
             x: 20,
             y: previewContainer.frame.maxY + 8,
@@ -635,13 +672,54 @@ enum VideoNoteSubmissionResult: Sendable {
                         isPlaying: true,
                         canRecordMore: canRecordMore,
                     )
-                case .buffering, .ended, .failed, .idle, .paused, .preparing:
+                case .failed:
+                    previewMuted = true
+                    previewPlayer.setMuted(true)
+                    releasePreviewAudioSession()
+                    updatePreviewAccessibility()
+                    updatePreviewMuteBadge()
+                    state = .preview(
+                        duration: duration,
+                        isPlaying: false,
+                        canRecordMore: canRecordMore,
+                    )
+                    onError?("Couldn’t play the video-message preview.")
+                case .buffering, .ended, .idle, .paused, .preparing:
                     state = .preview(
                         duration: duration,
                         isPlaying: false,
                         canRecordMore: canRecordMore,
                     )
                 }
+            }
+            .store(in: &cancellables)
+        previewPlayer.loopPublisher
+            .sink { [weak self] in
+                guard let self,
+                      case .preview = state
+                else { return }
+                previewMuted = true
+                previewPlayer.setMuted(true)
+                releasePreviewAudioSession()
+                updatePreviewAccessibility()
+                updatePreviewMuteBadge()
+            }
+            .store(in: &cancellables)
+        Media.shared.$savedMediaPath
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] path in
+                guard let self,
+                      !path.isEmpty,
+                      previewOwnsAudioSession || previewAudioSessionTask != nil
+                else { return }
+                previewAudioSessionTask?.cancel()
+                previewAudioSessionTask = nil
+                previewOwnsAudioSession = false
+                previewMuted = true
+                previewPlayer.setMuted(true)
+                updatePreviewAccessibility()
+                updatePreviewMuteBadge()
             }
             .store(in: &cancellables)
     }
@@ -735,36 +813,45 @@ enum VideoNoteSubmissionResult: Sendable {
         }
         try Task.checkCancellation()
         recordingDraft = draft
-        let preview = try await VideoNoteRecordingDraftStore.shared.preview(for: draft)
-        guard operationGeneration == generation else {
+        try await preparePreview(draft: draft, generation: generation)
+    }
+
+    private func preparePreview(
+        draft: VideoNoteRecordingDraft,
+        generation: UUID,
+    ) async throws {
+        let composition = try await VideoNoteRecordingDraftStore.shared.composition(for: draft)
+        guard operationGeneration == generation, exitDisposition == .none else {
             if exitDisposition == .discard {
                 await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
             }
             throw CancellationError()
         }
         try Task.checkCancellation()
-        installPreview(draft: draft, preview: preview)
+        installPreview(draft: draft, composition: composition)
     }
 
     private func installPreview(
         draft: VideoNoteRecordingDraft,
-        preview: VideoNoteRecordingPreview,
+        composition: VideoNoteCompositionResult,
     ) {
         recordingDraft = draft
         exitDisposition = .none
         trimBaseDraft = nil
         transientTrimRange = nil
-        previewThumbnails = preview.thumbnails
+        previewThumbnails = []
         currentAsset = nil
         ownsCurrentAsset = false
+        releasePreviewAudioSession()
         captureSession.stopCapture()
         restoreScreenBrightness()
         cameraPreview.isHidden = true
         playbackPreview.isHidden = false
         playbackPreview.alpha = 0
-        previewPlayer.setMuted(true)
+        previewMuted = true
+        previewPlayer.setMuted(previewMuted)
         previewPlayer.load(
-            composition: preview.composition,
+            composition: composition,
             autoplay: true,
             loops: true,
             playbackRange: draft.effectiveRange,
@@ -774,10 +861,67 @@ enum VideoNoteSubmissionResult: Sendable {
             isPlaying: true,
             canRecordMore: draft.canRecordMore,
         )
-        onPreviewData?(draft, preview.thumbnails)
+        onPreviewData?(draft, [])
+        loadThumbnails(for: draft, composition: composition)
         UIView.animate(withDuration: 0.2) {
             self.playbackPreview.alpha = 1
         }
+    }
+
+    private func loadThumbnails(
+        for draft: VideoNoteRecordingDraft,
+        composition: VideoNoteCompositionResult,
+    ) {
+        thumbnailTask?.cancel()
+        let generation = UUID()
+        thumbnailGeneration = generation
+        thumbnailAppliedStage = 0
+        let segmentIDs = draft.segments.map(\.id)
+        thumbnailTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let samples = try await VideoNoteSegmentComposer.thumbnails(
+                    for: composition,
+                    onFirst: { [weak self] sample in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            applyThumbnailSamples(
+                                Array(repeating: sample, count: 13),
+                                segmentIDs: segmentIDs,
+                                generation: generation,
+                                stage: 1,
+                            )
+                        }
+                    },
+                )
+                try Task.checkCancellation()
+                applyThumbnailSamples(
+                    samples,
+                    segmentIDs: segmentIDs,
+                    generation: generation,
+                    stage: 2,
+                )
+                thumbnailTask = nil
+            } catch {
+                guard thumbnailGeneration == generation else { return }
+                thumbnailTask = nil
+            }
+        }
+    }
+
+    private func applyThumbnailSamples(
+        _ samples: [VideoNoteThumbnailSample],
+        segmentIDs: [UUID],
+        generation: UUID,
+        stage: Int,
+    ) {
+        guard thumbnailGeneration == generation,
+              stage >= thumbnailAppliedStage,
+              recordingDraft?.segments.map(\.id) == segmentIDs
+        else { return }
+        thumbnailAppliedStage = stage
+        previewThumbnails = samples
+        onThumbnailData?(samples, segmentIDs)
     }
 
     private func submitPreview() {
@@ -819,10 +963,13 @@ enum VideoNoteSubmissionResult: Sendable {
                     try? FileManager.default.removeItem(at: outputURL)
                     guard operationGeneration == generation else { return }
                     if dismissAfterSubmission || exitDisposition == .discard {
+                        thumbnailTask?.cancel()
+                        thumbnailTask = nil
                         await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
                         recordingDraft = nil
                         previewThumbnails = []
                         previewPlayer.stop()
+                        releasePreviewAudioSession()
                         state = .idle
                         dismissAnimated()
                         return
@@ -859,21 +1006,27 @@ enum VideoNoteSubmissionResult: Sendable {
             }
             switch result {
             case .enqueued:
+                thumbnailTask?.cancel()
+                thumbnailTask = nil
                 ownsCurrentAsset = false
                 self.currentAsset = nil
                 recordingDraft = nil
                 previewThumbnails = []
                 previewPlayer.stop()
+                releasePreviewAudioSession()
                 state = .idle
                 dismissAnimated()
             case let .retained(asset, originConsumed, message):
                 if !originConsumed, let draft {
                     try? FileManager.default.removeItem(at: asset.url)
                     if dismissAfterSubmission {
+                        thumbnailTask?.cancel()
+                        thumbnailTask = nil
                         await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
                         recordingDraft = nil
                         previewThumbnails = []
                         previewPlayer.stop()
+                        releasePreviewAudioSession()
                         state = .idle
                         dismissAnimated()
                     } else {
@@ -887,6 +1040,8 @@ enum VideoNoteSubmissionResult: Sendable {
                     return
                 }
                 if dismissAfterSubmission {
+                    thumbnailTask?.cancel()
+                    thumbnailTask = nil
                     if let onDiscard {
                         await onDiscard(asset)
                     } else {
@@ -897,14 +1052,20 @@ enum VideoNoteSubmissionResult: Sendable {
                     recordingDraft = nil
                     previewThumbnails = []
                     previewPlayer.stop()
+                    releasePreviewAudioSession()
                     state = .idle
                     dismissAnimated()
                     return
                 }
                 self.currentAsset = asset
                 ownsCurrentAsset = true
+                releasePreviewAudioSession()
+                thumbnailTask?.cancel()
+                thumbnailTask = nil
                 recordingDraft = nil
                 previewThumbnails = []
+                previewMuted = true
+                previewPlayer.setMuted(true)
                 previewPlayer.load(url: asset.url, autoplay: true, loops: true)
                 state = .preview(duration: asset.duration, isPlaying: true, canRecordMore: false)
                 onError?(message)
@@ -977,14 +1138,10 @@ enum VideoNoteSubmissionResult: Sendable {
         else { return }
         captureSession.cancelRecording()
         captureSession.stopCapture()
+        releasePreviewAudioSession()
         restoreScreenBrightness()
         do {
-            let preview = try await VideoNoteRecordingDraftStore.shared.preview(for: recordingDraft)
-            try Task.checkCancellation()
-            guard operationGeneration == generation, exitDisposition == .none else {
-                throw CancellationError()
-            }
-            installPreview(draft: recordingDraft, preview: preview)
+            try await preparePreview(draft: recordingDraft, generation: generation)
             onError?(message)
         } catch is CancellationError {
             return
@@ -1034,6 +1191,10 @@ enum VideoNoteSubmissionResult: Sendable {
             flipButton.isHidden = true
             flashButton.isHidden = true
             previewContainer.isUserInteractionEnabled = true
+            previewContainer.isAccessibilityElement = true
+            previewContainer.accessibilityTraits = [.button]
+            updatePreviewAccessibility()
+            updatePreviewMuteBadge()
         case .sending:
             loadingIndicator.startAnimating()
             statusLabel.text = "Sending…"
@@ -1047,6 +1208,12 @@ enum VideoNoteSubmissionResult: Sendable {
             statusLabel.text = nil
             flipButton.isHidden = true
             flashButton.isHidden = true
+        }
+        if case .preview = state {
+            // Preview accessibility is configured above.
+        } else {
+            previewContainer.isAccessibilityElement = false
+            muteBadgeView.isHidden = true
         }
         flashButton.setImage(
             UIImage(systemName: flashEnabled ? "bolt.fill" : "bolt.slash.fill"),
@@ -1134,7 +1301,17 @@ enum VideoNoteSubmissionResult: Sendable {
     }
 
     @objc private func previewTapped() {
-        togglePreviewPlayback()
+        _ = togglePreviewMute()
+    }
+
+    private func togglePreviewMute() -> Bool {
+        guard case .preview = state else { return false }
+        previewMuted.toggle()
+        previewPlayer.setMuted(true)
+        updatePreviewAudioSession()
+        updatePreviewAccessibility()
+        updatePreviewMuteBadge()
+        return true
     }
 
     private func updateOrientation() {
@@ -1150,6 +1327,7 @@ enum VideoNoteSubmissionResult: Sendable {
         operationTask = nil
         captureSession.cancelRecording()
         captureSession.stopCapture()
+        releasePreviewAudioSession()
         restoreScreenBrightness()
         state = .failed(message)
     }
@@ -1173,6 +1351,75 @@ enum VideoNoteSubmissionResult: Sendable {
     private func formatted(_ duration: Double) -> String {
         let seconds = max(0, Int(duration))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func updatePreviewAccessibility() {
+        previewContainer.accessibilityLabel = previewMuted
+            ? "Video message preview, muted"
+            : "Video message preview, sound on"
+        previewContainer.accessibilityValue = previewMuted ? "Muted" : "Sound on"
+    }
+
+    private func updatePreviewMuteBadge() {
+        guard case .preview = state else {
+            muteBadgeView.isHidden = true
+            return
+        }
+        muteBadgeView.isHidden = !previewMuted
+    }
+
+    private func updatePreviewAudioSession() {
+        previewAudioSessionTask?.cancel()
+        previewAudioSessionTask = nil
+        guard !previewMuted, case .preview = state else {
+            releasePreviewAudioSession()
+            return
+        }
+        Media.shared.stop()
+        let generation = operationGeneration
+        previewAudioSessionTask = Task { [weak self] in
+            guard let self else { return }
+            await captureSession.waitForCaptureShutdown()
+            guard !Task.isCancelled,
+                  operationGeneration == generation,
+                  exitDisposition == .none,
+                  !previewMuted,
+                  Media.shared.savedMediaPath.isEmpty,
+                  case .preview = state
+            else { return }
+            activatePreviewAudioSession()
+            previewAudioSessionTask = nil
+        }
+    }
+
+    private func activatePreviewAudioSession() {
+        guard !previewOwnsAudioSession else { return }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setActive(false)
+            try session.setCategory(.playback, mode: .moviePlayback, policy: .default, options: [
+                .allowAirPlay,
+                .allowBluetoothA2DP,
+            ])
+            try session.setActive(true)
+            previewOwnsAudioSession = true
+            previewPlayer.setMuted(false)
+        } catch {
+            previewOwnsAudioSession = false
+            previewMuted = true
+            previewPlayer.setMuted(true)
+            updatePreviewAccessibility()
+            updatePreviewMuteBadge()
+            onError?("Couldn’t enable video-preview sound.")
+        }
+    }
+
+    private func releasePreviewAudioSession() {
+        previewAudioSessionTask?.cancel()
+        previewAudioSessionTask = nil
+        guard previewOwnsAudioSession else { return }
+        previewOwnsAudioSession = false
+        Media.shared.endAudioSessionRecord()
     }
 
     private func animateInIfNeeded() {
@@ -1205,5 +1452,13 @@ enum VideoNoteSubmissionResult: Sendable {
         } completion: { [weak self] _ in
             self?.onDismiss?()
         }
+    }
+}
+
+private final class VideoNotePreviewContainerView: UIView {
+    var onAccessibilityActivate: (() -> Bool)?
+
+    override func accessibilityActivate() -> Bool {
+        onAccessibilityActivate?() ?? false
     }
 }

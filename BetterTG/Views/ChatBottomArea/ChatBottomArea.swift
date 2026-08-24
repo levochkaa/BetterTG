@@ -84,6 +84,16 @@ final class ChatComposerView: UIView {
         updateRecordingStatus()
     }
 
+    func updateVideoNoteThumbnails(
+        _ thumbnails: [VideoNoteThumbnailSample],
+        segmentIDs: [UUID],
+    ) {
+        videoNoteThumbnailStrip.updateImages(
+            samples: thumbnails,
+            segmentIDs: segmentIDs,
+        )
+    }
+
     func setVideoNoteReplyMessage(_ message: CustomMessage?) {
         videoNoteReplyMessage = message
         update(from: chatVM)

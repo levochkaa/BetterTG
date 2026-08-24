@@ -43,8 +43,17 @@ final class VideoNoteThumbnailStripView: UIView {
     ) {
         trimView.update(duration: duration, range: range)
         trimView.setEditingEnabled(editingEnabled)
-        guard segmentIDs != displayedSegmentIDs else { return }
+        updateImages(samples: samples, segmentIDs: segmentIDs)
+    }
+
+    func updateImages(
+        samples: [VideoNoteThumbnailSample],
+        segmentIDs: [UUID],
+    ) {
+        let sampleTimes = samples.map(\.time)
+        guard segmentIDs != displayedSegmentIDs || sampleTimes != displayedSampleTimes else { return }
         displayedSegmentIDs = segmentIDs
+        displayedSampleTimes = sampleTimes
         decodeTask?.cancel()
         let generation = UUID()
         decodeGeneration = generation
@@ -110,6 +119,7 @@ final class VideoNoteThumbnailStripView: UIView {
     private var decodeTask: Task<Void, Never>?
     private var decodeGeneration = UUID()
     private var displayedSegmentIDs = [UUID]()
+    private var displayedSampleTimes = [Double]()
 
     private func apply(images: [CGImage?]) {
         let fallback = images.compactMap { $0 }.first
