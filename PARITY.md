@@ -27,15 +27,15 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: native AVPlayerLayer PiP ownership, dismissal transfer, exact restoration and account-scoped revocation.
-- Verification: `./test.sh` and `RUN_ARGUMENTS="-media-probe-gallery-owner" ./run.sh` pass; BetterTG remains Running as PID 36523
+- Current slice: classic fullscreen ±15s transport buttons and hardware keyboard commands.
+- Verification: `./test.sh` and `RUN_ARGUMENTS="-media-probe-gallery-owner" ./run.sh` pass; BetterTG remains Running as PID 39358
   and idb reads `Gallery playback owner probe: same-view=true, detach-retains-session=true, central-visibility=true,
-  transfer-retains=true, delete-revokes=true, pip-supported=false, readiness-gated=true, invalidate=true`. The same player view and
-  TDLib lease survive cell detach and coordinator transfer; readiness/device gates hide PiP here, dismissal cleanup and permanent
-  delete revocation complete, and the UIKit hierarchy remains healthy. `pip-supported=false` is a direct Simulator result: active
-  PiP, background continuation, system controls and exact restore are implemented and audited but deliberately not claimed as
-  runtime-proven without a PiP-capable device.
-- Architecture checkpoint: gallery/owner/restoration now inject the exact TDLib client, its VOD range coordinator and private delete
-  stream. Audio ownership is token-scoped; pending start/stop generations cannot orphan the coordinator or deactivate a newer owner.
-- Next slice: add Telegram's ±15s controls, four-second auto-hide and loaded-range scrubber status, then connect an inline handoff;
-  after that implement the FFmpeg sample-buffer engine for non-Apple WebM/VP9 VOD and its matching PiP playback delegate.
+  transfer-retains=true, delete-revokes=true, commands=back15+forward15+toggle, controls=two-row+44pt,
+  pip-supported=false, readiness-gated=true, invalidate=true`. The full-width blur footer has a separate 36pt scrubber row and a
+  compact transport row whose six buttons are all 44×44 even at 320pt width. Back clamps at zero; forward at/past duration rewinds
+  to zero and pauses. Space toggles, Shift+arrows seek ±5s, and Cmd+P targets active PiP before the central cell. UI and command paths
+  share unknown-duration/failure gates.
+- Architecture checkpoint: controls still route through the central cell into the stable owner, while active PiP remains globally
+  addressable. No raw AVPlayer or TDLib session is exposed to the controller.
+- Next slice: implement Telegram's four-second control auto-hide/tap reveal and loaded-range/offline scrubber status, then connect an
+  inline handoff; after that implement the FFmpeg sample-buffer engine for non-Apple WebM/VP9 VOD and its PiP playback delegate.

@@ -5,7 +5,11 @@ import Combine
 import TDLibKit
 import UIKit
 
-// MARK: - MediaGalleryViewController
+enum GalleryPlaybackCommand: Equatable {
+    case jump(TimeInterval)
+    case togglePictureInPicture
+    case togglePlayback
+}
 
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate {
     init(
@@ -67,11 +71,60 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         prunePlaybackOwners(around: selectedIndex)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        becomeFirstResponder()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
             releasePlaybackOwnersForDismissal()
         }
+    }
+
+    override var canBecomeFirstResponder: Bool {
+        true
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        [
+            makeKeyCommand(
+                input: " ",
+                modifierFlags: [],
+                action: #selector(toggleSelectedPlayback),
+                discoverabilityTitle: "Play or Pause",
+            ),
+            makeKeyCommand(
+                input: UIKeyCommand.inputLeftArrow,
+                modifierFlags: [.shift],
+                action: #selector(jumpSelectedPlaybackBackward),
+                discoverabilityTitle: "Back 5 Seconds",
+            ),
+            makeKeyCommand(
+                input: UIKeyCommand.inputRightArrow,
+                modifierFlags: [.shift],
+                action: #selector(jumpSelectedPlaybackForward),
+                discoverabilityTitle: "Forward 5 Seconds",
+            ),
+            makeKeyCommand(
+                input: "p",
+                modifierFlags: [.command],
+                action: #selector(toggleSelectedPictureInPicture),
+                discoverabilityTitle: "Picture in Picture",
+            ),
+        ]
+    }
+
+    private func makeKeyCommand(
+        input: String,
+        modifierFlags: UIKeyModifierFlags,
+        action: Selector,
+        discoverabilityTitle: String,
+    ) -> UIKeyCommand {
+        let command = UIKeyCommand(input: input, modifierFlags: modifierFlags, action: action)
+        command.discoverabilityTitle = discoverabilityTitle
+        return command
     }
 
     private var messages: [Message]
@@ -239,6 +292,35 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     @objc private func close() {
         releasePlaybackOwnersForDismissal()
         dismiss(animated: true)
+    }
+
+    @objc private func toggleSelectedPlayback() {
+        performOnSelectedItem(.togglePlayback)
+    }
+
+    @objc private func jumpSelectedPlaybackBackward() {
+        performOnSelectedItem(.jump(-5))
+    }
+
+    @objc private func jumpSelectedPlaybackForward() {
+        performOnSelectedItem(.jump(5))
+    }
+
+    @objc private func toggleSelectedPictureInPicture() {
+        performOnSelectedItem(.togglePictureInPicture)
+    }
+
+    private func performOnSelectedItem(_ command: GalleryPlaybackCommand) {
+        if command == .togglePictureInPicture,
+           let activeOwner = GalleryPictureInPictureCoordinator.shared.activeOwner
+        {
+            activeOwner.performPlaybackCommand(command)
+            return
+        }
+        guard messages.indices.contains(selectedIndex) else { return }
+        let indexPath = IndexPath(item: selectedIndex, section: 0)
+        (collectionView.cellForItem(at: indexPath) as? MediaGalleryCell)?
+            .performPlaybackCommand(command)
     }
 
     @objc private func share() {
@@ -473,6 +555,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
         if !isVisible, !isPictureInPictureRetained {
             releasePictureInPictureAudioSession()
         }
+    }
+
+    func performPlaybackCommand(_ command: GalleryPlaybackCommand) {
+        guard !isInvalidated else { return }
+        mediaView.performPlaybackCommand(command)
     }
 
     func detachFromGallery() {
@@ -835,6 +922,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             let reusedExactView = ObjectIdentifier(owner.mediaView) == viewIdentifier
                 && owner.mediaView.superview === secondContainer
             let readinessGated = owner.mediaView.pictureInPictureControlIsHidden
+            owner.performPlaybackCommand(.jump(-15))
+            owner.performPlaybackCommand(.jump(15))
+            owner.performPlaybackCommand(.togglePlayback)
+            let commandRouting = owner.mediaView.debugPlaybackCommandProbePassed
+            let accessibleControls = owner.mediaView.debugPlaybackControlsLayoutProbePassed
             owner.invalidate()
             let invalidatedCleanly = owner.isInvalidated
                 && !owner.isPlaybackVisible
@@ -862,6 +954,8 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                detachedWithoutInvalidation,
                reusedExactView,
                readinessGated,
+               commandRouting,
+               accessibleControls,
                invalidatedCleanly,
                retainedAcrossDismissal,
                transferCleanedUp,
@@ -869,12 +963,15 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             {
                 result = "Gallery playback owner probe: same-view=true, detach-retains-session=true, "
                     + "central-visibility=true, transfer-retains=true, delete-revokes=true, "
+                    + "commands=back15+forward15+toggle, controls=two-row+44pt, "
                     + "pip-supported=\(AVPictureInPictureController.isPictureInPictureSupported()), "
                     + "readiness-gated=true, invalidate=true"
             } else {
                 result = "Gallery playback owner probe failed: startsPaused=\(startsPaused), "
                     + "becameVisible=\(becameVisible), detached=\(detachedWithoutInvalidation), "
                     + "reused=\(reusedExactView), readinessGated=\(readinessGated), "
+                    + "commands=\(commandRouting), "
+                    + "accessibleControls=\(accessibleControls), "
                     + "invalidated=\(invalidatedCleanly), transfer=\(retainedAcrossDismissal), "
                     + "transferCleanup=\(transferCleanedUp), deletion=\(deletionRevoked)"
                 assertionFailure(result)
@@ -1259,17 +1356,27 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
+    func performPlaybackCommand(_ command: GalleryPlaybackCommand) {
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.performPlaybackCommand(command)
+        } else {
+            contentMediaView?.performPlaybackCommand(command)
+        }
+    }
+
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
 }
 
 // MARK: - GalleryMediaView
 
 protocol GalleryMediaView: AnyObject {
+    func performPlaybackCommand(_ command: GalleryPlaybackCommand)
     func prepareForReuse()
     func setPlaybackVisible(_ isVisible: Bool)
 }
 
 extension GalleryMediaView {
+    func performPlaybackCommand(_: GalleryPlaybackCommand) {}
     func setPlaybackVisible(_: Bool) {}
 }
 
@@ -1389,12 +1496,25 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             controlsView.leadingAnchor.constraint(equalTo: leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: trailingAnchor),
             controlsView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            controlsView.heightAnchor.constraint(equalToConstant: 64),
+            controlsView.heightAnchor.constraint(equalToConstant: 112),
             controlsStack.leadingAnchor.constraint(equalTo: controlsView.contentView.leadingAnchor, constant: 12),
             controlsStack.trailingAnchor.constraint(equalTo: controlsView.contentView.trailingAnchor, constant: -12),
             controlsStack.topAnchor.constraint(equalTo: controlsView.contentView.topAnchor, constant: 8),
             controlsStack.bottomAnchor.constraint(equalTo: controlsView.contentView.bottomAnchor, constant: -8),
             timeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 86),
+            scrubberStack.heightAnchor.constraint(equalToConstant: 36),
+            jumpBackwardButton.widthAnchor.constraint(equalToConstant: 44),
+            jumpBackwardButton.heightAnchor.constraint(equalToConstant: 44),
+            playButton.widthAnchor.constraint(equalToConstant: 44),
+            playButton.heightAnchor.constraint(equalToConstant: 44),
+            jumpForwardButton.widthAnchor.constraint(equalToConstant: 44),
+            jumpForwardButton.heightAnchor.constraint(equalToConstant: 44),
+            muteButton.widthAnchor.constraint(equalToConstant: 44),
+            muteButton.heightAnchor.constraint(equalToConstant: 44),
+            rateButton.widthAnchor.constraint(equalToConstant: 44),
+            rateButton.heightAnchor.constraint(equalToConstant: 44),
+            pictureInPictureButton.widthAnchor.constraint(equalToConstant: 44),
+            pictureInPictureButton.heightAnchor.constraint(equalToConstant: 44),
         ])
     }
 
@@ -1429,6 +1549,41 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     #if DEBUG
         var pictureInPictureControlIsHidden: Bool {
             pictureInPictureButton.isHidden
+        }
+
+        var debugPlaybackCommandProbePassed: Bool {
+            let commandsPassed = debugPlaybackCommands == [
+                .jump(-15),
+                .jump(15),
+                .togglePlayback,
+            ]
+            let backward = Self.resolveJump(current: 3, duration: 20, interval: -15)
+            let pastEnd = Self.resolveJump(current: 9, duration: 20, interval: 15)
+            return commandsPassed
+                && backward.time == 0
+                && !backward.shouldPauseAtStart
+                && pastEnd.time == 0
+                && pastEnd.shouldPauseAtStart
+        }
+
+        var debugPlaybackControlsLayoutProbePassed: Bool {
+            let transportButtons = [
+                jumpBackwardButton,
+                playButton,
+                jumpForwardButton,
+                muteButton,
+                rateButton,
+                pictureInPictureButton,
+            ]
+            let fixedTransportWidth = CGFloat(transportButtons.count * 44)
+                + CGFloat((transportStack.arrangedSubviews.count - 1) * 4)
+            return controlsStack.axis == .vertical
+                && scrubberStack.arrangedSubviews == [timeLabel, seekSlider]
+                && transportButtons.allSatisfy { button in
+                    button.constraints.contains { $0.firstAttribute == .width && $0.constant == 44 }
+                        && button.constraints.contains { $0.firstAttribute == .height && $0.constant == 44 }
+                }
+                && fixedTransportWidth <= 296
         }
     #endif
 
@@ -1592,6 +1747,22 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             : "Start Picture in Picture"
     }
 
+    func performPlaybackCommand(_ command: GalleryPlaybackCommand) {
+        #if DEBUG
+            debugPlaybackCommands.append(command)
+        #endif
+        switch command {
+        case .jump(let interval):
+            guard canSeekPlayback else { return }
+            jumpPlayback(by: interval)
+        case .togglePictureInPicture:
+            togglePictureInPicture()
+        case .togglePlayback:
+            guard currentPlaybackState != .failed else { return }
+            togglePlayback()
+        }
+    }
+
     func pauseForAudioTakeover() {
         isUserPaused = true
         player.pause()
@@ -1607,7 +1778,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     private let retryButton = UIButton(type: .system)
     private let controlsView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let controlsStack = UIStackView()
+    private let scrubberStack = UIStackView()
+    private let transportStack = UIStackView()
+    private let transportSpacer = UIView()
     private let playButton = UIButton(type: .system)
+    private let jumpBackwardButton = UIButton(type: .system)
+    private let jumpForwardButton = UIButton(type: .system)
     private let timeLabel = UILabel()
     private let seekSlider = UISlider()
     private let muteButton = UIButton(type: .system)
@@ -1640,19 +1816,42 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     private var playbackDuration = TimeInterval.zero
     private var isPictureInPictureActive = false
     private var vodRanges = TDLib.shared.vodRanges
+    #if DEBUG
+        private var debugPlaybackCommands = [GalleryPlaybackCommand]()
+    #endif
+
+    private var canSeekPlayback: Bool {
+        playbackDuration > 0 && currentPlaybackState != .failed
+    }
 
     private func configurePlaybackControls() {
         controlsView.translatesAutoresizingMaskIntoConstraints = false
         controlsView.isHidden = true
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
-        controlsStack.axis = .horizontal
-        controlsStack.alignment = .center
-        controlsStack.spacing = 10
+        controlsStack.axis = .vertical
+        controlsStack.alignment = .fill
+        controlsStack.spacing = 8
         controlsView.contentView.addSubview(controlsStack)
+        scrubberStack.axis = .horizontal
+        scrubberStack.alignment = .center
+        scrubberStack.spacing = 8
+        transportStack.axis = .horizontal
+        transportStack.alignment = .center
+        transportStack.spacing = 4
+        transportSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        transportSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         playButton.tintColor = .white
         playButton.accessibilityLabel = "Play"
         playButton.addTarget(self, action: #selector(togglePlayback), for: .touchUpInside)
+        jumpBackwardButton.tintColor = .white
+        jumpBackwardButton.setImage(UIImage(systemName: "gobackward.15"), for: .normal)
+        jumpBackwardButton.accessibilityLabel = "Back 15 seconds"
+        jumpBackwardButton.addTarget(self, action: #selector(jumpPlaybackBackward), for: .touchUpInside)
+        jumpForwardButton.tintColor = .white
+        jumpForwardButton.setImage(UIImage(systemName: "goforward.15"), for: .normal)
+        jumpForwardButton.accessibilityLabel = "Forward 15 seconds"
+        jumpForwardButton.addTarget(self, action: #selector(jumpPlaybackForward), for: .touchUpInside)
         timeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         timeLabel.textColor = .white
         timeLabel.textAlignment = .center
@@ -1688,12 +1887,17 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             for: .touchUpInside,
         )
 
-        controlsStack.addArrangedSubview(playButton)
-        controlsStack.addArrangedSubview(timeLabel)
-        controlsStack.addArrangedSubview(seekSlider)
-        controlsStack.addArrangedSubview(muteButton)
-        controlsStack.addArrangedSubview(rateButton)
-        controlsStack.addArrangedSubview(pictureInPictureButton)
+        scrubberStack.addArrangedSubview(timeLabel)
+        scrubberStack.addArrangedSubview(seekSlider)
+        transportStack.addArrangedSubview(jumpBackwardButton)
+        transportStack.addArrangedSubview(playButton)
+        transportStack.addArrangedSubview(jumpForwardButton)
+        transportStack.addArrangedSubview(transportSpacer)
+        transportStack.addArrangedSubview(muteButton)
+        transportStack.addArrangedSubview(rateButton)
+        transportStack.addArrangedSubview(pictureInPictureButton)
+        controlsStack.addArrangedSubview(scrubberStack)
+        controlsStack.addArrangedSubview(transportStack)
         updateControlIcons()
     }
 
@@ -1897,6 +2101,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     }
 
     @objc private func togglePlayback() {
+        guard currentPlaybackState != .failed else { return }
         let playbackWasRequested = isSeeking ? resumeAfterSeeking : player.isPlaybackRequested
         if playbackWasRequested {
             isUserPaused = true
@@ -1911,6 +2116,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             }
         }
         updateControlIcons()
+    }
+
+    @objc private func jumpPlaybackBackward() {
+        jumpPlayback(by: -15)
+    }
+
+    @objc private func jumpPlaybackForward() {
+        jumpPlayback(by: 15)
     }
 
     @objc private func beginSeeking() {
@@ -1973,6 +2186,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         playButton.setImage(UIImage(systemName: showsPause ? "pause.fill" : "play.fill"), for: .normal)
         playButton.accessibilityLabel = showsPause ? "Pause" : "Play"
         playButton.isEnabled = currentPlaybackState != .failed
+        let canSeek = canSeekPlayback
+        seekSlider.isEnabled = canSeek
+        jumpBackwardButton.isEnabled = canSeek
+        jumpForwardButton.isEnabled = canSeek
+        jumpBackwardButton.alpha = canSeek ? 1 : 0.45
+        jumpForwardButton.alpha = canSeek ? 1 : 0.45
 
         muteButton.setImage(
             UIImage(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"),
@@ -2004,6 +2223,41 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         updateControlIcons()
     }
 
+    private func jumpPlayback(by interval: TimeInterval) {
+        guard canSeekPlayback else { return }
+        let resolution = Self.resolveJump(
+            current: currentPlaybackTime,
+            duration: playbackDuration,
+            interval: interval,
+        )
+        if resolution.shouldPauseAtStart {
+            isUserPaused = true
+            currentPlaybackTime = 0
+            player.seek(to: 0, tolerance: 0)
+            player.pause()
+            seekSlider.value = 0
+            updateTimeLabel(current: 0)
+            updateControlIcons()
+            onPlaybackIntentChanged?()
+            return
+        }
+        let shouldResume = !isUserPaused && player.isPlaybackRequested
+        player.pause()
+        commitSeek(to: resolution.time, shouldResume: shouldResume)
+    }
+
+    private static func resolveJump(
+        current: TimeInterval,
+        duration: TimeInterval,
+        interval: TimeInterval,
+    ) -> (time: TimeInterval, shouldPauseAtStart: Bool) {
+        let target = max(0, current + interval)
+        if interval > 0, duration > 0, target >= duration {
+            return (0, true)
+        }
+        return (target, false)
+    }
+
     private func updatePictureInPictureEligibility() {
         onPictureInPictureEligibilityChanged?()
     }
@@ -2024,6 +2278,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             seekSlider.value = Float(min(playbackDuration, currentPlaybackTime))
             updateTimeLabel(current: currentPlaybackTime)
         }
+        updateControlIcons()
     }
 
     private func updateTimeLabel(current: TimeInterval) {
