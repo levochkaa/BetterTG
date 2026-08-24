@@ -8,9 +8,14 @@ script = ""
 [[actions]]
 name = "Run on iPhone"
 icon = "run"
-command = "./build.sh run --device"
+command = "./run.sh"
 
 [[actions]]
-name = "Run on Simulator 26.5"
+name = "Build on Connected iPhone"
+icon = "tool"
+command = "./build.sh --device"
+
+[[actions]]
+name = "Run on Connected iPhone"
 icon = "run"
-command = "./build.sh run --ios 26.5"
+command = "./run.sh --device"

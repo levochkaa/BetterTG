@@ -2,94 +2,31 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/script/xcode_env.sh"
 source "$ROOT_DIR/script/device.sh"
-ORIGINAL_ARGS=("$@")
-
 PROJECT_NAME="BetterTG"
 APP_NAME="BetterTG"
 BUNDLE_ID="com.levochkaaa.BetterTG"
 SCHEME="BetterTG"
-DEFAULT_XCODE_PATH="/Applications/Xcode-26.6.0.app"
-XCODE_PATH="$DEFAULT_XCODE_PATH"
-CONFIGURATION="Debug"
-DERIVED_DATA_PATH=""
-DERIVED_DATA_OVERRIDDEN=0
-PACKAGE_CACHE_ROOT="$HOME/Library/Developer/Xcode/PackageGraphCaches"
-PACKAGE_CACHE_ROOT_OVERRIDDEN=0
-PACKAGE_GRAPH_KEY=""
-CLONED_SOURCE_PACKAGES_DIR_PATH=""
-TOOLCHAIN_KEY=""
-BUILD_LOCK_PATH="/tmp/bettertg-build.lock"
-BUILD_LOCK_HELD=0
-BUILD_ONLY=0
-XCODEBUILD_LOG_DIR="$ROOT_DIR/.build/logs/xcodebuild"
-LAST_XCODEBUILD_LOG_PATH=""
-SIMULATOR_NAME="iPhone 17 Pro"
-SIMULATOR_ID=""
-DEVICE_ID=""
-CODE_SIGNING_ALLOWED="YES"
-IOS_VERSION="latest"
-ACTION="build"
+CONFIGURATION="${CONFIGURATION:-Debug}"
+DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
+SIMULATOR_NAME="${SIMULATOR_NAME:-iPhone 17 Pro}"
+SIMULATOR_ID="${SIMULATOR_ID:-}"
+DEVICE_ID="${DEVICE_ID:-}"
+CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
 FULL_OUTPUT=0
-USE_DEVICE=0
-HAS_LAUNCH_ARGUMENTS=0
-LAUNCH_ARGUMENTS=()
-ATTACH_CONSOLE=0
-SKIP_BUILD=0
-SIMULATOR_BOOT_TIMEOUT_SECONDS=120
+BUILD_FOR_DEVICE=0
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [build|run|clean-intermediates] [options]
+Usage: ./script/build.sh [--device] [--full-output|--verbose]
 
-Commands:
-  build     Build BetterTG (default).
-  run       Build, install, and launch BetterTG.
-  clean-intermediates
-            Remove compilation, index, module, and SDK-stat intermediates while preserving products and Swift packages.
+By default, build output is filtered to error and warning lines. Pass
+--full-output or --verbose to print the complete command output.
 
 Options:
-  --device  Use the available paired physical iPhone instead of Simulator.
-  --device-id ID
-            Use a specific paired physical iPhone identifier.
-  --simulator NAME
-            Simulator name. Default: iPhone 17 Pro.
-  --simulator-id ID
-            Use a specific simulator UDID instead of resolving by name and runtime.
-  --ios VERSION|latest
-            Simulator iOS runtime. Default: latest existing runtime for the simulator.
-  --xcode PATH
-            Xcode .app or Developer directory. Default: /Applications/Xcode-26.6.0.app.
-  --derived-data PATH
-            DerivedData path. Default: .build/xcodebuild-derived-data/<Xcode version>.
-  --cloned-source-packages-dir-path PATH
-            Root for graph-keyed Swift package caches.
-  --xcodebuild-log-dir PATH
-            Full xcodebuild log directory. Default: .build/logs/xcodebuild.
-  --configuration Debug|Release, --debug, --release
-            Build configuration. Default: Debug.
-  --launch-argument VALUE
-            Argument passed to the launched app. Repeat for multiple arguments.
-  -- ARGUMENT...
-            Pass all remaining values to the launched app. Only valid for run.
-  --console Attach to stdout/stderr of an app launched on a physical device and wait for it to exit.
-  --no-code-signing
-            Compile without code signing. Not valid for run.
-  --skip-build
-            For run: install and launch the existing compatible app product.
-  --simulator-boot-timeout-seconds COUNT
-            Maximum time to wait for simulator boot readiness. Default: 120.
-  --full-output, --verbose
-            Print complete build output instead of concise progress.
-
-Examples:
-  ./build.sh run
-  ./build.sh run --ios 26.5
-  ./build.sh run --device
-  ./build.sh run --device-id 00008150-00110D923412401C
-  ./build.sh run --device --console -- -example value
-  ./build.sh run --device -- -example value
-  ./build.sh run --launch-argument=-example --launch-argument value
+  --device  Build for the available paired physical iPhone. Set DEVICE_ID to
+            choose a specific iPhone when more than one is available.
 EOF
 }
 
@@ -105,141 +42,7 @@ fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device)
-      USE_DEVICE=1
-      ;;
-    --device-id)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --device-id requires an identifier" >&2
-        exit 2
-      fi
-      USE_DEVICE=1
-      DEVICE_ID="$2"
-      shift
-      ;;
-    --simulator)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --simulator requires a name" >&2
-        exit 2
-      fi
-      SIMULATOR_NAME="$2"
-      shift
-      ;;
-    --simulator-id)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --simulator-id requires a UDID" >&2
-        exit 2
-      fi
-      SIMULATOR_ID="$2"
-      shift
-      ;;
-    --ios)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --ios requires VERSION or latest" >&2
-        exit 2
-      fi
-      IOS_VERSION="$2"
-      shift
-      ;;
-    --xcode)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --xcode requires an Xcode .app or Developer directory" >&2
-        exit 2
-      fi
-      XCODE_PATH="$2"
-      shift
-      ;;
-    --derived-data)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --derived-data requires a path" >&2
-        exit 2
-      fi
-      DERIVED_DATA_PATH="$2"
-      DERIVED_DATA_OVERRIDDEN=1
-      shift
-      ;;
-    --cloned-source-packages-dir-path)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --cloned-source-packages-dir-path requires a path" >&2
-        exit 2
-      fi
-      PACKAGE_CACHE_ROOT="$2"
-      PACKAGE_CACHE_ROOT_OVERRIDDEN=1
-      shift
-      ;;
-    --xcodebuild-log-dir)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --xcodebuild-log-dir requires a path" >&2
-        exit 2
-      fi
-      XCODEBUILD_LOG_DIR="$2"
-      shift
-      ;;
-    --configuration)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --configuration requires Debug or Release" >&2
-        exit 2
-      fi
-      case "$2" in
-        Debug|debug) CONFIGURATION="Debug" ;;
-        Release|release) CONFIGURATION="Release" ;;
-        *)
-          echo "error: unsupported configuration '$2' (expected Debug or Release)" >&2
-          exit 2
-          ;;
-      esac
-      shift
-      ;;
-    --debug)
-      CONFIGURATION="Debug"
-      ;;
-    --release)
-      CONFIGURATION="Release"
-      ;;
-    --launch-argument)
-      if [[ $# -lt 2 ]]; then
-        echo "error: --launch-argument requires a value" >&2
-        exit 2
-      fi
-      LAUNCH_ARGUMENTS+=("$2")
-      HAS_LAUNCH_ARGUMENTS=1
-      shift
-      ;;
-    --launch-argument=*)
-      LAUNCH_ARGUMENTS+=("${1#*=}")
-      HAS_LAUNCH_ARGUMENTS=1
-      ;;
-    --)
-      shift
-      if [[ $# -eq 0 ]]; then
-        echo "error: -- requires at least one launch argument" >&2
-        exit 2
-      fi
-      LAUNCH_ARGUMENTS+=("$@")
-      HAS_LAUNCH_ARGUMENTS=1
-      break
-      ;;
-    --no-code-signing)
-      CODE_SIGNING_ALLOWED="NO"
-      ;;
-    --console)
-      ATTACH_CONSOLE=1
-      ;;
-    --skip-build)
-      SKIP_BUILD=1
-      ;;
-    --simulator-boot-timeout-seconds)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "error: --simulator-boot-timeout-seconds requires a positive integer" >&2
-        exit 2
-      fi
-      SIMULATOR_BOOT_TIMEOUT_SECONDS="$2"
-      shift
-      ;;
-    --build-lock-held)
-      BUILD_LOCK_HELD=1
-      ;;
-    --build-only)
-      BUILD_ONLY=1
+      BUILD_FOR_DEVICE=1
       ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
@@ -760,99 +563,44 @@ launch_on_simulator() {
 }
 
 validate_configuration
-require_command jq
-require_command xcrun
-require_command lockf
-acquire_build_lock
-configure_xcode
-configure_cache_paths
-migrate_legacy_caches_if_needed
 
-if [[ "$ACTION" == "clean-intermediates" ]]; then
-  clean_derived_data_intermediates
-  echo "Preserved build products and Swift package cache."
-  exit 0
-fi
-
-if [[ "$USE_DEVICE" == "1" ]]; then
-  echo "Finding a connected iPhone..."
+if [[ "$BUILD_FOR_DEVICE" == "1" ]]; then
   DEVICE_ID="$(resolve_connected_iphone_id "$DEVICE_ID")"
+  validate_connected_iphone "$DEVICE_ID"
   destination="platform=iOS,id=$DEVICE_ID"
-  product_platform="iphoneos"
 else
   if [[ -z "$SIMULATOR_ID" ]]; then
     SIMULATOR_ID="$(simulator_id)"
   fi
   destination="platform=iOS Simulator,id=$SIMULATOR_ID"
-  product_platform="iphonesimulator"
 fi
 
-if [[ "$SKIP_BUILD" == "0" ]]; then
-  echo "Generating the Xcode project..."
-  run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
+run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
+resolve_swift_packages
+run_with_filtered_output env BETTERTG_TD_SKIP_RESOLVE=1 python3 "$ROOT_DIR/td.py"
 
-  prepare_swift_packages
+xcodebuild_args=(
+  -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
+  -scheme "$SCHEME"
+  -configuration "$CONFIGURATION"
+  -derivedDataPath "$DERIVED_DATA_PATH"
+  -destination "$destination"
+  -packageAuthorizationProvider netrc
+  -scmProvider system
+  -skipPackagePluginValidation
+  -skipMacroValidation
+  "CODE_SIGNING_ALLOWED=$CODE_SIGNING_ALLOWED"
+)
 
-  echo "Updating generated TDLib models..."
-  run_with_filtered_output python3 "$ROOT_DIR/td.py" \
-    --skip-resolve \
-    --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
-
-  xcodebuild_args=(
-    -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
-    -scheme "$SCHEME"
-    -configuration "$CONFIGURATION"
-    -derivedDataPath "$DERIVED_DATA_PATH"
-    -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
-    -destination "$destination"
-    -packageAuthorizationProvider netrc
-    -scmProvider system
-    -skipPackagePluginValidation
-    -skipMacroValidation
-    -disableAutomaticPackageResolution
-    "CLANG_MODULE_CACHE_PATH=$CLANG_MODULE_CACHE_PATH"
+if [[ "$BUILD_FOR_DEVICE" == "1" ]]; then
+  xcodebuild_args+=(
+    -allowProvisioningUpdates
+    -allowProvisioningDeviceRegistration
   )
-
-  if [[ "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
-    xcodebuild_args+=(
-      "CODE_SIGNING_ALLOWED=NO"
-      "CODE_SIGNING_REQUIRED=NO"
-      "CODE_SIGN_IDENTITY="
-    )
-  else
-    xcodebuild_args+=("CODE_SIGNING_ALLOWED=YES")
-  fi
-
-  if [[ "$USE_DEVICE" == "1" ]]; then
-    xcodebuild_args+=(
-      -allowProvisioningUpdates
-      -allowProvisioningDeviceRegistration
-    )
-  fi
-
-  echo "Building $APP_NAME for $destination..."
-  build_started_at=$SECONDS
-  run_xcodebuild xcodebuild "${xcodebuild_args[@]}" build
-  echo "$APP_NAME built in $((SECONDS - build_started_at))s."
-else
-  echo "Skipping build and reusing the existing $CONFIGURATION app product."
 fi
 
-if [[ "$BUILD_ONLY" == "1" || "$ACTION" == "build" ]]; then
-  exit 0
-fi
+run_with_filtered_output xcodebuild "${xcodebuild_args[@]}" build
 
-APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION-$product_platform/$APP_NAME.app"
-if [[ ! -d "$APP_BUNDLE" ]]; then
-  echo "error: app bundle not found at $APP_BUNDLE" >&2
-  if [[ "$SKIP_BUILD" == "1" ]]; then
-    echo "Run the same command once without --skip-build." >&2
-  fi
-  exit 1
-fi
-
-if [[ "$USE_DEVICE" == "1" ]]; then
-  launch_on_device
-else
-  launch_on_simulator
+if [[ "$FULL_OUTPUT" == "1" ]]; then
+  echo "BetterTG built successfully for $destination"
 fi
