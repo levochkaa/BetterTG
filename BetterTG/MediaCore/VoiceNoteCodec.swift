@@ -3,13 +3,14 @@
 import AVFoundation
 import FFmpegBridge
 import Foundation
+import TDLibKit
 
 // MARK: - VoiceNoteCodec
 
 enum VoiceNoteCodec {
     // MARK: Internal
 
-    enum CodecError: Error {
+    enum CodecError: Swift.Error {
         case encodingFailed(Int32)
         case invalidOutput
     }
@@ -29,6 +30,10 @@ enum VoiceNoteCodec {
                 }
             }
         }.value
+        guard !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw CancellationError()
+        }
         guard result == 0 else {
             try? FileManager.default.removeItem(at: outputURL)
             throw CodecError.encodingFailed(result)
@@ -41,7 +46,10 @@ enum VoiceNoteCodec {
     }
 
     static func encodeWaveform(peakPowers: [Float], maximumSamples: Int = 100) -> Data {
-        guard maximumSamples > 0, !peakPowers.isEmpty else { return Data() }
+        guard maximumSamples > 0 else { return Data() }
+        guard !peakPowers.isEmpty else {
+            return Data(repeating: 0, count: (maximumSamples * 5 + 7) / 8)
+        }
         return pack(samples: resample(peakPowers: peakPowers, maximumSamples: maximumSamples))
     }
 
@@ -66,14 +74,57 @@ enum VoiceNoteCodec {
                     let size = attributes[.size] as? NSNumber
                     let referenceSamples = (0..<100).map { UInt8($0 % 32) }
                     let packedWaveform = pack(samples: referenceSamples)
+                    precondition(encodeWaveform(peakPowers: [-60, -30, 0]).count == 63)
+                    precondition(encodeWaveform(peakPowers: []).count == 63)
                     precondition(
                         unpack(data: packedWaveform, sampleCount: referenceSamples.count) == referenceSamples,
                         "Voice waveform packing must be 5-bit LSB-first",
                     )
+                    let draft = VoiceNoteSendDraft(
+                        id: UUID(),
+                        chatID: Int64.min + 1,
+                        caption: FormattedText(entities: [], text: ""),
+                        createdAt: Foundation.Date(),
+                        duration: 1,
+                        enqueueStartedAt: nil,
+                        failedSendState: nil,
+                        fileURL: outputURL,
+                        isEncoded: true,
+                        replyMessageID: nil,
+                        replyTo: nil,
+                        temporaryMessageID: nil,
+                        waveform: packedWaveform,
+                    )
+                    let storedDraft = try await VoiceNoteDraftStore.shared.adopt(draft)
+                    let enqueueingDraft = try await VoiceNoteDraftStore.shared.beginEnqueue(storedDraft)
+                    let probeMessageID = Int64.min + 2
+                    let probeFailedState = VoiceNoteFailedSendState(
+                        canRetry: true,
+                        messageID: probeMessageID + 1,
+                        needAnotherReplyQuote: false,
+                        needAnotherSender: false,
+                        requiredPaidMessageStarCount: 0,
+                        retryAvailableAt: Foundation.Date(),
+                    )
+                    let earlyResolution = try await VoiceNoteDraftStore.shared.handleSendFailed(
+                        chatID: draft.chatID,
+                        temporaryMessageID: probeMessageID,
+                        failedSendState: probeFailedState,
+                    )
+                    precondition(earlyResolution == nil)
+                    let registration = try await VoiceNoteDraftStore.shared.registerEnqueued(
+                        enqueueingDraft,
+                        temporaryMessageID: probeMessageID,
+                    )
+                    precondition(registration.outcome == .failed)
+                    precondition(registration.draft.temporaryMessageID == nil)
+                    precondition(registration.draft.failedSendState?.messageID == probeMessageID + 1)
+                    precondition(FileManager.default.fileExists(atPath: registration.draft.fileURL.path))
+                    await VoiceNoteDraftStore.shared.remove(registration.draft)
                     log(
                         "Voice codec probe: Ogg/Opus valid, \(size?.intValue ?? 0) bytes; "
                             + "waveform round-trip \(packedWaveform.count) bytes; "
-                            + "cached PCM playback \(playbackFile.length) frames",
+                            + "cached PCM playback \(playbackFile.length) frames; durable retry reconciled",
                     )
                     try? FileManager.default.removeItem(at: inputURL)
                     try? FileManager.default.removeItem(at: outputURL)
@@ -135,7 +186,7 @@ enum VoiceNoteCodec {
     #endif
 
     private static func resample(peakPowers: [Float], maximumSamples: Int) -> [UInt8] {
-        let sampleCount = min(maximumSamples, peakPowers.count)
+        let sampleCount = maximumSamples
         return (0..<sampleCount).map { sampleIndex in
             let lowerBound = sampleIndex * peakPowers.count / sampleCount
             let upperBound = max(lowerBound + 1, (sampleIndex + 1) * peakPowers.count / sampleCount)

@@ -4,45 +4,7 @@ import TDLibKitDynamic
 import UIKit
 
 final class ChatComposerView: UIView {
-    // MARK: Internal
-
-    var onPickPhotos: (() -> Void)?
-    var onTakePhoto: (() -> Void)?
-    var onScrollToMessage: ((Int64) -> Void)?
-
-    // MARK: Private
-
-    private let chatVM: ChatVM
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let rootStack = UIStackView()
-    private let replyContainer = UIView()
-    private let replyRow = UIStackView()
-    private let replySnippet = ReplySnippetView()
-    private let closeReplyButton = UIButton(type: .system)
-    private let photosScroll = UIScrollView()
-    private let photosStack = UIStackView()
-    private let inputRow = UIStackView()
-    private let attachmentButton = UIButton(type: .system)
-    private let textView = FormattedTextView(placeholder: "Message…")
-    private let actionButton = UIButton(type: .system)
-    private let recordingRow = UIStackView()
-    private let cancelRecordingButton = UIButton(type: .system)
-    private let recordingLabel = UILabel()
-    private let recordingSendButton = UIButton(type: .system)
-    private var displayedImageIDs = [UUID]()
-    private var draftTask: Task<Void, Never>?
-    private var typingTask: Task<Void, Never>?
-    private var isApplyingState = false
-    private var hiddenForSearch = false
-    private var keyboardAttached = false
-    private var lastReplyID: Int64?
-    private var lastEditID: Int64?
-    private var replyContainerHeightConstraint: NSLayoutConstraint!
-    private var replyPreviewVisible = false
-
-    var isInputFocused: Bool {
-        textView.isFirstResponder
-    }
+    // MARK: Lifecycle
 
     init(chatVM: ChatVM) {
         self.chatVM = chatVM
@@ -54,6 +16,16 @@ final class ChatComposerView: UIView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    var onPickPhotos: (() -> Void)?
+    var onTakePhoto: (() -> Void)?
+    var onScrollToMessage: ((Int64) -> Void)?
+
+    var isInputFocused: Bool {
+        textView.isFirstResponder
     }
 
     func focusInput() {
@@ -104,22 +76,41 @@ final class ChatComposerView: UIView {
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
         textView.setAttributedText(targetText)
 
-        let showsReplyPreview: Bool
         if let edited = chatVM.editCustomMessage {
-            showsReplyPreview = true
+            replyRow.isHidden = false
+            closeReplyButton.isHidden = false
             replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
                 self?.onScrollToMessage?(edited.id)
             }
+        } else if targetText.characters.isEmpty,
+                  let pendingReplyID = chatVM.pendingVoiceReplyMessageID,
+                  chatVM.hasPendingVoiceNote || chatVM.finalizingVoiceNote
+        {
+            replyRow.isHidden = false
+            closeReplyButton.isHidden = true
+            if let pendingReply = chatVM.pendingVoiceReplyMessage {
+                replySnippet.configure(
+                    title: "Voice reply · \(pendingReply.senderUser?.firstName ?? "Message")",
+                    message: pendingReply.message,
+                ) { [weak self] in
+                    self?.onScrollToMessage?(pendingReply.id)
+                }
+            } else {
+                replySnippet.configure(title: "Voice reply", text: "Original replied message") { [weak self] in
+                    self?.onScrollToMessage?(pendingReplyID)
+                }
+            }
         } else if let reply = chatVM.replyMessage {
-            showsReplyPreview = true
+            replyRow.isHidden = false
+            closeReplyButton.isHidden = false
             replySnippet
                 .configure(title: reply.senderUser?.firstName ?? "Reply", message: reply.message) { [weak self] in
                     self?.onScrollToMessage?(reply.id)
                 }
         } else {
-            showsReplyPreview = false
+            replyRow.isHidden = true
+            closeReplyButton.isHidden = false
         }
-        setReplyPreviewVisible(showsReplyPreview, animated: window != nil)
 
         let imageIDs = chatVM.displayedImages.map(\.id)
         if displayedImageIDs != imageIDs {
@@ -143,6 +134,165 @@ final class ChatComposerView: UIView {
         isApplyingState = false
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
+        }
+    }
+
+    // MARK: Private
+
+    private let chatVM: ChatVM
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let rootStack = UIStackView()
+    private let replyRow = UIStackView()
+    private let replySnippet = ReplySnippetView()
+    private let closeReplyButton = UIButton(type: .system)
+    private let photosScroll = UIScrollView()
+    private let photosStack = UIStackView()
+    private let inputRow = UIStackView()
+    private let attachmentButton = UIButton(type: .system)
+    private let textView = FormattedTextView(placeholder: "Message…")
+    private let actionButton = UIButton(type: .system)
+    private let recordingRow = UIStackView()
+    private let cancelRecordingButton = UIButton(type: .system)
+    private let recordingLabel = UILabel()
+    private let recordingSendButton = UIButton(type: .system)
+    private lazy var recordingGestureRecognizer = UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(actionLongPressed(_:)),
+    )
+    private var displayedImageIDs = [UUID]()
+    private var draftTask: Task<Void, Never>?
+    private var typingTask: Task<Void, Never>?
+    private var isApplyingState = false
+    private var hiddenForSearch = false
+    private var keyboardAttached = false
+    private var lastReplyID: Int64?
+    private var lastEditID: Int64?
+
+    private func configureViews() {
+        translatesAutoresizingMaskIntoConstraints = false
+        backgroundColor = .clear
+        layer.cornerRadius = 22
+        layer.cornerCurve = .continuous
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        clipsToBounds = true
+
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(blurView)
+
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.axis = .vertical
+        rootStack.spacing = 6
+        addSubview(rootStack)
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            rootStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -7),
+        ])
+
+        replyRow.axis = .horizontal
+        replyRow.alignment = .center
+        replyRow.spacing = 6
+        closeReplyButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeReplyButton.accessibilityLabel = "Cancel reply or edit"
+        replyRow.addArrangedSubview(replySnippet)
+        replyRow.addArrangedSubview(closeReplyButton)
+        replySnippet.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        photosScroll.translatesAutoresizingMaskIntoConstraints = false
+        photosScroll.showsHorizontalScrollIndicator = false
+        photosStack.translatesAutoresizingMaskIntoConstraints = false
+        photosStack.axis = .horizontal
+        photosStack.spacing = 6
+        photosScroll.addSubview(photosStack)
+        NSLayoutConstraint.activate([
+            photosScroll.heightAnchor.constraint(equalToConstant: 104),
+            photosStack.topAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.topAnchor),
+            photosStack.leadingAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.leadingAnchor),
+            photosStack.trailingAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.trailingAnchor),
+            photosStack.bottomAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.bottomAnchor),
+            photosStack.heightAnchor.constraint(equalTo: photosScroll.frameLayoutGuide.heightAnchor),
+        ])
+
+        inputRow.axis = .horizontal
+        inputRow.alignment = .bottom
+        inputRow.spacing = 8
+        attachmentButton.setImage(UIImage(systemName: "plus"), for: .normal)
+        attachmentButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 24, weight: .regular),
+            forImageIn: .normal,
+        )
+        attachmentButton.showsMenuAsPrimaryAction = true
+        attachmentButton.accessibilityLabel = "Attach"
+        textView.backgroundColor = .clear
+        inputRow.addArrangedSubview(attachmentButton)
+        inputRow.addArrangedSubview(textView)
+        inputRow.addArrangedSubview(actionButton)
+        NSLayoutConstraint.activate([
+            attachmentButton.widthAnchor.constraint(equalToConstant: 34),
+            attachmentButton.heightAnchor.constraint(equalToConstant: 36),
+            actionButton.widthAnchor.constraint(equalToConstant: 34),
+            actionButton.heightAnchor.constraint(equalToConstant: 36),
+        ])
+
+        recordingRow.axis = .horizontal
+        recordingRow.alignment = .center
+        recordingRow.spacing = 10
+        cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
+        recordingLabel.textColor = .label
+        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        recordingLabel.textAlignment = .center
+        recordingSendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
+        recordingSendButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 28),
+            forImageIn: .normal,
+        )
+        recordingSendButton.accessibilityLabel = "Send voice message"
+        recordingRow.addArrangedSubview(cancelRecordingButton)
+        let leadingRecordingSpacer = UIView()
+        leadingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingRow.addArrangedSubview(leadingRecordingSpacer)
+        recordingRow.addArrangedSubview(recordingLabel)
+        let trailingRecordingSpacer = UIView()
+        trailingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingRow.addArrangedSubview(trailingRecordingSpacer)
+        recordingRow.addArrangedSubview(recordingSendButton)
+        cancelRecordingButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        cancelRecordingButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        leadingRecordingSpacer.widthAnchor.constraint(equalTo: trailingRecordingSpacer.widthAnchor).isActive = true
+        recordingSendButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        recordingSendButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+
+        rootStack.addArrangedSubview(replyRow)
+        rootStack.addArrangedSubview(photosScroll)
+        rootStack.addArrangedSubview(inputRow)
+        rootStack.addArrangedSubview(recordingRow)
+    }
+
+    private func configureActions() {
+        attachmentButton.menu = UIMenu(children: [
+            UIAction(title: "Attach Photos", image: UIImage(systemName: "photo")) { [weak self] _ in
+                self?.onPickPhotos?()
+            },
+            UIAction(title: "Take Photo", image: UIImage(systemName: "camera.fill")) { [weak self] _ in
+                self?.onTakePhoto?()
+            },
+        ])
+        closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
+        cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
+        actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+        recordingSendButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+        actionButton.addGestureRecognizer(recordingGestureRecognizer)
+
+        textView.onTextChange = { [weak self] text in self?.textChanged(text) }
+        textView.onPasteImages = { [weak self] images in
+            guard let self else { return }
+            chatVM.displayedImages = Array(images.prefix(10))
         }
     }
 
@@ -413,7 +563,20 @@ final class ChatComposerView: UIView {
             || !chatVM.text.characters.isEmpty
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
-        let symbol = chatVM.recordingVoiceNote || hasContent ? "arrow.up.circle.fill" : "mic.fill"
+        let isPreparingVoice = chatVM.loadingVoiceDraft || chatVM.startingVoiceNote || chatVM.finalizingVoiceNote
+        let isFinalizingVoice = isPreparingVoice && !hasContent
+        let isRetryingVoice = chatVM.canRetryPendingVoiceNote && !hasContent
+        let isUncertainVoice = chatVM.hasPendingVoiceNote && !chatVM.canRetryPendingVoiceNote && !hasContent
+        let symbol =
+            if isFinalizingVoice {
+                "clock.circle"
+            } else if isRetryingVoice {
+                "arrow.clockwise.circle.fill"
+            } else if isUncertainVoice {
+                "exclamationmark.circle.fill"
+            } else {
+                chatVM.recordingVoiceNote || hasContent ? "arrow.up.circle.fill" : "mic.fill"
+            }
         actionButton.setImage(UIImage(systemName: symbol), for: .normal)
         actionButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(
@@ -422,7 +585,47 @@ final class ChatComposerView: UIView {
             ),
             forImageIn: .normal,
         )
-        actionButton.accessibilityLabel = chatVM.recordingVoiceNote || hasContent ? "Send" : "Record voice message"
+        actionButton.isEnabled = !isFinalizingVoice
+        actionButton.alpha = isFinalizingVoice ? 0.55 : 1
+        recordingGestureRecognizer.isEnabled = !chatVM.startingVoiceNote
+            && !chatVM.loadingVoiceDraft
+            && !chatVM.finalizingVoiceNote
+            && !chatVM.hasPendingVoiceNote
+        if chatVM.hasPendingVoiceNote {
+            var voiceActions = [UIAction]()
+            if chatVM.canRetryPendingVoiceNote {
+                voiceActions.append(UIAction(
+                    title: "Retry Voice Message",
+                    image: UIImage(systemName: "arrow.clockwise"),
+                ) { [weak self] _ in
+                    self?.chatVM.retryPendingVoiceNote()
+                })
+            }
+            voiceActions.append(UIAction(
+                title: "Discard Voice Message",
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive,
+            ) { [weak self] _ in
+                self?.chatVM.discardPendingVoiceNote()
+            })
+            actionButton.menu = UIMenu(children: voiceActions)
+            actionButton.accessibilityHint = chatVM.canRetryPendingVoiceNote
+                ? "Touch and hold for retry and discard options."
+                : "Check the chat for the previous send, or touch and hold to discard."
+        } else {
+            actionButton.menu = nil
+            actionButton.accessibilityHint = nil
+        }
+        actionButton.accessibilityLabel =
+            if isFinalizingVoice {
+                "Preparing voice message"
+            } else if isRetryingVoice {
+                "Retry voice message"
+            } else if isUncertainVoice {
+                "Voice message send status unknown"
+            } else {
+                chatVM.recordingVoiceNote || hasContent ? "Send" : "Record voice message"
+            }
     }
 
     @objc private func cancelReplyOrEdit() {
@@ -433,13 +636,19 @@ final class ChatComposerView: UIView {
 
     @objc private func actionTapped() {
         if chatVM.recordingVoiceNote {
-            chatVM.mediaStopRecordingVoice(duration: Int(chatVM.timerCount), wave: chatVM.wave)
+            chatVM.mediaStopRecordingVoice()
             return
         }
         let hasContent = !chatVM.displayedImages.isEmpty
             || !chatVM.text.characters.isEmpty
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
+        if chatVM.hasPendingVoiceNote, !hasContent {
+            if chatVM.canRetryPendingVoiceNote {
+                chatVM.retryPendingVoiceNote()
+            }
+            return
+        }
         guard hasContent else { return }
         chatVM.sendMessageTask?.cancel()
         chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage() }
@@ -447,6 +656,10 @@ final class ChatComposerView: UIView {
 
     @objc private func actionLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began,
+              !chatVM.finalizingVoiceNote,
+              !chatVM.startingVoiceNote,
+              !chatVM.loadingVoiceDraft,
+              !chatVM.hasPendingVoiceNote,
               chatVM.displayedImages.isEmpty,
               chatVM.text.characters.isEmpty,
               chatVM.editCustomMessage == nil

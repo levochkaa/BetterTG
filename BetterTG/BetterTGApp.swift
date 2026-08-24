@@ -17,7 +17,7 @@ import UIKit
             VoiceNoteCodec.runDebugProbeIfRequested()
         #endif
         PushRelayCoordinator.shared.start()
-        RichNotificationCacheCoordinator.shared.start()
+        VoiceNoteDraftCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()

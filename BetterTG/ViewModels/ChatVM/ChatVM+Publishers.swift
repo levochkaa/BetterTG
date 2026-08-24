@@ -33,6 +33,13 @@ extension ChatVM {
             guard let self, update.message.chatId == customChat.id else { return }
             updateMessageSendFailed(update)
         }
+        nc.publisher(&cancellables, for: .voiceNoteDraftResolved) { [weak self] notification in
+            guard let self,
+                  let resolution = notification.object as? VoiceNoteDraftResolution,
+                  resolution.chatID == customChat.id
+            else { return }
+            handleVoiceNoteDraftResolution(resolution)
+        }
         nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
             guard let self, update.userId == customChat.user?.id else { return }
             onlineStatus = getOnlineStatus(from: update.status)
@@ -106,6 +113,7 @@ extension ChatVM {
 
     func updateDeleteMessages(_ update: UpdateDeleteMessages) {
         guard !update.fromCache, update.isPermanent else { return }
+        bufferPotentialVoiceMessageDeletions(update.messageIds)
         messages.removeAll { update.messageIds.contains($0.id) }
     }
 

@@ -89,6 +89,14 @@ final class Media: ObservableObject {
         }
     }
 
+    func endAudioSessionRecord() {
+        do {
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            log("Error ending audioSessionRecord: \(error)")
+        }
+    }
+
     // MARK: Private
 
     private var duration = 0
