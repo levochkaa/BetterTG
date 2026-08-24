@@ -619,7 +619,11 @@ private actor TDLibVODResourceReadGate {
                     )
                 }
                 do {
-                    try await waitUntil { await playbackRecorder.didAdvance }
+                    try await waitUntil {
+                        let didAdvance = await playbackRecorder.didAdvance
+                        let didLoadDuration = await playbackRecorder.didLoadDuration
+                        return didAdvance && didLoadDuration
+                    }
                 } catch {
                     let detail = await playbackRecorder.proof
                     let calls = await playbackBackend.downloadCalls
@@ -627,10 +631,32 @@ private actor TDLibVODResourceReadGate {
                         "playback \(detail), downloads=\(calls.map(\.range))",
                     )
                 }
-                let playbackSnapshot = await playbackBackend.file(expectedSize: size)
+                let coldPlaybackSnapshot = await playbackBackend.file(expectedSize: size)
+                guard !coldPlaybackSnapshot.local.isDownloadingCompleted else {
+                    throw TDLibVODResourceLoaderProbeError.detail("cold playback completed the download")
+                }
+
+                stage = "playback controls"
+                let controlsApplied = await MainActor.run { playbackProbe.seekWithControls(to: 12) }
+                guard controlsApplied else {
+                    throw TDLibVODResourceLoaderProbeError.detail("control state was not applied")
+                }
+                await playbackRecorder.expect(time: 12.2)
+                try await waitUntil { await playbackRecorder.didReachExpectedTime }
+                let paused = await MainActor.run { playbackProbe.pause() }
+                guard paused else {
+                    throw TDLibVODResourceLoaderProbeError.detail("pause intent was not retained")
+                }
+                let pausedTime = await playbackRecorder.maximumTime
+                let resumed = await MainActor.run { playbackProbe.resume() }
+                guard resumed else {
+                    throw TDLibVODResourceLoaderProbeError.detail("resume intent was not retained")
+                }
+                await playbackRecorder.expect(time: pausedTime + 0.2)
+                try await waitUntil { await playbackRecorder.didReachExpectedTime }
+
                 let playbackDownloadCalls = await playbackBackend.downloadCalls
-                guard !playbackSnapshot.local.isDownloadingCompleted,
-                      playbackDownloadCalls.allSatisfy({ !$0.isFullDownload })
+                guard playbackDownloadCalls.allSatisfy({ !$0.isFullDownload })
                 else {
                     throw TDLibVODResourceLoaderProbeError.detail("playback used full-download semantics")
                 }
@@ -672,7 +698,8 @@ private actor TDLibVODResourceReadGate {
 
                 let proof = "VOD resource-loader probe: duration=\(duration.seconds), tracks=A/V, "
                     + "requests=\(playbackDownloadCalls.count), progressive-before-complete=true, "
-                    + "native-playing-before-complete, finite-priority/queued-cancel/no-full-download=true"
+                    + "native-playing-before-complete, controls=pause/seek/rate/mute/resume, "
+                    + "finite-priority/queued-cancel/no-full-download=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {
@@ -708,15 +735,31 @@ private actor TDLibVODResourceReadGate {
         // MARK: Internal
 
         private(set) var didAdvance = false
+        private(set) var didLoadDuration = false
+        private(set) var didReachExpectedTime = false
+        private(set) var maximumTime = TimeInterval.zero
 
         var proof: String {
-            "states=\(states), maxTime=\(maximumTime)"
+            "states=\(states), duration=\(duration), maxTime=\(maximumTime)"
+        }
+
+        func expect(time: TimeInterval) {
+            expectedTime = time
+            didReachExpectedTime = maximumTime >= time
+        }
+
+        func update(duration: TimeInterval) {
+            self.duration = max(self.duration, duration)
+            didLoadDuration = duration >= 17.5
         }
 
         func update(time: TimeInterval) {
             maximumTime = max(maximumTime, time)
             if time >= 0.2 {
                 didAdvance = true
+            }
+            if time >= expectedTime {
+                didReachExpectedTime = true
             }
         }
 
@@ -726,7 +769,8 @@ private actor TDLibVODResourceReadGate {
 
         // MARK: Private
 
-        private var maximumTime = TimeInterval.zero
+        private var duration = TimeInterval.zero
+        private var expectedTime = TimeInterval.greatestFiniteMagnitude
         private var states = [String]()
     }
 
@@ -742,6 +786,11 @@ private actor TDLibVODResourceReadGate {
                     Task { await recorder.update(time: time) }
                 }
                 .store(in: &cancellables)
+            player.durationPublisher
+                .sink { duration in
+                    Task { await recorder.update(duration: duration) }
+                }
+                .store(in: &cancellables)
             player.statePublisher
                 .sink { state in
                     Task { await recorder.update(state: state) }
@@ -751,6 +800,25 @@ private actor TDLibVODResourceReadGate {
         }
 
         // MARK: Internal
+
+        func seekWithControls(to time: TimeInterval) -> Bool {
+            player.pause()
+            guard !player.isPlaybackRequested else { return false }
+            player.setMuted(true)
+            player.setRate(1.5)
+            player.play(from: time)
+            return player.isMuted && player.rate == 1.5 && player.isPlaybackRequested
+        }
+
+        func pause() -> Bool {
+            player.pause()
+            return !player.isPlaybackRequested
+        }
+
+        func resume() -> Bool {
+            player.play()
+            return player.isPlaybackRequested && player.isMuted && player.rate == 1.5
+        }
 
         func stop() {
             player.stop()

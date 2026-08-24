@@ -411,10 +411,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         retryButton.isHidden = true
         retryButton.accessibilityHint = "Attempts to load this video again"
         retryButton.addTarget(self, action: #selector(retryPlayback), for: .touchUpInside)
+        configurePlaybackControls()
         addSubview(preview)
         addSubview(videoSurface)
         addSubview(spinner)
         addSubview(retryButton)
+        addSubview(controlsView)
         NSLayoutConstraint.activate([
             preview.topAnchor.constraint(equalTo: topAnchor),
             preview.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -428,6 +430,15 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
             retryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
             retryButton.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
+            controlsView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            controlsView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controlsView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            controlsView.heightAnchor.constraint(equalToConstant: 64),
+            controlsStack.leadingAnchor.constraint(equalTo: controlsView.contentView.leadingAnchor, constant: 12),
+            controlsStack.trailingAnchor.constraint(equalTo: controlsView.contentView.trailingAnchor, constant: -12),
+            controlsStack.topAnchor.constraint(equalTo: controlsView.contentView.topAnchor, constant: 8),
+            controlsStack.bottomAnchor.constraint(equalTo: controlsView.contentView.bottomAnchor, constant: -8),
+            timeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 86),
         ])
     }
 
@@ -463,9 +474,27 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()
         retryButton.isHidden = true
+        controlsView.isHidden = loops
+        isUserPaused = false
+        isMuted = false
+        playbackRate = 1
+        isSeeking = false
+        resumeAfterSeeking = false
+        currentPlaybackTime = 0
+        playbackDuration = 0
+        seekSlider.value = 0
+        seekSlider.isEnabled = false
+        updatePlaybackTime(0)
+        updateControlIcons()
         playbackCancellable = player.statePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.render(state: state) }
+        timeCancellable = player.timePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in self?.updatePlaybackTime(time) }
+        durationCancellable = player.durationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] duration in self?.updatePlaybackDuration(duration) }
         if file.local.isDownloadingCompleted {
             update(file: file)
         } else if supportsStreaming,
@@ -494,9 +523,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         task = nil
         playbackCancellable?.cancel()
         playbackCancellable = nil
+        timeCancellable?.cancel()
+        timeCancellable = nil
+        durationCancellable?.cancel()
+        durationCancellable = nil
         preview.cancel()
         spinner.stopAnimating()
         retryButton.isHidden = true
+        controlsView.isHidden = true
         videoSurface.playerLayer.player = nil
         videoSurface.isHidden = true
         fileID = nil
@@ -507,11 +541,22 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         startPlaybackTimestamp = 0
         surfaceItemIdentifier = nil
         currentPlaybackState = .idle
+        isSeeking = false
+        resumeAfterSeeking = false
+        isUserPaused = false
+        isMuted = false
+        playbackRate = 1
+        currentPlaybackTime = 0
+        playbackDuration = 0
+        seekSlider.value = 0
+        seekSlider.isEnabled = false
+        updatePlaybackTime(0)
+        updateControlIcons()
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
         isPlaybackVisible = isVisible
-        if isVisible {
+        if isVisible, !isUserPaused {
             player.play()
         } else {
             player.pause()
@@ -524,10 +569,19 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     private let videoSurface = LocalVideoSurfaceView(frame: .zero)
     private let spinner = UIActivityIndicatorView(style: .large)
     private let retryButton = UIButton(type: .system)
+    private let controlsView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let controlsStack = UIStackView()
+    private let playButton = UIButton(type: .system)
+    private let timeLabel = UILabel()
+    private let seekSlider = UISlider()
+    private let muteButton = UIButton(type: .system)
+    private let rateButton = UIButton(type: .system)
     private let player = LocalMediaPlayer()
     private var fileID: Int?
     private var task: Task<Void, Never>?
     private var playbackCancellable: AnyCancellable?
+    private var timeCancellable: AnyCancellable?
+    private var durationCancellable: AnyCancellable?
     private var displayCancellable: AnyCancellable?
     private var isPlaybackVisible = false
     private var isSurfaceReady = false
@@ -540,6 +594,60 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     private var usesLegacyDownload = false
     private var usesVOD = false
     private var currentPlaybackState = LocalMediaPlayer.State.idle
+    private var isSeeking = false
+    private var resumeAfterSeeking = false
+    private var isUserPaused = false
+    private var isMuted = false
+    private var playbackRate: Float = 1
+    private var currentPlaybackTime = TimeInterval.zero
+    private var playbackDuration = TimeInterval.zero
+
+    private func configurePlaybackControls() {
+        controlsView.translatesAutoresizingMaskIntoConstraints = false
+        controlsView.isHidden = true
+        controlsStack.translatesAutoresizingMaskIntoConstraints = false
+        controlsStack.axis = .horizontal
+        controlsStack.alignment = .center
+        controlsStack.spacing = 10
+        controlsView.contentView.addSubview(controlsStack)
+
+        playButton.tintColor = .white
+        playButton.accessibilityLabel = "Play"
+        playButton.addTarget(self, action: #selector(togglePlayback), for: .touchUpInside)
+        timeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        timeLabel.textColor = .white
+        timeLabel.textAlignment = .center
+        timeLabel.text = "0:00 / 0:00"
+        seekSlider.minimumValue = 0
+        seekSlider.maximumValue = 1
+        seekSlider.minimumTrackTintColor = .white
+        seekSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.35)
+        seekSlider.isEnabled = false
+        seekSlider.accessibilityLabel = "Video position"
+        seekSlider.accessibilityHint = "Swipe up or down to seek"
+        seekSlider.addTarget(self, action: #selector(beginSeeking), for: .touchDown)
+        seekSlider.addTarget(self, action: #selector(seekValueChanged), for: .valueChanged)
+        seekSlider.addTarget(
+            self,
+            action: #selector(endSeeking),
+            for: [.touchUpInside, .touchUpOutside, .touchCancel],
+        )
+        muteButton.tintColor = .white
+        muteButton.accessibilityLabel = "Mute"
+        muteButton.addTarget(self, action: #selector(toggleMuted), for: .touchUpInside)
+        rateButton.setTitle("1×", for: .normal)
+        rateButton.setTitleColor(.white, for: .normal)
+        rateButton.accessibilityLabel = "Playback speed"
+        rateButton.accessibilityHint = "Cycles through available playback speeds"
+        rateButton.addTarget(self, action: #selector(cyclePlaybackRate), for: .touchUpInside)
+
+        controlsStack.addArrangedSubview(playButton)
+        controlsStack.addArrangedSubview(timeLabel)
+        controlsStack.addArrangedSubview(seekSlider)
+        controlsStack.addArrangedSubview(muteButton)
+        controlsStack.addArrangedSubview(rateButton)
+        updateControlIcons()
+    }
 
     private func startVOD(
         file: File,
@@ -586,10 +694,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
                 self.prepareSurfaceForNewItem()
                 self.player.load(
                     vodSession: session,
-                    autoplay: self.isPlaybackVisible,
+                    autoplay: self.isPlaybackVisible && !self.isUserPaused,
                     loops: self.loopsPlayback,
                     initialTime: startTimestamp,
                 )
+                self.player.setMuted(self.isMuted)
+                self.player.setRate(self.playbackRate)
                 self.bindSurfaceToCurrentItem()
             }
         }
@@ -683,10 +793,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         prepareSurfaceForNewItem()
         player.load(
             url: URL(fileURLWithPath: file.local.path),
-            autoplay: isPlaybackVisible,
+            autoplay: isPlaybackVisible && !isUserPaused,
             loops: loopsPlayback,
             initialTime: startPlaybackTimestamp,
         )
+        player.setMuted(isMuted)
+        player.setRate(playbackRate)
         bindSurfaceToCurrentItem()
     }
 
@@ -719,6 +831,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
                 showRetryState()
             }
         }
+        updateControlIcons()
     }
 
     private func showRetryState() {
@@ -726,6 +839,151 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         spinner.stopAnimating()
         videoSurface.isHidden = true
         retryButton.isHidden = false
+        updateControlIcons()
+    }
+
+    @objc private func togglePlayback() {
+        let playbackWasRequested = isSeeking ? resumeAfterSeeking : player.isPlaybackRequested
+        if playbackWasRequested {
+            isUserPaused = true
+            resumeAfterSeeking = false
+            player.pause()
+        } else {
+            isUserPaused = false
+            if isSeeking {
+                resumeAfterSeeking = true
+            } else if isPlaybackVisible {
+                player.play()
+            }
+        }
+        updateControlIcons()
+    }
+
+    @objc private func beginSeeking() {
+        guard seekSlider.isEnabled else { return }
+        isSeeking = true
+        resumeAfterSeeking = !isUserPaused && player.isPlaybackRequested
+        player.pause()
+        updateControlIcons()
+    }
+
+    @objc private func seekValueChanged() {
+        let time = TimeInterval(seekSlider.value)
+        guard isSeeking else {
+            let shouldResume = !isUserPaused && player.isPlaybackRequested
+            player.pause()
+            commitSeek(to: time, shouldResume: shouldResume)
+            return
+        }
+        updateTimeLabel(current: time)
+    }
+
+    @objc private func endSeeking() {
+        guard isSeeking else { return }
+        let target = TimeInterval(seekSlider.value)
+        let shouldResume = resumeAfterSeeking && !isUserPaused
+        isSeeking = false
+        resumeAfterSeeking = false
+        commitSeek(to: target, shouldResume: shouldResume)
+    }
+
+    @objc private func toggleMuted() {
+        isMuted.toggle()
+        player.setMuted(isMuted)
+        updateControlIcons()
+    }
+
+    @objc private func cyclePlaybackRate() {
+        playbackRate =
+            switch playbackRate {
+            case ..<1:
+                1
+            case ..<1.5:
+                1.5
+            case ..<2:
+                2
+            default:
+                0.5
+            }
+        player.setRate(playbackRate)
+        updateControlIcons()
+    }
+
+    private func updateControlIcons() {
+        let playbackRequested = isSeeking ? resumeAfterSeeking : player.isPlaybackRequested
+        let showsPause = playbackRequested && currentPlaybackState != .ended && currentPlaybackState != .failed
+        playButton.setImage(UIImage(systemName: showsPause ? "pause.fill" : "play.fill"), for: .normal)
+        playButton.accessibilityLabel = showsPause ? "Pause" : "Play"
+        playButton.isEnabled = currentPlaybackState != .failed
+
+        muteButton.setImage(
+            UIImage(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"),
+            for: .normal,
+        )
+        muteButton.accessibilityLabel = isMuted ? "Unmute" : "Mute"
+        muteButton.accessibilityValue = isMuted ? "Muted" : "Sound on"
+
+        let rateTitle =
+            switch playbackRate {
+            case 0.5: "0.5×"
+            case 1.5: "1.5×"
+            case 2: "2×"
+            default: "1×"
+            }
+        rateButton.setTitle(rateTitle, for: .normal)
+        rateButton.accessibilityValue = rateTitle
+    }
+
+    private func commitSeek(to target: TimeInterval, shouldResume: Bool) {
+        currentPlaybackTime = target
+        if shouldResume, isPlaybackVisible {
+            player.play(from: target)
+        } else {
+            player.seek(to: target)
+            player.pause()
+        }
+        updateTimeLabel(current: target)
+        updateControlIcons()
+    }
+
+    private func updatePlaybackTime(_ time: TimeInterval) {
+        guard time.isFinite else { return }
+        currentPlaybackTime = max(0, time)
+        guard !isSeeking else { return }
+        seekSlider.value = Float(min(playbackDuration, currentPlaybackTime))
+        updateTimeLabel(current: currentPlaybackTime)
+    }
+
+    private func updatePlaybackDuration(_ duration: TimeInterval) {
+        playbackDuration = duration.isFinite ? max(0, duration) : 0
+        seekSlider.maximumValue = Float(max(1, playbackDuration))
+        seekSlider.isEnabled = playbackDuration > 0
+        if !isSeeking {
+            seekSlider.value = Float(min(playbackDuration, currentPlaybackTime))
+            updateTimeLabel(current: currentPlaybackTime)
+        }
+    }
+
+    private func updateTimeLabel(current: TimeInterval) {
+        let boundedCurrent = playbackDuration > 0
+            ? min(playbackDuration, max(0, current))
+            : max(0, current)
+        let elapsed = formatPlaybackTime(boundedCurrent)
+        let duration = formatPlaybackTime(playbackDuration)
+        timeLabel.text = "\(elapsed) / \(duration)"
+        seekSlider.accessibilityValue = "\(elapsed) of \(duration)"
+    }
+
+    private func formatPlaybackTime(_ time: TimeInterval) -> String {
+        guard time.isFinite else { return "0:00" }
+        let seconds = max(0, Int(time.rounded(.down)))
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        let remainder = seconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, remainder)
+        }
+        return String(format: "%d:%02d", minutes, remainder)
     }
 
     @objc private func retryPlayback() {

@@ -56,6 +56,10 @@ final class LocalMediaPlayer {
         timeSubject.eraseToAnyPublisher()
     }
 
+    var durationPublisher: AnyPublisher<TimeInterval, Never> {
+        durationSubject.removeDuplicates().eraseToAnyPublisher()
+    }
+
     var loopPublisher: AnyPublisher<Void, Never> {
         loopSubject.eraseToAnyPublisher()
     }
@@ -70,6 +74,14 @@ final class LocalMediaPlayer {
 
     var currentItemIdentifier: ObjectIdentifier? {
         player.currentItem.map(ObjectIdentifier.init)
+    }
+
+    var rate: Float {
+        playbackRate
+    }
+
+    var isMuted: Bool {
+        player.isMuted
     }
 
     var duration: TimeInterval {
@@ -166,11 +178,12 @@ final class LocalMediaPlayer {
                 return
             }
         }
-        player.play()
+        player.playImmediately(atRate: playbackRate)
     }
 
     func pause() {
         shouldAutoplay = false
+        shouldApplyReadyStateAfterSeek = false
         guard hasItem else { return }
         if usesExplicitVODBuffering {
             player.cancelPendingPrerolls()
@@ -192,6 +205,21 @@ final class LocalMediaPlayer {
         player.isMuted = muted
     }
 
+    func setRate(_ rate: Float) {
+        let boundedRate = min(2, max(0.5, rate))
+        guard playbackRate != boundedRate else { return }
+        playbackRate = boundedRate
+        if usesExplicitVODBuffering, shouldAutoplay {
+            player.cancelPendingPrerolls()
+            vodPrerollIdentifier = nil
+        }
+        if player.timeControlStatus == .playing {
+            player.rate = playbackRate
+        } else if usesExplicitVODBuffering {
+            updateVODBufferingState()
+        }
+    }
+
     func stop() {
         preparationTask?.cancel()
         preparationTask = nil
@@ -205,14 +233,17 @@ final class LocalMediaPlayer {
         shouldApplyReadyStateAfterSeek = false
         player.cancelPendingPrerolls()
         player.pause()
+        player.isMuted = false
         player.replaceCurrentItem(with: nil)
         compositionLease = nil
         vodSession?.invalidate()
         vodSession = nil
         usesExplicitVODBuffering = false
+        playbackRate = 1
         player.automaticallyWaitsToMinimizeStalling = true
         resetItemObservers()
         timeSubject.send(0)
+        durationSubject.send(0)
         stateSubject.send(.idle)
     }
 
@@ -287,6 +318,7 @@ final class LocalMediaPlayer {
     private let player = AVPlayer()
     private let stateSubject = CurrentValueSubject<State, Never>(.idle)
     private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private let loopSubject = PassthroughSubject<Void, Never>()
     private var shouldAutoplay = false
     private var shouldLoop = false
@@ -299,6 +331,7 @@ final class LocalMediaPlayer {
     private var vodSession: TDLibVODResourceLoaderSession?
     private var usesExplicitVODBuffering = false
     private var vodPrerollIdentifier: UUID?
+    private var playbackRate: Float = 1
     private var pendingSeek: (
         time: TimeInterval,
         tolerance: TimeInterval,
@@ -332,6 +365,15 @@ final class LocalMediaPlayer {
     }
 
     private func observe(item: AVPlayerItem) {
+        item.publisher(for: \.duration, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] duration in
+                guard let self, item === player.currentItem else { return }
+                let seconds = duration.seconds
+                durationSubject.send(seconds.isFinite ? max(0, seconds) : 0)
+            }
+            .store(in: &itemCancellables)
+
         item.publisher(for: \.status, options: [.initial, .new])
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak item] status in
@@ -457,6 +499,7 @@ final class LocalMediaPlayer {
             pendingSeek = (playbackRange.lowerBound, 0, true, nil)
         }
         timeSubject.send(self.playbackRange?.lowerBound ?? 0)
+        durationSubject.send(0)
         stateSubject.send(.preparing)
     }
 
@@ -484,7 +527,7 @@ final class LocalMediaPlayer {
             if usesExplicitVODBuffering {
                 updateVODBufferingState()
             } else {
-                player.play()
+                player.playImmediately(atRate: playbackRate)
             }
         } else {
             stateSubject.send(.paused)
@@ -510,11 +553,22 @@ final class LocalMediaPlayer {
                 stateSubject.send(.paused)
             }
         case .waitingToPlayAtSpecifiedRate:
-            if stateSubject.value != .failed {
+            if !shouldAutoplay {
+                if stateSubject.value != .failed, stateSubject.value != .ended {
+                    stateSubject.send(.paused)
+                }
+            } else if stateSubject.value != .failed {
                 stateSubject.send(.buffering)
             }
         case .playing:
-            stateSubject.send(.playing)
+            if shouldAutoplay {
+                stateSubject.send(.playing)
+            } else {
+                player.pause()
+                if stateSubject.value != .failed, stateSubject.value != .ended {
+                    stateSubject.send(.paused)
+                }
+            }
         @unknown default:
             break
         }
@@ -537,7 +591,7 @@ final class LocalMediaPlayer {
             player.cancelPendingPrerolls()
             vodPrerollIdentifier = nil
             if player.timeControlStatus != .playing {
-                player.play()
+                player.playImmediately(atRate: playbackRate)
             }
         } else {
             if player.timeControlStatus == .playing {
@@ -552,7 +606,7 @@ final class LocalMediaPlayer {
         guard shouldAutoplay, vodPrerollIdentifier == nil else { return }
         let identifier = UUID()
         vodPrerollIdentifier = identifier
-        player.preroll(atRate: 1) { [weak self, weak item] finished in
+        player.preroll(atRate: playbackRate) { [weak self, weak item] finished in
             DispatchQueue.main.async {
                 guard let self,
                       item === self.player.currentItem,
