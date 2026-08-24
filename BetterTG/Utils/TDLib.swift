@@ -30,12 +30,17 @@ final class TDLib: @unchecked Sendable {
     // MARK: Private
 
     private init() {
+        let accountID = "primary"
         let fileUpdates = PassthroughSubject<UpdateFile, Never>()
+        let deleteMessageUpdates = PassthroughSubject<UpdateDeleteMessages, Never>()
         let client = manager.createClient { data, client in
             do {
                 let decoded = try client.decoder.decode(Update.self, from: data)
                 if case .updateFile(let fileUpdate) = decoded {
                     fileUpdates.send(fileUpdate)
+                }
+                if case .updateDeleteMessages(let deleteUpdate) = decoded {
+                    deleteMessageUpdates.send(deleteUpdate)
                 }
                 update(decoded)
             } catch {
@@ -43,8 +48,10 @@ final class TDLib: @unchecked Sendable {
             }
         }
         self.td = client
+        self.accountID = accountID
+        self.deleteMessageUpdates = deleteMessageUpdates.eraseToAnyPublisher()
         self.vodRanges = TDLibVODRangeCoordinator(
-            accountID: "primary",
+            accountID: accountID,
             client: .live(client),
             updates: fileUpdates.eraseToAnyPublisher(),
         )
@@ -54,6 +61,8 @@ final class TDLib: @unchecked Sendable {
 
     static let shared = TDLib()
 
+    let accountID: String
+    let deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never>
     let vodRanges: TDLibVODRangeCoordinator
 
     func startTdLibUpdateHandler() {
