@@ -116,6 +116,10 @@ final class LocalMediaPlayer {
         }
     }
 
+    func setMuted(_ muted: Bool) {
+        player.isMuted = muted
+    }
+
     func stop() {
         preparationTask?.cancel()
         preparationTask = nil

@@ -37,6 +37,11 @@ final class Media: ObservableObject {
         nowPlayingCenter.nowPlayingInfo = nil
     }
 
+    func beginExclusivePlayback() {
+        stop()
+        setAudioSessionPlayback()
+    }
+
     func onChatOpen(title: String) {
         self.title = title
     }

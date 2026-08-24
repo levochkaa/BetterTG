@@ -92,7 +92,24 @@ final class MessageCell: UICollectionViewCell {
         swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil
         configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
 
-        bubbleView.backgroundColor = highlighted ? .messageHighlight : .secondarySystemBackground
+        let isVideoNoteMessage: Bool = if case .messageVideoNote = message.message.content { true } else { false }
+        let isStandaloneVideoNote: Bool =
+            if isVideoNoteMessage,
+               message.forwardedFrom == nil,
+               message.replyToMessage == nil,
+               message.formattedText == nil
+            {
+                true
+            } else {
+                false
+            }
+        bubbleView.backgroundColor = isStandaloneVideoNote
+            ? (highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear)
+            : (highlighted ? .messageHighlight : .secondarySystemBackground)
+        bubbleTopConstraint.constant = isStandaloneVideoNote ? 0 : 6
+        bubbleLeadingConstraint.constant = isStandaloneVideoNote ? 0 : 8
+        bubbleTrailingConstraint.constant = isStandaloneVideoNote ? 0 : -8
+        bubbleBottomConstraint.constant = isStandaloneVideoNote ? 0 : -5
         forwardedLabel.isHidden = message.forwardedFrom == nil
         forwardedLabel.text = message.forwardedFrom.map { "Forwarded from \($0)" }
 
@@ -149,7 +166,7 @@ final class MessageCell: UICollectionViewCell {
             avatarView.isHidden = true
         }
 
-        isAccessibilityElement = true
+        isAccessibilityElement = !isVideoNoteMessage
         accessibilityLabel = [
             message.forwardedFrom.map { "Forwarded from \($0)" },
             message.formattedText?.text,
@@ -179,6 +196,19 @@ final class MessageCell: UICollectionViewCell {
     private let mediaTimestampLabel = UILabel()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
+    private lazy var bubbleTopConstraint = bubbleStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6)
+    private lazy var bubbleLeadingConstraint = bubbleStack.leadingAnchor.constraint(
+        equalTo: bubbleView.leadingAnchor,
+        constant: 8,
+    )
+    private lazy var bubbleTrailingConstraint = bubbleStack.trailingAnchor.constraint(
+        equalTo: bubbleView.trailingAnchor,
+        constant: -8,
+    )
+    private lazy var bubbleBottomConstraint = bubbleStack.bottomAnchor.constraint(
+        equalTo: bubbleView.bottomAnchor,
+        constant: -5,
+    )
     private var onReplyTap: ((Int64) -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
 
@@ -355,11 +385,10 @@ final class MessageCell: UICollectionViewCell {
             rowStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
             rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             maxBubbleWidth,
-            bubbleWidthConstraint,
-            bubbleStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6),
-            bubbleStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 8),
-            bubbleStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -8),
-            bubbleStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -5),
+            bubbleTopConstraint,
+            bubbleLeadingConstraint,
+            bubbleTrailingConstraint,
+            bubbleBottomConstraint,
         ])
     }
 
@@ -506,7 +535,7 @@ private extension CustomMessage {
             return true
         }
         return switch message.content {
-        case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+        case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo, .messageVideoNote:
             true
         default:
             false

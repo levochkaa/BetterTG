@@ -44,6 +44,15 @@ final class MessageMediaView: UIView {
                 let voiceView = VoiceNotePlaybackView()
                 voiceView.configure(voiceNote: voice.voiceNote)
                 view = voiceView
+            case .messageVideoNote(let video):
+                let videoNoteView = VideoNotePlaybackView()
+                videoNoteView.configure(
+                    videoNote: video.videoNote,
+                    isSecret: video.isSecret,
+                    chatID: message.message.chatId,
+                    messageID: message.id,
+                )
+                view = videoNoteView
             case .messageAnimation(let animation):
                 if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
@@ -591,6 +600,9 @@ enum TDMediaPrefetcher {
                 photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
             case .messageVoiceNote(let voice):
                 [(voice.voiceNote.voice.id, .none)]
+            case .messageVideoNote(let video):
+                [video.videoNote.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+                    + [(video.videoNote.video.id, .none)]
             case .messageAnimation(let animation):
                 if telegramAnimationUsesFFmpeg(animation.animation) {
                     [animation.animation.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
@@ -660,6 +672,8 @@ private func telegramMessageMediaSize(_ message: Message) -> CGSize {
         telegramPhotoSize(photo.photo)
     case .messageVideo(let video):
         CGSize(width: max(video.video.width, 1), height: max(video.video.height, 1))
+    case .messageVideoNote(let video):
+        CGSize(width: max(video.videoNote.length, 1), height: max(video.videoNote.length, 1))
     case .messageAnimation(let animation):
         CGSize(width: max(animation.animation.width, 1), height: max(animation.animation.height, 1))
     case .messageSticker(let sticker):
