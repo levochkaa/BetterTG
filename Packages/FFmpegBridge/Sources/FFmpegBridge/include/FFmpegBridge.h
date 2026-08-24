@@ -100,4 +100,62 @@ int BetterTGFFmpegLookaheadJobSeekCallCount(const BetterTGFFmpegLookaheadJob *jo
 int BetterTGFFmpegLookaheadJobSizeCallCount(const BetterTGFFmpegLookaheadJob *job);
 int BetterTGFFmpegLookaheadJobErrorCode(const BetterTGFFmpegLookaheadJob *job);
 
+typedef int (*BetterTGFFmpegVideoFrameCallback)(
+    void *context,
+    const uint8_t *bytes,
+    int width,
+    int height,
+    int bytesPerRow,
+    double presentationTime,
+    double frameDuration,
+    int isKeyFrame
+);
+
+typedef int (*BetterTGFFmpegAudioFrameCallback)(
+    void *context,
+    const float *samples,
+    int frameCount,
+    int channelCount,
+    int sampleRate,
+    double presentationTime
+);
+
+typedef struct BetterTGFFmpegPlaybackJob BetterTGFFmpegPlaybackJob;
+
+BetterTGFFmpegPlaybackJob *BetterTGFFmpegPlaybackJobCreate(
+    void *context,
+    int64_t fileSize,
+    BetterTGFFmpegRangeReadCallback readCallback,
+    BetterTGFFmpegVideoFrameCallback videoCallback,
+    BetterTGFFmpegAudioFrameCallback audioCallback
+);
+void BetterTGFFmpegPlaybackJobCancel(BetterTGFFmpegPlaybackJob *job);
+
+// Decodes at most decodeDuration seconds beginning at seekTime. Returns 1 on
+// success, 0 on FFmpeg/read/callback failure, or -1 on cancellation.
+int BetterTGFFmpegPlaybackJobRun(
+    BetterTGFFmpegPlaybackJob *job,
+    double seekTime,
+    double decodeDuration
+);
+void BetterTGFFmpegPlaybackJobDestroy(BetterTGFFmpegPlaybackJob *job);
+
+int BetterTGFFmpegPlaybackJobHasAudio(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobHasVideo(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobIsEnded(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobVideoCodecID(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobAudioCodecID(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobVideoIsVP9(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobAudioIsOpus(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobVideoFrameCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobAudioFrameCount(const BetterTGFFmpegPlaybackJob *job);
+double BetterTGFFmpegPlaybackJobVideoDecodedTo(const BetterTGFFmpegPlaybackJob *job);
+double BetterTGFFmpegPlaybackJobAudioDecodedTo(const BetterTGFFmpegPlaybackJob *job);
+double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job);
+int64_t BetterTGFFmpegPlaybackJobBytesRead(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobReadCallCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobSeekCallCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobSizeCallCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobErrorCode(const BetterTGFFmpegPlaybackJob *job);
+
 #endif

@@ -21,6 +21,7 @@ import UIKit
             VideoNoteRecordingDraftStore.runDebugProbeIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
+            TDLibVODFFmpegDecoder.runDebugProbeIfRequested()
             TDLibVODResourceLoaderSession.runDebugProbeIfRequested()
             GalleryVideoPlaybackOwner.runDebugProbeIfRequested()
         #endif

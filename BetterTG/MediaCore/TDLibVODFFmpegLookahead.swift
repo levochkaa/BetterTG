@@ -321,12 +321,24 @@ private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
         lock.unlock()
 
         let task = Task.detached(priority: .userInitiated) { [source] in
-            do {
-                let chunk = try await source.read(offset: offset, count: capacity)
-                operation.finish(with: .success(chunk.data))
-            } catch {
-                operation.finish(with: .failure(error))
+            while !Task.isCancelled {
+                do {
+                    let chunk = try await source.serializedRead(offset: offset, count: capacity)
+                    operation.finish(with: .success(chunk.data))
+                    return
+                } catch TDLibVODRangeError.staleRequest {
+                    do {
+                        try await Task<Never, Never>.sleep(for: .milliseconds(10))
+                    } catch {
+                        operation.finish(with: .failure(error))
+                        return
+                    }
+                } catch {
+                    operation.finish(with: .failure(error))
+                    return
+                }
             }
+            operation.finish(with: .failure(CancellationError()))
         }
         operation.install(task: task)
         let result = operation.wait()
