@@ -60,6 +60,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     func prepareForReuse() {
         let fileID = videoNote?.video.id
+        downloadRequestID = nil
         downloadTask?.cancel()
         downloadTask = nil
         fileCancellable?.cancel()
@@ -95,6 +96,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             } else {
                 player.pause()
             }
+            downloadRequestID = nil
             downloadTask?.cancel()
             downloadTask = nil
             if let fileID = videoNote?.video.id, representedPath == nil {
@@ -155,6 +157,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private var messageID: Int64?
     private var playbackVisible = false
     private var downloadTask: Task<Void, Never>?
+    private var downloadRequestID: UUID?
     private var fileCancellable: AnyCancellable?
     private var secretOpenTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -276,6 +279,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
               downloadTask == nil,
               let videoFileID = videoNote?.video.id
         else { return }
+        let requestID = UUID()
+        downloadRequestID = requestID
         downloadTask = Task { [weak self] in
             let downloaded = await withTaskCancellationHandler {
                 try? await td.downloadFile(
@@ -288,8 +293,10 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             } onCancel: {
                 Task { try? await td.cancelDownloadFile(fileId: videoFileID, onlyIfPending: true) }
             }
-            guard let self, let downloaded, !Task.isCancelled else { return }
+            guard let self, downloadRequestID == requestID else { return }
             downloadTask = nil
+            downloadRequestID = nil
+            guard let downloaded, !Task.isCancelled else { return }
             update(file: downloaded)
         }
     }

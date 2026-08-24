@@ -450,6 +450,10 @@ actor VideoNoteFileStore {
     private func reconcileInterruptedDrafts(_ drafts: [VideoNoteSendDraft]) throws -> [VideoNoteSendDraft] {
         var reconciled = [VideoNoteSendDraft]()
         for draft in drafts {
+            if registrationOwnedDraftIDs.contains(draft.id) {
+                reconciled.append(draft)
+                continue
+            }
             guard draft.enqueueStartedAt != nil else {
                 reconciled.append(draft)
                 continue

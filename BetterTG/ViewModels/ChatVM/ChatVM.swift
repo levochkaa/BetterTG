@@ -925,20 +925,7 @@ import UIKit
             await VideoNoteFileStore.shared.remove(draft)
             await self?.promoteNextPendingVideoDraft()
         }
-        if replyMessage == nil, editCustomMessage == nil, let knownReply {
-            replyMessage = knownReply
-        } else if replyMessage == nil,
-                  editCustomMessage == nil,
-                  knownReply == nil,
-                  let replyMessageID = draft.replyMessageID
-        {
-            Task { [weak self] in
-                guard let self else { return }
-                let restoredReply = await getCustomMessage(fromId: replyMessageID)
-                guard replyMessage == nil, editCustomMessage == nil else { return }
-                replyMessage = restoredReply
-            }
-        }
+        restoreVideoReplyIfNeeded(from: draft, knownReply: knownReply)
     }
 
     func discardVideoNoteAsset(_ asset: VideoNoteAsset) async {
@@ -948,6 +935,7 @@ import UIKit
             await VideoNoteFileStore.shared.discardAsset(at: asset.url)
             return
         }
+        let knownReply = pendingVideoReplyMessage
         pendingVideoNote = nil
         pendingVideoReplyMessage = nil
         hasPendingVideoNote = false
@@ -955,7 +943,26 @@ import UIKit
         videoRetryAvailabilityTask?.cancel()
         videoRetryAvailabilityTask = nil
         await VideoNoteFileStore.shared.remove(draft)
+        restoreVideoReplyIfNeeded(from: draft, knownReply: knownReply)
         await promoteNextPendingVideoDraft()
+    }
+
+    private func restoreVideoReplyIfNeeded(
+        from draft: VideoNoteSendDraft,
+        knownReply: CustomMessage?,
+    ) {
+        guard replyMessage == nil, editCustomMessage == nil else { return }
+        if let knownReply {
+            replyMessage = knownReply
+            return
+        }
+        guard let replyMessageID = draft.replyMessageID else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let restoredReply = await getCustomMessage(fromId: replyMessageID)
+            guard replyMessage == nil, editCustomMessage == nil else { return }
+            replyMessage = restoredReply
+        }
     }
 
     private func activatePendingVideoDraft(_ draft: VideoNoteSendDraft) {
