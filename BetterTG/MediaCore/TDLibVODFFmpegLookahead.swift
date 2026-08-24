@@ -8,8 +8,12 @@ import Foundation
 actor TDLibVODFFmpegLookahead {
     // MARK: Lifecycle
 
-    init(lease: TDLibVODRangeLease) {
+    init(
+        lease: TDLibVODRangeLease,
+        releasesLeaseOnCancellation: Bool = true,
+    ) {
         self.lease = lease
+        self.releasesLeaseOnCancellation = releasesLeaseOnCancellation
     }
 
     // MARK: Internal
@@ -46,6 +50,7 @@ actor TDLibVODFFmpegLookahead {
         case ffmpeg(Int32)
         case invalidProof(String)
         case invalidRange
+        case range(TDLibVODRangeError)
         case superseded
     }
 
@@ -69,8 +74,10 @@ actor TDLibVODFFmpegLookahead {
         guard !isClosed,
               seekTime.isFinite,
               seekTime >= 0,
+              seekTime <= Double(Int64.max - 61_000_000) / 1_000_000,
               lookaheadDuration.isFinite,
               lookaheadDuration >= 0,
+              lookaheadDuration <= 60,
               currentPlaybackTime.map({ $0.isFinite && $0 >= 0 }) ?? true
         else { throw LookaheadError.invalidRange }
 
@@ -78,18 +85,7 @@ actor TDLibVODFFmpegLookahead {
         let generation = scanGeneration
         let requestID = UUID()
         supersedeCurrentScan()
-        let size: Int64
-        do {
-            size = try await lease.source.resolvedFileSize()
-        } catch {
-            if Task.isCancelled {
-                if generation == scanGeneration {
-                    beginTerminalLeaseRelease()
-                }
-                throw LookaheadError.cancelled
-            }
-            throw error
-        }
+        let size = try await resolvedFileSizeRetryingStale(generation: generation)
         if Task.isCancelled {
             if generation == scanGeneration {
                 beginTerminalLeaseRelease()
@@ -144,6 +140,7 @@ actor TDLibVODFFmpegLookahead {
     }
 
     private let lease: TDLibVODRangeLease
+    private let releasesLeaseOnCancellation: Bool
     private var activeScans = [UUID: ActiveScan]()
     private var currentScanID: UUID?
     private var isClosed = false
@@ -197,6 +194,9 @@ actor TDLibVODFFmpegLookahead {
                 guard runResult == 1 else {
                     if runResult == -1 {
                         return .failure(.cancelled)
+                    }
+                    if let rangeError = box.rangeError {
+                        return .failure(.range(rangeError))
                     }
                     return .failure(.ffmpeg(BetterTGFFmpegLookaheadJobErrorCode(job)))
                 }
@@ -252,11 +252,36 @@ actor TDLibVODFFmpegLookahead {
     }
 
     private func beginTerminalLeaseRelease() {
+        guard releasesLeaseOnCancellation else { return }
         guard !leaseReleased else { return }
         leaseReleased = true
         isClosed = true
         let lease = lease
         leaseReleaseTask = Task { await lease.invalidate() }
+    }
+
+    private func resolvedFileSizeRetryingStale(generation: UInt64) async throws -> Int64 {
+        while true {
+            do {
+                return try await lease.source.resolvedFileSize()
+            } catch TDLibVODRangeError.staleRequest {
+                if Task.isCancelled || generation != scanGeneration {
+                    throw LookaheadError.cancelled
+                }
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            } catch {
+                if Task.isCancelled {
+                    if generation == scanGeneration {
+                        beginTerminalLeaseRelease()
+                    }
+                    throw LookaheadError.cancelled
+                }
+                if let rangeError = error as? TDLibVODRangeError {
+                    throw LookaheadError.range(rangeError)
+                }
+                throw error
+            }
+        }
     }
 }
 
@@ -275,6 +300,12 @@ private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
+    }
+
+    var rangeError: TDLibVODRangeError? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedRangeError
     }
 
     func install(job: OpaquePointer) {
@@ -361,6 +392,11 @@ private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
             }
             return Int32(data.count)
         case .failure(let error):
+            if let rangeError = error as? TDLibVODRangeError {
+                lock.lock()
+                storedRangeError = rangeError
+                lock.unlock()
+            }
             if wasCancelled
                 || error is CancellationError
                 || error as? TDLibVODRangeError == .cancelled
@@ -379,6 +415,7 @@ private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
     private var activeOperation: TDLibVODBlockingReadOperation?
     private var cancelled = false
     private var job: OpaquePointer?
+    private var storedRangeError: TDLibVODRangeError?
 }
 
 // MARK: - TDLibVODBlockingReadOperation

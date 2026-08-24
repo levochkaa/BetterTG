@@ -111,6 +111,20 @@ typedef int (*BetterTGFFmpegVideoFrameCallback)(
     int isKeyFrame
 );
 
+typedef int (*BetterTGFFmpegPlaybackMetadataCallback)(
+    void *context,
+    int hasAudio,
+    int hasVideo,
+    int videoCodecID,
+    int audioCodecID,
+    double duration,
+    double timelineOrigin,
+    double videoStartTime,
+    double videoEndTime,
+    double audioStartTime,
+    double audioEndTime
+);
+
 typedef int (*BetterTGFFmpegAudioFrameCallback)(
     void *context,
     const float *samples,
@@ -126,6 +140,7 @@ BetterTGFFmpegPlaybackJob *BetterTGFFmpegPlaybackJobCreate(
     void *context,
     int64_t fileSize,
     BetterTGFFmpegRangeReadCallback readCallback,
+    BetterTGFFmpegPlaybackMetadataCallback metadataCallback,
     BetterTGFFmpegVideoFrameCallback videoCallback,
     BetterTGFFmpegAudioFrameCallback audioCallback
 );
@@ -152,6 +167,7 @@ int BetterTGFFmpegPlaybackJobAudioFrameCount(const BetterTGFFmpegPlaybackJob *jo
 double BetterTGFFmpegPlaybackJobVideoDecodedTo(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobAudioDecodedTo(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job);
+double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job);
 int64_t BetterTGFFmpegPlaybackJobBytesRead(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobReadCallCount(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobSeekCallCount(const BetterTGFFmpegPlaybackJob *job);

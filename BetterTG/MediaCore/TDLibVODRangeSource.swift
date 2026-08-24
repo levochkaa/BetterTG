@@ -73,6 +73,29 @@ struct TDLibVODChunk: Sendable {
     let range: Range<Int64>
 }
 
+// MARK: - TDLibVODDemandCancellationToken
+
+private final class TDLibVODDemandCancellationToken: @unchecked Sendable {
+    // MARK: Internal
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var cancelled = false
+}
+
 // MARK: - TDLibVODRangeSource
 
 /// One account-scoped, file-scoped byte source shared by playback, fullscreen and PiP leases.
@@ -123,10 +146,16 @@ actor TDLibVODRangeSource {
 
     func resolvedFileSize() async throws -> Int64 {
         let waiterID = UUID()
+        let cancellationToken = TDLibVODDemandCancellationToken()
+        demandEpoch &+= 1
+        pendingDemandSuspend = false
+        activeDemandIDs.insert(waiterID)
+        defer { finishDemand(id: waiterID, cancellationRequested: cancellationToken.isCancelled) }
         return try await withTaskCancellationHandler {
             try await resolveSizeIfNeeded(waiterID: waiterID)
         } onCancel: {
-            Task { await self.cancelWaiter(id: waiterID) }
+            cancellationToken.cancel()
+            Task { await self.cancelReadDemand(waiterID: waiterID) }
         }
     }
 
@@ -156,6 +185,11 @@ actor TDLibVODRangeSource {
         }
 
         let waiterID = UUID()
+        let cancellationToken = TDLibVODDemandCancellationToken()
+        demandEpoch &+= 1
+        pendingDemandSuspend = false
+        activeDemandIDs.insert(waiterID)
+        defer { finishDemand(id: waiterID, cancellationRequested: cancellationToken.isCancelled) }
         var classifiedRange = offset..<offset
         var operationGeneration = seekGeneration
         return try await withTaskCancellationHandler {
@@ -219,7 +253,8 @@ actor TDLibVODRangeSource {
                 throw error
             }
         } onCancel: {
-            Task { await self.cancelWaiter(id: waiterID) }
+            cancellationToken.cancel()
+            Task { await self.cancelReadDemand(waiterID: waiterID) }
         }
     }
 
@@ -235,6 +270,16 @@ actor TDLibVODRangeSource {
             await serializedReadGate.release(permit)
             throw error
         }
+    }
+
+    func suspendDemand() async {
+        guard !Task.isCancelled else { return }
+        demandEpoch &+= 1
+        let epoch = demandEpoch
+        pendingDemandSuspend = true
+        guard activeDemandIDs.isEmpty else { return }
+        pendingDemandSuspend = false
+        await cancelOwnedDemandIfIdle(epoch: epoch)
     }
 
     /// Update sequence is assigned before hopping from Combine into the actor, preventing
@@ -265,6 +310,8 @@ actor TDLibVODRangeSource {
 
     /// Called only by the account/file coordinator after the last current lease releases.
     func cancel() async {
+        demandEpoch &+= 1
+        pendingDemandSuspend = false
         seekGeneration &+= 1
         let generation = seekGeneration
         failWaiters(with: TDLibVODRangeError.cancelled)
@@ -337,6 +384,9 @@ actor TDLibVODRangeSource {
     private var lastUpdateSequence = UInt64.zero
     private var activeFetchRange: Range<Int64>?
     private var activeRequestToken: UInt64?
+    private var activeDemandIDs = Set<UUID>()
+    private var pendingDemandSuspend = false
+    private var demandEpoch = UInt64.zero
     private var currentDemandRange: Range<Int64>?
     private var nextRequestToken = UInt64.zero
     private var ownsRangeRequest = false
@@ -654,10 +704,52 @@ actor TDLibVODRangeSource {
         waiter.continuation.resume(throwing: TDLibVODRangeError.timedOut)
     }
 
-    private func cancelWaiter(id: UUID) {
-        guard let waiter = waiters.removeValue(forKey: id) else { return }
-        waiter.timeoutTask.cancel()
-        waiter.continuation.resume(throwing: TDLibVODRangeError.cancelled)
+    private func cancelReadDemand(waiterID: UUID) async {
+        guard activeDemandIDs.remove(waiterID) != nil else { return }
+        if let waiter = waiters.removeValue(forKey: waiterID) {
+            waiter.timeoutTask.cancel()
+            waiter.continuation.resume(throwing: TDLibVODRangeError.cancelled)
+        }
+        guard activeDemandIDs.isEmpty else {
+            pendingDemandSuspend = true
+            return
+        }
+        demandEpoch &+= 1
+        let epoch = demandEpoch
+        pendingDemandSuspend = false
+        await cancelOwnedDemandIfIdle(epoch: epoch)
+    }
+
+    private func finishDemand(id: UUID, cancellationRequested: Bool) {
+        guard activeDemandIDs.remove(id) != nil else { return }
+        if cancellationRequested {
+            pendingDemandSuspend = true
+        }
+        guard
+            activeDemandIDs.isEmpty,
+            pendingDemandSuspend
+        else { return }
+        demandEpoch &+= 1
+        let epoch = demandEpoch
+        pendingDemandSuspend = false
+        Task { await self.cancelOwnedDemandIfIdle(epoch: epoch) }
+    }
+
+    private func cancelOwnedDemandIfIdle(epoch: UInt64) async {
+        guard epoch == demandEpoch, activeDemandIDs.isEmpty else { return }
+        seekGeneration &+= 1
+        let generation = seekGeneration
+        let shouldCancel = detachOwnedRequest()
+        currentDemandRange = nil
+        if shouldCancel {
+            try? await commands.cancel()
+        }
+        guard epoch == demandEpoch,
+              generation == seekGeneration,
+              activeDemandIDs.isEmpty,
+              state != .cancelled
+        else { return }
+        state = .idle
     }
 
     private func signalWaiters() {
@@ -845,6 +937,10 @@ final class TDLibVODRangeLease: @unchecked Sendable {
     func invalidate() async {
         guard let release = takeReleaseOperation() else { return }
         await release()
+    }
+
+    func suspendDemand() async {
+        await source.suspendDemand()
     }
 
     // MARK: Private

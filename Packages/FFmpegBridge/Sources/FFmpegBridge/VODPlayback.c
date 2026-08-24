@@ -4,6 +4,7 @@
 #include <libavutil/channel_layout.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/parseutils.h>
 
 #include <errno.h>
 #include <limits.h>
@@ -25,6 +26,7 @@
 struct BetterTGFFmpegPlaybackJob {
     void *context;
     BetterTGFFmpegRangeReadCallback readCallback;
+    BetterTGFFmpegPlaybackMetadataCallback metadataCallback;
     BetterTGFFmpegVideoFrameCallback videoCallback;
     BetterTGFFmpegAudioFrameCallback audioCallback;
     int64_t fileSize;
@@ -46,6 +48,11 @@ struct BetterTGFFmpegPlaybackJob {
     AVRational audioTimeBase;
     double videoFrameRate;
     double duration;
+    double timelineOrigin;
+    double videoStartTime;
+    double videoEndTime;
+    double audioStartTime;
+    double audioEndTime;
     double videoDecodedTo;
     double audioDecodedTo;
     double nextAudioTime;
@@ -256,6 +263,60 @@ static double BetterTGFFmpegPlaybackStreamDuration(const AVStream *stream) {
     return fmax(0.0, (double)stream->duration * av_q2d(stream->time_base));
 }
 
+static double BetterTGFFmpegPlaybackStreamStart(const AVStream *stream) {
+    if (stream == NULL || stream->start_time == AV_NOPTS_VALUE ||
+        stream->time_base.num <= 0 || stream->time_base.den <= 0) {
+        return NAN;
+    }
+    const double value = (double)stream->start_time * av_q2d(stream->time_base);
+    return isfinite(value) ? value : NAN;
+}
+
+static double BetterTGFFmpegPlaybackNormalizedStreamStart(
+    const AVStream *stream,
+    double timelineOrigin
+) {
+    const double start = BetterTGFFmpegPlaybackStreamStart(stream);
+    return isfinite(start) ? fmax(0.0, start - timelineOrigin) : 0.0;
+}
+
+static double BetterTGFFmpegPlaybackNormalizedStreamEnd(
+    const AVStream *stream,
+    double timelineOrigin,
+    double fallbackDuration
+) {
+    const double rawStart = BetterTGFFmpegPlaybackStreamStart(stream);
+    const double start = isfinite(rawStart) ? rawStart - timelineOrigin : 0.0;
+    const double duration = BetterTGFFmpegPlaybackStreamDuration(stream);
+    if (duration > 0.0) {
+        return fmax(0.0, start + duration);
+    }
+    const AVDictionaryEntry *durationEntry = stream != NULL
+        ? av_dict_get(stream->metadata, "DURATION", NULL, 0)
+        : NULL;
+    int64_t taggedEnd = 0;
+    if (durationEntry != NULL && durationEntry->value != NULL &&
+        av_parse_time(&taggedEnd, durationEntry->value, 1) >= 0) {
+        const double end = (double)taggedEnd / AV_TIME_BASE - timelineOrigin;
+        if (isfinite(end) && end >= start) {
+            return fmax(0.0, end);
+        }
+    }
+    return fmax(fmax(0.0, start), fallbackDuration);
+}
+
+static int BetterTGFFmpegPlaybackHasExplicitStreamEnd(const AVStream *stream) {
+    if (BetterTGFFmpegPlaybackStreamDuration(stream) > 0.0) {
+        return 1;
+    }
+    const AVDictionaryEntry *durationEntry = stream != NULL
+        ? av_dict_get(stream->metadata, "DURATION", NULL, 0)
+        : NULL;
+    int64_t taggedEnd = 0;
+    return durationEntry != NULL && durationEntry->value != NULL &&
+        av_parse_time(&taggedEnd, durationEntry->value, 1) >= 0;
+}
+
 static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
     uint8_t *buffer = av_malloc(BETTERTG_PLAYBACK_AVIO_BUFFER_SIZE);
     if (buffer == NULL) {
@@ -304,6 +365,21 @@ static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
     if (job->videoStreamIndex < 0 && job->audioStreamIndex < 0) {
         return AVERROR_STREAM_NOT_FOUND;
     }
+    double timelineOrigin = NAN;
+    if (job->videoStreamIndex >= 0) {
+        timelineOrigin = BetterTGFFmpegPlaybackStreamStart(
+            job->formatContext->streams[job->videoStreamIndex]
+        );
+    }
+    if (!isfinite(timelineOrigin) && job->formatContext->start_time != AV_NOPTS_VALUE) {
+        timelineOrigin = (double)job->formatContext->start_time / AV_TIME_BASE;
+    }
+    if (!isfinite(timelineOrigin) && job->audioStreamIndex >= 0) {
+        timelineOrigin = BetterTGFFmpegPlaybackStreamStart(
+            job->formatContext->streams[job->audioStreamIndex]
+        );
+    }
+    job->timelineOrigin = isfinite(timelineOrigin) ? timelineOrigin : 0.0;
     result = BetterTGFFmpegPlaybackOpenCodec(
         job,
         job->videoStreamIndex,
@@ -370,7 +446,54 @@ static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
         return AVERROR(ENOMEM);
     }
     if (job->duration <= 0.0 && job->formatContext->duration != AV_NOPTS_VALUE) {
-        job->duration = fmax(0.0, (double)job->formatContext->duration / AV_TIME_BASE);
+        const double formatDuration = (double)job->formatContext->duration / AV_TIME_BASE;
+        job->duration = job->timelineOrigin > 0.0 && formatDuration > job->timelineOrigin
+            ? formatDuration - job->timelineOrigin
+            : fmax(0.0, formatDuration);
+    }
+    if (job->videoStreamIndex >= 0) {
+        const AVStream *stream = job->formatContext->streams[job->videoStreamIndex];
+        job->videoStartTime = BetterTGFFmpegPlaybackNormalizedStreamStart(
+            stream,
+            job->timelineOrigin
+        );
+        job->videoEndTime = BetterTGFFmpegPlaybackNormalizedStreamEnd(
+            stream,
+            job->timelineOrigin,
+            job->duration
+        );
+    }
+    if (job->audioStreamIndex >= 0) {
+        const AVStream *stream = job->formatContext->streams[job->audioStreamIndex];
+        job->audioStartTime = BetterTGFFmpegPlaybackNormalizedStreamStart(
+            stream,
+            job->timelineOrigin
+        );
+        job->audioEndTime = BetterTGFFmpegPlaybackNormalizedStreamEnd(
+            stream,
+            job->timelineOrigin,
+            job->duration
+        );
+    }
+    const int videoHasExplicitEnd = job->videoStreamIndex >= 0 &&
+        BetterTGFFmpegPlaybackHasExplicitStreamEnd(
+            job->formatContext->streams[job->videoStreamIndex]
+        );
+    const int audioHasExplicitEnd = job->audioStreamIndex >= 0 &&
+        BetterTGFFmpegPlaybackHasExplicitStreamEnd(
+            job->formatContext->streams[job->audioStreamIndex]
+        );
+    if (videoHasExplicitEnd || audioHasExplicitEnd) {
+        double explicitEnd = 0.0;
+        if (videoHasExplicitEnd) {
+            explicitEnd = fmax(explicitEnd, job->videoEndTime);
+        }
+        if (audioHasExplicitEnd) {
+            explicitEnd = fmax(explicitEnd, job->audioEndTime);
+        }
+        job->duration = explicitEnd;
+    } else {
+        job->duration = fmax(job->duration, fmax(job->videoEndTime, job->audioEndTime));
     }
     job->packet = av_packet_alloc();
     return job->packet != NULL ? 0 : AVERROR(ENOMEM);
@@ -379,14 +502,15 @@ static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
 static double BetterTGFFmpegPlaybackFrameTime(
     const AVFrame *frame,
     AVRational timeBase,
-    double fallback
+    double fallback,
+    double timelineOrigin
 ) {
     const int64_t timestamp = frame->best_effort_timestamp;
     if (timestamp == AV_NOPTS_VALUE || timeBase.num <= 0 || timeBase.den <= 0) {
         return fallback;
     }
-    const double value = (double)timestamp * av_q2d(timeBase);
-    return isfinite(value) ? fmax(0.0, value) : fallback;
+    const double value = (double)timestamp * av_q2d(timeBase) - timelineOrigin;
+    return isfinite(value) ? value : fallback;
 }
 
 static int BetterTGFFmpegPlaybackDrainVideo(
@@ -470,7 +594,8 @@ static int BetterTGFFmpegPlaybackDrainVideo(
         const double presentationTime = BetterTGFFmpegPlaybackFrameTime(
             job->videoFrame,
             job->videoTimeBase,
-            job->videoDecodedTo
+            job->videoDecodedTo,
+            job->timelineOrigin
         );
         const double frameDuration = job->videoFrame->duration > 0
             ? (double)job->videoFrame->duration * av_q2d(job->videoTimeBase)
@@ -637,7 +762,8 @@ static int BetterTGFFmpegPlaybackDrainAudio(
         const double presentationTime = BetterTGFFmpegPlaybackFrameTime(
             job->audioFrame,
             job->audioTimeBase,
-            job->nextAudioTime
+            job->nextAudioTime,
+            job->timelineOrigin
         );
         const double frameDuration = (double)outputFrames / BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE;
         const double frameEnd = presentationTime + frameDuration;
@@ -782,6 +908,7 @@ BetterTGFFmpegPlaybackJob *BetterTGFFmpegPlaybackJobCreate(
     void *context,
     int64_t fileSize,
     BetterTGFFmpegRangeReadCallback readCallback,
+    BetterTGFFmpegPlaybackMetadataCallback metadataCallback,
     BetterTGFFmpegVideoFrameCallback videoCallback,
     BetterTGFFmpegAudioFrameCallback audioCallback
 ) {
@@ -795,6 +922,7 @@ BetterTGFFmpegPlaybackJob *BetterTGFFmpegPlaybackJobCreate(
     job->context = context;
     job->fileSize = fileSize;
     job->readCallback = readCallback;
+    job->metadataCallback = metadataCallback;
     job->videoCallback = videoCallback;
     job->audioCallback = audioCallback;
     job->videoStreamIndex = -1;
@@ -829,13 +957,40 @@ int BetterTGFFmpegPlaybackJobRun(
         job->errorCode = result;
         return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
     }
+    if (job->metadataCallback != NULL &&
+        job->metadataCallback(
+            job->context,
+            job->audioStreamIndex >= 0,
+            job->videoStreamIndex >= 0,
+            job->videoCodecContext != NULL ? job->videoCodecContext->codec_id : 0,
+            job->audioCodecContext != NULL ? job->audioCodecContext->codec_id : 0,
+            job->duration,
+            job->timelineOrigin,
+            job->videoStartTime,
+            job->videoEndTime,
+            job->audioStartTime,
+            job->audioEndTime
+        ) == 0) {
+        job->errorCode = AVERROR_EXIT;
+        return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
+    }
+    if (job->duration > 0.0 && seekTime > job->duration) {
+        seekTime = job->duration;
+    }
     const double targetTime = seekTime + decodeDuration;
     job->videoDecodedTo = seekTime;
     job->audioDecodedTo = seekTime;
     job->nextAudioTime = seekTime;
 
     if (seekTime > 0.0) {
-        const int64_t seekTimestamp = (int64_t)llround(seekTime * AV_TIME_BASE);
+        const double absoluteSeekTime = seekTime + job->timelineOrigin;
+        if (!isfinite(absoluteSeekTime) ||
+            absoluteSeekTime <= (double)INT64_MIN / AV_TIME_BASE ||
+            absoluteSeekTime >= (double)INT64_MAX / AV_TIME_BASE) {
+            job->errorCode = AVERROR(EINVAL);
+            return 0;
+        }
+        const int64_t seekTimestamp = (int64_t)llround(absoluteSeekTime * AV_TIME_BASE);
         result = avformat_seek_file(
             job->formatContext,
             -1,
@@ -997,6 +1152,10 @@ double BetterTGFFmpegPlaybackJobAudioDecodedTo(const BetterTGFFmpegPlaybackJob *
 
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job) {
     return job != NULL ? job->duration : 0.0;
+}
+
+double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL ? job->timelineOrigin : 0.0;
 }
 
 int64_t BetterTGFFmpegPlaybackJobBytesRead(const BetterTGFFmpegPlaybackJob *job) {

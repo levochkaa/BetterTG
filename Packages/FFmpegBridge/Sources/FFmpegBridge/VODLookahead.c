@@ -2,6 +2,7 @@
 
 #include <libavformat/avio.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/parseutils.h>
 
 #include <errno.h>
 #include <limits.h>
@@ -33,6 +34,11 @@ struct BetterTGFFmpegLookaheadJob {
     double audioReadableTo;
     double videoReadableTo;
     double duration;
+    double timelineOrigin;
+    double audioEndTime;
+    double videoEndTime;
+    double audioStartTime;
+    double videoStartTime;
     int ended;
     int64_t bytesRead;
     int readCallCount;
@@ -237,9 +243,44 @@ static double BetterTGFFmpegLookaheadStreamDuration(const AVStream *stream) {
     return fmax(0.0, duration);
 }
 
+static double BetterTGFFmpegLookaheadStreamStart(const AVStream *stream) {
+    if (stream == NULL || stream->start_time == AV_NOPTS_VALUE ||
+        stream->time_base.num <= 0 || stream->time_base.den <= 0) {
+        return NAN;
+    }
+    const double value = (double)stream->start_time * av_q2d(stream->time_base);
+    return isfinite(value) ? value : NAN;
+}
+
+static double BetterTGFFmpegLookaheadNormalizedStreamEnd(
+    const AVStream *stream,
+    double timelineOrigin,
+    double fallbackDuration
+) {
+    const double rawStart = BetterTGFFmpegLookaheadStreamStart(stream);
+    const double start = isfinite(rawStart) ? rawStart - timelineOrigin : 0.0;
+    const double duration = BetterTGFFmpegLookaheadStreamDuration(stream);
+    if (duration > 0.0) {
+        return fmax(0.0, start + duration);
+    }
+    const AVDictionaryEntry *durationEntry = stream != NULL
+        ? av_dict_get(stream->metadata, "DURATION", NULL, 0)
+        : NULL;
+    int64_t taggedEnd = 0;
+    if (durationEntry != NULL && durationEntry->value != NULL &&
+        av_parse_time(&taggedEnd, durationEntry->value, 1) >= 0) {
+        const double end = (double)taggedEnd / AV_TIME_BASE - timelineOrigin;
+        if (isfinite(end) && end >= start) {
+            return fmax(0.0, end);
+        }
+    }
+    return fmax(fmax(0.0, start), fallbackDuration);
+}
+
 static double BetterTGFFmpegLookaheadPacketEnd(
     const AVStream *stream,
-    const AVPacket *packet
+    const AVPacket *packet,
+    double timelineOrigin
 ) {
     if (stream == NULL || stream->time_base.num <= 0 || stream->time_base.den <= 0) {
         return -1.0;
@@ -255,7 +296,7 @@ static double BetterTGFFmpegLookaheadPacketEnd(
     const double packetDuration = packet->duration > 0
         ? (double)packet->duration * av_q2d(stream->time_base)
         : 0.0;
-    return fmax(0.0, packetStart + packetDuration);
+    return fmax(0.0, packetStart + packetDuration - timelineOrigin);
 }
 
 BetterTGFFmpegLookaheadJob *BetterTGFFmpegLookaheadJobCreate(
@@ -323,10 +364,28 @@ int BetterTGFFmpegLookaheadJobRun(
         return 0;
     }
 
+    double timelineOrigin = NAN;
+    if (job->videoStreamIndex >= 0) {
+        timelineOrigin = BetterTGFFmpegLookaheadStreamStart(
+            job->formatContext->streams[job->videoStreamIndex]
+        );
+    }
+    if (!isfinite(timelineOrigin) && job->formatContext->start_time != AV_NOPTS_VALUE) {
+        timelineOrigin = (double)job->formatContext->start_time / AV_TIME_BASE;
+    }
+    if (!isfinite(timelineOrigin) && job->audioStreamIndex >= 0) {
+        timelineOrigin = BetterTGFFmpegLookaheadStreamStart(
+            job->formatContext->streams[job->audioStreamIndex]
+        );
+    }
+    job->timelineOrigin = isfinite(timelineOrigin) ? timelineOrigin : 0.0;
+
     if (job->formatContext->duration != AV_NOPTS_VALUE) {
         const double formatDuration = (double)job->formatContext->duration / AV_TIME_BASE;
         if (isfinite(formatDuration) && formatDuration > 0.0) {
-            job->duration = formatDuration;
+            job->duration = job->timelineOrigin > 0.0 && formatDuration > job->timelineOrigin
+                ? formatDuration - job->timelineOrigin
+                : formatDuration;
         }
     }
     if (job->audioStreamIndex >= 0) {
@@ -345,6 +404,39 @@ int BetterTGFFmpegLookaheadJobRun(
             )
         );
     }
+    if (job->audioStreamIndex >= 0) {
+        const double rawStart = BetterTGFFmpegLookaheadStreamStart(
+            job->formatContext->streams[job->audioStreamIndex]
+        );
+        job->audioStartTime = isfinite(rawStart)
+            ? fmax(0.0, rawStart - job->timelineOrigin)
+            : 0.0;
+        job->audioEndTime = BetterTGFFmpegLookaheadNormalizedStreamEnd(
+            job->formatContext->streams[job->audioStreamIndex],
+            job->timelineOrigin,
+            job->duration
+        );
+    }
+    if (job->videoStreamIndex >= 0) {
+        const double rawStart = BetterTGFFmpegLookaheadStreamStart(
+            job->formatContext->streams[job->videoStreamIndex]
+        );
+        job->videoStartTime = isfinite(rawStart)
+            ? fmax(0.0, rawStart - job->timelineOrigin)
+            : 0.0;
+        job->videoEndTime = BetterTGFFmpegLookaheadNormalizedStreamEnd(
+            job->formatContext->streams[job->videoStreamIndex],
+            job->timelineOrigin,
+            job->duration
+        );
+    }
+    const double normalizedDuration = fmax(job->videoEndTime, job->audioEndTime);
+    if (normalizedDuration > 0.0) {
+        job->duration = normalizedDuration;
+    }
+    if (job->duration > 0.0 && seekTime > job->duration) {
+        seekTime = job->duration;
+    }
 
     const int preferredStreamIndex = job->videoStreamIndex >= 0
         ? job->videoStreamIndex
@@ -356,8 +448,18 @@ int BetterTGFFmpegLookaheadJobRun(
         BetterTGFFmpegLookaheadClose(job);
         return 0;
     }
-    const double seekMicroseconds = seekTime * AV_TIME_BASE;
-    if (!isfinite(seekMicroseconds) || seekMicroseconds >= (double)INT64_MAX) {
+    const double absoluteSeekTime = seekTime + job->timelineOrigin;
+    if (!isfinite(absoluteSeekTime) ||
+        absoluteSeekTime <= (double)INT64_MIN / AV_TIME_BASE ||
+        absoluteSeekTime >= (double)INT64_MAX / AV_TIME_BASE) {
+        job->errorCode = AVERROR(EINVAL);
+        BetterTGFFmpegLookaheadClose(job);
+        return 0;
+    }
+    const double seekMicroseconds = absoluteSeekTime * AV_TIME_BASE;
+    if (!isfinite(seekMicroseconds) ||
+        seekMicroseconds <= (double)INT64_MIN ||
+        seekMicroseconds >= (double)INT64_MAX) {
         job->errorCode = AVERROR(EINVAL);
         BetterTGFFmpegLookaheadClose(job);
         return 0;
@@ -396,10 +498,22 @@ int BetterTGFFmpegLookaheadJobRun(
     }
     int packetCount = 0;
     for (;;) {
-        const int audioReady = job->audioStreamIndex < 0 ||
-            job->audioReadableTo >= targetTime;
-        const int videoReady = job->videoStreamIndex < 0 ||
-            job->videoReadableTo >= targetTime;
+        const int audioRequired = job->audioStreamIndex >= 0 &&
+            targetTime > job->audioStartTime &&
+            (job->audioEndTime <= 0.0 || seekTime < job->audioEndTime);
+        const int videoRequired = job->videoStreamIndex >= 0 &&
+            targetTime > job->videoStartTime &&
+            (job->videoEndTime <= 0.0 || seekTime < job->videoEndTime);
+        const double audioTargetTime = job->audioEndTime > 0.0
+            ? fmin(targetTime, job->audioEndTime)
+            : targetTime;
+        const double videoTargetTime = job->videoEndTime > 0.0
+            ? fmin(targetTime, job->videoEndTime)
+            : targetTime;
+        const int audioReady = !audioRequired ||
+            job->audioReadableTo >= audioTargetTime;
+        const int videoReady = !videoRequired ||
+            job->videoReadableTo >= videoTargetTime;
         if (audioReady && videoReady) {
             result = 1;
             break;
@@ -433,7 +547,8 @@ int BetterTGFFmpegLookaheadJobRun(
         if (packet->stream_index == job->audioStreamIndex) {
             const double packetEnd = BetterTGFFmpegLookaheadPacketEnd(
                 job->formatContext->streams[job->audioStreamIndex],
-                packet
+                packet,
+                job->timelineOrigin
             );
             if (packetEnd >= 0.0) {
                 job->audioReadableTo = fmax(job->audioReadableTo, packetEnd);
@@ -441,7 +556,8 @@ int BetterTGFFmpegLookaheadJobRun(
         } else if (packet->stream_index == job->videoStreamIndex) {
             const double packetEnd = BetterTGFFmpegLookaheadPacketEnd(
                 job->formatContext->streams[job->videoStreamIndex],
-                packet
+                packet,
+                job->timelineOrigin
             );
             if (packetEnd >= 0.0) {
                 job->videoReadableTo = fmax(job->videoReadableTo, packetEnd);

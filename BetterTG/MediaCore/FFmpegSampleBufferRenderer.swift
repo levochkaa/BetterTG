@@ -37,7 +37,6 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         synchronizer.delaysRateChangeUntilHasSufficientMediaData = true
         synchronizer.setRate(0, time: .zero)
         synchronizer.addRenderer(videoRenderer)
-        synchronizer.addRenderer(audioRenderer)
         startFailureMonitor()
     }
 
@@ -48,7 +47,9 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         audioQueue.close()
         videoRenderer.stopRequestingMediaData()
         audioRenderer.stopRequestingMediaData()
-        let wasInvalidated = stateLock.withLock { isInvalidated }
+        let teardownState = stateLock.withLock { (isInvalidated, audioRendererIsAttached) }
+        let wasInvalidated = teardownState.0
+        let audioRendererWasAttached = teardownState.1
         guard !wasInvalidated else { return }
         let videoRenderer = videoRenderer
         let audioRenderer = audioRenderer
@@ -58,7 +59,9 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
             videoRenderer.flush()
             audioRenderer.flush()
             synchronizer.removeRenderer(videoRenderer, at: .invalid)
-            synchronizer.removeRenderer(audioRenderer, at: .invalid)
+            if audioRendererWasAttached {
+                synchronizer.removeRenderer(audioRenderer, at: .invalid)
+            }
             Self.retainRenderersDuringAsynchronousRemoval(
                 videoRenderer: videoRenderer,
                 audioRenderer: audioRenderer,
@@ -84,18 +87,29 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
     }
 
     struct Snapshot: Equatable {
+        let audioAcceptedUntil: TimeInterval
         let audioEnqueuedCount: Int
+        let audioEnqueuedUntil: TimeInterval
         let audioError: String?
         let audioFirstPresentationTime: TimeInterval?
         let audioInputIsFinished: Bool
+        let audioRendererIsAttached: Bool
         let audioQueuedBytes: Int
         let audioQueuedCount: Int
         let currentTime: TimeInterval
         let generation: UInt64
+        let hasAudioInput: Bool
+        let hasVideoInput: Bool
         let isDisplayReady: Bool
+        let isFeedingEnabled: Bool
         let isInvalidated: Bool
         let rate: Float
+        let streamHasAudio: Bool
+        let streamHasVideo: Bool
+        let streamTopologyIsKnown: Bool
+        let videoAcceptedUntil: TimeInterval
         let videoEnqueuedCount: Int
+        let videoEnqueuedUntil: TimeInterval
         let videoError: String?
         let videoFirstPresentationTime: TimeInterval?
         let videoInputIsFinished: Bool
@@ -133,18 +147,25 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
             monitoredGeneration = nil
             audioError = nil
             videoError = nil
+            hasAudioInput = false
+            hasVideoInput = false
+            streamHasAudio = false
+            streamHasVideo = false
+            streamTopologyIsKnown = false
             return (currentGeneration, true)
         }
         guard resetState.shouldReset else { return resetState.generation }
         let generation = resetState.generation
-        videoQueue.reset(generation: generation)
-        audioQueue.reset(generation: generation)
+        videoQueue.reset(generation: generation, initialTime: target)
+        audioQueue.reset(generation: generation, initialTime: target)
         feedQueue.sync {
             stopFeedRequests()
             videoEnqueuedCount = 0
             audioEnqueuedCount = 0
             videoFirstPresentationTime = nil
             audioFirstPresentationTime = nil
+            videoEnqueuedUntil = target
+            audioEnqueuedUntil = target
         }
         synchronizer.setRate(0, time: Self.mediaTime(target))
         videoRenderer.flush()
@@ -170,6 +191,14 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         case .current:
             break
         }
+        switch markInput(stream: .video, generation: generation) {
+        case .current:
+            break
+        case .discard:
+            return true
+        case .failed:
+            return false
+        }
         let sampleBuffer: CMSampleBuffer
         do {
             sampleBuffer = try sampleFactory.makeVideoSampleBuffer(frame)
@@ -180,6 +209,7 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         let appendResult = videoQueue.append(
             .init(
                 byteCount: frame.bytes.count,
+                endTime: frame.presentationTime + frame.duration,
                 presentationTime: frame.presentationTime,
                 sampleBuffer: sampleBuffer,
             ),
@@ -209,6 +239,22 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         case .current:
             break
         }
+        switch markInput(stream: .audio, generation: generation) {
+        case .current:
+            break
+        case .discard:
+            return true
+        case .failed:
+            return false
+        }
+        switch attachAudioRendererIfNeeded(generation: generation) {
+        case .current:
+            break
+        case .discard:
+            return true
+        case .failed:
+            return false
+        }
         let sampleBuffer: CMSampleBuffer
         do {
             sampleBuffer = try sampleFactory.makeAudioSampleBuffer(frame)
@@ -219,6 +265,7 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         let appendResult = audioQueue.append(
             .init(
                 byteCount: frame.samples.count,
+                endTime: frame.presentationTime + Double(frame.frameCount) / Double(frame.sampleRate),
                 presentationTime: frame.presentationTime,
                 sampleBuffer: sampleBuffer,
             ),
@@ -245,12 +292,48 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         publishSnapshotFromBackground()
     }
 
-    @MainActor func play(rate: Float = 1) {
+    func setStreamTopology(
+        hasAudio: Bool,
+        hasVideo: Bool,
+        attachAudioRenderer: Bool,
+        generation: UInt64,
+    ) -> Bool {
+        let result = stateLock.withLock { () -> EnqueueDisposition in
+            if isInvalidated || generation != currentGeneration {
+                return .discard
+            }
+            guard failedGeneration != generation else { return .failed }
+            streamHasAudio = hasAudio
+            streamHasVideo = hasVideo
+            streamTopologyIsKnown = true
+            return .current
+        }
+        switch result {
+        case .current:
+            if hasAudio, attachAudioRenderer,
+               attachAudioRendererIfNeeded(generation: generation) != .current
+            {
+                return false
+            }
+            publishSnapshotFromBackground()
+            return true
+        case .discard:
+            return true
+        case .failed:
+            return false
+        }
+    }
+
+    @MainActor func play(
+        rate: Float = 1,
+        waitForSufficientMediaData: Bool = true,
+    ) {
         let canPlay = stateLock.withLock {
             !isInvalidated && failedGeneration != currentGeneration
         }
         guard canPlay else { return }
         let boundedRate = min(2, max(0.5, rate))
+        synchronizer.delaysRateChangeUntilHasSufficientMediaData = waitForSufficientMediaData
         synchronizer.setRate(boundedRate, time: .invalid)
         publishSnapshot()
     }
@@ -263,6 +346,22 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
 
     @MainActor func setMuted(_ isMuted: Bool) {
         audioRenderer.isMuted = isMuted
+    }
+
+    @MainActor func setFeedingEnabled(_ isEnabled: Bool) {
+        let generation = stateLock.withLock { () -> UInt64? in
+            guard !isInvalidated else { return nil }
+            isFeedingEnabled = isEnabled
+            return currentGeneration
+        }
+        guard let generation else { return }
+        if isEnabled {
+            scheduleVideoFeed(generation: generation)
+            scheduleAudioFeed(generation: generation)
+        } else {
+            feedQueue.sync { stopFeedRequests() }
+        }
+        publishSnapshot()
     }
 
     @MainActor func snapshot() -> Snapshot {
@@ -290,7 +389,9 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         videoRenderer.flush()
         audioRenderer.flush()
         synchronizer.removeRenderer(videoRenderer, at: .invalid)
-        synchronizer.removeRenderer(audioRenderer, at: .invalid)
+        if stateLock.withLock({ audioRendererIsAttached }) {
+            synchronizer.removeRenderer(audioRenderer, at: .invalid)
+        }
         Self.retainRenderersDuringAsynchronousRemoval(
             videoRenderer: videoRenderer,
             audioRenderer: audioRenderer,
@@ -336,12 +437,21 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
     private var isInvalidated = false
     private var audioError: Swift.Error?
     private var videoError: Swift.Error?
+    private var hasAudioInput = false
+    private var hasVideoInput = false
+    private var streamHasAudio = false
+    private var streamHasVideo = false
+    private var streamTopologyIsKnown = false
+    private var audioRendererIsAttached = false
+    private var isFeedingEnabled = true
     private var videoRequestGeneration: UInt64?
     private var audioRequestGeneration: UInt64?
     private var videoEnqueuedCount = 0
     private var audioEnqueuedCount = 0
     private var videoFirstPresentationTime: TimeInterval?
     private var audioFirstPresentationTime: TimeInterval?
+    private var videoEnqueuedUntil = TimeInterval.zero
+    private var audioEnqueuedUntil = TimeInterval.zero
     private var failureMonitor: DispatchSourceTimer?
 
     private static func mediaTime(_ seconds: TimeInterval) -> CMTime {
@@ -407,6 +517,48 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         }
     }
 
+    private func markInput(stream: Stream, generation: UInt64) -> EnqueueDisposition {
+        stateLock.withLock {
+            if isInvalidated || generation != currentGeneration {
+                return .discard
+            }
+            guard failedGeneration != generation else { return .failed }
+            switch stream {
+            case .audio:
+                hasAudioInput = true
+            case .video:
+                hasVideoInput = true
+            }
+            return .current
+        }
+    }
+
+    private func attachAudioRendererIfNeeded(generation: UInt64) -> EnqueueDisposition {
+        let disposition = enqueueDisposition(generation: generation)
+        guard disposition == .current else { return disposition }
+        if stateLock.withLock({ audioRendererIsAttached }) {
+            return .current
+        }
+
+        let attach = { [weak self] in
+            guard let self, accepts(generation: generation) else { return }
+            let shouldAttach = stateLock.withLock { () -> Bool in
+                guard !self.audioRendererIsAttached else { return false }
+                self.audioRendererIsAttached = true
+                return true
+            }
+            if shouldAttach {
+                synchronizer.addRenderer(audioRenderer)
+            }
+        }
+        if Thread.isMainThread {
+            attach()
+        } else {
+            DispatchQueue.main.sync(execute: attach)
+        }
+        return enqueueDisposition(generation: generation)
+    }
+
     private func scheduleVideoFeed(generation: UInt64) {
         feedQueue.async { [weak self] in self?.startVideoFeedIfNeeded(generation: generation) }
     }
@@ -448,7 +600,7 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
     }
 
     private func startVideoFeedIfNeeded(generation: UInt64) {
-        guard accepts(generation: generation), videoRequestGeneration == nil else { return }
+        guard accepts(generation: generation), feedingIsEnabled(), videoRequestGeneration == nil else { return }
         videoRequestGeneration = generation
         videoRenderer.requestMediaDataWhenReady(on: feedQueue) { [weak self] in
             self?.drainVideo(generation: generation)
@@ -456,7 +608,11 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
     }
 
     private func startAudioFeedIfNeeded(generation: UInt64) {
-        guard accepts(generation: generation), audioRequestGeneration == nil else { return }
+        guard accepts(generation: generation),
+              feedingIsEnabled(),
+              stateLock.withLock({ audioRendererIsAttached }),
+              audioRequestGeneration == nil
+        else { return }
         audioRequestGeneration = generation
         audioRenderer.requestMediaDataWhenReady(on: feedQueue) { [weak self] in
             self?.drainAudio(generation: generation)
@@ -464,7 +620,7 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
     }
 
     private func drainVideo(generation: UInt64) {
-        guard accepts(generation: generation), videoRequestGeneration == generation else {
+        guard accepts(generation: generation), feedingIsEnabled(), videoRequestGeneration == generation else {
             videoRenderer.stopRequestingMediaData()
             videoRequestGeneration = nil
             return
@@ -503,13 +659,14 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
             if videoFirstPresentationTime == nil {
                 videoFirstPresentationTime = item.presentationTime
             }
+            videoEnqueuedUntil = max(videoEnqueuedUntil, item.endTime)
             videoEnqueuedCount += 1
         }
         DispatchQueue.main.async { [weak self] in self?.publishSnapshot() }
     }
 
     private func drainAudio(generation: UInt64) {
-        guard accepts(generation: generation), audioRequestGeneration == generation else {
+        guard accepts(generation: generation), feedingIsEnabled(), audioRequestGeneration == generation else {
             audioRenderer.stopRequestingMediaData()
             audioRequestGeneration = nil
             return
@@ -548,6 +705,7 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
             if audioFirstPresentationTime == nil {
                 audioFirstPresentationTime = item.presentationTime
             }
+            audioEnqueuedUntil = max(audioEnqueuedUntil, item.endTime)
             audioEnqueuedCount += 1
         }
         publishSnapshotFromBackground()
@@ -564,9 +722,25 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in self?.publishSnapshot() }
     }
 
+    private func feedingIsEnabled() -> Bool {
+        stateLock.withLock { isFeedingEnabled }
+    }
+
     @MainActor private func makeSnapshot() -> Snapshot {
         let state = stateLock.withLock {
-            (currentGeneration, isInvalidated, audioError, videoError)
+            (
+                currentGeneration,
+                isInvalidated,
+                audioError,
+                videoError,
+                hasAudioInput,
+                hasVideoInput,
+                isFeedingEnabled,
+                streamHasAudio,
+                streamHasVideo,
+                streamTopologyIsKnown,
+                audioRendererIsAttached,
+            )
         }
         let feed = feedQueue.sync {
             (
@@ -574,23 +748,36 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
                 audioEnqueuedCount,
                 videoFirstPresentationTime,
                 audioFirstPresentationTime,
+                videoEnqueuedUntil,
+                audioEnqueuedUntil,
             )
         }
         let video = videoQueue.snapshot()
         let audio = audioQueue.snapshot()
         return Snapshot(
+            audioAcceptedUntil: audio.acceptedUntil,
             audioEnqueuedCount: feed.1,
+            audioEnqueuedUntil: feed.5,
             audioError: audioRenderer.error?.localizedDescription ?? Self.errorDescription(state.2),
             audioFirstPresentationTime: feed.3,
             audioInputIsFinished: audio.isFinished,
+            audioRendererIsAttached: state.10,
             audioQueuedBytes: audio.byteCount,
             audioQueuedCount: audio.itemCount,
             currentTime: Self.finiteNonnegative(synchronizer.currentTime().seconds),
             generation: state.0,
+            hasAudioInput: state.4,
+            hasVideoInput: state.5,
             isDisplayReady: displayLayer?.isReadyForDisplay == true,
+            isFeedingEnabled: state.6,
             isInvalidated: state.1,
             rate: synchronizer.rate,
+            streamHasAudio: state.7,
+            streamHasVideo: state.8,
+            streamTopologyIsKnown: state.9,
+            videoAcceptedUntil: video.acceptedUntil,
             videoEnqueuedCount: feed.0,
+            videoEnqueuedUntil: feed.4,
             videoError: videoRenderer.error?.localizedDescription ?? Self.errorDescription(state.3),
             videoFirstPresentationTime: feed.2,
             videoInputIsFinished: video.isFinished,
@@ -890,6 +1077,7 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
 
     struct Item {
         let byteCount: Int
+        let endTime: TimeInterval
         let presentationTime: TimeInterval
         let sampleBuffer: CMSampleBuffer
     }
@@ -909,6 +1097,7 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
         guard failedGeneration != generation else { return .failed }
         items.append(item)
         byteCount += item.byteCount
+        acceptedUntil = max(acceptedUntil, item.endTime)
         condition.broadcast()
         return .accepted
     }
@@ -950,13 +1139,14 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
         condition.unlock()
     }
 
-    func reset(generation: UInt64) {
+    func reset(generation: UInt64, initialTime: TimeInterval) {
         condition.lock()
         currentGeneration = generation
         failedGeneration = nil
         finishedGeneration = nil
         items.removeAll(keepingCapacity: true)
         byteCount = 0
+        acceptedUntil = initialTime
         condition.broadcast()
         condition.unlock()
     }
@@ -970,10 +1160,10 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
         condition.unlock()
     }
 
-    func snapshot() -> (byteCount: Int, isFinished: Bool, itemCount: Int) {
+    func snapshot() -> (acceptedUntil: TimeInterval, byteCount: Int, isFinished: Bool, itemCount: Int) {
         condition.lock()
         defer { condition.unlock() }
-        return (byteCount, finishedGeneration == currentGeneration, items.count)
+        return (acceptedUntil, byteCount, finishedGeneration == currentGeneration, items.count)
     }
 
     // MARK: Private
@@ -986,6 +1176,7 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
     private var finishedGeneration: UInt64?
     private var items = [Item]()
     private var byteCount = 0
+    private var acceptedUntil = TimeInterval.zero
     private var isClosed = false
 }
 
