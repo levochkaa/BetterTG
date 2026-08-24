@@ -145,12 +145,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
-        if let cell = cell as? MessageCell,
-           let message = message(for: messageID),
-           let owner = inlineVideoPlaybackOwners[messageID] ?? inlineVideoPlaybackOwner(for: message)
-        {
-            if cell.restoreInlineVideoPlaybackOwner(owner) {
-                pendingInlineVideoOwnerReturns.remove(messageID)
+        if let cell = cell as? MessageCell, let message = message(for: messageID) {
+            for owner in inlineVideoPlaybackOwners(for: message).values {
+                if cell.restoreInlineVideoPlaybackOwner(owner) {
+                    pendingInlineVideoOwnerReturns.remove(owner.messageID)
+                }
             }
         }
         (cell as? MessageCell)?.setMediaPlaybackVisible(
@@ -712,7 +711,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 message: message,
                 chat: chatVM.customChat,
                 highlighted: chatVM.highlightedMessageId == messageID,
-                videoPlaybackOwner: inlineVideoPlaybackOwner(for: message),
+                videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
                 onReplyTap: { [weak self] id in
                     guard self?.presentationMode == .full else { return }
                     self?.scrollToMessage(id: id)
@@ -970,6 +969,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func showMedia(_ messages: [Message], selection: Int64) {
         let transferredOwner = inlineVideoPlaybackOwners[selection]
+        let transferredOwners = messages.compactMap { inlineVideoPlaybackOwners[$0.id] }
         let transitionSource = galleryTransitionTarget(for: selection)
         pauseInlineVideoPlayback(excluding: transferredOwner?.messageID)
         present(
@@ -978,6 +978,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 selection: selection,
                 tdlib: tdlib,
                 transferredPlaybackOwner: transferredOwner,
+                transferredPlaybackOwners: transferredOwners,
                 transitionSource: transitionSource,
                 transitionSourceProvider: { [weak self] messageID in
                     self?.galleryTransitionTarget(for: messageID)
@@ -995,17 +996,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return cell.galleryTransitionTarget(for: messageID)
     }
 
-    private func inlineVideoPlaybackOwner(for message: CustomMessage) -> GalleryVideoPlaybackOwner? {
-        guard presentationMode == .full,
-              message.album.isEmpty,
-              case .messageVideo(let video) = message.message.content,
-              !video.isSecret
-        else { return nil }
+    private func inlineVideoPlaybackOwners(for message: CustomMessage) -> [Int64: GalleryVideoPlaybackOwner] {
+        guard presentationMode == .full else { return [:] }
+        let messages = message.album.isEmpty ? [message.message] : message.album
+        return Dictionary(uniqueKeysWithValues: messages.compactMap { message in
+            inlineVideoPlaybackOwner(for: message).map { (message.id, $0) }
+        })
+    }
+
+    private func inlineVideoPlaybackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
+        guard case .messageVideo(let video) = message.content, !video.isSecret else { return nil }
         if let owner = inlineVideoPlaybackOwners[message.id], !owner.isDeleted {
             return owner
         }
         guard let owner = GalleryVideoPlaybackOwner(
-            message: message.message,
+            message: message,
             tdlib: tdlib,
             deferPlaybackUntilVisible: true,
         ) else { return nil }
@@ -1035,7 +1040,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func restoreReturnedInlineVideoOwnerIfVisible(_ owner: GalleryVideoPlaybackOwner) {
-        guard let index = dataSource.snapshot().indexOfItem(owner.messageID),
+        guard let displayedMessageID = chatVM.displayedMessageID(containing: owner.messageID),
+              let index = dataSource.snapshot().indexOfItem(displayedMessageID),
               let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell,
               cell.restoreInlineVideoPlaybackOwner(owner)
         else { return }
@@ -1052,13 +1058,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard presentedViewController == nil else { return }
         for indexPath in collectionView.indexPathsForVisibleItems {
             guard let messageID = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: messageID),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
             else { continue }
-            if let owner = inlineVideoPlaybackOwners[messageID],
-               pendingInlineVideoOwnerReturns.contains(messageID),
-               cell.restoreInlineVideoPlaybackOwner(owner)
+            for owner in inlineVideoPlaybackOwners(for: message).values
+                where pendingInlineVideoOwnerReturns.contains(owner.messageID)
             {
-                pendingInlineVideoOwnerReturns.remove(messageID)
+                if cell.restoreInlineVideoPlaybackOwner(owner) {
+                    pendingInlineVideoOwnerReturns.remove(owner.messageID)
+                }
             }
             cell.setMediaPlaybackVisible(true, allowsInlineVideoPlayback: false)
         }
@@ -1068,9 +1076,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func pruneInlineVideoPlaybackOwnerIfOffscreen(messageID: Int64) {
         guard let owner = inlineVideoPlaybackOwners[messageID],
               !owner.isAttachedToGallery,
-              !collectionView.indexPathsForVisibleItems.contains(where: {
-                  dataSource.itemIdentifier(for: $0) == messageID
-              })
+              !visibleInlineVideoPlaybackOwnerIDs().contains(messageID)
         else { return }
         inlineVideoPlaybackOwners[messageID] = nil
         pendingInlineVideoOwnerReturns.remove(messageID)
@@ -1080,23 +1086,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func pruneInlineVideoPlaybackOwners() {
-        let visibleMessageIDs = Set(collectionView.indexPathsForVisibleItems.compactMap {
-            dataSource.itemIdentifier(for: $0)
-        })
+        let visibleMessageIDs = visibleInlineVideoPlaybackOwnerIDs()
         for messageID in Array(inlineVideoPlaybackOwners.keys) where !visibleMessageIDs.contains(messageID) {
             pruneInlineVideoPlaybackOwnerIfOffscreen(messageID: messageID)
         }
     }
 
+    private func visibleInlineVideoPlaybackOwnerIDs() -> Set<Int64> {
+        Set(collectionView.indexPathsForVisibleItems.flatMap { indexPath in
+            (collectionView.cellForItem(at: indexPath) as? MessageCell)?
+                .inlineVideoPlaybackCandidates(in: collectionView)
+                .map(\.0) ?? []
+        })
+    }
+
     private func updateInlineVideoPlaybackVisibility() {
         guard presentedViewController == nil, dataSource != nil else { return }
         let visibleRect = CGRect(origin: collectionView.contentOffset, size: collectionView.bounds.size)
-        let activeMessageID = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> (Int64, CGFloat)? in
-            guard let messageID = dataSource.itemIdentifier(for: indexPath),
-                  inlineVideoPlaybackOwners[messageID] != nil,
-                  let attributes = collectionView.layoutAttributesForItem(at: indexPath)
-            else { return nil }
-            let intersection = visibleRect.intersection(attributes.frame)
+        let activeMessageID = collectionView.indexPathsForVisibleItems.flatMap { indexPath in
+            (collectionView.cellForItem(at: indexPath) as? MessageCell)?
+                .inlineVideoPlaybackCandidates(in: collectionView) ?? []
+        }
+        .compactMap { messageID, frame -> (Int64, CGFloat)? in
+            guard inlineVideoPlaybackOwners[messageID] != nil else { return nil }
+            let intersection = visibleRect.intersection(frame)
             guard !intersection.isNull, !intersection.isEmpty else { return nil }
             return (messageID, intersection.width * intersection.height)
         }

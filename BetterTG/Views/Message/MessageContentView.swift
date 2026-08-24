@@ -26,14 +26,18 @@ final class MessageMediaView: UIView {
 
     @discardableResult func configure(
         message: CustomMessage,
-        videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
+        videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
         prepareForReuse()
         let view: UIView?
         if !message.album.isEmpty {
             let albumView = AlbumMediaView()
-            albumView.configure(messages: message.album, onTap: onTap)
+            albumView.configure(
+                messages: message.album,
+                videoPlaybackOwners: videoPlaybackOwners,
+                onTap: onTap,
+            )
             view = albumView
         } else {
             switch message.message.content {
@@ -127,7 +131,7 @@ final class MessageMediaView: UIView {
                     view = fileView
                 }
             case .messageVideo(let video):
-                if let videoPlaybackOwner {
+                if let videoPlaybackOwner = videoPlaybackOwners[message.id] {
                     let inlineView = InlineVideoMediaView()
                     inlineView.configure(
                         owner: videoPlaybackOwner,
@@ -178,12 +182,26 @@ final class MessageMediaView: UIView {
     }
 
     @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
-        guard let inlineView = contentView as? InlineVideoMediaView else { return false }
-        return inlineView.reattach(owner: owner)
+        if let inlineView = contentView as? InlineVideoMediaView {
+            return inlineView.reattach(owner: owner)
+        }
+        if let albumView = contentView as? AlbumMediaView {
+            return albumView.restoreInlineVideoPlaybackOwner(owner)
+        }
+        return false
     }
 
-    func makeGalleryTransitionSnapshot() -> UIView? {
+    func galleryTransitionSourceView(for messageID: Int64) -> UIView? {
+        if let albumView = contentView as? AlbumMediaView {
+            return albumView.transitionSourceView(for: messageID)
+        }
+        return self
+    }
+
+    func makeGalleryTransitionSnapshot(for messageID: Int64) -> UIView? {
         switch contentView {
+        case let albumView as AlbumMediaView:
+            albumView.transitionSnapshot(for: messageID)
         case let photoView as SinglePhotoView:
             photoView.makeTransitionSnapshot()
         case let fileView as FileMediaPreviewView:
@@ -193,6 +211,16 @@ final class MessageMediaView: UIView {
         default:
             contentView?.snapshotView(afterScreenUpdates: false)
         }
+    }
+
+    func inlineVideoPlaybackCandidates(in coordinateSpace: UIView) -> [(Int64, CGRect)] {
+        if let albumView = contentView as? AlbumMediaView {
+            return albumView.inlineVideoPlaybackCandidates(in: coordinateSpace)
+        }
+        guard let inlineView = contentView as? InlineVideoMediaView,
+              let messageID = inlineView.messageID
+        else { return [] }
+        return [(messageID, convert(bounds, to: coordinateSpace))]
     }
 
     // MARK: Private
@@ -309,7 +337,37 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         }
     }
 
-    func configure(messages: [Message], onTap: @escaping ([Message], Int64) -> Void) {
+    #if DEBUG
+        static func runDebugTransitionProbe(in container: UIView) -> (exactSource: Bool, singleCandidate: Bool) {
+            let album = AlbumMediaView(frame: CGRect(x: 40, y: 300, width: 280, height: 160))
+            let first = AlbumMediaTileView(frame: CGRect(x: 0, y: 0, width: 138, height: 160))
+            first.configureDebug(messageID: 70, hasVideoPlaybackOwner: false)
+            first.apply(position: [.top, .bottom, .left])
+            let second = AlbumMediaTileView(frame: CGRect(x: 142, y: 0, width: 138, height: 160))
+            second.configureDebug(messageID: 71, hasVideoPlaybackOwner: true)
+            second.apply(position: [.top, .bottom, .right])
+            album.tiles = [first, second]
+            album.itemFrames = [first.frame, second.frame]
+            album.addSubview(first)
+            album.addSubview(second)
+            container.addSubview(album)
+            album.layoutIfNeeded()
+            let exactSource = album.transitionSourceView(for: 71) === second
+                && second.layer.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+            let candidates = album.inlineVideoPlaybackCandidates(in: container)
+            let singleCandidate = candidates.count == 1
+                && candidates.first?.0 == 71
+                && candidates.first?.1.equalTo(second.convert(second.bounds, to: container)) == true
+            album.removeFromSuperview()
+            return (exactSource, singleCandidate)
+        }
+    #endif
+
+    func configure(
+        messages: [Message],
+        videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner],
+        onTap: @escaping ([Message], Int64) -> Void,
+    ) {
         prepareForReuse()
         self.messages = messages
         self.onTap = onTap
@@ -323,9 +381,11 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         heightConstraint.constant = size.height
         for (index, message) in messages.enumerated() {
             let tile = AlbumMediaTileView()
-            tile.tag = index
-            tile.addTarget(self, action: #selector(tileTapped(_:)), for: .touchUpInside)
-            tile.configure(message: message)
+            tile.configure(
+                message: message,
+                videoPlaybackOwner: videoPlaybackOwners[message.id],
+                onTap: { onTap(messages, message.id) },
+            )
             if layout.indices.contains(index) {
                 tile.apply(position: layout[index].1)
             }
@@ -333,6 +393,26 @@ final class AlbumMediaView: UIView, ReusableMediaView {
             tiles.append(tile)
         }
         setNeedsLayout()
+    }
+
+    @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
+        guard let tile = tiles.first(where: { $0.messageID == owner.messageID }) else { return false }
+        return tile.restoreInlineVideoPlaybackOwner(owner)
+    }
+
+    func transitionSourceView(for messageID: Int64) -> UIView? {
+        tiles.first(where: { $0.messageID == messageID })
+    }
+
+    func transitionSnapshot(for messageID: Int64) -> UIView? {
+        tiles.first(where: { $0.messageID == messageID })?.makeTransitionSnapshot()
+    }
+
+    func inlineVideoPlaybackCandidates(in coordinateSpace: UIView) -> [(Int64, CGRect)] {
+        tiles.compactMap { tile in
+            guard tile.hasVideoPlaybackOwner, let messageID = tile.messageID else { return nil }
+            return (messageID, tile.convert(tile.bounds, to: coordinateSpace))
+        }
     }
 
     func prepareForReuse() {
@@ -346,21 +426,23 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         onTap = nil
     }
 
-    @objc private func tileTapped(_ sender: UIControl) {
-        let index = sender.tag
-        guard messages.indices.contains(index) else { return }
-        onTap?(messages, messages[index].id)
+    func setPlaybackVisible(_ isVisible: Bool) {
+        guard !isVisible else { return }
+        tiles.forEach { $0.setPlaybackVisible(false) }
     }
-}
 
-// MARK: - AlbumMediaTileView
-
-private final class AlbumMediaTileView: UIControl, ReusableMediaView {
     // MARK: Private
 
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 240)
+    private var tiles = [AlbumMediaTileView]()
+    private var itemFrames = [CGRect]()
+    private var messages = [Message]()
+    private var onTap: (([Message], Int64) -> Void)?
 
+}
+
+private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureRecognizerDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
@@ -373,6 +455,10 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
         playIcon.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
         addSubview(playIcon)
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        addGestureRecognizer(tapGesture)
         NSLayoutConstraint.activate([
             playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -383,9 +469,49 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: Internal
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
+    private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
+    private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
+    private var onTap: (() -> Void)?
+    private(set) var messageID: Int64?
 
-    func configure(message: Message) {
+    var hasVideoPlaybackOwner: Bool {
+        #if DEBUG
+            videoPlaybackOwner != nil || debugHasVideoPlaybackOwner
+        #else
+            videoPlaybackOwner != nil
+        #endif
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        guard !isVisible,
+              let videoPlaybackOwner,
+              let videoPlaybackAttachmentToken
+        else { return }
+        videoPlaybackOwner.setPlaybackVisible(false, attachment: videoPlaybackAttachmentToken)
+    }
+
+    func configure(
+        message: Message,
+        videoPlaybackOwner: GalleryVideoPlaybackOwner?,
+        onTap: @escaping () -> Void,
+    ) {
+        prepareForReuse()
+        messageID = message.id
+        self.onTap = onTap
+        if let videoPlaybackOwner {
+            self.videoPlaybackOwner = videoPlaybackOwner
+            imageView.isHidden = true
+            playIcon.isHidden = true
+            videoPlaybackAttachmentToken = videoPlaybackOwner.attach(to: self, context: .inline)
+            accessibilityLabel = "Open video"
+            accessibilityTraits = [.button, .playsSound]
+            return
+        }
+        imageView.isHidden = false
+        accessibilityLabel = "Open media"
+        accessibilityTraits = .button
         switch message.content {
         case .messagePhoto(let photo):
             playIcon.isHidden = true
@@ -431,8 +557,63 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
     }
 
     func prepareForReuse() {
+        if let videoPlaybackAttachmentToken {
+            videoPlaybackOwner?.detach(attachment: videoPlaybackAttachmentToken)
+        }
+        videoPlaybackAttachmentToken = nil
+        videoPlaybackOwner = nil
         imageView.cancel()
+        imageView.isHidden = false
+        onTap = nil
+        messageID = nil
+        #if DEBUG
+            debugHasVideoPlaybackOwner = false
+        #endif
     }
+
+    @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
+        guard messageID == owner.messageID else { return false }
+        videoPlaybackOwner = owner
+        imageView.isHidden = true
+        playIcon.isHidden = true
+        videoPlaybackAttachmentToken = owner.attach(to: self, context: .inline)
+        return videoPlaybackAttachmentToken != nil
+    }
+
+    func makeTransitionSnapshot() -> UIView? {
+        videoPlaybackOwner?.makeTransitionSnapshot(contentMode: .scaleAspectFill)
+            ?? imageView.makeImageSnapshot(contentMode: .scaleAspectFill)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard let onTap else { return false }
+        onTap()
+        return true
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var touchedView = touch.view
+        while let view = touchedView, view !== self {
+            if view is UIControl {
+                return false
+            }
+            touchedView = view.superview
+        }
+        return true
+    }
+
+    @objc private func tapped() {
+        onTap?()
+    }
+
+    #if DEBUG
+        private var debugHasVideoPlaybackOwner = false
+
+        func configureDebug(messageID: Int64, hasVideoPlaybackOwner: Bool) {
+            self.messageID = messageID
+            debugHasVideoPlaybackOwner = hasVideoPlaybackOwner
+        }
+    #endif
 }
 
 // MARK: - InlineVideoMediaView
@@ -447,6 +628,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         tapGesture.cancelsTouchesInView = false
         tapGesture.delegate = self
         addGestureRecognizer(tapGesture)
+        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
         accessibilityTraits = [.button, .playsSound]
         accessibilityLabel = "Open video"
     }
@@ -520,7 +702,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
 
     private weak var owner: GalleryVideoPlaybackOwner?
     private var attachmentToken: VideoPlaybackAttachmentToken?
-    private var messageID: Int64?
+    private(set) var messageID: Int64?
     private var onTap: (() -> Void)?
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)

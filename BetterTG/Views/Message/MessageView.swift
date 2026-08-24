@@ -88,24 +88,28 @@ final class MessageCell: UICollectionViewCell {
         mediaView.restoreInlineVideoPlaybackOwner(owner)
     }
 
+    func inlineVideoPlaybackCandidates(in coordinateSpace: UIView) -> [(Int64, CGRect)] {
+        mediaView.inlineVideoPlaybackCandidates(in: coordinateSpace)
+    }
+
     func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
         guard representedGalleryMessageIDs.contains(messageID),
               !mediaView.isHidden,
               mediaView.window != nil
         else { return nil }
         let generation = mediaTransitionGeneration
-        let sourceView = mediaView
+        guard let sourceView = mediaView.galleryTransitionSourceView(for: messageID) else { return nil }
         return MediaGalleryTransitionTarget(
             messageID: messageID,
             sourceView: sourceView,
             snapshotFactory: { [weak self] in
-                self?.mediaView.makeGalleryTransitionSnapshot()
+                self?.mediaView.makeGalleryTransitionSnapshot(for: messageID)
             },
             validation: { [weak self, weak sourceView] in
                 guard let self, let sourceView else { return false }
                 return self.mediaTransitionGeneration == generation
                     && self.representedGalleryMessageIDs.contains(messageID)
-                    && self.mediaView === sourceView
+                    && self.mediaView.galleryTransitionSourceView(for: messageID) === sourceView
             },
         )
     }
@@ -114,14 +118,16 @@ final class MessageCell: UICollectionViewCell {
         message: CustomMessage,
         chat: CustomChat,
         highlighted: Bool,
-        videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
+        videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onReplyTap: @escaping (Int64) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
         mediaTransitionGeneration = UUID()
-        representedGalleryMessageIDs = message.album.isEmpty ? [message.id] : []
+        representedGalleryMessageIDs = message.album.isEmpty
+            ? [message.id]
+            : Set(message.album.map(\.id))
         configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
 
         let isVideoNoteMessage: Bool = if case .messageVideoNote = message.message.content { true } else { false }
@@ -160,7 +166,7 @@ final class MessageCell: UICollectionViewCell {
 
         let hasMedia = mediaView.configure(
             message: message,
-            videoPlaybackOwner: videoPlaybackOwner,
+            videoPlaybackOwners: videoPlaybackOwners,
         ) { [weak self] messages, selection in
             self?.onMediaTap?(messages, selection)
         }

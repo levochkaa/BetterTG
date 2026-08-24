@@ -148,6 +148,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
             let freshDismissTarget = fresh?.frameInWindow != initial?.frameInWindow
             generationIsValid = false
             let staleSourceRejected = initial?.validatedSourceView == nil
+            let albumProof = AlbumMediaView.runDebugTransitionProbe(in: root)
 
             var cancelCommitCount = 0
             var cancelCleanupCount = 0
@@ -184,12 +185,16 @@ struct VideoPlaybackAttachmentToken: Hashable {
                 && rasterized
                 && freshDismissTarget
                 && staleSourceRejected
+                && albumProof.exactSource
+                && albumProof.singleCandidate
                 && cancelSkipsCommit
                 && completionOnce
             let result = "Gallery transition probe: exact-source=\(exactSource), clipped-source=\(clippedSource), "
                 + "aspect-fit-destination=\(aspectFitDestination), snapshot-before-hide=\(snapshotBeforeHide), "
                 + "rasterized-snapshot=\(rasterized), "
                 + "fresh-dismiss-target=\(freshDismissTarget), stale-source-rejected=\(staleSourceRejected), "
+                + "album-tile-source=\(albumProof.exactSource), "
+                + "album-single-candidate=\(albumProof.singleCandidate), "
                 + "cancel-skips-commit=\(cancelSkipsCommit), completion-once=\(completionOnce), "
                 + "initial-frame=\(String(describing: initial?.frameInWindow)), "
                 + "fresh-frame=\(String(describing: fresh?.frameInWindow))"
@@ -213,6 +218,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         selection: Int64,
         tdlib: TDLib = .shared,
         transferredPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
+        transferredPlaybackOwners: [GalleryVideoPlaybackOwner] = [],
         transitionSource: MediaGalleryTransitionTarget? = nil,
         transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)? = nil,
     ) {
@@ -236,12 +242,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             mediaTransitionController = transitionController
             transitioningDelegate = transitionController
         }
-        if let transferredPlaybackOwner,
-           transferredPlaybackOwner.tdlib === tdlib,
-           self.messages.contains(where: { $0.id == transferredPlaybackOwner.messageID })
-        {
-            videoPlaybackOwners[transferredPlaybackOwner.messageID] = transferredPlaybackOwner
-            transferredPlaybackOwner.galleryController = self
+        let transferredOwners = transferredPlaybackOwners + [transferredPlaybackOwner].compactMap(\.self)
+        for owner in transferredOwners where owner.tdlib === tdlib {
+            guard self.messages.contains(where: { $0.id == owner.messageID }) else { continue }
+            videoPlaybackOwners[owner.messageID] = owner
+            owner.galleryController = self
         }
     }
 
