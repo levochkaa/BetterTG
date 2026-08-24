@@ -10,6 +10,7 @@
 - `script/test.sh` currently runs the simulator build validation because the project has no dedicated test target.
 - The scripts own Xcode environment setup, project generation, TDLib model generation, package resolution, derived data location, and simulator selection.
 - Use `SIMULATOR_NAME="..."` or `SIMULATOR_ID="..."` only when the default simulator needs to be overridden.
+- Use `./build.sh --device` to build for the available paired physical iPhone and `./run.sh --device` to build, install, and launch on it. Device builds use Xcode automatic provisioning. Set `DEVICE_ID="..."` only when a specific physical iPhone must be selected.
 - Use `RUN_ARGUMENTS="..." ./run.sh` when an automated launch smoke needs app arguments; do not bypass `run.sh` with a direct simulator launch.
 - Do not close or shut down a booted Simulator when finishing a task. Leave it running for the user unless the user explicitly asks to close or shut it down.
 

@@ -3,26 +3,36 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/xcode_env.sh"
+source "$ROOT_DIR/script/device.sh"
 PROJECT_NAME="BetterTG"
 SCHEME="BetterTG"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
 SIMULATOR_NAME="${SIMULATOR_NAME:-iPhone 17 Pro}"
 SIMULATOR_ID="${SIMULATOR_ID:-}"
+DEVICE_ID="${DEVICE_ID:-}"
 CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
 FULL_OUTPUT=0
+BUILD_FOR_DEVICE=0
 
 usage() {
   cat <<'EOF'
-Usage: ./script/build.sh [--full-output|--verbose]
+Usage: ./script/build.sh [--device] [--full-output|--verbose]
 
 By default, build output is filtered to error and warning lines. Pass
 --full-output or --verbose to print the complete command output.
+
+Options:
+  --device  Build for the available paired physical iPhone. Set DEVICE_ID to
+            choose a specific iPhone when more than one is available.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --device)
+      BUILD_FOR_DEVICE=1
+      ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
       ;;
@@ -119,20 +129,28 @@ PY
 }
 
 validate_configuration
+
+if [[ "$BUILD_FOR_DEVICE" == "1" ]]; then
+  DEVICE_ID="$(resolve_connected_iphone_id "$DEVICE_ID")"
+  validate_connected_iphone "$DEVICE_ID"
+  destination="platform=iOS,id=$DEVICE_ID"
+else
+  if [[ -z "$SIMULATOR_ID" ]]; then
+    SIMULATOR_ID="$(simulator_id)"
+  fi
+  destination="platform=iOS Simulator,id=$SIMULATOR_ID"
+fi
+
 run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
 resolve_swift_packages
 run_with_filtered_output env BETTERTG_TD_SKIP_RESOLVE=1 python3 "$ROOT_DIR/td.py"
-
-if [[ -z "$SIMULATOR_ID" ]]; then
-  SIMULATOR_ID="$(simulator_id)"
-fi
 
 xcodebuild_args=(
   -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
   -scheme "$SCHEME"
   -configuration "$CONFIGURATION"
   -derivedDataPath "$DERIVED_DATA_PATH"
-  -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+  -destination "$destination"
   -packageAuthorizationProvider netrc
   -scmProvider system
   -skipPackagePluginValidation
@@ -140,8 +158,15 @@ xcodebuild_args=(
   "CODE_SIGNING_ALLOWED=$CODE_SIGNING_ALLOWED"
 )
 
+if [[ "$BUILD_FOR_DEVICE" == "1" ]]; then
+  xcodebuild_args+=(
+    -allowProvisioningUpdates
+    -allowProvisioningDeviceRegistration
+  )
+fi
+
 run_with_filtered_output xcodebuild "${xcodebuild_args[@]}" build
 
 if [[ "$FULL_OUTPUT" == "1" ]]; then
-  echo "BetterTG built successfully"
+  echo "BetterTG built successfully for $destination"
 fi
