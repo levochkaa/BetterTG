@@ -40,6 +40,13 @@ extension ChatVM {
             else { return }
             handleVoiceNoteDraftResolution(resolution)
         }
+        nc.publisher(&cancellables, for: .videoNoteDraftResolved) { [weak self] notification in
+            guard let self,
+                  let resolution = notification.object as? VideoNoteDraftResolution,
+                  resolution.chatID == customChat.id
+            else { return }
+            handleVideoNoteDraftResolution(resolution)
+        }
         nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
             guard let self, update.userId == customChat.user?.id else { return }
             onlineStatus = getOnlineStatus(from: update.status)
@@ -114,6 +121,7 @@ extension ChatVM {
     func updateDeleteMessages(_ update: UpdateDeleteMessages) {
         guard !update.fromCache, update.isPermanent else { return }
         bufferPotentialVoiceMessageDeletions(update.messageIds)
+        handlePotentialVideoMessageDeletions(update.messageIds)
         messages.removeAll { update.messageIds.contains($0.id) }
     }
 

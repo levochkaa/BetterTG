@@ -60,6 +60,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         super.viewDidDisappear(animated)
         guard presentationMode == .full else { return }
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        composerView.cancelActiveRecordingGesture()
+        videoNoteRecorder?.teardownForNavigation()
         Task { [chatVM] in await chatVM.updateDraft() }
     }
 
@@ -210,6 +212,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var scrollToLatestButtonVisible = false
     private var didPresentMicrophoneError = false
     private var didPresentVoiceNoteError = false
+    private var didPresentVideoNoteError = false
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
@@ -220,6 +223,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var composerBottomConstraint: NSLayoutConstraint?
     private var composerKeyboardAttached = false
     private var voiceGestureDefersSystemGestures = false
+    private var videoNoteRecorder: VideoNoteRecorderViewController?
+    private var videoNoteReplyMessage: CustomMessage?
+    private var videoNoteChatActionActive = false
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
         let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
@@ -354,6 +360,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onConfirmVoiceTrimResume = { [weak self] in
                 self?.confirmVoiceTrimAndResume()
             }
+            composerView.onStartVideoNoteRecording = { [weak self] in
+                await self?.beginVideoNoteRecording() ?? false
+            }
+            composerView.onCancelVideoNoteRecording = { [weak self] in
+                self?.videoNoteRecorder?.cancel()
+            }
+            composerView.onLockVideoNoteRecording = { [weak self] in
+                self?.videoNoteRecorder?.lockRecording()
+            }
+            composerView.onPauseVideoNoteRecording = { [weak self] in
+                self?.videoNoteRecorder?.finishForPreview()
+            }
+            composerView.onSendVideoNoteRecording = { [weak self] in
+                self?.videoNoteRecorder?.finishForSend()
+            }
+            composerView.onToggleVideoNotePreview = { [weak self] in
+                self?.videoNoteRecorder?.togglePreviewPlayback()
+            }
             view.addSubview(composerView)
             let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
             let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
@@ -387,6 +411,123 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.chatVM.resumeVoiceRecording(confirmingTrim: true)
         })
         present(alert, animated: true)
+    }
+
+    private func beginVideoNoteRecording() async -> Bool {
+        let recorder: VideoNoteRecorderViewController
+        if let videoNoteRecorder {
+            recorder = videoNoteRecorder
+        } else {
+            videoNoteReplyMessage = chatVM.replyMessage
+            composerView.setVideoNoteReplyMessage(videoNoteReplyMessage)
+            recorder = installVideoNoteRecorder()
+        }
+        return await recorder.beginHolding()
+    }
+
+    private func installVideoNoteRecorder() -> VideoNoteRecorderViewController {
+        let recorder = VideoNoteRecorderViewController()
+        recorder.onStateChange = { [weak self, weak recorder] state in
+            guard let self, videoNoteRecorder === recorder else { return }
+            composerView.updateVideoNoteState(state)
+            switch state {
+            case .holding, .locked:
+                if !videoNoteChatActionActive {
+                    videoNoteChatActionActive = true
+                    Task { [weak chatVM] in
+                        try? await chatVM?.tdSendChatAction(.chatActionRecordingVideoNote)
+                    }
+                }
+            case .failed(let message):
+                stopVideoNoteChatAction()
+                presentVideoNoteErrorIfNeeded(message)
+            case .idle, .preview, .sending:
+                stopVideoNoteChatAction()
+            case .preparing, .stopping:
+                break
+            }
+        }
+        recorder.onError = { [weak self] message in
+            self?.presentVideoNoteRetryErrorIfNeeded(message)
+        }
+        recorder.onDiscard = { [weak chatVM] asset in
+            if let chatVM {
+                await chatVM.discardVideoNoteAsset(asset)
+            } else {
+                await VideoNoteFileStore.shared.discardAsset(at: asset.url)
+            }
+        }
+        let replySnapshot = videoNoteReplyMessage
+        recorder.onSubmit = { [weak chatVM] asset in
+            guard let chatVM else {
+                return .retained(asset, message: "The chat was closed before the video message could be sent.")
+            }
+            return await chatVM.submitVideoNote(asset, replyingTo: replySnapshot)
+        }
+        recorder.onDismiss = { [weak self, weak recorder] in
+            guard let self, let recorder, videoNoteRecorder === recorder else { return }
+            recorder.willMove(toParent: nil)
+            recorder.view.removeFromSuperview()
+            recorder.removeFromParent()
+            videoNoteRecorder = nil
+            videoNoteReplyMessage = nil
+            composerView.setVideoNoteReplyMessage(nil)
+            stopVideoNoteChatAction()
+            composerView.updateVideoNoteState(.idle)
+        }
+
+        addChild(recorder)
+        recorder.view.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(recorder.view, belowSubview: composerView)
+        NSLayoutConstraint.activate([
+            recorder.view.topAnchor.constraint(equalTo: view.topAnchor),
+            recorder.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            recorder.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            recorder.view.bottomAnchor.constraint(equalTo: composerView.topAnchor),
+        ])
+        recorder.didMove(toParent: self)
+        videoNoteRecorder = recorder
+        return recorder
+    }
+
+    private func presentVideoNoteErrorIfNeeded(_ message: String) {
+        guard !didPresentVideoNoteError, presentedViewController == nil else { return }
+        didPresentVideoNoteError = true
+        let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .cancel) { [weak self] _ in
+            self?.didPresentVideoNoteError = false
+            if self?.videoNoteRecorder?.state.isActive != true {
+                self?.videoNoteRecorder?.cancel()
+            }
+        })
+        if message.localizedCaseInsensitiveContains("access") {
+            alert.addAction(UIAlertAction(title: "Settings", style: .default) { [weak self] _ in
+                self?.didPresentVideoNoteError = false
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+                if self?.videoNoteRecorder?.state.isActive != true {
+                    self?.videoNoteRecorder?.cancel()
+                }
+            })
+        }
+        present(alert, animated: true)
+    }
+
+    private func presentVideoNoteRetryErrorIfNeeded(_ message: String) {
+        guard !didPresentVideoNoteError, presentedViewController == nil else { return }
+        didPresentVideoNoteError = true
+        let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.didPresentVideoNoteError = false
+        })
+        present(alert, animated: true)
+    }
+
+    private func stopVideoNoteChatAction() {
+        guard videoNoteChatActionActive else { return }
+        videoNoteChatActionActive = false
+        Task { [weak chatVM] in try? await chatVM?.tdSendChatAction(.chatActionCancel) }
     }
 
     private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {
@@ -490,6 +631,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     updateHighlightState()
                     presentMicrophoneErrorIfNeeded()
                     presentVoiceNoteErrorIfNeeded()
+                    presentVideoNoteSendErrorIfNeeded()
                 }
             }
             .store(in: &cancellables)
@@ -836,6 +978,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         } else {
             alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
                 self?.didPresentVoiceNoteError = false
+            })
+        }
+        present(alert, animated: true)
+    }
+
+    private func presentVideoNoteSendErrorIfNeeded() {
+        guard let message = chatVM.videoNoteErrorMessage,
+              !didPresentVideoNoteError,
+              presentedViewController == nil
+        else { return }
+        didPresentVideoNoteError = true
+        chatVM.videoNoteErrorMessage = nil
+        let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
+        if chatVM.hasPendingVideoNote {
+            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in
+                self?.didPresentVideoNoteError = false
+                self?.chatVM.discardPendingVideoNote()
+            })
+            alert.addAction(UIAlertAction(title: "Keep", style: .cancel) { [weak self] _ in
+                self?.didPresentVideoNoteError = false
+            })
+            if chatVM.canRetryPendingVideoNote {
+                alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                    self?.didPresentVideoNoteError = false
+                    self?.chatVM.retryPendingVideoNote()
+                })
+            }
+        } else {
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                self?.didPresentVideoNoteError = false
             })
         }
         present(alert, animated: true)

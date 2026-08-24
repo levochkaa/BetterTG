@@ -48,6 +48,7 @@ import UIKit
             }
             async let sendDrafts = VoiceNoteDraftStore.shared.drafts(for: chatID)
             async let recordingDrafts = VoiceRecordingDraftStore.shared.drafts(for: chatID)
+            async let videoDrafts = VideoNoteFileStore.shared.drafts(for: chatID)
             var restoredPendingDraft: VoiceNoteSendDraft?
             for draft in await sendDrafts {
                 if let temporaryMessageID = draft.temporaryMessageID {
@@ -66,6 +67,22 @@ import UIKit
             } else if let recordingDraft = await recordingDrafts.first {
                 restoreVoiceRecordingDraft(recordingDraft)
             }
+            var restoredVideoDraft: VideoNoteSendDraft?
+            for draft in await videoDrafts {
+                if let temporaryMessageID = draft.temporaryMessageID {
+                    outgoingVideoNotes[temporaryMessageID] = draft
+                } else if restoredVideoDraft == nil {
+                    restoredVideoDraft = draft
+                }
+            }
+            if let restoredVideoDraft {
+                activatePendingVideoDraft(restoredVideoDraft)
+                if restoredVideoDraft.enqueueStartedAt != nil {
+                    videoNoteErrorMessage = "A previous video send was interrupted before its status was confirmed. Check the chat before retrying."
+                } else if let status = pendingVideoRetryStatusMessage {
+                    videoNoteErrorMessage = status
+                }
+            }
             self.loadingVoiceDraft = false
         }
     }
@@ -78,6 +95,8 @@ import UIKit
         voiceRecordingDraftTask?.cancel()
         voiceRecordingTrimTask?.cancel()
         voiceRetryAvailabilityTask?.cancel()
+        videoRetryAvailabilityTask?.cancel()
+        videoRetryTask?.cancel()
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
         if audioRecorder != nil {
@@ -126,11 +145,15 @@ import UIKit
     @Published private(set) var loadingVoiceDraft = true
     @Published private(set) var finalizingVoiceNote = false
     @Published private(set) var hasPendingVoiceNote = false
+    @Published private(set) var hasPendingVideoNote = false
+    @Published private(set) var retryingVideoNote = false
     @Published private(set) var pendingVoiceReplyMessage: CustomMessage?
+    @Published private(set) var pendingVideoReplyMessage: CustomMessage?
     @Published private(set) var voiceRecordingPreviewIsPlaying = false
     @Published private(set) var voiceRecordingPreviewPosition = 0.0
     private(set) var voiceRecordingTrimIsUpdating = false
     @Published var voiceNoteErrorMessage: String?
+    @Published var videoNoteErrorMessage: String?
     @Published var errorShown = false
 
     var loadingMessagesTask: Task<Void, Never>?
@@ -154,6 +177,14 @@ import UIKit
     private var voiceRecordingTrimTask: Task<Void, Never>?
     private var voiceRecordingTrimGeneration = 0
     private var voiceRecordingTrimBaseDraft: VoiceRecordingDraft?
+    private var pendingVideoNote: VideoNoteSendDraft?
+    private var outgoingVideoNotes = [Int64: VideoNoteSendDraft]()
+    private var videoRetryAvailabilityTask: Task<Void, Never>?
+    private var videoRetryTask: Task<Void, Never>?
+    private var registeringVideoMessageIDs = Set<Int64>()
+    private var submittingVideoDraftIDs = Set<UUID>()
+    private var bufferedVideoResolutions = [Int64: VideoNoteDraftResolution]()
+    private var bufferedVideoDeletedMessageIDs = Set<Int64>()
 
     @Published var messages = [CustomMessage]() {
         didSet { messagesDidChange.send() }
@@ -166,6 +197,35 @@ import UIKit
     var canRetryPendingVoiceNote: Bool {
         guard let pendingVoiceNote, pendingVoiceNote.enqueueStartedAt == nil else { return false }
         return pendingVoiceNote.failedSendState?.canRetryNow ?? true
+    }
+
+    var canRetryPendingVideoNote: Bool {
+        guard !retryingVideoNote,
+              let pendingVideoNote,
+              pendingVideoNote.enqueueStartedAt == nil
+        else { return false }
+        return pendingVideoNote.failedSendState?.canRetryNow ?? true
+    }
+
+    var pendingVideoReplyMessageID: Int64? {
+        pendingVideoNote?.replyMessageID
+    }
+
+    private var pendingVideoRetryStatusMessage: String? {
+        guard let failed = pendingVideoNote?.failedSendState else { return nil }
+        if failed.requiredPaidMessageStarCount > 0 {
+            return "This video-message retry requires a paid-message flow, which BetterTG doesn’t support."
+        }
+        if failed.needAnotherReplyQuote || failed.needAnotherSender {
+            return "This failed video message can’t be retried with the original reply or sender."
+        }
+        if !failed.canRetry {
+            return "TDLib marked this video message as non-retryable."
+        }
+        if failed.retryAvailableAt > Foundation.Date() {
+            return "This video message can be retried shortly."
+        }
+        return nil
     }
 
     var canEditMessage: Bool {
@@ -461,6 +521,7 @@ import UIKit
         let ids = customMessage.album.isEmpty ? [id] : customMessage.album.map(\.id)
         for messageID in ids {
             outgoingVoiceNotes.removeValue(forKey: messageID)
+            outgoingVideoNotes.removeValue(forKey: messageID)
         }
         if let failedMessageID = pendingVoiceNote?.failedSendState?.messageID, ids.contains(failedMessageID) {
             pendingVoiceNote = nil
@@ -468,9 +529,17 @@ import UIKit
             hasPendingVoiceNote = false
             voiceNoteErrorMessage = nil
         }
+        if let failedMessageID = pendingVideoNote?.failedSendState?.messageID, ids.contains(failedMessageID) {
+            pendingVideoNote = nil
+            pendingVideoReplyMessage = nil
+            hasPendingVideoNote = false
+            videoNoteErrorMessage = nil
+        }
         Task {
             await VoiceNoteDraftStore.shared.discardMessages(chatID: chatID, messageIDs: ids)
             await promoteNextPendingVoiceDraft()
+            await VideoNoteFileStore.shared.discardMessages(chatID: chatID, messageIDs: ids)
+            await promoteNextPendingVideoDraft()
             _ = try? await td.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
         }
     }
@@ -525,6 +594,8 @@ import UIKit
             if !messageVoiceNote.caption.text.isEmpty {
                 customMessage.formattedText = messageVoiceNote.caption
             }
+        case .messageVideoNote:
+            break
         case .messageAnimation(let messageAnimation):
             if !messageAnimation.caption.text.isEmpty {
                 customMessage.formattedText = messageAnimation.caption
@@ -684,6 +755,314 @@ import UIKit
         )
         
         try? await tdSendChatAction(.chatActionCancel)
+    }
+
+    func submitVideoNote(
+        _ asset: VideoNoteAsset,
+        replyingTo reply: CustomMessage?,
+    ) async -> VideoNoteSubmissionResult {
+        var draft: VideoNoteSendDraft
+        do {
+            draft = try await VideoNoteFileStore.shared.adopt(
+                asset,
+                chatID: chatID,
+                replyMessageID: reply?.id,
+                replyTo: getMessageReplyTo(from: reply),
+            )
+        } catch {
+            return .retained(asset, message: "Couldn’t preserve the video message for sending.")
+        }
+
+        var didBeginEnqueue = false
+        do {
+            try Task.checkCancellation()
+            try? await tdSendChatAction(.chatActionUploadingVideoNote(.init(progress: 0)))
+            draft = try await VideoNoteFileStore.shared.beginEnqueue(draft)
+            didBeginEnqueue = true
+            pendingVideoNote = draft
+            submittingVideoDraftIDs.insert(draft.id)
+            let message: Message
+            if let failedSendState = draft.failedSendState {
+                guard failedSendState.canRetryNow else { throw CancellationError() }
+                let resent = try await td.resendMessages(
+                    chatId: chatID,
+                    messageIds: [failedSendState.messageID],
+                    paidMessageStarCount: 0,
+                    quote: nil,
+                )
+                guard let resentMessage = resent.messages?.first else { throw CancellationError() }
+                message = resentMessage
+                draft.failedSendState = nil
+            } else {
+                message = try await sendMessageVideoNote(draft)
+            }
+            registeringVideoMessageIDs.insert(message.id)
+            let registration: VideoNoteEnqueueRegistration?
+            do {
+                registration = try await VideoNoteFileStore.shared.registerEnqueued(
+                    draft,
+                    temporaryMessageID: message.id,
+                )
+            } catch {
+                registration = nil
+                videoNoteErrorMessage = "The video message was queued, but local retry state couldn’t be saved."
+            }
+            var deletionResolution: VideoNoteDraftResolution?
+            if bufferedVideoDeletedMessageIDs.remove(message.id) != nil {
+                deletionResolution = try? await VideoNoteFileStore.shared.handleMessageDeleted(
+                    chatID: chatID,
+                    temporaryMessageID: message.id,
+                )
+                if deletionResolution == nil,
+                   registration == nil,
+                   let pendingDraft = try? await VideoNoteFileStore.shared.markPending(draft)
+                {
+                    deletionResolution = VideoNoteDraftResolution(
+                        chatID: chatID,
+                        draft: pendingDraft,
+                        outcome: .failed,
+                        temporaryMessageID: message.id,
+                    )
+                }
+            }
+            registeringVideoMessageIDs.remove(message.id)
+            bufferedVideoDeletedMessageIDs.removeAll()
+            let bufferedResolution = bufferedVideoResolutions.removeValue(forKey: message.id)
+            let registrationResolution = registration.flatMap { registration -> VideoNoteDraftResolution? in
+                guard let outcome = registration.outcome else { return nil }
+                return VideoNoteDraftResolution(
+                    chatID: chatID,
+                    draft: registration.draft,
+                    outcome: outcome,
+                    temporaryMessageID: message.id,
+                )
+            }
+            pendingVideoNote = nil
+            pendingVideoReplyMessage = nil
+            hasPendingVideoNote = false
+            submittingVideoDraftIDs.remove(draft.id)
+            let resolution = bufferedResolution ?? registrationResolution ?? deletionResolution
+            if let resolution {
+                handleVideoNoteDraftResolution(resolution)
+            } else {
+                outgoingVideoNotes[message.id] = registration?.draft ?? draft
+            }
+            if let replyMessageID = draft.replyMessageID,
+               replyMessage?.id == replyMessageID
+            {
+                replyMessage = nil
+            }
+            try? await tdSendChatAction(.chatActionCancel)
+            if registration != nil, resolution?.outcome != .failed {
+                videoNoteErrorMessage = nil
+            }
+            if let resolution, resolution.outcome == .failed {
+                return .retained(
+                    resolution.draft.asset,
+                    message: "Couldn’t upload the video message. You can retry without recording again.",
+                )
+            }
+            return .enqueued
+        } catch is CancellationError {
+            if didBeginEnqueue {
+                submittingVideoDraftIDs.remove(draft.id)
+                draft = await (try? VideoNoteFileStore.shared.markPending(
+                    draft,
+                    failedSendState: draft.failedSendState,
+                )) ?? draft
+                activatePendingVideoDraft(draft)
+            }
+            return .retained(draft.asset, message: "Video message sending was cancelled.")
+        } catch {
+            if didBeginEnqueue {
+                submittingVideoDraftIDs.remove(draft.id)
+                draft = await (try? VideoNoteFileStore.shared.markPending(
+                    draft,
+                    failedSendState: draft.failedSendState,
+                )) ?? draft
+                activatePendingVideoDraft(draft)
+            }
+            try? await tdSendChatAction(.chatActionCancel)
+            return .retained(
+                draft.asset,
+                message: "Couldn’t send the video message. You can retry without recording again.",
+            )
+        }
+    }
+
+    func retryPendingVideoNote() {
+        guard videoRetryTask == nil,
+              let draft = pendingVideoNote,
+              canRetryPendingVideoNote
+        else { return }
+        retryingVideoNote = true
+        videoRetryTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                retryingVideoNote = false
+                videoRetryTask = nil
+            }
+            let result = await submitVideoNote(draft.asset, replyingTo: pendingVideoReplyMessage)
+            if case let .retained(_, message) = result {
+                videoNoteErrorMessage = message
+            }
+        }
+    }
+
+    func discardPendingVideoNote() {
+        guard videoRetryTask == nil else {
+            videoNoteErrorMessage = "Wait for the current video-message retry to finish."
+            return
+        }
+        guard let draft = pendingVideoNote else { return }
+        pendingVideoNote = nil
+        hasPendingVideoNote = false
+        let knownReply = pendingVideoReplyMessage
+        pendingVideoReplyMessage = nil
+        videoRetryAvailabilityTask?.cancel()
+        videoRetryAvailabilityTask = nil
+        Task { [weak self] in
+            await VideoNoteFileStore.shared.remove(draft)
+            await self?.promoteNextPendingVideoDraft()
+        }
+        if replyMessage == nil, editCustomMessage == nil, let knownReply {
+            replyMessage = knownReply
+        } else if replyMessage == nil,
+                  editCustomMessage == nil,
+                  knownReply == nil,
+                  let replyMessageID = draft.replyMessageID
+        {
+            Task { [weak self] in
+                guard let self else { return }
+                let restoredReply = await getCustomMessage(fromId: replyMessageID)
+                guard replyMessage == nil, editCustomMessage == nil else { return }
+                replyMessage = restoredReply
+            }
+        }
+    }
+
+    func discardVideoNoteAsset(_ asset: VideoNoteAsset) async {
+        guard let draft = pendingVideoNote,
+              draft.fileURL.standardizedFileURL == asset.url.standardizedFileURL
+        else {
+            await VideoNoteFileStore.shared.discardAsset(at: asset.url)
+            return
+        }
+        pendingVideoNote = nil
+        pendingVideoReplyMessage = nil
+        hasPendingVideoNote = false
+        videoNoteErrorMessage = nil
+        videoRetryAvailabilityTask?.cancel()
+        videoRetryAvailabilityTask = nil
+        await VideoNoteFileStore.shared.remove(draft)
+        await promoteNextPendingVideoDraft()
+    }
+
+    private func activatePendingVideoDraft(_ draft: VideoNoteSendDraft) {
+        pendingVideoNote = draft
+        hasPendingVideoNote = true
+        videoRetryAvailabilityTask?.cancel()
+        if let retryAvailableAt = draft.failedSendState?.retryAvailableAt,
+           retryAvailableAt > Foundation.Date()
+        {
+            videoRetryAvailabilityTask = Task { [weak self] in
+                let delay = retryAvailableAt.timeIntervalSinceNow
+                if delay > 0 {
+                    try? await Task<Never, Never>.sleep(for: .seconds(delay))
+                }
+                guard let self, pendingVideoNote?.id == draft.id else { return }
+                objectWillChange.send()
+            }
+        }
+        guard let replyMessageID = draft.replyMessageID else {
+            pendingVideoReplyMessage = nil
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            let reply = await getCustomMessage(fromId: replyMessageID)
+            guard pendingVideoNote?.id == draft.id else { return }
+            pendingVideoReplyMessage = reply
+        }
+    }
+
+    func handleVideoNoteDraftResolution(_ resolution: VideoNoteDraftResolution) {
+        if registeringVideoMessageIDs.contains(resolution.temporaryMessageID)
+            || submittingVideoDraftIDs.contains(resolution.draft.id)
+        {
+            bufferedVideoResolutions[resolution.temporaryMessageID] = resolution
+            return
+        }
+        outgoingVideoNotes.removeValue(forKey: resolution.temporaryMessageID)
+        switch resolution.outcome {
+        case .failed:
+            if pendingVideoNote == nil || pendingVideoNote?.id == resolution.draft.id {
+                activatePendingVideoDraft(resolution.draft)
+                videoNoteErrorMessage = pendingVideoRetryStatusMessage
+                    ?? "Couldn’t upload the video message. You can retry without recording again."
+            }
+        case .succeeded:
+            if pendingVideoNote?.id == resolution.draft.id {
+                pendingVideoNote = nil
+                pendingVideoReplyMessage = nil
+                hasPendingVideoNote = false
+            }
+            Task { [weak self] in await self?.promoteNextPendingVideoDraft() }
+        }
+    }
+
+    func handlePotentialVideoMessageDeletions(_ messageIDs: [Int64]) {
+        if !submittingVideoDraftIDs.isEmpty
+            || !registeringVideoMessageIDs.isEmpty
+            || retryingVideoNote
+        {
+            bufferedVideoDeletedMessageIDs.formUnion(messageIDs)
+            return
+        }
+        guard let draft = pendingVideoNote,
+              draft.enqueueStartedAt == nil,
+              let failedMessageID = draft.failedSendState?.messageID,
+              messageIDs.contains(failedMessageID)
+        else { return }
+        pendingVideoNote = nil
+        pendingVideoReplyMessage = nil
+        hasPendingVideoNote = false
+        videoNoteErrorMessage = nil
+        Task { [weak self] in
+            await VideoNoteFileStore.shared.remove(draft)
+            await self?.promoteNextPendingVideoDraft()
+        }
+    }
+
+    private func promoteNextPendingVideoDraft() async {
+        guard pendingVideoNote == nil else { return }
+        let drafts = await VideoNoteFileStore.shared.drafts(for: chatID)
+        guard pendingVideoNote == nil,
+              let nextDraft = drafts.first(where: { $0.temporaryMessageID == nil })
+        else { return }
+        activatePendingVideoDraft(nextDraft)
+        if nextDraft.enqueueStartedAt != nil {
+            videoNoteErrorMessage = "A previous video send was interrupted before its status was confirmed. Check the chat before retrying."
+        }
+    }
+
+    private func sendMessageVideoNote(_ draft: VideoNoteSendDraft) async throws -> Message {
+        let inputVideoNote = InputVideoNote(
+            duration: min(60, max(1, Int(draft.duration))),
+            length: min(640, max(1, draft.length)),
+            thumbnail: nil,
+            videoNote: .inputFileLocal(.init(path: draft.fileURL.path(percentEncoded: false))),
+        )
+        return try await td.sendMessage(
+            chatId: chatID,
+            inputMessageContent: .inputMessageVideoNote(
+                .init(selfDestructType: nil, videoNote: inputVideoNote),
+            ),
+            options: nil,
+            replyMarkup: nil,
+            replyTo: draft.replyTo,
+            topicId: nil,
+        )
     }
     
     func editMessage() async {

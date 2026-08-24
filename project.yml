@@ -62,8 +62,8 @@ targets:
         INFOPLIST_FILE: BetterTG/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: BetterTG
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
-        INFOPLIST_KEY_NSCameraUsageDescription: We would like to access your Camera to let you send photos in chats.
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: We would like to access your Microphone to let you send Voice messages in chats.
+        INFOPLIST_KEY_NSCameraUsageDescription: We use the camera when you take photos or record video messages in chats.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: We use the microphone when you record voice or video messages in chats.
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: We would like to access Photos to save images you request.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: We would like to access your Photos to let you send them in chats.
         INFOPLIST_KEY_NSSupportsLiveActivities: YES

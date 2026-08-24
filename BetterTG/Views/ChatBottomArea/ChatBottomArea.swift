@@ -3,6 +3,11 @@
 import TDLibKitDynamic
 import UIKit
 
+enum ChatMediaRecordingMode: Equatable {
+    case video
+    case voice
+}
+
 final class ChatComposerView: UIView {
     // MARK: Lifecycle
 
@@ -25,6 +30,12 @@ final class ChatComposerView: UIView {
     var onScrollToMessage: ((Int64) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
     var onConfirmVoiceTrimResume: (() -> Void)?
+    var onCancelVideoNoteRecording: (() -> Void)?
+    var onLockVideoNoteRecording: (() -> Void)?
+    var onPauseVideoNoteRecording: (() -> Void)?
+    var onSendVideoNoteRecording: (() -> Void)?
+    var onStartVideoNoteRecording: (() async -> Bool)?
+    var onToggleVideoNotePreview: (() -> Void)?
 
     var isInputFocused: Bool {
         textView.isFirstResponder
@@ -32,6 +43,32 @@ final class ChatComposerView: UIView {
 
     func focusInput() {
         textView.becomeFirstResponder()
+    }
+
+    func cancelActiveRecordingGesture() {
+        voiceGestureGeneration &+= 1
+        voiceGestureArmTask?.cancel()
+        voiceGestureArmTask = nil
+        if chatVM.recordingVoiceNote {
+            chatVM.cancelVoiceRecording()
+        } else if activeMediaRecordingMode == .video, videoNoteState.isActive {
+            onCancelVideoNoteRecording?()
+        }
+        finishVoiceGestureAfterExternalStop()
+    }
+
+    func updateVideoNoteState(_ state: VideoNoteComposerState) {
+        let wasActive = videoNoteState.isActive
+        videoNoteState = state
+        if wasActive, !state.isActive, voiceGestureIsArmed {
+            finishVoiceGestureAfterExternalStop()
+        }
+        update(from: chatVM)
+    }
+
+    func setVideoNoteReplyMessage(_ message: CustomMessage?) {
+        videoNoteReplyMessage = message
+        update(from: chatVM)
     }
 
     func setKeyboardAttached(_ attached: Bool) {
@@ -84,6 +121,33 @@ final class ChatComposerView: UIView {
             replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
                 self?.onScrollToMessage?(edited.id)
             }
+        } else if videoNoteState.isActive, let videoNoteReplyMessage {
+            replyRow.isHidden = false
+            closeReplyButton.isHidden = true
+            replySnippet.configure(
+                title: "Video reply · \(videoNoteReplyMessage.senderUser?.firstName ?? "Message")",
+                message: videoNoteReplyMessage.message,
+            ) { [weak self] in
+                self?.onScrollToMessage?(videoNoteReplyMessage.id)
+            }
+        } else if targetText.characters.isEmpty,
+                  let pendingReplyID = chatVM.pendingVideoReplyMessageID,
+                  chatVM.hasPendingVideoNote
+        {
+            replyRow.isHidden = false
+            closeReplyButton.isHidden = true
+            if let pendingReply = chatVM.pendingVideoReplyMessage {
+                replySnippet.configure(
+                    title: "Video reply · \(pendingReply.senderUser?.firstName ?? "Message")",
+                    message: pendingReply.message,
+                ) { [weak self] in
+                    self?.onScrollToMessage?(pendingReply.id)
+                }
+            } else {
+                replySnippet.configure(title: "Video reply", text: "Original replied message") { [weak self] in
+                    self?.onScrollToMessage?(pendingReplyID)
+                }
+            }
         } else if targetText.characters.isEmpty,
                   let pendingReplyID = chatVM.pendingVoiceReplyMessageID,
                   chatVM.hasPendingVoiceNote || chatVM.finalizingVoiceNote || chatVM.recordingVoiceNote
@@ -121,9 +185,21 @@ final class ChatComposerView: UIView {
         }
         photosScroll.isHidden = chatVM.displayedImages.isEmpty
 
-        inputRow.isHidden = chatVM.recordingVoiceNote
-        recordingRow.isHidden = !chatVM.recordingVoiceNote
-        if chatVM.recordingVoiceNote {
+        let isRecordingVideoNote = videoNoteState.isActive
+        let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
+        inputRow.isHidden = isRecordingMedia
+        recordingRow.isHidden = !isRecordingMedia
+        if isRecordingVideoNote {
+            setVoiceGestureDeferral(
+                isHoldingVideoNote
+                    && voiceGestureIsTracking
+                    && !voiceGestureContactEnded,
+            )
+            if chatVM.timer != nil {
+                chatVM.stopTimer()
+            }
+            updateRecordingStatus()
+        } else if chatVM.recordingVoiceNote {
             setVoiceGestureDeferral(
                 chatVM.voiceRecordingInteractionState == .holding
                     && voiceGestureIsTracking
@@ -151,6 +227,11 @@ final class ChatComposerView: UIView {
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
         }
+    }
+
+    private var isHoldingVideoNote: Bool {
+        if case .holding = videoNoteState { return true }
+        return false
     }
 
     // MARK: Private
@@ -214,6 +295,10 @@ final class ChatComposerView: UIView {
     private var voiceGestureContactEnded = false
     private var voiceGestureAwaitingPrearmLock = false
     private var voiceGestureIgnoresRecognizerSequence = false
+    private var activeMediaRecordingMode = ChatMediaRecordingMode.voice
+    private var selectedMediaRecordingMode = ChatMediaRecordingMode.voice
+    private var videoNoteState = VideoNoteComposerState.idle
+    private var videoNoteReplyMessage: CustomMessage?
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
@@ -662,34 +747,46 @@ final class ChatComposerView: UIView {
             || chatVM.editCustomMessage != nil
         let isPreparingVoice = chatVM.loadingVoiceDraft || chatVM.startingVoiceNote || chatVM.finalizingVoiceNote
         let isFinalizingVoice = isPreparingVoice && !hasContent
+        let isFinalizingVideo = isVideoNoteBusy && !hasContent
         let isRetryingVoice = chatVM.canRetryPendingVoiceNote && !hasContent
         let isUncertainVoice = chatVM.hasPendingVoiceNote && !chatVM.canRetryPendingVoiceNote && !hasContent
+        let isRetryingVideo = chatVM.canRetryPendingVideoNote && !hasContent
+        let isUncertainVideo = chatVM.hasPendingVideoNote && !chatVM.canRetryPendingVideoNote && !hasContent
+        let isRecordingMedia = chatVM.recordingVoiceNote || videoNoteState.isActive
         let symbol =
-            if isFinalizingVoice {
+            if isFinalizingVoice || isFinalizingVideo {
                 "clock.circle"
             } else if isRetryingVoice {
                 "arrow.clockwise.circle.fill"
             } else if isUncertainVoice {
                 "exclamationmark.circle.fill"
+            } else if isRetryingVideo {
+                "arrow.clockwise.circle.fill"
+            } else if isUncertainVideo {
+                "exclamationmark.circle.fill"
+            } else if isRecordingMedia || hasContent {
+                "arrow.up.circle.fill"
             } else {
-                chatVM.recordingVoiceNote || hasContent ? "arrow.up.circle.fill" : "mic.fill"
+                selectedMediaRecordingMode == .video ? "video.fill" : "mic.fill"
             }
         actionButton.setImage(UIImage(systemName: symbol), for: .normal)
         actionButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(
-                pointSize: chatVM.recordingVoiceNote || hasContent ? 28 : 20,
-                weight: chatVM.recordingVoiceNote || hasContent ? .regular : .medium,
+                pointSize: isRecordingMedia || hasContent ? 28 : 20,
+                weight: isRecordingMedia || hasContent ? .regular : .medium,
             ),
             forImageIn: .normal,
         )
-        actionButton.isEnabled = !isFinalizingVoice
-        actionButton.alpha = isFinalizingVoice ? 0.55 : 1
-        let canBeginVoiceGesture = !chatVM.startingVoiceNote
+        actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo
+        actionButton.alpha = actionButton.isEnabled ? 1 : 0.55
+        let canBeginRecordingGesture = !chatVM.startingVoiceNote
             && !chatVM.loadingVoiceDraft
             && !chatVM.finalizingVoiceNote
             && !chatVM.hasPendingVoiceNote
+            && !chatVM.hasPendingVideoNote
+            && !videoNoteState.isActive
             && !hasContent
-        recordingGestureRecognizer.isEnabled = voiceGestureIsTracking || canBeginVoiceGesture
+        recordingGestureRecognizer.isEnabled = voiceGestureIsTracking || canBeginRecordingGesture
         if chatVM.hasPendingVoiceNote {
             var voiceActions = [UIAction]()
             if chatVM.canRetryPendingVoiceNote {
@@ -711,25 +808,67 @@ final class ChatComposerView: UIView {
             actionButton.accessibilityHint = chatVM.canRetryPendingVoiceNote
                 ? "Touch and hold for retry and discard options."
                 : "Check the chat for the previous send, or touch and hold to discard."
+        } else if chatVM.hasPendingVideoNote {
+            var videoActions = [UIAction]()
+            if chatVM.canRetryPendingVideoNote {
+                videoActions.append(UIAction(
+                    title: "Retry Video Message",
+                    image: UIImage(systemName: "arrow.clockwise"),
+                ) { [weak self] _ in
+                    self?.chatVM.retryPendingVideoNote()
+                })
+            }
+            videoActions.append(UIAction(
+                title: "Discard Video Message",
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive,
+            ) { [weak self] _ in
+                self?.chatVM.discardPendingVideoNote()
+            })
+            actionButton.menu = UIMenu(children: videoActions)
+            actionButton.accessibilityHint = chatVM.canRetryPendingVideoNote
+                ? "Touch and hold for retry and discard options."
+                : "Check the chat for the previous send, or touch and hold to discard."
         } else {
             actionButton.menu = nil
             actionButton.accessibilityHint = UIAccessibility.isVoiceOverRunning && !hasContent
-                ? "Double-tap to start a locked voice recording."
+                ? "Double-tap to start a locked \(selectedMediaRecordingMode == .video ? "video" : "voice") recording."
                 : nil
         }
         actionButton.accessibilityLabel =
-            if isFinalizingVoice {
-                "Preparing voice message"
+            if isFinalizingVoice || isFinalizingVideo {
+                selectedMediaRecordingMode == .video ? "Preparing video message" : "Preparing voice message"
             } else if isRetryingVoice {
                 "Retry voice message"
             } else if isUncertainVoice {
                 "Voice message send status unknown"
+            } else if isRetryingVideo {
+                "Retry video message"
+            } else if isUncertainVideo {
+                "Video message send status unknown"
             } else {
-                chatVM.recordingVoiceNote || hasContent ? "Send" : "Record voice message"
+                isRecordingMedia || hasContent
+                    ? "Send"
+                    : selectedMediaRecordingMode == .video ? "Record video message" : "Record voice message"
             }
     }
 
+    private var isVideoNoteBusy: Bool {
+        switch videoNoteState {
+        case .preparing, .sending, .stopping:
+            true
+        case .failed, .holding, .idle, .locked, .preview:
+            false
+        }
+    }
+
     private func updateRecordingStatus() {
+        if videoNoteState.isActive {
+            updateVideoRecordingStatus()
+            return
+        }
+        cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
+        recordingSendButton.accessibilityLabel = "Send voice message"
         recordingLabel.textColor = .systemRed
         recordingPreviewPlayButton.isHidden = true
         recordingPreviewContainer.isHidden = true
@@ -804,6 +943,71 @@ final class ChatComposerView: UIView {
         }
     }
 
+    private func updateVideoRecordingStatus() {
+        cancelRecordingButton.accessibilityLabel = "Cancel video message"
+        recordingLabel.textColor = .systemRed
+        recordingPreviewPlayButton.isHidden = true
+        recordingPreviewContainer.isHidden = true
+        recordingPauseResumeButton.isHidden = true
+        recordingSendButton.isHidden = true
+        recordingSendButton.isEnabled = true
+        recordingSendButton.alpha = 1
+        recordingTrimView.setEditingEnabled(false)
+        switch videoNoteState {
+        case .preparing:
+            recordingLabel.text = "Preparing camera…"
+            recordingLabel.accessibilityLabel = "Preparing video-message camera"
+        case .holding(let duration):
+            if voiceGestureTranslation.x <= -70 {
+                recordingLabel.text = "← Release to cancel"
+            } else if voiceGestureTranslation.y <= -45 {
+                recordingLabel.text = "↑ Release to lock"
+            } else {
+                recordingLabel.text = "● \(formatVideoDuration(duration))  ← Cancel  ↑ Lock"
+            }
+            recordingLabel.accessibilityLabel = "Recording video message, \(formatVideoDuration(duration))"
+        case .locked(let duration):
+            recordingLabel.text = "● \(formatVideoDuration(duration))  Locked"
+            recordingLabel.accessibilityLabel = "Video recording locked, \(formatVideoDuration(duration))"
+            recordingPauseResumeButton.isHidden = false
+            recordingPauseResumeButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+            recordingPauseResumeButton.accessibilityLabel = "Stop video recording for preview"
+            recordingSendButton.isHidden = false
+            recordingSendButton.accessibilityLabel = "Send video message"
+        case let .preview(duration, isPlaying):
+            recordingLabel.textColor = .label
+            recordingLabel.text = formatVideoDuration(duration)
+            recordingLabel.accessibilityLabel = "Video message preview, \(formatVideoDuration(duration))"
+            recordingPreviewPlayButton.isHidden = false
+            recordingPreviewPlayButton.setImage(
+                UIImage(systemName: isPlaying ? "pause.fill" : "play.fill"),
+                for: .normal,
+            )
+            recordingPreviewPlayButton.accessibilityLabel = isPlaying
+                ? "Pause video message preview"
+                : "Play video message preview"
+            recordingSendButton.isHidden = false
+            recordingSendButton.accessibilityLabel = "Send video message"
+        case .stopping:
+            recordingLabel.text = "Preparing preview…"
+            recordingLabel.accessibilityLabel = "Preparing video message preview"
+        case .sending:
+            recordingLabel.text = "Sending…"
+            recordingLabel.accessibilityLabel = "Sending video message"
+        case .failed(let message):
+            recordingLabel.text = message
+            recordingLabel.accessibilityLabel = message
+        case .idle:
+            recordingLabel.text = nil
+            recordingLabel.accessibilityLabel = nil
+        }
+    }
+
+    private func formatVideoDuration(_ duration: Double) -> String {
+        let seconds = max(0, Int(duration))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
     @objc private func cancelReplyOrEdit() {
         chatVM.replyMessage = nil
         chatVM.editCustomMessage = nil
@@ -813,6 +1017,16 @@ final class ChatComposerView: UIView {
     @objc private func actionTapped(_ sender: UIButton) {
         if sender === actionButton, voiceGestureSuppressesButtonAction {
             voiceGestureSuppressesButtonAction = false
+            return
+        }
+        if videoNoteState.isActive {
+            setVoiceGestureDeferral(false)
+            switch videoNoteState {
+            case .holding, .locked, .preview:
+                onSendVideoNoteRecording?()
+            case .failed, .idle, .preparing, .sending, .stopping:
+                break
+            }
             return
         }
         if chatVM.recordingVoiceNote {
@@ -830,19 +1044,50 @@ final class ChatComposerView: UIView {
             }
             return
         }
+        if chatVM.hasPendingVideoNote, !hasContent {
+            if chatVM.canRetryPendingVideoNote {
+                chatVM.retryPendingVideoNote()
+            }
+            return
+        }
         guard hasContent else {
             if UIAccessibility.isVoiceOverRunning {
-                Task { [weak chatVM] in
-                    guard let chatVM else { return }
-                    if await chatVM.mediaStartRecordingVoice() {
-                        chatVM.lockVoiceRecording()
-                    }
-                }
+                startLockedRecordingForAccessibility()
+            } else {
+                toggleMediaRecordingMode()
             }
             return
         }
         chatVM.sendMessageTask?.cancel()
         chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage() }
+    }
+
+    private func startLockedRecordingForAccessibility() {
+        let mode = selectedMediaRecordingMode
+        Task { [weak self, weak chatVM] in
+            guard let self, let chatVM else { return }
+            let started: Bool
+            switch mode {
+            case .voice:
+                started = await chatVM.mediaStartRecordingVoice()
+            case .video:
+                started = await onStartVideoNoteRecording?() ?? false
+            }
+            guard started else { return }
+            switch mode {
+            case .voice:
+                chatVM.lockVoiceRecording()
+            case .video:
+                onLockVideoNoteRecording?()
+            }
+        }
+    }
+
+    private func toggleMediaRecordingMode() {
+        guard !videoNoteState.isActive, !chatVM.recordingVoiceNote else { return }
+        selectedMediaRecordingMode = selectedMediaRecordingMode == .voice ? .video : .voice
+        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.55)
+        updateActionButton()
     }
 
     @objc private func actionLongPressed(_ gesture: UILongPressGestureRecognizer) {
@@ -876,6 +1121,8 @@ final class ChatComposerView: UIView {
                   !chatVM.startingVoiceNote,
                   !chatVM.loadingVoiceDraft,
                   !chatVM.hasPendingVoiceNote,
+                  !chatVM.hasPendingVideoNote,
+                  !videoNoteState.isActive,
                   chatVM.displayedImages.isEmpty,
                   chatVM.text.characters.isEmpty,
                   chatVM.editCustomMessage == nil
@@ -896,15 +1143,19 @@ final class ChatComposerView: UIView {
             voiceGestureSuppressesButtonAction = false
             voiceGestureContactEnded = false
             voiceGestureAwaitingPrearmLock = false
+            activeMediaRecordingMode = selectedMediaRecordingMode
             setVoiceGestureDeferral(true)
             voiceGestureGeneration &+= 1
             let generation = voiceGestureGeneration
             #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+                if activeMediaRecordingMode == .voice,
+                   ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
+                {
                     log("Voice gesture smoke: began")
                 }
             #endif
             voiceGestureArmTask?.cancel()
+            let recordingMode = activeMediaRecordingMode
             voiceGestureArmTask = Task { [weak self] in
                 guard let self else { return }
                 try? await Task<Never, Never>.sleep(for: .milliseconds(190))
@@ -915,18 +1166,23 @@ final class ChatComposerView: UIView {
                 else { return }
                 voiceGestureIsArmed = true
                 voiceGestureSuppressesButtonAction = true
-                let started = await chatVM.mediaStartRecordingVoice()
+                let started = await beginRecording(mode: recordingMode)
                 guard voiceGestureGeneration == generation else {
                     if started {
-                        chatVM.cancelVoiceRecording()
+                        cancelRecordingForMode(recordingMode)
                     }
                     return
                 }
                 #if DEBUG
-                    if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+                    if recordingMode == .voice,
+                       ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
+                    {
                         log("Voice gesture smoke: recording=\(started)")
                     }
-                    if started, ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-lock") {
+                    if recordingMode == .voice,
+                       started,
+                       ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-lock")
+                    {
                         voiceGestureFinished = true
                         voiceGestureIsTracking = false
                         applyVoiceGestureOutcome(.lock)
@@ -1039,6 +1295,24 @@ final class ChatComposerView: UIView {
         }
     }
 
+    private func beginRecording(mode: ChatMediaRecordingMode) async -> Bool {
+        switch mode {
+        case .voice:
+            return await chatVM.mediaStartRecordingVoice()
+        case .video:
+            return await onStartVideoNoteRecording?() ?? false
+        }
+    }
+
+    private func cancelRecordingForMode(_ mode: ChatMediaRecordingMode) {
+        switch mode {
+        case .voice:
+            chatVM.cancelVoiceRecording()
+        case .video:
+            onCancelVideoNoteRecording?()
+        }
+    }
+
     private func finishUnarmedVoiceGesture(consumed: Bool = false) {
         voiceGestureArmTask?.cancel()
         voiceGestureIsTracking = false
@@ -1081,7 +1355,7 @@ final class ChatComposerView: UIView {
         }
         voiceGestureSuppressesButtonAction = true
         voiceGestureTranslation = .zero
-        if chatVM.startingVoiceNote || !chatVM.recordingVoiceNote {
+        if !isRecordingReady(mode: activeMediaRecordingMode) {
             pendingVoiceGestureOutcome = outcome
             return
         }
@@ -1091,7 +1365,9 @@ final class ChatComposerView: UIView {
     private func applyVoiceGestureOutcome(_ outcome: VoiceGestureOutcome) {
         voiceGestureAwaitingPrearmLock = false
         #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+            if activeMediaRecordingMode == .voice,
+               ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
+            {
                 let name = switch outcome {
                 case .cancel: "cancel"
                 case .lock: "lock"
@@ -1103,21 +1379,33 @@ final class ChatComposerView: UIView {
         switch outcome {
         case .cancel:
             setVoiceGestureDeferral(false)
-            chatVM.cancelVoiceRecording()
+            cancelRecordingForMode(activeMediaRecordingMode)
         case .lock:
             setVoiceGestureDeferral(false)
-            chatVM.lockVoiceRecording()
+            switch activeMediaRecordingMode {
+            case .voice:
+                chatVM.lockVoiceRecording()
+            case .video:
+                onLockVideoNoteRecording?()
+            }
             updateRecordingStatus()
         case .send:
-            guard chatVM.voiceRecordingInteractionState == .holding else { return }
+            guard isHoldingRecording(mode: activeMediaRecordingMode) else { return }
             setVoiceGestureDeferral(false)
             #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+                if activeMediaRecordingMode == .voice,
+                   ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
+                {
                     chatVM.cancelVoiceRecording()
                     return
                 }
             #endif
-            chatVM.mediaStopRecordingVoice()
+            switch activeMediaRecordingMode {
+            case .voice:
+                chatVM.mediaStopRecordingVoice()
+            case .video:
+                onSendVideoNoteRecording?()
+            }
         }
         voiceGestureIsArmed = false
     }
@@ -1127,6 +1415,30 @@ final class ChatComposerView: UIView {
         DispatchQueue.main.async { [weak self] in
             guard let self, voiceGestureGeneration == generation else { return }
             voiceGestureSuppressesButtonAction = false
+        }
+    }
+
+    private func isRecordingReady(mode: ChatMediaRecordingMode) -> Bool {
+        switch mode {
+        case .voice:
+            return chatVM.recordingVoiceNote
+        case .video:
+            switch videoNoteState {
+            case .holding, .locked:
+                return true
+            case .failed, .idle, .preparing, .preview, .sending, .stopping:
+                return false
+            }
+        }
+    }
+
+    private func isHoldingRecording(mode: ChatMediaRecordingMode) -> Bool {
+        switch mode {
+        case .voice:
+            return chatVM.voiceRecordingInteractionState == .holding
+        case .video:
+            if case .holding = videoNoteState { return true }
+            return false
         }
     }
 
@@ -1155,10 +1467,20 @@ final class ChatComposerView: UIView {
 
     @objc private func cancelRecording() {
         setVoiceGestureDeferral(false)
-        chatVM.cancelVoiceRecording()
+        if videoNoteState.isActive {
+            onCancelVideoNoteRecording?()
+        } else {
+            chatVM.cancelVoiceRecording()
+        }
     }
 
     @objc private func toggleRecordingPause() {
+        if videoNoteState.isActive {
+            if case .locked = videoNoteState {
+                onPauseVideoNoteRecording?()
+            }
+            return
+        }
         switch chatVM.voiceRecordingInteractionState {
         case .locked:
             chatVM.pauseVoiceRecording()
@@ -1174,7 +1496,11 @@ final class ChatComposerView: UIView {
     }
 
     @objc private func toggleRecordingPreview() {
-        chatVM.toggleVoiceRecordingPreview()
+        if videoNoteState.isActive {
+            onToggleVideoNotePreview?()
+        } else {
+            chatVM.toggleVoiceRecordingPreview()
+        }
     }
 
     private func seekRecordingPreview(to progress: CGFloat) {
