@@ -27,15 +27,16 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: classic fullscreen ±15s transport buttons and hardware keyboard commands.
-- Verification: `./test.sh` and `RUN_ARGUMENTS="-media-probe-gallery-owner" ./run.sh` pass; BetterTG remains Running as PID 39358
+- Current slice: Telegram-style four-second fullscreen control auto-hide and tap reveal.
+- Verification: `./test.sh` and `RUN_ARGUMENTS="-media-probe-gallery-owner" ./run.sh` pass; BetterTG remains Running as PID 41347
   and idb reads `Gallery playback owner probe: same-view=true, detach-retains-session=true, central-visibility=true,
-  transfer-retains=true, delete-revokes=true, commands=back15+forward15+toggle, controls=two-row+44pt,
+  transfer-retains=true, delete-revokes=true, commands=back15+forward15+toggle, controls=two-row+44pt+auto-hide4s,
   pip-supported=false, readiness-gated=true, invalidate=true`. The full-width blur footer has a separate 36pt scrubber row and a
-  compact transport row whose six buttons are all 44×44 even at 320pt width. Back clamps at zero; forward at/past duration rewinds
-  to zero and pauses. Space toggles, Shift+arrows seek ±5s, and Cmd+P targets active PiP before the central cell. UI and command paths
-  share unknown-duration/failure gates.
-- Architecture checkpoint: controls still route through the central cell into the stable owner, while active PiP remains globally
-  addressable. No raw AVPlayer or TDLib session is exposed to the controller.
-- Next slice: implement Telegram's four-second control auto-hide/tap reveal and loaded-range/offline scrubber status, then connect an
-  inline handoff; after that implement the FFmpeg sample-buffer engine for non-Apple WebM/VP9 VOD and its PiP playback delegate.
+  compact 44pt transport row. Controls hide after exactly 4s only while playing/visible; tap or any transport interaction reveals
+  them. Scrub, buffering, pause, EOF, failure, offscreen and PiP cancel hiding. VoiceOver activation synchronously restores controls,
+  blocks tap-hide and observes later disable to reschedule safely. The non-canceling tap recognizer excludes footer/retry controls and
+  coexists with collection paging.
+- Architecture checkpoint: one cancelable work item is owned by the stable player view and torn down on reuse; its fire-time predicate
+  revalidates playback, visibility, scrub, PiP and VoiceOver state before mutating UIKit.
+- Next slice: implement loaded-range/offline/retry scrubber status, then connect an inline handoff; after that implement the FFmpeg
+  sample-buffer engine for non-Apple WebM/VP9 VOD and its PiP playback delegate.

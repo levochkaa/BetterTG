@@ -927,6 +927,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             owner.performPlaybackCommand(.togglePlayback)
             let commandRouting = owner.mediaView.debugPlaybackCommandProbePassed
             let accessibleControls = owner.mediaView.debugPlaybackControlsLayoutProbePassed
+            let autoHidePolicy = owner.mediaView.debugControlsAutoHidePolicyProbePassed
             owner.invalidate()
             let invalidatedCleanly = owner.isInvalidated
                 && !owner.isPlaybackVisible
@@ -956,6 +957,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                readinessGated,
                commandRouting,
                accessibleControls,
+               autoHidePolicy,
                invalidatedCleanly,
                retainedAcrossDismissal,
                transferCleanedUp,
@@ -963,7 +965,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             {
                 result = "Gallery playback owner probe: same-view=true, detach-retains-session=true, "
                     + "central-visibility=true, transfer-retains=true, delete-revokes=true, "
-                    + "commands=back15+forward15+toggle, controls=two-row+44pt, "
+                    + "commands=back15+forward15+toggle, controls=two-row+44pt+auto-hide4s, "
                     + "pip-supported=\(AVPictureInPictureController.isPictureInPictureSupported()), "
                     + "readiness-gated=true, invalidate=true"
             } else {
@@ -972,6 +974,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                     + "reused=\(reusedExactView), readinessGated=\(readinessGated), "
                     + "commands=\(commandRouting), "
                     + "accessibleControls=\(accessibleControls), "
+                    + "autoHide=\(autoHidePolicy), "
                     + "invalidated=\(invalidatedCleanly), transfer=\(retainedAcrossDismissal), "
                     + "transferCleanup=\(transferCleanedUp), deletion=\(deletionRevoked)"
                 assertionFailure(result)
@@ -1450,7 +1453,7 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
 
 // MARK: - GalleryFilePlayerView
 
-final class GalleryFilePlayerView: UIView, GalleryMediaView {
+final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizerDelegate {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -1475,6 +1478,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         retryButton.accessibilityHint = "Attempts to load this video again"
         retryButton.addTarget(self, action: #selector(retryPlayback), for: .touchUpInside)
         configurePlaybackControls()
+        let controlsTapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleControlsVisibility))
+        controlsTapGesture.cancelsTouchesInView = false
+        controlsTapGesture.delegate = self
+        addGestureRecognizer(controlsTapGesture)
         addSubview(preview)
         addSubview(videoSurface)
         addSubview(spinner)
@@ -1585,6 +1592,38 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
                 }
                 && fixedTransportWidth <= 296
         }
+
+        var debugControlsAutoHidePolicyProbePassed: Bool {
+            Self.controlsAutoHideDelay == 4
+                && Self.shouldAutoHideControls(
+                    state: .playing,
+                    isSeeking: false,
+                    isPlaybackVisible: true,
+                    isPictureInPictureActive: false,
+                    isVoiceOverRunning: false,
+                )
+                && !Self.shouldAutoHideControls(
+                    state: .paused,
+                    isSeeking: false,
+                    isPlaybackVisible: true,
+                    isPictureInPictureActive: false,
+                    isVoiceOverRunning: false,
+                )
+                && !Self.shouldAutoHideControls(
+                    state: .playing,
+                    isSeeking: true,
+                    isPlaybackVisible: true,
+                    isPictureInPictureActive: false,
+                    isVoiceOverRunning: false,
+                )
+                && !Self.shouldAutoHideControls(
+                    state: .playing,
+                    isSeeking: false,
+                    isPlaybackVisible: true,
+                    isPictureInPictureActive: false,
+                    isVoiceOverRunning: true,
+                )
+        }
     #endif
 
     func configure(
@@ -1615,6 +1654,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()
         retryButton.isHidden = true
+        controlsAreVisible = !loops
+        controlsView.alpha = 1
         controlsView.isHidden = loops
         isUserPaused = false
         isMuted = false
@@ -1627,6 +1668,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         seekSlider.isEnabled = false
         updatePlaybackTime(0)
         updateControlIcons()
+        configureVoiceOverObservation()
         playbackCancellable = player.statePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.render(state: state) }
@@ -1655,7 +1697,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     }
 
     func prepareForReuse() {
+        cancelControlsAutoHide()
+        controlsView.layer.removeAllAnimations()
         setPictureInPictureActive(false)
+        cancelControlsAutoHide()
         onPictureInPictureToggle = nil
         onPictureInPictureEligibilityChanged = nil
         onPlaybackIntentChanged = nil
@@ -1672,10 +1717,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         timeCancellable = nil
         durationCancellable?.cancel()
         durationCancellable = nil
+        voiceOverCancellable?.cancel()
+        voiceOverCancellable = nil
         preview.cancel()
         spinner.stopAnimating()
         retryButton.isHidden = true
         controlsView.isHidden = true
+        controlsView.alpha = 1
+        controlsAreVisible = false
         videoSurface.playerLayer.player = nil
         videoSurface.isHidden = true
         fileID = nil
@@ -1708,6 +1757,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             updateTimeLabel(current: currentPlaybackTime)
         }
         isPlaybackVisible = isVisible
+        if !isVisible {
+            cancelControlsAutoHide()
+        }
         if isPictureInPictureActive {
             return
         }
@@ -1721,6 +1773,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     func setPictureInPictureActive(_ isActive: Bool) {
         guard isPictureInPictureActive != isActive else { return }
         isPictureInPictureActive = isActive
+        if isActive {
+            cancelControlsAutoHide()
+        }
         player.setExternalPlaybackControlActive(isActive)
         if !isActive {
             isUserPaused = !player.isPlaybackRequested
@@ -1729,6 +1784,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
             } else if !isPlaybackVisible {
                 player.pause()
             }
+            scheduleControlsAutoHideIfNeeded()
         }
         updateControlIcons()
         onPlaybackIntentChanged?()
@@ -1770,6 +1826,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         onPlaybackIntentChanged?()
     }
 
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard !loopsPlayback else { return false }
+        if let touchedView = touch.view,
+           touchedView.isDescendant(of: controlsView) || touchedView.isDescendant(of: retryButton)
+        {
+            return false
+        }
+        return true
+    }
+
     // MARK: Private
 
     private let preview = TDImageLoadingView()
@@ -1795,6 +1861,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     private var playbackCancellable: AnyCancellable?
     private var timeCancellable: AnyCancellable?
     private var durationCancellable: AnyCancellable?
+    private var voiceOverCancellable: AnyCancellable?
     private var displayCancellable: AnyCancellable?
     private var isPlaybackVisible = false
     private var isSurfaceReady = false
@@ -1816,6 +1883,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     private var playbackDuration = TimeInterval.zero
     private var isPictureInPictureActive = false
     private var vodRanges = TDLib.shared.vodRanges
+    private var controlsAreVisible = false
+    private var controlsAutoHideWorkItem: DispatchWorkItem?
     #if DEBUG
         private var debugPlaybackCommands = [GalleryPlaybackCommand]()
     #endif
@@ -2090,6 +2159,15 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         updateControlIcons()
         onPlaybackIntentChanged?()
         updatePictureInPictureEligibility()
+        switch state {
+        case .playing:
+            scheduleControlsAutoHideIfNeeded()
+        case .buffering, .ended, .failed, .paused, .preparing:
+            cancelControlsAutoHide()
+            setControlsVisible(true, animated: true)
+        case .idle:
+            cancelControlsAutoHide()
+        }
     }
 
     private func showRetryState() {
@@ -2102,6 +2180,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
 
     @objc private func togglePlayback() {
         guard currentPlaybackState != .failed else { return }
+        revealControlsAndReschedule()
         let playbackWasRequested = isSeeking ? resumeAfterSeeking : player.isPlaybackRequested
         if playbackWasRequested {
             isUserPaused = true
@@ -2128,6 +2207,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
 
     @objc private func beginSeeking() {
         guard seekSlider.isEnabled else { return }
+        setControlsVisible(true, animated: false)
+        cancelControlsAutoHide()
         isSeeking = true
         resumeAfterSeeking = !isUserPaused && player.isPlaybackRequested
         player.pause()
@@ -2152,15 +2233,18 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         isSeeking = false
         resumeAfterSeeking = false
         commitSeek(to: target, shouldResume: shouldResume)
+        scheduleControlsAutoHideIfNeeded()
     }
 
     @objc private func toggleMuted() {
+        revealControlsAndReschedule()
         isMuted.toggle()
         player.setMuted(isMuted)
         updateControlIcons()
     }
 
     @objc private func cyclePlaybackRate() {
+        revealControlsAndReschedule()
         playbackRate =
             switch playbackRate {
             case ..<1:
@@ -2177,7 +2261,21 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     }
 
     @objc private func togglePictureInPicture() {
+        revealControlsAndReschedule()
         onPictureInPictureToggle?()
+    }
+
+    @objc private func toggleControlsVisibility() {
+        guard !loopsPlayback else { return }
+        if UIAccessibility.isVoiceOverRunning {
+            setControlsVisible(true, animated: false)
+            cancelControlsAutoHide()
+            return
+        }
+        setControlsVisible(!controlsAreVisible, animated: true)
+        if controlsAreVisible {
+            scheduleControlsAutoHideIfNeeded()
+        }
     }
 
     private func updateControlIcons() {
@@ -2211,6 +2309,110 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         rateButton.accessibilityValue = rateTitle
     }
 
+    private func revealControlsAndReschedule() {
+        setControlsVisible(true, animated: true)
+        scheduleControlsAutoHideIfNeeded()
+    }
+
+    private func configureVoiceOverObservation() {
+        voiceOverCancellable?.cancel()
+        voiceOverCancellable = NotificationCenter.default
+            .publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if UIAccessibility.isVoiceOverRunning {
+                    cancelControlsAutoHide()
+                    setControlsVisible(true, animated: false)
+                } else {
+                    scheduleControlsAutoHideIfNeeded()
+                }
+            }
+    }
+
+    private func setControlsVisible(_ isVisible: Bool, animated: Bool) {
+        guard !loopsPlayback else {
+            controlsAreVisible = false
+            controlsView.isHidden = true
+            return
+        }
+        controlsAreVisible = isVisible
+        if !isVisible {
+            cancelControlsAutoHide()
+        }
+        if isVisible {
+            controlsView.isHidden = false
+        }
+        let changes = { self.controlsView.alpha = isVisible ? 1 : 0 }
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self, controlsAreVisible == isVisible else { return }
+            controlsView.isHidden = !isVisible
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.2,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState],
+                animations: changes,
+                completion: completion,
+            )
+        } else {
+            changes()
+            completion(true)
+        }
+    }
+
+    private func scheduleControlsAutoHideIfNeeded() {
+        cancelControlsAutoHide()
+        guard controlsAreVisible,
+              Self.shouldAutoHideControls(
+                  state: currentPlaybackState,
+                  isSeeking: isSeeking,
+                  isPlaybackVisible: isPlaybackVisible,
+                  isPictureInPictureActive: isPictureInPictureActive,
+                  isVoiceOverRunning: UIAccessibility.isVoiceOverRunning,
+              )
+        else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  Self.shouldAutoHideControls(
+                      state: currentPlaybackState,
+                      isSeeking: isSeeking,
+                      isPlaybackVisible: isPlaybackVisible,
+                      isPictureInPictureActive: isPictureInPictureActive,
+                      isVoiceOverRunning: UIAccessibility.isVoiceOverRunning,
+                  )
+            else { return }
+            setControlsVisible(false, animated: true)
+        }
+        controlsAutoHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.controlsAutoHideDelay,
+            execute: workItem,
+        )
+    }
+
+    private func cancelControlsAutoHide() {
+        controlsAutoHideWorkItem?.cancel()
+        controlsAutoHideWorkItem = nil
+    }
+
+    private static let controlsAutoHideDelay = TimeInterval(4)
+
+    private static func shouldAutoHideControls(
+        state: LocalMediaPlayer.State,
+        isSeeking: Bool,
+        isPlaybackVisible: Bool,
+        isPictureInPictureActive: Bool,
+        isVoiceOverRunning: Bool,
+    ) -> Bool {
+        state == .playing
+            && !isSeeking
+            && isPlaybackVisible
+            && !isPictureInPictureActive
+            && !isVoiceOverRunning
+    }
+
     private func commitSeek(to target: TimeInterval, shouldResume: Bool) {
         currentPlaybackTime = target
         if shouldResume, isPlaybackVisible {
@@ -2225,6 +2427,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
 
     private func jumpPlayback(by interval: TimeInterval) {
         guard canSeekPlayback else { return }
+        revealControlsAndReschedule()
         let resolution = Self.resolveJump(
             current: currentPlaybackTime,
             duration: playbackDuration,
