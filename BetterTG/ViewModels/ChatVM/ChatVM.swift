@@ -20,6 +20,7 @@ import UIKit
         
         try? td.openChat(chatId: customChat.chat.id) { _ in }
         setPublishers()
+        observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
         if !previewing {
@@ -45,9 +46,10 @@ import UIKit
                 self.loadingVoiceDraft = false
                 return
             }
-            let drafts = await VoiceNoteDraftStore.shared.drafts(for: chatID)
+            async let sendDrafts = VoiceNoteDraftStore.shared.drafts(for: chatID)
+            async let recordingDrafts = VoiceRecordingDraftStore.shared.drafts(for: chatID)
             var restoredPendingDraft: VoiceNoteSendDraft?
-            for draft in drafts {
+            for draft in await sendDrafts {
                 if let temporaryMessageID = draft.temporaryMessageID {
                     outgoingVoiceNotes[temporaryMessageID] = draft
                 } else if restoredPendingDraft == nil {
@@ -61,6 +63,8 @@ import UIKit
                 } else if let retryStatus = pendingVoiceRetryStatusMessage {
                     self.voiceNoteErrorMessage = retryStatus
                 }
+            } else if let recordingDraft = await recordingDrafts.first {
+                restoreVoiceRecordingDraft(recordingDraft)
             }
             self.loadingVoiceDraft = false
         }
@@ -71,9 +75,14 @@ import UIKit
         loadingMessagesTask?.cancel()
         sendMessageTask?.cancel()
         voiceFinalizeTask?.cancel()
+        voiceRecordingDraftTask?.cancel()
         voiceRetryAvailabilityTask?.cancel()
+        voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
         if audioRecorder != nil {
+            Media.shared.endAudioSessionRecord()
+        }
+        if voiceRecordingPreviewOwnsAudioSession {
             Media.shared.endAudioSessionRecord()
         }
         audioRecorder?.stop()
@@ -92,6 +101,9 @@ import UIKit
         case holding
         case idle
         case locked
+        case pausing
+        case preview
+        case resuming
     }
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
@@ -114,6 +126,8 @@ import UIKit
     @Published private(set) var finalizingVoiceNote = false
     @Published private(set) var hasPendingVoiceNote = false
     @Published private(set) var pendingVoiceReplyMessage: CustomMessage?
+    @Published private(set) var voiceRecordingPreviewIsPlaying = false
+    @Published private(set) var voiceRecordingPreviewPosition = 0.0
     @Published var voiceNoteErrorMessage: String?
     @Published var errorShown = false
 
@@ -125,13 +139,23 @@ import UIKit
     var voiceFinalizeTask: Task<Void, Never>?
     var recordingVoiceNoteURL: URL?
     var audioRecorder: AVAudioRecorder?
+    private var voiceRecordingTimerBaseline = 0.0
+    private var voiceRecordingLastRecorderTime = 0.0
+    private var voiceRecordingDraftTask: Task<Void, Never>?
+    private var voiceRecordingDraftGeneration = 0
+    private var voiceRecordingDraftID: UUID?
+    private var activeVoiceRecordingDraft: VoiceRecordingDraft?
+    private let voiceRecordingPreviewPlayer = LocalMediaPlayer()
+    private var voiceRecordingPreviewLoadedURL: URL?
+    private var voiceRecordingPreviewOwnsAudioSession = false
+    private var voiceRecordingPreviewCancellables = Set<AnyCancellable>()
 
     @Published var messages = [CustomMessage]() {
         didSet { messagesDidChange.send() }
     }
 
     var pendingVoiceReplyMessageID: Int64? {
-        pendingVoiceNote?.replyMessageID
+        activeVoiceRecordingDraft?.replyMessageID ?? pendingVoiceNote?.replyMessageID
     }
 
     var canRetryPendingVoiceNote: Bool {
@@ -166,6 +190,40 @@ import UIKit
             resultString += "\(seconds).\(time[1])" // time[1] == millisecongs
         }
         return resultString
+    }
+
+    var voiceRecordingPreviewDuration: Int {
+        guard let activeVoiceRecordingDraft else { return max(1, Int(ceil(timerCount))) }
+        let range = activeVoiceRecordingDraft.effectiveRange
+        return max(1, Int(ceil(range.upperBound - range.lowerBound)))
+    }
+
+    var canPauseVoiceRecording: Bool {
+        recordingVoiceNote
+            && voiceRecordingInteractionState == .locked
+            && voiceRecordingDraftTask == nil
+            && (activeVoiceRecordingDraft != nil || timerCount - voiceRecordingTimerBaseline >= 0.5)
+    }
+
+    var voiceRecordingPreviewPath: String? {
+        guard voiceRecordingInteractionState == .preview else { return nil }
+        return activeVoiceRecordingDraft?.fileURL.path()
+    }
+
+    var voiceRecordingPreviewWaveform: [CGFloat] {
+        guard let activeVoiceRecordingDraft else { return [] }
+        return VoiceNoteCodec.normalizedWaveform(data: activeVoiceRecordingDraft.waveform).map(CGFloat.init)
+    }
+
+    var voiceRecordingPreviewProgress: CGFloat {
+        guard let draft = activeVoiceRecordingDraft, draft.exactDuration > 0 else { return 0 }
+        return min(1, max(0, CGFloat(voiceRecordingPreviewPosition / draft.exactDuration)))
+    }
+
+    var voiceRecordingPreviewReady: Bool {
+        voiceRecordingInteractionState == .preview
+            && activeVoiceRecordingDraft != nil
+            && voiceRecordingDraftTask == nil
     }
     
     init(customChat: CustomChat, previewing: Bool = false) {
@@ -683,12 +741,12 @@ import UIKit
     
     func startTimer() {
         guard timer == nil else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let audioRecorder else { return }
                 audioRecorder.updateMeters()
                 wave.append(audioRecorder.peakPower(forChannel: 0))
-                timerCount += timer.timeInterval
+                updateVoiceRecordingDuration()
             }
         }
         self.timer = timer
@@ -699,6 +757,8 @@ import UIKit
         timer?.invalidate()
         timer = nil
         timerCount = 0
+        voiceRecordingTimerBaseline = 0
+        voiceRecordingLastRecorderTime = 0
     }
     
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
@@ -721,6 +781,8 @@ import UIKit
         defer { startingVoiceNote = false }
         wave.removeAll(keepingCapacity: true)
         timerCount = 0
+        voiceRecordingTimerBaseline = 0
+        voiceRecordingLastRecorderTime = 0
         
         let granted = await AVAudioApplication.requestRecordPermission()
         if granted {
@@ -738,28 +800,16 @@ import UIKit
         Media.shared.setAudioSessionRecord()
         Media.shared.stop()
         
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsNonInterleaved: false,
-        ]
-        
         let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).wav")
         recordingVoiceNoteURL = url
         
         do {
-            let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.isMeteringEnabled = true
-            guard recorder.prepareToRecord(), recorder.record() else {
-                throw VoiceNoteFailure.couldNotStartRecorder
-            }
+            let recorder = try makeVoiceRecorder(url: url)
             audioRecorder = recorder
             recordingVoiceNote = true
             voiceRecordingInteractionState = .holding
+            voiceRecordingTimerBaseline = 0
+            voiceRecordingLastRecorderTime = recorder.currentTime
             startTimer()
             Task { [weak self] in try? await self?.tdSendChatAction(.chatActionRecordingVoiceNote) }
             return true
@@ -777,7 +827,16 @@ import UIKit
     }
     
     func mediaStopRecordingVoice() {
-        finishVoiceRecording(sendWhenReady: true, pendingMessage: nil)
+        switch voiceRecordingInteractionState {
+        case .preview:
+            sendVoiceRecordingPreview()
+        case .locked where activeVoiceRecordingDraft != nil:
+            closeVoiceRecordingSegment(sendAfterPreparation: true)
+        case .holding, .locked:
+            finishVoiceRecording(sendWhenReady: true, pendingMessage: nil)
+        case .idle, .pausing, .resuming:
+            break
+        }
     }
 
     func lockVoiceRecording() {
@@ -785,7 +844,87 @@ import UIKit
         voiceRecordingInteractionState = .locked
     }
 
+    func pauseVoiceRecording() {
+        closeVoiceRecordingSegment(sendAfterPreparation: false)
+    }
+
+    func resumeVoiceRecording() {
+        guard recordingVoiceNote,
+              voiceRecordingInteractionState == .preview,
+              voiceRecordingDraftTask == nil,
+              let draft = activeVoiceRecordingDraft
+        else { return }
+        stopVoiceRecordingPreviewPlayback()
+        Media.shared.stop()
+        Media.shared.setAudioSessionRecord()
+        voiceRecordingInteractionState = .resuming
+        let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).wav")
+        do {
+            let recorder = try makeVoiceRecorder(url: url)
+            recordingVoiceNoteURL = url
+            audioRecorder = recorder
+            wave.removeAll(keepingCapacity: true)
+            timerCount = draft.exactDuration
+            voiceRecordingTimerBaseline = draft.exactDuration
+            voiceRecordingLastRecorderTime = recorder.currentTime
+            voiceRecordingInteractionState = .locked
+            startTimer()
+            #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+                    log("Voice preview smoke: resumed at \(draft.exactDuration)")
+                }
+            #endif
+            Task { [weak self] in try? await self?.tdSendChatAction(.chatActionRecordingVoiceNote) }
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            Media.shared.endAudioSessionRecord()
+            voiceNoteErrorMessage = "Couldn’t resume voice recording."
+            voiceRecordingInteractionState = .preview
+            loadVoiceRecordingPreview(draft)
+        }
+    }
+
+    func toggleVoiceRecordingPreview() {
+        guard voiceRecordingInteractionState == .preview,
+              let draft = activeVoiceRecordingDraft
+        else { return }
+        if voiceRecordingPreviewPlayer.isPlaybackRequested {
+            voiceRecordingPreviewPlayer.pause()
+            releaseVoiceRecordingPreviewAudioSession()
+            return
+        }
+        activateVoiceRecordingPreviewAudioSession()
+        if voiceRecordingPreviewLoadedURL != draft.fileURL {
+            loadVoiceRecordingPreview(draft)
+        }
+        let range = draft.effectiveRange
+        if voiceRecordingPreviewPosition < range.lowerBound || voiceRecordingPreviewPosition >= range.upperBound {
+            voiceRecordingPreviewPlayer.seek(to: range.lowerBound)
+            voiceRecordingPreviewPosition = range.lowerBound
+        }
+        voiceRecordingPreviewPlayer.play()
+    }
+
+    func seekVoiceRecordingPreview(to progress: CGFloat) {
+        guard voiceRecordingInteractionState == .preview,
+              let draft = activeVoiceRecordingDraft
+        else { return }
+        if voiceRecordingPreviewLoadedURL != draft.fileURL {
+            loadVoiceRecordingPreview(draft)
+        }
+        let range = draft.effectiveRange
+        let boundedProgress = min(1, max(0, Double(progress)))
+        let position = range.lowerBound + (range.upperBound - range.lowerBound) * boundedProgress
+        voiceRecordingPreviewPlayer.seek(to: position)
+        voiceRecordingPreviewPosition = position
+    }
+
     func cancelVoiceRecording() {
+        guard recordingVoiceNote else { return }
+        voiceRecordingDraftGeneration &+= 1
+        voiceRecordingDraftTask?.cancel()
+        voiceRecordingDraftTask = nil
+        stopVoiceRecordingPreviewPlayback()
         audioRecorder?.stop()
         Media.shared.endAudioSessionRecord()
         audioRecorder = nil
@@ -793,11 +932,22 @@ import UIKit
             try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
         }
         recordingVoiceNoteURL = nil
+        let recordingDraftID = voiceRecordingDraftID ?? activeVoiceRecordingDraft?.id
+        let recordingReply = pendingVoiceReplyMessage
+        activeVoiceRecordingDraft = nil
+        voiceRecordingDraftID = nil
+        pendingVoiceReplyMessage = nil
+        if replyMessage == nil {
+            replyMessage = recordingReply
+        }
         wave.removeAll(keepingCapacity: true)
         stopTimer()
         recordingVoiceNote = false
         voiceRecordingInteractionState = .idle
         Task { [weak self] in
+            if let recordingDraftID {
+                await VoiceRecordingDraftStore.shared.discard(id: recordingDraftID)
+            }
             await self?.promoteNextPendingVoiceDraft()
             try? await self?.tdSendChatAction(.chatActionCancel)
         }
@@ -881,10 +1031,359 @@ import UIKit
         return nil
     }
 
+    private func makeVoiceRecorder(url: URL) throws -> AVAudioRecorder {
+        let recorder = try AVAudioRecorder(url: url, settings: VoiceNotePCMEditor.recordingSettings)
+        recorder.isMeteringEnabled = true
+        guard recorder.prepareToRecord(), recorder.record() else {
+            throw VoiceNoteFailure.couldNotStartRecorder
+        }
+        return recorder
+    }
+
+    private func closeVoiceRecordingSegment(sendAfterPreparation: Bool) {
+        guard recordingVoiceNote,
+              voiceRecordingInteractionState == .locked,
+              canPauseVoiceRecording,
+              let audioRecorder,
+              let sourceURL = recordingVoiceNoteURL
+        else { return }
+        audioRecorder.updateMeters()
+        wave.append(audioRecorder.peakPower(forChannel: 0))
+        updateVoiceRecordingDuration()
+        let recordedDuration = timerCount
+        let segmentPeaks = wave
+        let existingDraft = activeVoiceRecordingDraft
+        let reply = pendingVoiceReplyMessage ?? replyMessage
+        let draftID = existingDraft?.id ?? voiceRecordingDraftID ?? UUID()
+        voiceRecordingDraftID = draftID
+        audioRecorder.stop()
+        Media.shared.endAudioSessionRecord()
+        self.audioRecorder = nil
+        recordingVoiceNoteURL = nil
+        pauseVoiceRecordingTimer()
+        voiceRecordingInteractionState = .pausing
+        voiceRecordingDraftGeneration &+= 1
+        let generation = voiceRecordingDraftGeneration
+        voiceRecordingDraftTask?.cancel()
+        voiceRecordingDraftTask = Task { [weak self] in
+            guard let self else { return }
+            let mergedURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(UUID().uuidString)-merged.wav")
+            do {
+                let storedDraft: VoiceRecordingDraft
+                if let existingDraft {
+                    let inspection = try await VoiceNotePCMEditor.concatenate(
+                        [existingDraft.fileURL, sourceURL],
+                        outputURL: mergedURL,
+                    )
+                    try Task.checkCancellation()
+                    storedDraft = try await VoiceRecordingDraftStore.shared.replaceMedia(
+                        in: existingDraft,
+                        with: mergedURL,
+                        inspection: inspection,
+                    )
+                    try? FileManager.default.removeItem(at: sourceURL)
+                } else {
+                    let inspection = try await VoiceNotePCMEditor.inspect(sourceURL)
+                    guard inspection.duration >= 0.5 else {
+                        throw VoiceNoteFailure.couldNotStartRecorder
+                    }
+                    let draft = VoiceRecordingDraft(
+                        id: draftID,
+                        chatID: chatID,
+                        caption: FormattedText(entities: getEntities(from: text), text: text.string),
+                        createdAt: Foundation.Date(),
+                        exactDuration: inspection.duration,
+                        fileURL: sourceURL,
+                        replyMessageID: reply?.id,
+                        replyTo: getMessageReplyTo(from: reply),
+                        revision: 0,
+                        trimEnd: nil,
+                        trimStart: nil,
+                        waveform: inspection.waveform,
+                    )
+                    storedDraft = try await VoiceRecordingDraftStore.shared.adopt(draft)
+                }
+                try Task.checkCancellation()
+                guard voiceRecordingDraftGeneration == generation else {
+                    await VoiceRecordingDraftStore.shared.discard(id: draftID)
+                    return
+                }
+                activeVoiceRecordingDraft = storedDraft
+                pendingVoiceReplyMessage = reply
+                timerCount = storedDraft.exactDuration
+                voiceRecordingDraftTask = nil
+                voiceRecordingInteractionState = .preview
+                loadVoiceRecordingPreview(storedDraft)
+                #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures") {
+                        log(
+                            "Voice preview smoke: ready duration=\(storedDraft.exactDuration) "
+                                + "revision=\(storedDraft.revision)",
+                        )
+                    }
+                #endif
+                if sendAfterPreparation {
+                    sendVoiceRecordingPreview()
+                }
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: sourceURL)
+                try? FileManager.default.removeItem(at: mergedURL)
+            } catch {
+                try? FileManager.default.removeItem(at: mergedURL)
+                guard voiceRecordingDraftGeneration == generation else {
+                    try? FileManager.default.removeItem(at: sourceURL)
+                    return
+                }
+                voiceRecordingDraftTask = nil
+                if let existingDraft {
+                    try? FileManager.default.removeItem(at: sourceURL)
+                    activeVoiceRecordingDraft = existingDraft
+                    timerCount = existingDraft.exactDuration
+                    voiceRecordingInteractionState = .preview
+                    voiceNoteErrorMessage = "Couldn’t append the latest recording segment. The previous preview is safe."
+                    loadVoiceRecordingPreview(existingDraft)
+                    if sendAfterPreparation {
+                        sendVoiceRecordingPreview()
+                    }
+                } else {
+                    fallbackClosedVoiceSegment(
+                        sourceURL: sourceURL,
+                        duration: recordedDuration,
+                        peakPowers: segmentPeaks,
+                        reply: reply,
+                    )
+                }
+            }
+        }
+        Task { [weak self] in try? await self?.tdSendChatAction(.chatActionCancel) }
+    }
+
+    private func fallbackClosedVoiceSegment(
+        sourceURL: URL,
+        duration: Double,
+        peakPowers: [Float],
+        reply: CustomMessage?,
+    ) {
+        recordingVoiceNote = false
+        voiceRecordingInteractionState = .idle
+        activeVoiceRecordingDraft = nil
+        voiceRecordingDraftID = nil
+        stopTimer()
+        pendingVoiceNote = VoiceNoteSendDraft(
+            id: UUID(),
+            chatID: chatID,
+            caption: FormattedText(entities: getEntities(from: text), text: text.string),
+            createdAt: Foundation.Date(),
+            duration: max(1, Int(duration)),
+            enqueueStartedAt: nil,
+            failedSendState: nil,
+            fileURL: sourceURL,
+            isEncoded: false,
+            replyMessageID: reply?.id,
+            replyTo: getMessageReplyTo(from: reply),
+            temporaryMessageID: nil,
+            waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
+        )
+        pendingVoiceReplyMessage = reply
+        replyMessage = nil
+        startVoiceFinalization(
+            sendWhenReady: false,
+            pendingMessage: "Preview preparation failed. The recording was preserved as a retry draft.",
+        )
+    }
+
+    private func sendVoiceRecordingPreview() {
+        guard voiceRecordingInteractionState == .preview,
+              voiceRecordingDraftTask == nil,
+              let draft = activeVoiceRecordingDraft
+        else { return }
+        stopVoiceRecordingPreviewPlayback()
+        voiceRecordingInteractionState = .pausing
+        voiceRecordingDraftGeneration &+= 1
+        let generation = voiceRecordingDraftGeneration
+        let reply = pendingVoiceReplyMessage ?? replyMessage
+        let range = draft.effectiveRange
+        let sendDraft = VoiceNoteSendDraft(
+            id: draft.id,
+            chatID: draft.chatID,
+            caption: draft.caption,
+            createdAt: draft.createdAt,
+            duration: max(1, Int(range.upperBound - range.lowerBound)),
+            enqueueStartedAt: nil,
+            failedSendState: nil,
+            fileURL: draft.fileURL,
+            isEncoded: false,
+            replyMessageID: draft.replyMessageID,
+            replyTo: draft.replyTo,
+            temporaryMessageID: nil,
+            waveform: draft.waveform,
+        )
+        voiceRecordingDraftTask = Task { [weak self] in
+            guard let self else { return }
+            var adoptedSendDraft: VoiceNoteSendDraft?
+            do {
+                let adoptedDraft = try await VoiceNoteDraftStore.shared.adopt(sendDraft)
+                adoptedSendDraft = adoptedDraft
+                try Task.checkCancellation()
+                guard voiceRecordingDraftGeneration == generation else {
+                    await VoiceNoteDraftStore.shared.remove(adoptedDraft)
+                    return
+                }
+                await VoiceRecordingDraftStore.shared.discard(id: draft.id)
+                try Task.checkCancellation()
+                guard voiceRecordingDraftGeneration == generation else {
+                    await VoiceNoteDraftStore.shared.remove(adoptedDraft)
+                    return
+                }
+                activeVoiceRecordingDraft = nil
+                voiceRecordingDraftID = nil
+                voiceRecordingDraftTask = nil
+                pendingVoiceNote = adoptedDraft
+                pendingVoiceReplyMessage = reply
+                replyMessage = nil
+                recordingVoiceNote = false
+                voiceRecordingInteractionState = .idle
+                stopTimer()
+                #if DEBUG
+                    let shouldSend = !ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-preview-send")
+                #else
+                    let shouldSend = true
+                #endif
+                startVoiceFinalization(
+                    sendWhenReady: shouldSend,
+                    pendingMessage: shouldSend ? nil : "Voice preview promotion smoke retained a retry draft.",
+                )
+            } catch {
+                if let adoptedSendDraft, Task.isCancelled || voiceRecordingDraftGeneration != generation {
+                    await VoiceNoteDraftStore.shared.remove(adoptedSendDraft)
+                }
+                guard voiceRecordingDraftGeneration == generation else { return }
+                voiceRecordingDraftTask = nil
+                voiceRecordingInteractionState = .preview
+                voiceNoteErrorMessage = "Couldn’t prepare the voice preview for sending."
+                loadVoiceRecordingPreview(draft)
+            }
+        }
+    }
+
+    private func restoreVoiceRecordingDraft(_ draft: VoiceRecordingDraft) {
+        activeVoiceRecordingDraft = draft
+        voiceRecordingDraftID = draft.id
+        recordingVoiceNote = true
+        voiceRecordingInteractionState = .preview
+        timerCount = draft.exactDuration
+        voiceRecordingTimerBaseline = draft.exactDuration
+        loadVoiceRecordingPreview(draft)
+        guard let replyMessageID = draft.replyMessageID else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let reply = await getCustomMessage(fromId: replyMessageID)
+            guard activeVoiceRecordingDraft?.id == draft.id else { return }
+            pendingVoiceReplyMessage = reply
+        }
+    }
+
+    private func observeVoiceRecordingPreviewPlayer() {
+        voiceRecordingPreviewPlayer.statePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                voiceRecordingPreviewIsPlaying = voiceRecordingPreviewPlayer.isPlaybackRequested
+                #if DEBUG
+                    if state == .playing,
+                       ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
+                    {
+                        log("Voice preview smoke: playing")
+                    }
+                #endif
+                if state == .ended, let draft = activeVoiceRecordingDraft {
+                    let start = draft.effectiveRange.lowerBound
+                    voiceRecordingPreviewPlayer.seek(to: start)
+                    voiceRecordingPreviewPosition = start
+                    releaseVoiceRecordingPreviewAudioSession()
+                } else if state == .failed {
+                    releaseVoiceRecordingPreviewAudioSession()
+                    voiceNoteErrorMessage = "Couldn’t play the voice recording preview."
+                }
+            }
+            .store(in: &voiceRecordingPreviewCancellables)
+        voiceRecordingPreviewPlayer.timePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] position in
+                guard let self else { return }
+                voiceRecordingPreviewPosition = position
+                guard voiceRecordingPreviewIsPlaying,
+                      let draft = activeVoiceRecordingDraft,
+                      position >= draft.effectiveRange.upperBound
+                else { return }
+                voiceRecordingPreviewPlayer.pause()
+                voiceRecordingPreviewPlayer.seek(to: draft.effectiveRange.lowerBound)
+                voiceRecordingPreviewPosition = draft.effectiveRange.lowerBound
+                releaseVoiceRecordingPreviewAudioSession()
+            }
+            .store(in: &voiceRecordingPreviewCancellables)
+        Media.shared.$savedMediaPath
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] path in
+                guard let self,
+                      !path.isEmpty,
+                      voiceRecordingPreviewPlayer.isPlaybackRequested
+                else { return }
+                voiceRecordingPreviewPlayer.pause()
+                voiceRecordingPreviewIsPlaying = false
+                // Media has taken over the shared AVAudioSession; do not deactivate its new ownership.
+                voiceRecordingPreviewOwnsAudioSession = false
+            }
+            .store(in: &voiceRecordingPreviewCancellables)
+    }
+
+    private func loadVoiceRecordingPreview(_ draft: VoiceRecordingDraft) {
+        voiceRecordingPreviewPlayer.stop()
+        voiceRecordingPreviewLoadedURL = draft.fileURL
+        voiceRecordingPreviewPosition = draft.effectiveRange.lowerBound
+        voiceRecordingPreviewPlayer.load(url: draft.fileURL, autoplay: false)
+        voiceRecordingPreviewPlayer.seek(to: draft.effectiveRange.lowerBound)
+    }
+
+    private func stopVoiceRecordingPreviewPlayback() {
+        voiceRecordingPreviewPlayer.stop()
+        voiceRecordingPreviewLoadedURL = nil
+        voiceRecordingPreviewIsPlaying = false
+        voiceRecordingPreviewPosition = 0
+        releaseVoiceRecordingPreviewAudioSession()
+    }
+
+    private func activateVoiceRecordingPreviewAudioSession() {
+        Media.shared.stop()
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(false)
+            try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [
+                .allowBluetoothHFP,
+                .allowBluetoothA2DP,
+            ])
+            try audioSession.setActive(true)
+            voiceRecordingPreviewOwnsAudioSession = true
+        } catch {
+            voiceRecordingPreviewOwnsAudioSession = false
+            log("Error setting voice preview audio session: \(error)")
+        }
+    }
+
+    private func releaseVoiceRecordingPreviewAudioSession() {
+        guard voiceRecordingPreviewOwnsAudioSession else { return }
+        voiceRecordingPreviewOwnsAudioSession = false
+        Media.shared.endAudioSessionRecord()
+    }
+
     private func finishVoiceRecording(sendWhenReady: Bool, pendingMessage: String?) {
         guard let audioRecorder, let sourceURL = recordingVoiceNoteURL else { return }
-        let recordedDuration = audioRecorder.currentTime
+        updateVoiceRecordingDuration()
+        let recordedDuration = timerCount
         let peakPowers = wave
+        Media.shared.stop()
         audioRecorder.stop()
         Media.shared.endAudioSessionRecord()
         self.audioRecorder = nil
@@ -919,6 +1418,21 @@ import UIKit
         pendingVoiceReplyMessage = reply
         replyMessage = nil
         startVoiceFinalization(sendWhenReady: sendWhenReady, pendingMessage: pendingMessage)
+    }
+
+    private func pauseVoiceRecordingTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func updateVoiceRecordingDuration() {
+        guard let audioRecorder else { return }
+        let recorderTime = max(0, audioRecorder.currentTime)
+        if recorderTime + 0.05 < voiceRecordingLastRecorderTime {
+            voiceRecordingTimerBaseline = timerCount
+        }
+        voiceRecordingLastRecorderTime = recorderTime
+        timerCount = max(timerCount, voiceRecordingTimerBaseline + recorderTime)
     }
 
     private func sendMessageVoiceNote(fileURL: URL, draft: VoiceNoteSendDraft) async throws -> Message {
@@ -974,6 +1488,11 @@ import UIKit
                 guard sendWhenReady else {
                     activatePendingVoiceDraft(draft)
                     voiceNoteErrorMessage = pendingMessage ?? "Voice recording stopped before it could be sent."
+                    #if DEBUG
+                        if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-preview-send") {
+                            log("Voice preview smoke: promoted encoded=\(draft.isEncoded)")
+                        }
+                    #endif
                     return
                 }
                 try? await tdSendChatAction(.chatActionUploadingVoiceNote(.init(progress: 0)))
@@ -1154,10 +1673,47 @@ import UIKit
                           AVAudioSession.InterruptionType(rawValue: rawValue) == .began,
                           recordingVoiceNote
                 else { return }
-                finishVoiceRecording(
-                    sendWhenReady: false,
-                    pendingMessage: "Voice recording was interrupted. Retry to send it or discard the draft.",
-                )
+                switch voiceRecordingInteractionState {
+                case .holding:
+                    updateVoiceRecordingDuration()
+                    if timerCount >= 0.5 {
+                        voiceRecordingInteractionState = .locked
+                        closeVoiceRecordingSegment(sendAfterPreparation: false)
+                    } else {
+                        finishVoiceRecording(
+                            sendWhenReady: false,
+                            pendingMessage: "Voice recording was interrupted before a preview could be created.",
+                        )
+                    }
+                case .locked where activeVoiceRecordingDraft == nil:
+                    updateVoiceRecordingDuration()
+                    if timerCount >= 0.5 {
+                        closeVoiceRecordingSegment(sendAfterPreparation: false)
+                    } else {
+                        finishVoiceRecording(
+                            sendWhenReady: false,
+                            pendingMessage: "Voice recording was interrupted before a preview could be created.",
+                        )
+                    }
+                case .locked where canPauseVoiceRecording:
+                    closeVoiceRecordingSegment(sendAfterPreparation: false)
+                case .locked:
+                    audioRecorder?.stop()
+                    audioRecorder = nil
+                    if let recordingVoiceNoteURL {
+                        try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
+                    }
+                    recordingVoiceNoteURL = nil
+                    pauseVoiceRecordingTimer()
+                    Media.shared.endAudioSessionRecord()
+                    if let draft = activeVoiceRecordingDraft {
+                        timerCount = draft.exactDuration
+                        voiceRecordingInteractionState = .preview
+                        loadVoiceRecordingPreview(draft)
+                    }
+                case .idle, .pausing, .preview, .resuming:
+                    break
+                }
             }
             .store(in: &cancellables)
     }

@@ -180,19 +180,16 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     }
 }
 
-// MARK: - TelegramWaveformView
-
-private final class TelegramWaveformView: UIControl {
-    // MARK: Internal
-
-    var onSeek: ((CGFloat) -> Void)?
-
+final class TelegramWaveformView: UIControl {
     var samples = [CGFloat]() {
         didSet { setNeedsDisplay() }
     }
 
     var progress = CGFloat.zero {
-        didSet { setNeedsDisplay() }
+        didSet {
+            accessibilityValue = "\(Int(min(1, max(0, progress)) * 100)) percent"
+            setNeedsDisplay()
+        }
     }
 
     var playedColor = UIColor.systemBlue {

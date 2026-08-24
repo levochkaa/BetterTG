@@ -85,7 +85,7 @@ final class ChatComposerView: UIView {
             }
         } else if targetText.characters.isEmpty,
                   let pendingReplyID = chatVM.pendingVoiceReplyMessageID,
-                  chatVM.hasPendingVoiceNote || chatVM.finalizingVoiceNote
+                  chatVM.hasPendingVoiceNote || chatVM.finalizingVoiceNote || chatVM.recordingVoiceNote
         {
             replyRow.isHidden = false
             closeReplyButton.isHidden = true
@@ -128,7 +128,9 @@ final class ChatComposerView: UIView {
                     && voiceGestureIsTracking
                     && !voiceGestureContactEnded,
             )
-            if chatVM.timer == nil {
+            if (chatVM.voiceRecordingInteractionState == .holding
+                || chatVM.voiceRecordingInteractionState == .locked), chatVM.timer == nil
+            {
                 chatVM.startTimer()
             }
             updateRecordingStatus()
@@ -172,6 +174,9 @@ final class ChatComposerView: UIView {
     private let actionButton = UIButton(type: .system)
     private let recordingRow = UIStackView()
     private let cancelRecordingButton = UIButton(type: .system)
+    private let recordingPauseResumeButton = UIButton(type: .system)
+    private let recordingPreviewPlayButton = UIButton(type: .system)
+    private let recordingPreviewWaveform = TelegramWaveformView()
     private let recordingLabel = UILabel()
     private let recordingSendButton = UIButton(type: .system)
     private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
@@ -280,12 +285,28 @@ final class ChatComposerView: UIView {
 
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
-        recordingRow.spacing = 10
+        recordingRow.spacing = 8
         cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
+        recordingPauseResumeButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
+            forImageIn: .normal,
+        )
+        recordingPreviewPlayButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
+            forImageIn: .normal,
+        )
+        recordingPreviewWaveform.playedColor = .systemBlue
+        recordingPreviewWaveform.unplayedColor = UIColor.secondaryLabel.withAlphaComponent(0.55)
+        recordingPreviewWaveform.accessibilityLabel = "Voice recording preview waveform"
+        recordingPreviewWaveform.onSeek = { [weak self] progress in
+            self?.seekRecordingPreview(to: progress)
+        }
         recordingLabel.textColor = .label
-        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
         recordingLabel.textAlignment = .center
+        recordingLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingPreviewWaveform.setContentHuggingPriority(.defaultLow, for: .horizontal)
         recordingSendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
         recordingSendButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 28),
@@ -293,19 +314,17 @@ final class ChatComposerView: UIView {
         )
         recordingSendButton.accessibilityLabel = "Send voice message"
         recordingRow.addArrangedSubview(cancelRecordingButton)
-        let leadingRecordingSpacer = UIView()
-        leadingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingRow.addArrangedSubview(leadingRecordingSpacer)
+        recordingRow.addArrangedSubview(recordingPauseResumeButton)
+        recordingRow.addArrangedSubview(recordingPreviewPlayButton)
+        recordingRow.addArrangedSubview(recordingPreviewWaveform)
         recordingRow.addArrangedSubview(recordingLabel)
-        let trailingRecordingSpacer = UIView()
-        trailingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingRow.addArrangedSubview(trailingRecordingSpacer)
         recordingRow.addArrangedSubview(recordingSendButton)
-        cancelRecordingButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
-        cancelRecordingButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        leadingRecordingSpacer.widthAnchor.constraint(equalTo: trailingRecordingSpacer.widthAnchor).isActive = true
-        recordingSendButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
-        recordingSendButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        for button in [cancelRecordingButton, recordingPauseResumeButton, recordingPreviewPlayButton, recordingSendButton] {
+            button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        }
+        recordingPreviewWaveform.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        recordingPreviewWaveform.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
 
         rootStack.addArrangedSubview(replyRow)
         rootStack.addArrangedSubview(photosScroll)
@@ -324,6 +343,8 @@ final class ChatComposerView: UIView {
         ])
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
+        recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
+        recordingPreviewPlayButton.addTarget(self, action: #selector(toggleRecordingPreview), for: .touchUpInside)
         actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         actionButton.addGestureRecognizer(recordingGestureRecognizer)
@@ -673,10 +694,20 @@ final class ChatComposerView: UIView {
 
     private func updateRecordingStatus() {
         recordingLabel.textColor = .systemRed
+        recordingPreviewPlayButton.isHidden = true
+        recordingPreviewWaveform.isHidden = true
+        recordingPauseResumeButton.isHidden = true
+        recordingSendButton.isEnabled = true
+        recordingSendButton.alpha = 1
         switch chatVM.voiceRecordingInteractionState {
         case .locked:
             recordingLabel.text = "● \(chatVM.formattedTimerCount)  Locked"
             recordingLabel.accessibilityLabel = "Voice recording locked, \(chatVM.formattedTimerCount)"
+            recordingPauseResumeButton.isHidden = false
+            recordingPauseResumeButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+            recordingPauseResumeButton.accessibilityLabel = "Pause voice recording"
+            recordingPauseResumeButton.isEnabled = chatVM.canPauseVoiceRecording
+            recordingPauseResumeButton.alpha = chatVM.canPauseVoiceRecording ? 1 : 0.45
             recordingSendButton.isHidden = false
         case .holding:
             if voiceGestureTranslation.x <= -70 {
@@ -688,7 +719,41 @@ final class ChatComposerView: UIView {
             }
             recordingLabel.accessibilityLabel = "Recording voice message, \(chatVM.formattedTimerCount)"
             recordingSendButton.isHidden = true
+        case .preview:
+            let previewPath = chatVM.voiceRecordingPreviewPath
+            let isPlaying = chatVM.voiceRecordingPreviewIsPlaying
+            recordingPauseResumeButton.isHidden = false
+            recordingPauseResumeButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+            recordingPauseResumeButton.accessibilityLabel = "Resume voice recording"
+            recordingPauseResumeButton.isEnabled = true
+            recordingPauseResumeButton.alpha = 1
+            recordingPreviewPlayButton.isHidden = false
+            recordingPreviewPlayButton.setImage(
+                UIImage(systemName: isPlaying ? "pause.fill" : "play.fill"),
+                for: .normal,
+            )
+            recordingPreviewPlayButton.accessibilityLabel = isPlaying
+                ? "Pause voice recording preview"
+                : "Play voice recording preview"
+            recordingPreviewPlayButton.isEnabled = chatVM.voiceRecordingPreviewReady && previewPath != nil
+            recordingPreviewWaveform.isHidden = false
+            recordingPreviewWaveform.isEnabled = chatVM.voiceRecordingPreviewReady && previewPath != nil
+            recordingPreviewWaveform.samples = chatVM.voiceRecordingPreviewWaveform
+            recordingPreviewWaveform.progress = chatVM.voiceRecordingPreviewProgress
+            recordingLabel.text = chatVM.formattedTimerCount
+            recordingLabel.accessibilityLabel = "Voice recording preview, \(chatVM.formattedTimerCount)"
+            recordingSendButton.isHidden = false
+        case .pausing:
+            recordingLabel.text = "Preparing…"
+            recordingLabel.accessibilityLabel = "Preparing voice recording preview"
+            recordingSendButton.isHidden = true
+        case .resuming:
+            recordingLabel.text = "Resuming…"
+            recordingLabel.accessibilityLabel = "Resuming voice recording"
+            recordingSendButton.isHidden = true
         case .idle:
+            recordingPauseResumeButton.isEnabled = true
+            recordingPauseResumeButton.alpha = 1
             recordingLabel.text = nil
             recordingLabel.accessibilityLabel = nil
             recordingSendButton.isHidden = true
@@ -1047,5 +1112,24 @@ final class ChatComposerView: UIView {
     @objc private func cancelRecording() {
         setVoiceGestureDeferral(false)
         chatVM.cancelVoiceRecording()
+    }
+
+    @objc private func toggleRecordingPause() {
+        switch chatVM.voiceRecordingInteractionState {
+        case .locked:
+            chatVM.pauseVoiceRecording()
+        case .preview:
+            chatVM.resumeVoiceRecording()
+        case .holding, .idle, .pausing, .resuming:
+            break
+        }
+    }
+
+    @objc private func toggleRecordingPreview() {
+        chatVM.toggleVoiceRecordingPreview()
+    }
+
+    private func seekRecordingPreview(to progress: CGFloat) {
+        chatVM.seekVoiceRecordingPreview(to: progress)
     }
 }
