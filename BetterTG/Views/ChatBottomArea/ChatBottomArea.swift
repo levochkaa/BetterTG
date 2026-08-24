@@ -37,6 +37,7 @@ final class ChatComposerView: UIView {
     var onSendVideoNoteRecording: (() -> Void)?
     var onStartVideoNoteRecording: (() async -> Bool)?
     var onToggleVideoNotePreview: (() -> Void)?
+    var onUpdateVideoNoteTrim: ((Double, Double, Bool, Bool) -> Void)?
 
     var isInputFocused: Bool {
         textView.isFirstResponder
@@ -65,6 +66,22 @@ final class ChatComposerView: UIView {
             finishVoiceGestureAfterExternalStop()
         }
         update(from: chatVM)
+    }
+
+    func updateVideoNotePreview(
+        draft: VideoNoteRecordingDraft,
+        thumbnails: [VideoNoteThumbnailSample]
+    ) {
+        videoNoteTrimEditing = false
+        videoNoteTrimSaving = false
+        videoNoteThumbnailStrip.update(
+            samples: thumbnails,
+            segmentIDs: draft.segments.map(\.id),
+            duration: draft.totalDuration,
+            range: draft.effectiveRange,
+            editingEnabled: true,
+        )
+        updateRecordingStatus()
     }
 
     func setVideoNoteReplyMessage(_ message: CustomMessage?) {
@@ -262,6 +279,7 @@ final class ChatComposerView: UIView {
     private let recordingPreviewContainer = UIView()
     private let recordingPreviewWaveform = TelegramWaveformView()
     private let recordingTrimView = VoiceRecordingTrimView()
+    private let videoNoteThumbnailStrip = VideoNoteThumbnailStripView()
     private let recordingLabel = UILabel()
     private let recordingSendButton = UIButton(type: .system)
     private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
@@ -300,6 +318,8 @@ final class ChatComposerView: UIView {
     private var selectedMediaRecordingMode = ChatMediaRecordingMode.voice
     private var videoNoteState = VideoNoteComposerState.idle
     private var videoNoteReplyMessage: CustomMessage?
+    private var videoNoteTrimEditing = false
+    private var videoNoteTrimSaving = false
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
@@ -396,6 +416,9 @@ final class ChatComposerView: UIView {
         recordingTrimView.translatesAutoresizingMaskIntoConstraints = false
         recordingPreviewContainer.addSubview(recordingPreviewWaveform)
         recordingPreviewContainer.addSubview(recordingTrimView)
+        videoNoteThumbnailStrip.translatesAutoresizingMaskIntoConstraints = false
+        videoNoteThumbnailStrip.isHidden = true
+        recordingPreviewContainer.addSubview(videoNoteThumbnailStrip)
         NSLayoutConstraint.activate([
             recordingPreviewWaveform.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
             recordingPreviewWaveform.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
@@ -405,6 +428,10 @@ final class ChatComposerView: UIView {
             recordingTrimView.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
             recordingTrimView.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
             recordingTrimView.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
+            videoNoteThumbnailStrip.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
+            videoNoteThumbnailStrip.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
+            videoNoteThumbnailStrip.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
+            videoNoteThumbnailStrip.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
         ])
         recordingTrimView.onRangeChange = { [weak self] start, end, updatedEnd, finished in
             guard let self else { return }
@@ -424,6 +451,19 @@ final class ChatComposerView: UIView {
                 updatedEnd: updatedEnd,
                 finished: finished,
             )
+        }
+        videoNoteThumbnailStrip.onRangeChange = { [weak self] start, end, updatedEnd, finished in
+            guard let self else { return }
+            videoNoteTrimEditing = !finished
+            videoNoteTrimSaving = finished
+            videoNoteThumbnailStrip.setEditingEnabled(!finished)
+            recordingPauseResumeButton.isEnabled = false
+            recordingPauseResumeButton.alpha = 0.45
+            recordingPreviewPlayButton.isEnabled = false
+            recordingPreviewPlayButton.alpha = 0.45
+            recordingSendButton.isEnabled = false
+            recordingSendButton.alpha = 0.45
+            onUpdateVideoNoteTrim?(start, end, updatedEnd, finished)
         }
         recordingLabel.textColor = .label
         recordingLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
@@ -447,7 +487,7 @@ final class ChatComposerView: UIView {
             button.heightAnchor.constraint(equalToConstant: 36).isActive = true
         }
         recordingPreviewContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        recordingPreviewContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
+        recordingPreviewContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
 
         rootStack.addArrangedSubview(replyRow)
         rootStack.addArrangedSubview(photosScroll)
@@ -870,6 +910,8 @@ final class ChatComposerView: UIView {
             return
         }
         cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
+        videoNoteThumbnailStrip.isHidden = true
+        recordingPreviewWaveform.isHidden = false
         recordingSendButton.accessibilityLabel = "Send voice message"
         recordingLabel.textColor = .systemRed
         recordingPreviewPlayButton.isHidden = true
@@ -950,6 +992,9 @@ final class ChatComposerView: UIView {
         recordingLabel.textColor = .systemRed
         recordingPreviewPlayButton.isHidden = true
         recordingPreviewContainer.isHidden = true
+        recordingPreviewWaveform.isHidden = true
+        recordingTrimView.isHidden = true
+        videoNoteThumbnailStrip.isHidden = true
         recordingPauseResumeButton.isHidden = true
         recordingSendButton.isHidden = true
         recordingSendButton.isEnabled = true
@@ -977,6 +1022,7 @@ final class ChatComposerView: UIView {
             recordingSendButton.isHidden = false
             recordingSendButton.accessibilityLabel = "Send video message"
         case let .preview(duration, isPlaying, canRecordMore):
+            let trimControlsBlocked = videoNoteTrimEditing || videoNoteTrimSaving
             recordingLabel.textColor = .label
             recordingLabel.text = formatVideoDuration(duration)
             recordingLabel.accessibilityLabel = "Video message preview, \(formatVideoDuration(duration))"
@@ -988,11 +1034,18 @@ final class ChatComposerView: UIView {
             recordingPreviewPlayButton.accessibilityLabel = isPlaying
                 ? "Pause video message preview"
                 : "Play video message preview"
+            recordingPreviewContainer.isHidden = false
+            videoNoteThumbnailStrip.isHidden = false
+            videoNoteThumbnailStrip.setEditingEnabled(!videoNoteTrimSaving)
             recordingPauseResumeButton.isHidden = !canRecordMore
             recordingPauseResumeButton.setImage(UIImage(systemName: "video.badge.plus"), for: .normal)
             recordingPauseResumeButton.accessibilityLabel = "Record more video"
             recordingSendButton.isHidden = false
             recordingSendButton.accessibilityLabel = "Send video message"
+            for button in [recordingPauseResumeButton, recordingPreviewPlayButton, recordingSendButton] {
+                button.isEnabled = !trimControlsBlocked
+                button.alpha = trimControlsBlocked ? 0.45 : 1
+            }
         case .stopping:
             recordingLabel.text = "Preparing preview…"
             recordingLabel.accessibilityLabel = "Preparing video message preview"

@@ -502,7 +502,7 @@ enum VideoNoteSegmentComposer {
         }
         let lowerBound = min(duration, max(0, requestedRange?.lowerBound ?? 0))
         let upperBound = min(duration, max(lowerBound, requestedRange?.upperBound ?? duration))
-        guard upperBound - lowerBound >= minimumDuration,
+        guard upperBound - lowerBound >= minimumDuration - 0.000_001,
               upperBound - lowerBound <= 60
         else { throw VideoNoteSegmentComposerError.invalidDuration }
         return lowerBound ..< upperBound

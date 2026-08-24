@@ -121,7 +121,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
               draft.totalDuration <= 60.01,
               range.lowerBound >= 0,
               range.upperBound <= draft.totalDuration,
-              (!hasExplicitTrim || range.upperBound - range.lowerBound >= 1)
+              (!hasExplicitTrim || range.upperBound - range.lowerBound >= 1 - 0.000_001)
         else { return nil }
         return draft
     }
@@ -268,22 +268,33 @@ actor VideoNoteRecordingDraftStore {
         guard let canonical = load(id: draft.id) else {
             throw VideoNoteRecordingDraftStoreError.missingDraft
         }
+        var normalizedLowerBound = range.lowerBound
+        var normalizedUpperBound = range.upperBound
+        let requestedDuration = normalizedUpperBound - normalizedLowerBound
+        if requestedDuration >= 1 - 0.000_001, requestedDuration < 1 {
+            if normalizedLowerBound + 1 <= canonical.totalDuration {
+                normalizedUpperBound = normalizedLowerBound + 1
+            } else {
+                normalizedLowerBound = max(0, normalizedUpperBound - 1)
+            }
+        }
         guard canonical.revision == draft.revision,
-              range.lowerBound >= 0,
-              range.upperBound <= canonical.totalDuration,
-              range.upperBound - range.lowerBound >= 1,
-              range.upperBound - range.lowerBound <= 60
+              normalizedLowerBound >= 0,
+              normalizedUpperBound <= canonical.totalDuration,
+              normalizedUpperBound - normalizedLowerBound >= 1 - 0.000_001,
+              normalizedUpperBound - normalizedLowerBound <= 60
         else { throw VideoNoteRecordingDraftStoreError.staleRevision }
+        let normalizedRange = normalizedLowerBound ..< normalizedUpperBound
         var updated = canonical
         updated.revision += 1
-        if range.lowerBound <= 0.000_001,
-           abs(range.upperBound - canonical.totalDuration) <= 0.000_001
+        if normalizedRange.lowerBound <= 0.000_001,
+           abs(normalizedRange.upperBound - canonical.totalDuration) <= 0.000_001
         {
             updated.trimStart = nil
             updated.trimEnd = nil
         } else {
-            updated.trimStart = range.lowerBound
-            updated.trimEnd = range.upperBound
+            updated.trimStart = normalizedRange.lowerBound
+            updated.trimEnd = normalizedRange.upperBound
         }
         try save(updated)
         return updated

@@ -133,6 +133,12 @@ final class LocalMediaPlayer {
         }
     }
 
+    func play(from time: TimeInterval, tolerance: TimeInterval = 0) {
+        shouldAutoplay = true
+        shouldApplyReadyStateAfterSeek = true
+        seek(to: time, tolerance: tolerance)
+    }
+
     func setMuted(_ muted: Bool) {
         player.isMuted = muted
     }
@@ -158,14 +164,24 @@ final class LocalMediaPlayer {
     func seek(
         to time: TimeInterval,
         tolerance: TimeInterval = 0.05,
+        constrainedToPlaybackRange: Bool = true,
         completion: (() -> Void)? = nil,
     ) {
         let nonnegativeTime = max(0, time)
-        let boundedToRange = playbackRange.map {
-            min($0.upperBound, max($0.lowerBound, nonnegativeTime))
-        } ?? nonnegativeTime
+        let boundedToRange = if constrainedToPlaybackRange {
+            playbackRange.map {
+                min($0.upperBound, max($0.lowerBound, nonnegativeTime))
+            } ?? nonnegativeTime
+        } else {
+            nonnegativeTime
+        }
         guard let item = player.currentItem, item.status == .readyToPlay else {
-            pendingSeek = (boundedToRange, max(0, tolerance), completion)
+            pendingSeek = (
+                boundedToRange,
+                max(0, tolerance),
+                constrainedToPlaybackRange,
+                completion,
+            )
             return
         }
         let boundedTime = duration > 0 ? min(boundedToRange, duration) : boundedToRange
@@ -216,7 +232,12 @@ final class LocalMediaPlayer {
     private var preparationTask: Task<Void, Never>?
     private var currentRequestIdentifier: UUID?
     private var compositionLease: VideoNoteCompositionResult?
-    private var pendingSeek: (time: TimeInterval, tolerance: TimeInterval, completion: (() -> Void)?)?
+    private var pendingSeek: (
+        time: TimeInterval,
+        tolerance: TimeInterval,
+        constrainedToPlaybackRange: Bool,
+        completion: (() -> Void)?
+    )?
     private var currentSeekIdentifier: UUID?
     private var itemCancellables = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
@@ -233,7 +254,11 @@ final class LocalMediaPlayer {
                     if let pendingSeek {
                         self.pendingSeek = nil
                         shouldApplyReadyStateAfterSeek = true
-                        seek(to: pendingSeek.time, tolerance: pendingSeek.tolerance) { [weak self, weak item] in
+                        seek(
+                            to: pendingSeek.time,
+                            tolerance: pendingSeek.tolerance,
+                            constrainedToPlaybackRange: pendingSeek.constrainedToPlaybackRange,
+                        ) { [weak self, weak item] in
                             guard let self, item === player.currentItem else { return }
                             pendingSeek.completion?()
                         }
@@ -309,7 +334,7 @@ final class LocalMediaPlayer {
         shouldLoop = loops
         self.playbackRange = normalizedPlaybackRange(playbackRange)
         if let playbackRange = self.playbackRange, playbackRange.lowerBound > 0 {
-            pendingSeek = (playbackRange.lowerBound, 0, nil)
+            pendingSeek = (playbackRange.lowerBound, 0, true, nil)
         }
         timeSubject.send(self.playbackRange?.lowerBound ?? 0)
         stateSubject.send(.preparing)

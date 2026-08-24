@@ -386,6 +386,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onToggleVideoNotePreview = { [weak self] in
                 self?.videoNoteRecorder?.togglePreviewPlayback()
             }
+            composerView.onUpdateVideoNoteTrim = { [weak self] start, end, updatedEnd, finished in
+                self?.videoNoteRecorder?.updateTrim(
+                    start: start,
+                    end: end,
+                    updatedEnd: updatedEnd,
+                    finished: finished,
+                )
+            }
             view.addSubview(composerView)
             let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
             let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
@@ -465,6 +473,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         recorder.onError = { [weak self] message in
             self?.presentVideoNoteRetryErrorIfNeeded(message)
+        }
+        recorder.onPreviewData = { [weak self] draft, thumbnails in
+            self?.composerView.updateVideoNotePreview(draft: draft, thumbnails: thumbnails)
         }
         recorder.onDiscard = { [weak chatVM] asset in
             if let chatVM {

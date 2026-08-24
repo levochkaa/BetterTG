@@ -25,7 +25,7 @@ final class VoiceRecordingTrimView: UIView {
         self.duration = max(0, duration)
         lowerBound = max(0, min(range.lowerBound, self.duration))
         upperBound = max(lowerBound, min(range.upperBound, self.duration))
-        isHidden = self.duration < 2
+        isHidden = self.duration < minimumVisibleDuration
         setNeedsLayout()
         setNeedsDisplay()
         updateAccessibilityValues()
@@ -38,6 +38,15 @@ final class VoiceRecordingTrimView: UIView {
         startHandle.isEnabled = enabled
         endHandle.isEnabled = enabled
         accessibilityElementsHidden = !enabled
+    }
+
+    func setMinimumVisibleDuration(_ duration: Double) {
+        minimumVisibleDuration = max(0, duration)
+        isHidden = self.duration < minimumVisibleDuration
+    }
+
+    func setMinimumSelectionWidth(_ width: CGFloat) {
+        minimumSelectionWidth = max(0, width)
     }
 
     override func layoutSubviews() {
@@ -76,13 +85,20 @@ final class VoiceRecordingTrimView: UIView {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if let hit = startHandle.hitTest(convert(point, to: startHandle), with: event) {
-            return hit
+        let startHit = startHandle.hitTest(convert(point, to: startHandle), with: event)
+        let endHit = endHandle.hitTest(convert(point, to: endHandle), with: event)
+        switch (startHit, endHit) {
+        case let (start?, end?):
+            let startDistance = abs(point.x - startHandle.frame.midX)
+            let endDistance = abs(point.x - endHandle.frame.midX)
+            return startDistance <= endDistance ? start : end
+        case let (start?, nil):
+            return start
+        case let (nil, end?):
+            return end
+        case (nil, nil):
+            return nil
         }
-        if let hit = endHandle.hitTest(convert(point, to: endHandle), with: event) {
-            return hit
-        }
-        return nil
     }
 
     private let startHandle = VoiceRecordingTrimHandle()
@@ -91,10 +107,12 @@ final class VoiceRecordingTrimView: UIView {
     private var lowerBound = 0.0
     private var upperBound = 0.0
     private var editingEnabled = true
+    private var minimumVisibleDuration = 2.0
+    private var minimumSelectionWidth = CGFloat(56)
 
     private var effectiveMinimumDuration: Double {
         guard duration > 0, bounds.width > 0 else { return min(1, duration) }
-        return min(duration, max(1, 56 * duration / Double(bounds.width)))
+        return min(duration, max(1, Double(minimumSelectionWidth) * duration / Double(bounds.width)))
     }
 
     private func configure(handle: VoiceRecordingTrimHandle, updatedEnd: Bool) {

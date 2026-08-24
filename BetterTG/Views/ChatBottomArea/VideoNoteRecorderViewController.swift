@@ -110,6 +110,7 @@ enum VideoNoteSubmissionResult: Sendable {
 
     func recordMore() {
         guard operationTask == nil,
+              trimBaseDraft == nil,
               case .preview = state,
               let recordingDraft,
               recordingDraft.canRecordMore
@@ -271,6 +272,7 @@ enum VideoNoteSubmissionResult: Sendable {
     }
 
     func togglePreviewPlayback() {
+        guard trimBaseDraft == nil else { return }
         guard case let .preview(duration, isPlaying, canRecordMore) = state else { return }
         if isPlaying {
             previewPlayer.pause()
@@ -278,6 +280,98 @@ enum VideoNoteSubmissionResult: Sendable {
         } else {
             previewPlayer.play()
             state = .preview(duration: duration, isPlaying: true, canRecordMore: canRecordMore)
+        }
+    }
+
+    func updateTrim(
+        start: Double,
+        end: Double,
+        updatedEnd: Bool,
+        finished: Bool,
+    ) {
+        guard case .preview = state,
+              operationTask == nil,
+              let previousDraft = recordingDraft,
+              previousDraft.totalDuration > 1
+        else { return }
+        let duration = previousDraft.totalDuration
+        var lowerBound = max(0, min(start, duration))
+        var upperBound = max(lowerBound, min(end, duration))
+        let selectionDuration = upperBound - lowerBound
+        guard selectionDuration >= 1 - 0.000_001 else {
+            if finished {
+                onPreviewData?(previousDraft, previewThumbnails)
+            }
+            return
+        }
+        if selectionDuration < 1 {
+            if updatedEnd, lowerBound + 1 <= duration {
+                upperBound = lowerBound + 1
+            } else {
+                lowerBound = max(0, upperBound - 1)
+            }
+        }
+        if trimBaseDraft == nil {
+            trimBaseDraft = previousDraft
+        }
+        let canonicalDraft = trimBaseDraft ?? previousDraft
+        let range = lowerBound ..< upperBound
+        transientTrimRange = range
+        previewPlayer.pause()
+        previewPlayer.seek(
+            to: updatedEnd ? upperBound : lowerBound,
+            tolerance: 0,
+            constrainedToPlaybackRange: false,
+        )
+        state = .preview(
+            duration: upperBound - lowerBound,
+            isPlaying: false,
+            canRecordMore: previousDraft.canRecordMore,
+        )
+        guard finished else { return }
+        let generation = operationGeneration
+        operationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { operationTask = nil }
+            do {
+                let storedDraft = try await VideoNoteRecordingDraftStore.shared.updateTrim(
+                    in: canonicalDraft,
+                    range: range,
+                )
+                guard !Task.isCancelled,
+                      operationGeneration == generation,
+                      exitDisposition == .none,
+                      recordingDraft?.id == storedDraft.id
+                else { return }
+                recordingDraft = storedDraft
+                trimBaseDraft = nil
+                transientTrimRange = nil
+                previewPlayer.setPlaybackRange(storedDraft.effectiveRange)
+                previewPlayer.play(from: storedDraft.effectiveRange.lowerBound)
+                state = .preview(
+                    duration: storedDraft.effectiveRange.upperBound - storedDraft.effectiveRange.lowerBound,
+                    isPlaying: true,
+                    canRecordMore: storedDraft.canRecordMore,
+                )
+                onPreviewData?(storedDraft, previewThumbnails)
+            } catch {
+                guard !Task.isCancelled,
+                      operationGeneration == generation,
+                      exitDisposition == .none
+                else { return }
+                recordingDraft = canonicalDraft
+                trimBaseDraft = nil
+                transientTrimRange = nil
+                previewPlayer.setPlaybackRange(canonicalDraft.effectiveRange)
+                previewPlayer.seek(to: canonicalDraft.effectiveRange.lowerBound, tolerance: 0)
+                state = .preview(
+                    duration: canonicalDraft.effectiveRange.upperBound - canonicalDraft.effectiveRange.lowerBound,
+                    isPlaying: false,
+                    canRecordMore: canonicalDraft.canRecordMore,
+                )
+                onPreviewData?(canonicalDraft, previewThumbnails)
+                onError?("Couldn’t save the video trim range.")
+            }
         }
     }
 
@@ -351,6 +445,8 @@ enum VideoNoteSubmissionResult: Sendable {
     private var recordingDraft: VideoNoteRecordingDraft?
     private var previewThumbnails = [VideoNoteThumbnailSample]()
     private var recordingDurationBaseline = 0.0
+    private var transientTrimRange: Range<Double>?
+    private var trimBaseDraft: VideoNoteRecordingDraft?
     private var ownsCurrentAsset = false
     private var locked = false
     private var didAnimateIn = false
@@ -656,6 +752,8 @@ enum VideoNoteSubmissionResult: Sendable {
     ) {
         recordingDraft = draft
         exitDisposition = .none
+        trimBaseDraft = nil
+        transientTrimRange = nil
         previewThumbnails = preview.thumbnails
         currentAsset = nil
         ownsCurrentAsset = false
@@ -684,6 +782,7 @@ enum VideoNoteSubmissionResult: Sendable {
 
     private func submitPreview() {
         guard operationTask == nil,
+              trimBaseDraft == nil,
               let onSubmit
         else {
             if onSubmit == nil {
@@ -694,7 +793,7 @@ enum VideoNoteSubmissionResult: Sendable {
         let generation = operationGeneration
         let draft = recordingDraft
         if let draft,
-           draft.effectiveRange.upperBound - draft.effectiveRange.lowerBound < 1
+           draft.effectiveRange.upperBound - draft.effectiveRange.lowerBound < 1 - 0.000_001
         {
             onError?("Video messages must be at least 1 second. Record more before sending.")
             return
