@@ -8,6 +8,9 @@ final class VideoNoteDraftCoordinator {
 
     func start() {
         guard cancellables.isEmpty else { return }
+        Task {
+            await reconcileRecordingDraftOrigins()
+        }
         nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { update in
             guard case .messageVideoNote = update.message.content else { return }
             Task {
@@ -71,7 +74,35 @@ final class VideoNoteDraftCoordinator {
         }
     }
 
+    func reconcileRecordingDraftOrigins() async {
+        for attempt in 0 ..< 3 {
+            do {
+                guard try await VideoNoteFileStore.shared.reconcileRemovalTombstones() else {
+                    throw VideoNoteDraftCoordinatorError.sendCleanupFailed
+                }
+                let recordingDraftIDs = try await VideoNoteFileStore.shared.recordingDraftOrigins()
+                for id in recordingDraftIDs {
+                    guard await VideoNoteRecordingDraftStore.shared.discard(id: id) else {
+                        throw VideoNoteDraftCoordinatorError.recordingCleanupFailed
+                    }
+                }
+                return
+            } catch {
+                guard attempt < 2 else {
+                    log("Video note origin reconciliation failed: \(error)")
+                    return
+                }
+                try? await Task<Never, Never>.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
     private var cancellables = Set<AnyCancellable>()
+}
+
+private enum VideoNoteDraftCoordinatorError: Swift.Error {
+    case recordingCleanupFailed
+    case sendCleanupFailed
 }
 
 extension Notification.Name {

@@ -759,26 +759,52 @@ import UIKit
 
     func submitVideoNote(
         _ asset: VideoNoteAsset,
+        originRecordingDraftID: UUID? = nil,
         replyingTo reply: CustomMessage?,
     ) async -> VideoNoteSubmissionResult {
         var draft: VideoNoteSendDraft
+        var alreadyEnqueued = false
+        var didBeginEnqueue = false
         do {
-            draft = try await VideoNoteFileStore.shared.adopt(
+            let preparation = try await VideoNoteFileStore.shared.adoptAndPrepareEnqueue(
                 asset,
                 chatID: chatID,
+                originRecordingDraftID: originRecordingDraftID,
                 replyMessageID: reply?.id,
                 replyTo: getMessageReplyTo(from: reply),
             )
+            switch preparation {
+            case .alreadyEnqueued(let preparedDraft):
+                draft = preparedDraft
+                alreadyEnqueued = true
+            case .ready(let preparedDraft):
+                draft = preparedDraft
+                didBeginEnqueue = true
+            case .retained(let preparedDraft):
+                draft = preparedDraft
+            }
         } catch {
             return .retained(asset, message: "Couldn’t preserve the video message for sending.")
         }
+        if let adoptedOriginID = draft.originRecordingDraftID ?? originRecordingDraftID {
+            await VideoNoteRecordingDraftStore.shared.discard(id: adoptedOriginID)
+        }
+        if alreadyEnqueued {
+            if let temporaryMessageID = draft.temporaryMessageID {
+                outgoingVideoNotes[temporaryMessageID] = draft
+            }
+            return .enqueued
+        }
+        guard didBeginEnqueue else {
+            return .retained(
+                draft.asset,
+                message: "Another video message is still being sent. Try again when it finishes.",
+            )
+        }
 
-        var didBeginEnqueue = false
         do {
             try Task.checkCancellation()
             try? await tdSendChatAction(.chatActionUploadingVideoNote(.init(progress: 0)))
-            draft = try await VideoNoteFileStore.shared.beginEnqueue(draft)
-            didBeginEnqueue = true
             pendingVideoNote = draft
             submittingVideoDraftIDs.insert(draft.id)
             let message: Message
@@ -902,7 +928,11 @@ import UIKit
                 retryingVideoNote = false
                 videoRetryTask = nil
             }
-            let result = await submitVideoNote(draft.asset, replyingTo: pendingVideoReplyMessage)
+            let result = await submitVideoNote(
+                draft.asset,
+                originRecordingDraftID: draft.originRecordingDraftID,
+                replyingTo: pendingVideoReplyMessage,
+            )
             if case let .retained(_, message) = result {
                 videoNoteErrorMessage = message
             }

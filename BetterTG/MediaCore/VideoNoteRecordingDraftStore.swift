@@ -2,7 +2,7 @@
 
 import AVFoundation
 import Foundation
-import TDLibKit
+@preconcurrency import TDLibKit
 
 struct VideoNoteRecordingSegment: Equatable, Sendable {
     let id: UUID
@@ -329,10 +329,17 @@ actor VideoNoteRecordingDraftStore {
         }
     }
 
-    func drafts(for chatID: Int64) -> [VideoNoteRecordingDraft] {
+    func drafts(for chatID: Int64) async -> [VideoNoteRecordingDraft] {
         do {
             try ensureDirectory()
-            let drafts = try loadAllDrafts()
+            let adoptedOrigins = try await VideoNoteFileStore.shared.recordingDraftOrigins()
+            var drafts = try loadAllDrafts()
+            for draft in drafts where adoptedOrigins.contains(draft.id) {
+                if !discard(id: draft.id) {
+                    log("Video note recording manifest cleanup will retry: \(draft.id)")
+                }
+            }
+            drafts.removeAll { adoptedOrigins.contains($0.id) }
             removeAbandonedFiles(referencedBy: Set(drafts.flatMap { $0.segments.map(\.fileURL) }))
             return drafts.filter { $0.chatID == chatID }.sorted { $0.createdAt < $1.createdAt }
         } catch {
@@ -341,15 +348,24 @@ actor VideoNoteRecordingDraftStore {
         }
     }
 
-    func discard(id: UUID) {
+    @discardableResult func discard(id: UUID) -> Bool {
         cancelledDraftIDs.insert(id)
         let segmentURLs = load(id: id)?.segments.map(\.fileURL) ?? []
-        try? fileManager.removeItem(at: manifestURL(for: id))
+        let manifestURL = manifestURL(for: id)
+        do {
+            if fileManager.fileExists(atPath: manifestURL.path(percentEncoded: false)) {
+                try fileManager.removeItem(at: manifestURL)
+            }
+        } catch {
+            log("Video note recording manifest cleanup failed: \(error)")
+            return false
+        }
         guard activeOperationCounts[id, default: 0] == 0 else {
             deferredDiscardURLs[id] = Array(Set(deferredDiscardURLs[id, default: []]).union(segmentURLs))
-            return
+            return true
         }
         segmentURLs.forEach { try? fileManager.removeItem(at: $0) }
+        return true
     }
 
     private let fileManager = FileManager.default
@@ -487,10 +503,18 @@ actor VideoNoteRecordingDraftStore {
                 .appendingPathComponent("video-note-recording-b-\(UUID().uuidString).mp4")
             let outputURL = fileManager.temporaryDirectory
                 .appendingPathComponent("video-note-recording-output-\(UUID().uuidString).mp4")
+            let redundantURL = fileManager.temporaryDirectory
+                .appendingPathComponent("video-note-recording-redundant-\(UUID().uuidString).mp4")
             var draftID: UUID?
+            var sendDraft: VideoNoteSendDraft?
             defer {
                 if let draftID { discard(id: draftID) }
-                [firstURL, secondURL, outputURL].forEach { try? fileManager.removeItem(at: $0) }
+                if let sendDraft {
+                    Task { await VideoNoteFileStore.shared.remove(sendDraft) }
+                }
+                [firstURL, secondURL, outputURL, redundantURL].forEach {
+                    try? fileManager.removeItem(at: $0)
+                }
             }
             var stage = "segments"
             do {
@@ -517,7 +541,7 @@ actor VideoNoteRecordingDraftStore {
                       draft.revision == 0,
                       draft.segments.count == 1,
                       abs(draft.totalDuration - 0.7) < 0.03,
-                      drafts(for: chatID).contains(where: {
+                      await drafts(for: chatID).contains(where: {
                           $0.id == draft.id && abs($0.totalDuration - 0.7) < 0.03
                       })
                 else { throw VideoNoteRecordingDraftStoreError.invalidAsset }
@@ -541,7 +565,7 @@ actor VideoNoteRecordingDraftStore {
                       abs(draft.effectiveRange.upperBound - 1.4) < 0.001
                 else { throw VideoNoteRecordingDraftStoreError.staleRevision }
                 stage = "reload"
-                guard let restored = drafts(for: chatID).first(where: { $0.id == draft.id }),
+                guard let restored = await drafts(for: chatID).first(where: { $0.id == draft.id }),
                       restored.segments.map(\.id) == draft.segments.map(\.id),
                       restored.revision == draft.revision,
                       restored.replyMessageID == 77
@@ -558,19 +582,54 @@ actor VideoNoteRecordingDraftStore {
                 guard abs(materialized.duration - 1.2) < 0.05 else {
                     throw VideoNoteRecordingDraftStoreError.invalidAsset
                 }
-                stage = "discard"
-                discard(id: draft.id)
+                stage = "origin handoff"
+                let adoptedSendDraft = try await VideoNoteFileStore.shared.adopt(
+                    materialized,
+                    chatID: chatID,
+                    originRecordingDraftID: draft.id,
+                    replyMessageID: draft.replyMessageID,
+                    replyTo: draft.replyTo,
+                )
+                sendDraft = adoptedSendDraft
+                try fileManager.copyItem(at: adoptedSendDraft.fileURL, to: redundantURL)
+                let deduplicatedSendDraft = try await VideoNoteFileStore.shared.adopt(
+                    VideoNoteAsset(
+                        duration: materialized.duration,
+                        length: materialized.length,
+                        url: redundantURL,
+                    ),
+                    chatID: chatID,
+                    originRecordingDraftID: draft.id,
+                    replyMessageID: draft.replyMessageID,
+                    replyTo: draft.replyTo,
+                )
+                let originIDs = try await VideoNoteFileStore.shared.recordingDraftOrigins()
+                guard originIDs.contains(draft.id),
+                      deduplicatedSendDraft.id == adoptedSendDraft.id,
+                      !fileManager.fileExists(atPath: redundantURL.path(percentEncoded: false))
+                else {
+                    throw VideoNoteRecordingDraftStoreError.invalidAsset
+                }
+                stage = "origin barrier"
+                let visibleDrafts = await drafts(for: chatID)
                 draftID = nil
-                guard drafts(for: chatID).allSatisfy({ $0.id != draft.id }),
+                guard visibleDrafts.allSatisfy({ $0.id != draft.id }),
                       draft.segments.allSatisfy({
                           !fileManager.fileExists(atPath: $0.fileURL.path(percentEncoded: false))
                       })
                 else { throw VideoNoteRecordingDraftStoreError.invalidAsset }
+                await VideoNoteFileStore.shared.remove(adoptedSendDraft)
+                sendDraft = nil
                 let proof = "Video note recording draft probe: ordered=2, revision=2, "
-                    + "short-preview=0.7, trim=1.2, thumbnails=13, reload/discard=true"
+                    + "short-preview=0.7, trim=1.2, thumbnails=13, "
+                    + "origin-dedupe/barrier/reload/discard=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {
+                if let pendingSendDraft = sendDraft {
+                    await VideoNoteFileStore.shared.remove(pendingSendDraft)
+                    sendDraft = nil
+                }
                 writeDebugProbeResult("Video note recording draft probe failed at \(stage): \(error)")
                 assertionFailure("Video note recording draft probe failed at \(stage): \(error)")
             }
