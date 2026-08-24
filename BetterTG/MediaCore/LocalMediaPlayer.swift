@@ -28,6 +28,9 @@ final class LocalMediaPlayer {
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
         }
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        compositionLease = nil
     }
 
     // MARK: Internal
@@ -73,16 +76,7 @@ final class LocalMediaPlayer {
         loops: Bool = false,
         prefersFFmpegAudioFallback: Bool = false,
     ) {
-        preparationTask?.cancel()
-        preparationTask = nil
-        pendingSeek = nil
-        resetItemObservers()
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        shouldAutoplay = autoplay
-        shouldLoop = loops
-        timeSubject.send(0)
-        stateSubject.send(.preparing)
+        prepareForLoad(autoplay: autoplay, loops: loops, playbackRange: nil)
 
         let requestIdentifier = UUID()
         currentRequestIdentifier = requestIdentifier
@@ -101,9 +95,32 @@ final class LocalMediaPlayer {
         }
     }
 
+    func load(
+        composition: VideoNoteCompositionResult,
+        autoplay: Bool,
+        loops: Bool = false,
+        playbackRange: Range<TimeInterval>? = nil,
+    ) {
+        prepareForLoad(autoplay: autoplay, loops: loops, playbackRange: playbackRange)
+        currentRequestIdentifier = UUID()
+        compositionLease = composition
+        installItem(asset: composition.asset)
+    }
+
     func play() {
         shouldAutoplay = true
         guard hasItem else { return }
+        if let playbackRange {
+            let current = player.currentTime().seconds
+            if !current.isFinite
+                || current < playbackRange.lowerBound - 0.001
+                || current >= playbackRange.upperBound - 0.001
+            {
+                shouldApplyReadyStateAfterSeek = true
+                seek(to: playbackRange.lowerBound, tolerance: 0)
+                return
+            }
+        }
         player.play()
     }
 
@@ -127,27 +144,58 @@ final class LocalMediaPlayer {
         pendingSeek = nil
         shouldAutoplay = false
         shouldLoop = false
+        playbackRange = nil
+        currentSeekIdentifier = nil
+        shouldApplyReadyStateAfterSeek = false
         player.pause()
         player.replaceCurrentItem(with: nil)
+        compositionLease = nil
         resetItemObservers()
         timeSubject.send(0)
         stateSubject.send(.idle)
     }
 
-    func seek(to time: TimeInterval, completion: (() -> Void)? = nil) {
+    func seek(
+        to time: TimeInterval,
+        tolerance: TimeInterval = 0.05,
+        completion: (() -> Void)? = nil,
+    ) {
         let nonnegativeTime = max(0, time)
+        let boundedToRange = playbackRange.map {
+            min($0.upperBound, max($0.lowerBound, nonnegativeTime))
+        } ?? nonnegativeTime
         guard let item = player.currentItem, item.status == .readyToPlay else {
-            pendingSeek = (nonnegativeTime, completion)
+            pendingSeek = (boundedToRange, max(0, tolerance), completion)
             return
         }
-        let boundedTime = duration > 0 ? min(nonnegativeTime, duration) : nonnegativeTime
+        let boundedTime = duration > 0 ? min(boundedToRange, duration) : boundedToRange
+        let seekIdentifier = UUID()
+        currentSeekIdentifier = seekIdentifier
+        item.cancelPendingSeeks()
+        let seekTolerance = CMTime(seconds: max(0, tolerance), preferredTimescale: 600)
         player.seek(
             to: CMTime(seconds: boundedTime, preferredTimescale: 600),
-            toleranceBefore: CMTime(seconds: 0.05, preferredTimescale: 600),
-            toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600),
-        ) { _ in
-            DispatchQueue.main.async { completion?() }
+            toleranceBefore: seekTolerance,
+            toleranceAfter: seekTolerance,
+        ) { [weak self, weak item] _ in
+            DispatchQueue.main.async {
+                guard let self,
+                      item === self.player.currentItem,
+                      self.currentSeekIdentifier == seekIdentifier
+                else { return }
+                self.currentSeekIdentifier = nil
+                completion?()
+                if self.shouldApplyReadyStateAfterSeek {
+                    self.shouldApplyReadyStateAfterSeek = false
+                    self.applyReadyPlaybackState()
+                }
+            }
         }
+    }
+
+    func setPlaybackRange(_ range: Range<TimeInterval>?) {
+        playbackRange = normalizedPlaybackRange(range)
+        applyPlaybackRange(to: player.currentItem)
     }
 
     func jump(by interval: TimeInterval) {
@@ -162,10 +210,14 @@ final class LocalMediaPlayer {
     private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private var shouldAutoplay = false
     private var shouldLoop = false
+    private var shouldApplyReadyStateAfterSeek = false
+    private var playbackRange: Range<TimeInterval>?
     private var timeObserver: Any?
     private var preparationTask: Task<Void, Never>?
     private var currentRequestIdentifier: UUID?
-    private var pendingSeek: (time: TimeInterval, completion: (() -> Void)?)?
+    private var compositionLease: VideoNoteCompositionResult?
+    private var pendingSeek: (time: TimeInterval, tolerance: TimeInterval, completion: (() -> Void)?)?
+    private var currentSeekIdentifier: UUID?
     private var itemCancellables = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
 
@@ -180,10 +232,10 @@ final class LocalMediaPlayer {
                 case .readyToPlay:
                     if let pendingSeek {
                         self.pendingSeek = nil
-                        seek(to: pendingSeek.time) { [weak self, weak item] in
+                        shouldApplyReadyStateAfterSeek = true
+                        seek(to: pendingSeek.time, tolerance: pendingSeek.tolerance) { [weak self, weak item] in
                             guard let self, item === player.currentItem else { return }
                             pendingSeek.completion?()
-                            applyReadyPlaybackState()
                         }
                     } else {
                         applyReadyPlaybackState()
@@ -204,10 +256,8 @@ final class LocalMediaPlayer {
             .sink { [weak self, weak item] _ in
                 guard let self, item === player.currentItem else { return }
                 if shouldLoop {
-                    seek(to: 0) { [weak self, weak item] in
-                        guard let self, item === player.currentItem else { return }
-                        applyReadyPlaybackState()
-                    }
+                    shouldApplyReadyStateAfterSeek = true
+                    seek(to: playbackRange?.lowerBound ?? 0, tolerance: 0)
                 } else {
                     shouldAutoplay = false
                     stateSubject.send(.ended)
@@ -227,9 +277,61 @@ final class LocalMediaPlayer {
     }
 
     private func installItem(url: URL) {
-        let item = AVPlayerItem(url: url)
+        installItem(AVPlayerItem(url: url))
+    }
+
+    private func installItem(asset: AVAsset) {
+        installItem(AVPlayerItem(asset: asset))
+    }
+
+    private func installItem(_ item: AVPlayerItem) {
+        applyPlaybackRange(to: item)
         observe(item: item)
         player.replaceCurrentItem(with: item)
+    }
+
+    private func prepareForLoad(
+        autoplay: Bool,
+        loops: Bool,
+        playbackRange: Range<TimeInterval>?,
+    ) {
+        preparationTask?.cancel()
+        preparationTask = nil
+        pendingSeek = nil
+        currentSeekIdentifier = nil
+        shouldApplyReadyStateAfterSeek = false
+        resetItemObservers()
+        player.currentItem?.cancelPendingSeeks()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        compositionLease = nil
+        shouldAutoplay = autoplay
+        shouldLoop = loops
+        self.playbackRange = normalizedPlaybackRange(playbackRange)
+        if let playbackRange = self.playbackRange, playbackRange.lowerBound > 0 {
+            pendingSeek = (playbackRange.lowerBound, 0, nil)
+        }
+        timeSubject.send(self.playbackRange?.lowerBound ?? 0)
+        stateSubject.send(.preparing)
+    }
+
+    private func normalizedPlaybackRange(
+        _ range: Range<TimeInterval>?,
+    ) -> Range<TimeInterval>? {
+        guard let range,
+              range.lowerBound.isFinite,
+              range.upperBound.isFinite,
+              range.lowerBound >= 0,
+              range.upperBound > range.lowerBound
+        else { return nil }
+        return range
+    }
+
+    private func applyPlaybackRange(to item: AVPlayerItem?) {
+        guard let item else { return }
+        item.forwardPlaybackEndTime = playbackRange.map {
+            CMTime(seconds: $0.upperBound, preferredTimescale: 600)
+        } ?? .invalid
     }
 
     private func applyReadyPlaybackState() {
