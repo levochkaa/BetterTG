@@ -118,6 +118,13 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
         withSerialization { startTime != nil }
     }
 
+    var recordedDuration: Double {
+        withSerialization {
+            guard let startTime, let lastVideoTime else { return 0 }
+            return min(maximumDuration, max(0, (lastVideoTime - startTime).seconds + 1 / 30))
+        }
+    }
+
     func appendVideo(
         pixelBuffer: CVPixelBuffer,
         presentationTime: CMTime,
