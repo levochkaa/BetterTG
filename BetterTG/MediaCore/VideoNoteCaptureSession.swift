@@ -50,7 +50,9 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         }
         cancelRecording()
         deactivateAudioSession()
+        let torchDevice = videoInput?.device
         configurationQueue.async { [captureSession] in
+            Self.disableTorch(on: torchDevice)
             if captureSession.isRunning {
                 captureSession.stopRunning()
             }
@@ -100,16 +102,6 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     }
 
     private func prepareIsolated(position: Position, generation: UUID) async throws {
-        let cameraGranted = await requestCameraPermission()
-        try Task.checkCancellation()
-        guard isCurrentPreparation(generation) else { throw CancellationError() }
-        guard cameraGranted else {
-            guard failPreparation(
-                generation,
-                message: "Camera access is required for video notes."
-            ) else { throw CancellationError() }
-            throw VideoNoteCaptureError.permissionDenied
-        }
         let microphoneGranted = await AVAudioApplication.requestRecordPermission()
         try Task.checkCancellation()
         guard isCurrentPreparation(generation) else { throw CancellationError() }
@@ -117,6 +109,16 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             guard failPreparation(
                 generation,
                 message: "Microphone access is required for video notes."
+            ) else { throw CancellationError() }
+            throw VideoNoteCaptureError.permissionDenied
+        }
+        let cameraGranted = await requestCameraPermission()
+        try Task.checkCancellation()
+        guard isCurrentPreparation(generation) else { throw CancellationError() }
+        guard cameraGranted else {
+            guard failPreparation(
+                generation,
+                message: "Camera access is required for video notes."
             ) else { throw CancellationError() }
             throw VideoNoteCaptureError.permissionDenied
         }
@@ -312,25 +314,45 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                     return
                 }
                 do {
-                    let targetPosition = try self.contextLock.withLock { () throws -> Position in
+                    let switchContext = try self.contextLock.withLock {
+                        () throws -> (Position, RecordingContext?) in
                         guard self.captureEnabled,
-                              self.recordingContext == nil,
                               self.captureSession.isRunning
                         else { throw VideoNoteCaptureError.recordingUnavailable }
-                        return self.position == .front ? .back : .front
+                        let context = self.recordingContext
+                        context?.videoFramesEnabled = false
+                        context?.audioFramesEnabled = false
+                        return (self.position == .front ? .back : .front, context)
                     }
+                    let targetPosition = switchContext.0
                     self.captureSession.beginConfiguration()
                     do {
                         try self.replaceVideoInput(position: targetPosition)
                         self.captureSession.commitConfiguration()
                     } catch {
                         self.captureSession.commitConfiguration()
+                        self.contextLock.withLock {
+                            if self.recordingContext === switchContext.1 {
+                                switchContext.1?.videoFramesEnabled = true
+                                switchContext.1?.audioFramesEnabled = true
+                            }
+                        }
                         throw error
                     }
                     self.configureOutputConnections()
+                    switchContext.1?.writer.beginCameraTransition()
                     let isCurrent = self.contextLock.withLock { () -> Bool in
                         guard self.captureEnabled else { return false }
-                        self.enqueueStateLocked(.ready(targetPosition))
+                        if let context = switchContext.1,
+                           self.recordingContext === context
+                        {
+                            context.position = targetPosition
+                            context.minimumVideoPresentationTime = CMClockGetTime(CMClockGetHostTimeClock())
+                            context.awaitingFirstVideoAfterSwitch = true
+                            context.videoFramesEnabled = true
+                        } else if self.recordingContext == nil {
+                            self.enqueueStateLocked(.ready(targetPosition))
+                        }
                         return true
                     }
                     guard isCurrent else {
@@ -340,6 +362,59 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 } catch {
                     continuation.resume(throwing: error)
                 }
+            }
+        }
+    }
+
+    func setTorchActive(_ active: Bool) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            configurationQueue.async { [weak self] in
+                guard let self else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                do {
+                    let device = try self.contextLock.withLock { () throws -> AVCaptureDevice in
+                        guard self.captureEnabled,
+                              self.position == .back,
+                              let device = self.videoInput?.device,
+                              device.hasTorch,
+                              device.isTorchModeSupported(active ? .on : .off)
+                        else { throw VideoNoteCaptureError.recordingUnavailable }
+                        return device
+                    }
+                    try device.lockForConfiguration()
+                    device.torchMode = active ? .on : .off
+                    device.unlockForConfiguration()
+                    continuation.resume(returning: active)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    func setZoomFactor(_ factor: CGFloat, rampRate: Float? = nil) {
+        configurationQueue.async { [weak self] in
+            guard let self else { return }
+            let device = self.contextLock.withLock { () -> AVCaptureDevice? in
+                guard self.captureEnabled else { return nil }
+                return self.videoInput?.device
+            }
+            guard let device else { return }
+            do {
+                try device.lockForConfiguration()
+                let maximum = min(device.maxAvailableVideoZoomFactor, 6)
+                let boundedFactor = min(maximum, max(device.minAvailableVideoZoomFactor, factor))
+                if let rampRate {
+                    device.ramp(toVideoZoomFactor: boundedFactor, withRate: rampRate)
+                } else {
+                    device.cancelVideoZoomRamp()
+                    device.videoZoomFactor = boundedFactor
+                }
+                device.unlockForConfiguration()
+            } catch {
+                return
             }
         }
     }
@@ -361,21 +436,31 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             self.position = position
             self.orientation = orientation
             self.minimumPresentationTime = minimumPresentationTime
+            self.minimumVideoPresentationTime = minimumPresentationTime
+            self.minimumAudioPresentationTime = minimumPresentationTime
             self.automaticStopDuration = automaticStopDuration
             self.startRequestID = startRequestID
         }
 
         let generation = UUID()
         let writer: VideoNoteAssetWriter
-        let position: Position
+        var position: Position
         let orientation: UIInterfaceOrientation
         let minimumPresentationTime: CMTime
+        var minimumVideoPresentationTime: CMTime
+        var minimumAudioPresentationTime: CMTime
         let automaticStopDuration: Double
         let startRequestID: UUID
         var stopRequested = false
         var didRequestAutomaticStop = false
         var videoClosed = false
         var audioClosed = false
+        var audioFramesEnabled = true
+        var videoFramesEnabled = true
+        var awaitingFirstVideoAfterSwitch = false
+        var lastRawVideoPresentationTime: CMTime?
+        var lastAdjustedVideoPresentationTime: CMTime?
+        var presentationTimeOffset = CMTime.zero
         var lastPublishedDuration = Double.zero
     }
 
@@ -429,6 +514,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         if didFail {
             configurationQueue.async { [weak self] in
                 guard let self else { return }
+                Self.disableTorch(on: videoInput?.device)
                 if captureSession.isRunning {
                     captureSession.stopRunning()
                 }
@@ -514,6 +600,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                         return true
                     }
                     if ownsPreparation {
+                        Self.disableTorch(on: self.videoInput?.device)
                         if self.captureSession.isRunning {
                             self.captureSession.stopRunning()
                         }
@@ -622,6 +709,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         result.1?.writer.cancel()
         configurationQueue.async { [weak self] in
             guard let self else { return }
+            Self.disableTorch(on: videoInput?.device)
             if captureSession.isRunning {
                 captureSession.stopRunning()
             }
@@ -632,6 +720,17 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     private func enqueueStateLocked(_ state: State) {
         DispatchQueue.main.async { [stateSubject] in
             stateSubject.send(state)
+        }
+    }
+
+    private static func disableTorch(on device: AVCaptureDevice?) {
+        guard let device, device.hasTorch, device.torchMode != .off else { return }
+        do {
+            try device.lockForConfiguration()
+            device.torchMode = .off
+            device.unlockForConfiguration()
+        } catch {
+            return
         }
     }
 
@@ -678,6 +777,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         result.1?.writer.cancel()
         configurationQueue.async { [weak self] in
             guard let self else { return }
+            Self.disableTorch(on: videoInput?.device)
             if captureSession.isRunning {
                 captureSession.stopRunning()
             }
@@ -699,6 +799,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         guard isCurrent else { return }
         configurationQueue.async { [weak self] in
             guard let self else { return }
+            Self.disableTorch(on: videoInput?.device)
             if captureSession.isRunning {
                 captureSession.stopRunning()
             }
@@ -715,24 +816,56 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
         didOutput sampleBuffer: CMSampleBuffer,
         from _: AVCaptureConnection,
     ) {
+        guard output === videoOutput || output === audioOutput else { return }
+        let rawPresentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         contextLock.lock()
         guard let context = recordingContext,
-              (output === videoOutput ? !context.videoClosed : !context.audioClosed)
+              (output === videoOutput
+                  ? !context.videoClosed && context.videoFramesEnabled
+                  : !context.audioClosed && context.audioFramesEnabled),
+              rawPresentationTime >= context.minimumPresentationTime,
+              (output === videoOutput
+                  ? rawPresentationTime >= context.minimumVideoPresentationTime
+                  : rawPresentationTime >= context.minimumAudioPresentationTime)
         else {
             contextLock.unlock()
             return
         }
+        if output === videoOutput {
+            if context.awaitingFirstVideoAfterSwitch {
+                context.awaitingFirstVideoAfterSwitch = false
+                if let lastRawTime = context.lastRawVideoPresentationTime {
+                    let gap = rawPresentationTime.seconds - lastRawTime.seconds - 1 / 30
+                    if gap.isFinite, gap > 0 {
+                        context.presentationTimeOffset = context.presentationTimeOffset
+                            + CMTime(seconds: gap, preferredTimescale: 600)
+                    }
+                }
+                context.minimumAudioPresentationTime = rawPresentationTime
+                context.audioFramesEnabled = true
+            }
+            context.lastRawVideoPresentationTime = rawPresentationTime
+        }
         let position = context.position
         let interfaceOrientation = context.orientation
+        var adjustedPresentationTime = rawPresentationTime - context.presentationTimeOffset
+        if output === videoOutput,
+           let lastAdjustedTime = context.lastAdjustedVideoPresentationTime,
+           adjustedPresentationTime <= lastAdjustedTime
+        {
+            adjustedPresentationTime = lastAdjustedTime + CMTime(value: 1, timescale: 600)
+        }
+        if output === videoOutput {
+            context.lastAdjustedVideoPresentationTime = adjustedPresentationTime
+        }
+        let presentationTimeOffset = context.presentationTimeOffset
         contextLock.unlock()
         do {
             if output === videoOutput {
                 guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-                let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                guard presentationTime >= context.minimumPresentationTime else { return }
                 let result = try context.writer.appendVideo(
                     pixelBuffer: pixelBuffer,
-                    presentationTime: presentationTime,
+                    presentationTime: adjustedPresentationTime,
                     orientation: writerOrientation(
                         position: position,
                         interfaceOrientation: interfaceOrientation,
@@ -745,11 +878,11 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
                 if result == .appended {
                     publishDurationIfNeeded(context)
                 }
-            } else if output === audioOutput {
-                guard CMSampleBufferGetPresentationTimeStamp(sampleBuffer) >= context.minimumPresentationTime else {
-                    return
-                }
-                let result = try context.writer.appendAudio(sampleBuffer)
+            } else {
+                let result = try context.writer.appendAudio(
+                    sampleBuffer,
+                    presentationTimeOffset: presentationTimeOffset,
+                )
                 if result == .reachedLimit {
                     requestAutomaticStop(context)
                 }

@@ -139,6 +139,46 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
         }
     }
 
+    func beginCameraTransition() {
+        withSerialization {
+            guard !isCancelled, !isCompleted else { return }
+            #if DEBUG
+                probeTransitionPixels.removeAll(keepingCapacity: true)
+            #endif
+            guard let lastRenderedPixelBuffer else {
+                transitionSourcePixelBuffer = nil
+                transitionFrameIndex = 0
+                return
+            }
+            var snapshot: CVPixelBuffer?
+            let attributes: [String: Any] = [
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+            ]
+            guard CVPixelBufferCreate(
+                nil,
+                length,
+                length,
+                kCVPixelFormatType_32BGRA,
+                attributes as CFDictionary,
+                &snapshot,
+            ) == kCVReturnSuccess,
+                let snapshot
+            else {
+                transitionSourcePixelBuffer = nil
+                transitionFrameIndex = 0
+                return
+            }
+            ciContext.render(
+                CIImage(cvPixelBuffer: lastRenderedPixelBuffer),
+                to: snapshot,
+                bounds: CGRect(x: 0, y: 0, width: length, height: length),
+                colorSpace: colorSpace,
+            )
+            transitionSourcePixelBuffer = snapshot
+            transitionFrameIndex = 0
+        }
+    }
+
     private func appendVideoIsolated(
         pixelBuffer: CVPixelBuffer,
         presentationTime: CMTime,
@@ -173,9 +213,16 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
         return .appended
     }
 
-    func appendAudio(_ sampleBuffer: CMSampleBuffer) throws -> AppendResult {
+    func appendAudio(
+        _ sampleBuffer: CMSampleBuffer,
+        presentationTimeOffset: CMTime = .zero,
+    ) throws -> AppendResult {
         try withSerialization {
-            try appendAudioIsolated(sampleBuffer)
+            let adjustedSampleBuffer = try adjustedAudioSampleBuffer(
+                sampleBuffer,
+                presentationTimeOffset: presentationTimeOffset,
+            )
+            return try appendAudioIsolated(adjustedSampleBuffer)
         }
     }
 
@@ -387,6 +434,9 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             for frameIndex in 1 ..< 30 {
+                                if frameIndex == 15 {
+                                    writer.beginCameraTransition()
+                                }
                                 let pixelBuffer = try makeProbePixelBuffer(
                                     frameIndex: frameIndex,
                                     width: 640,
@@ -402,12 +452,20 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                         }
                         group.addTask {
                             for audioFrameOffset in stride(from: Int64(4_096), to: 48_128, by: 1_024) {
+                                let afterSyntheticSwitch = audioFrameOffset >= 24_576
+                                let rawFrameOffset = afterSyntheticSwitch ? audioFrameOffset + 4_800 : audioFrameOffset
                                 let audioBuffer = try makeAudioSampleBuffer(
-                                    frameOffset: audioFrameOffset,
+                                    frameOffset: rawFrameOffset,
                                     frameCount: 1_024,
                                     amplitude: 0,
                                 )
-                                guard try writer.appendAudio(audioBuffer) == .appended else {
+                                let offset = afterSyntheticSwitch
+                                    ? CMTime(seconds: 0.1, preferredTimescale: 48_000)
+                                    : .zero
+                                guard try writer.appendAudio(
+                                    audioBuffer,
+                                    presentationTimeOffset: offset,
+                                ) == .appended else {
                                     throw VideoNoteAssetWriterError.appendFailed
                                 }
                             }
@@ -432,6 +490,22 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                     try await validateProbeRoundMask(url: result.url)
                     stage = "pre-video audio"
                     try await validateProbeAudioStart(url: result.url)
+                    stage = "switch transition"
+                    let transitionPixels = writer.probeCameraTransitionPixels
+                    guard transitionPixels.count == 6,
+                          let firstTransition = transitionPixels.first,
+                          let lastTransition = transitionPixels.last,
+                          abs(Int(firstTransition.output) - Int(firstTransition.previous))
+                          < abs(Int(firstTransition.target) - Int(firstTransition.previous)),
+                          firstTransition.output != firstTransition.target,
+                          abs(Int(lastTransition.output) - Int(lastTransition.target)) <= 2
+                    else {
+                        throw VideoNoteAssetWriterError.probeFailed(
+                            "rendered transition pixels=\(transitionPixels)",
+                        )
+                    }
+                    stage = "switch audio continuity"
+                    try await validateProbeAudioContinuity(url: result.url)
                     let attributes = try FileManager.default.attributesOfItem(atPath: result.url.path)
                     let fileSize = (attributes[.size] as? NSNumber)?.intValue ?? 0
                     stage = "post-success cancel"
@@ -482,7 +556,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                     let proof = "Video note writer probe: H264 High/CABAC + AAC MP4, "
                         + "\(result.length)x\(result.length), duration=\(result.duration), "
                         + "round/orientation=true, pre-video-audio=true, concurrent-drain=true, "
-                        + "limit/cancel=true, bytes=\(fileSize)"
+                        + "switch-crossfade/audio-retime=true, limit/cancel=true, bytes=\(fileSize)"
                     writeDebugProbeResult(proof)
                     log(proof)
                 } catch {
@@ -523,6 +597,10 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
             withSerialization { isFinishing }
         }
 
+        private var probeCameraTransitionPixels: [(previous: UInt8, target: UInt8, output: UInt8)] {
+            withSerialization { probeTransitionPixels }
+        }
+
         private func waitForProbeFinishRequest() async throws {
             for _ in 0 ..< 1_000 {
                 if withSerialization({ finishRequested && finishContinuation != nil }) {
@@ -548,6 +626,13 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
     private var startTime: CMTime?
     private var lastVideoTime: CMTime?
     private var lastAudioTime: CMTime?
+    private var lastRenderedPixelBuffer: CVPixelBuffer?
+    private var transitionSourcePixelBuffer: CVPixelBuffer?
+    private var transitionFrameIndex = 0
+    private let transitionFrameCount = 6
+    #if DEBUG
+        private var probeTransitionPixels = [(previous: UInt8, target: UInt8, output: UInt8)]()
+    #endif
     private var pendingAudioBuffers = [CMSampleBuffer]()
     private let maximumPendingAudioBuffers = 256
     private var videoStreamEnded = false
@@ -586,6 +671,10 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
         while let sampleBuffer = pendingAudioBuffers.first {
             let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             if presentationTime < startTime {
+                pendingAudioBuffers.removeFirst()
+                continue
+            }
+            if let lastAudioTime, presentationTime <= lastAudioTime {
                 pendingAudioBuffers.removeFirst()
                 continue
             }
@@ -691,6 +780,51 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
         continuation?.resume(throwing: error)
     }
 
+    private func adjustedAudioSampleBuffer(
+        _ sampleBuffer: CMSampleBuffer,
+        presentationTimeOffset: CMTime,
+    ) throws -> CMSampleBuffer {
+        guard presentationTimeOffset.isValid,
+              presentationTimeOffset > .zero
+        else { return sampleBuffer }
+        var timingCount = 0
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: 0,
+            arrayToFill: nil,
+            entriesNeededOut: &timingCount,
+        ) == noErr,
+            timingCount > 0
+        else { throw VideoNoteAssetWriterError.appendFailed }
+        var timing = Array(repeating: CMSampleTimingInfo.invalid, count: timingCount)
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: timingCount,
+            arrayToFill: &timing,
+            entriesNeededOut: &timingCount,
+        ) == noErr
+        else { throw VideoNoteAssetWriterError.appendFailed }
+        for index in timing.indices {
+            if timing[index].presentationTimeStamp.isValid {
+                timing[index].presentationTimeStamp = timing[index].presentationTimeStamp - presentationTimeOffset
+            }
+            if timing[index].decodeTimeStamp.isValid {
+                timing[index].decodeTimeStamp = timing[index].decodeTimeStamp - presentationTimeOffset
+            }
+        }
+        var adjustedSampleBuffer: CMSampleBuffer?
+        guard CMSampleBufferCreateCopyWithNewTiming(
+            allocator: nil,
+            sampleBuffer: sampleBuffer,
+            sampleTimingEntryCount: timing.count,
+            sampleTimingArray: &timing,
+            sampleBufferOut: &adjustedSampleBuffer,
+        ) == noErr,
+            let adjustedSampleBuffer
+        else { throw VideoNoteAssetWriterError.appendFailed }
+        return adjustedSampleBuffer
+    }
+
     private func renderSquare(
         source: CVPixelBuffer,
         destination: CVPixelBuffer,
@@ -724,7 +858,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                 kCIInputColor1Key: CIColor.black,
             ],
         )?.outputImage?.cropped(to: outputBounds)
-        let roundImage = mask.map {
+        var roundImage = mask.map {
             cropped.applyingFilter(
                 "CIBlendWithMask",
                 parameters: [
@@ -733,13 +867,63 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                 ],
             )
         } ?? cropped
+        #if DEBUG
+            var probeTransitionInput: (previous: UInt8, target: UInt8)?
+        #endif
+        if let transitionSourcePixelBuffer,
+           transitionFrameIndex < transitionFrameCount
+        {
+            #if DEBUG
+                probeTransitionInput = (
+                    centerGreen(in: transitionSourcePixelBuffer),
+                    centerGreen(in: source),
+                )
+            #endif
+            let progress = CGFloat(transitionFrameIndex + 1) / CGFloat(transitionFrameCount)
+            let previousImage = CIImage(cvPixelBuffer: transitionSourcePixelBuffer)
+                .cropped(to: outputBounds)
+            let fadedPrevious = previousImage.applyingFilter(
+                "CIColorMatrix",
+                parameters: [
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1 - progress),
+                ],
+            )
+            roundImage = fadedPrevious.composited(over: roundImage).cropped(to: outputBounds)
+            transitionFrameIndex += 1
+            if transitionFrameIndex >= transitionFrameCount {
+                self.transitionSourcePixelBuffer = nil
+                transitionFrameIndex = 0
+            }
+        }
         ciContext.render(
             roundImage,
             to: destination,
             bounds: outputBounds,
             colorSpace: colorSpace,
         )
+        #if DEBUG
+            if let probeTransitionInput {
+                probeTransitionPixels.append((
+                    previous: probeTransitionInput.previous,
+                    target: probeTransitionInput.target,
+                    output: centerGreen(in: destination),
+                ))
+            }
+        #endif
+        lastRenderedPixelBuffer = destination
     }
+
+    #if DEBUG
+        private func centerGreen(in pixelBuffer: CVPixelBuffer) -> UInt8 {
+            CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+            guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return 0 }
+            let row = CVPixelBufferGetHeight(pixelBuffer) / 2
+            let column = CVPixelBufferGetWidth(pixelBuffer) / 2
+            let offset = row * CVPixelBufferGetBytesPerRow(pixelBuffer) + column * 4 + 1
+            return baseAddress.assumingMemoryBound(to: UInt8.self)[offset]
+        }
+    #endif
 
     #if DEBUG
         private static func makeProbePixelBuffer(
@@ -982,6 +1166,47 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                   sampleCount > 1_000,
                   peak > 1_000
             else { throw reader.error ?? VideoNoteAssetWriterError.invalidAsset }
+        }
+
+        private static func validateProbeAudioContinuity(url: URL) async throws {
+            let asset = AVURLAsset(url: url)
+            guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+                throw VideoNoteAssetWriterError.invalidAsset
+            }
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            guard reader.canAdd(output) else { throw VideoNoteAssetWriterError.invalidAsset }
+            reader.add(output)
+            guard reader.startReading() else { throw reader.error ?? VideoNoteAssetWriterError.invalidAsset }
+            var ranges = [(start: Double, end: Double)]()
+            while let sampleBuffer = output.copyNextSampleBuffer() {
+                let start = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+                let duration = CMSampleBufferGetDuration(sampleBuffer).seconds
+                guard start.isFinite else { continue }
+                let finiteDuration = duration.isFinite ? max(0, duration) : 0
+                ranges.append((start, start + finiteDuration))
+            }
+            ranges.sort { $0.start < $1.start }
+            var previousEnd: Double?
+            var maximumGap = Double.zero
+            for range in ranges where range.end >= 0.35 && range.start <= 0.65 {
+                if let previousEnd, range.start > previousEnd {
+                    maximumGap = max(maximumGap, range.start - previousEnd)
+                }
+                previousEnd = max(previousEnd ?? range.end, range.end)
+            }
+            let observedBeforeBoundary = ranges.contains { $0.start <= 0.49 && $0.end >= 0.45 }
+            let observedAfterBoundary = ranges.contains { $0.start <= 0.55 && $0.end >= 0.51 }
+            guard reader.status == .completed,
+                  observedBeforeBoundary,
+                  observedAfterBoundary,
+                  maximumGap < 0.05
+            else {
+                throw reader.error ?? VideoNoteAssetWriterError.probeFailed(
+                    "audio maximumGap=\(maximumGap), before=\(observedBeforeBoundary), "
+                        + "after=\(observedAfterBoundary), ranges=\(ranges)",
+                )
+            }
         }
 
         private static func writeDebugProbeResult(_ result: String) {
