@@ -27,9 +27,9 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: ordered video-note segment composition, 13-frame derivation and eager global-trim materialization.
-- Verification: `./test.sh` and `./run.sh` pass; a deterministic two-segment probe proves strict `0→1` A/V insertion,
-  1.5s aggregate duration, 13 chronological zero-tolerance thumbnails and a validated 1.1s trimmed 400×400 MP4. Earlier
-  writer/manifest/idb proofs remain green; screenshot and physical-camera proof remain unavailable.
-- Next slice: persist the editable ordered segment manifest, bind Record More and the 13-thumbnail 1…60s global trim UI,
-  then hand the materialized MP4 to the existing transactional `InputVideoNote` promotion.
+- Current slice: durable editable video-note recording manifest over the ordered composition/materialization foundation.
+- Verification: `./test.sh` and `./run.sh` pass. The recording-draft probe restores a 0.7s first result, appends in stable-ID
+  order, resets prior trim, persists revision 2 and a global 1.2s trim, derives 13 frames, materializes, reloads and cleans
+  all segment files. The composition probe separately proves decoded pixel/PCM order, A/V boundaries and zero-start export.
+- Next slice: bind Record More and the 13-thumbnail 1…60s global trim UI while retaining the full composition lease; make
+  recording→send adoption a durable origin-linked handoff before cleaning source segments, preventing duplicate relaunch send.

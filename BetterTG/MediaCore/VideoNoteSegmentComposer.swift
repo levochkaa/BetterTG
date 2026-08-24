@@ -110,7 +110,7 @@ enum VideoNoteSegmentComposer {
             ranges.append(start ..< cursor.seconds)
         }
         guard cursor.seconds.isFinite,
-              cursor.seconds >= 1,
+              cursor.seconds >= 0.5,
               cursor.seconds <= 60.01
         else { throw VideoNoteSegmentComposerError.invalidDuration }
         try Task.checkCancellation()
