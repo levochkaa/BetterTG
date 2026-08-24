@@ -336,6 +336,8 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                   return abs(description.pointee.mSampleRate - 48_000) < 1
                       && description.pointee.mChannelsPerFrame == 1
               }),
+              abs(videoTimeRange.start.seconds) < 0.05,
+              abs(audioTimeRange.start.seconds) < 0.05,
               videoTimeRange.duration.seconds >= duration - 0.05,
               audioTimeRange.duration.seconds >= duration - 0.05
         else { throw VideoNoteAssetWriterError.invalidAsset }
@@ -388,6 +390,60 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
     }
 
     #if DEBUG
+        static func makeDebugSegment(
+            outputURL: URL,
+            duration: Double,
+            frameSeed: Int,
+        ) async throws -> VideoNoteAsset {
+            let frameCount = max(2, Int((duration * 30).rounded()))
+            let exactDuration = Double(frameCount) / 30
+            let writer = try VideoNoteAssetWriter(
+                outputURL: outputURL,
+                length: 400,
+                maximumDuration: min(60, exactDuration + 0.1),
+            )
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        for frameIndex in 0 ..< frameCount {
+                            let pixelBuffer = try makeProbePixelBuffer(
+                                frameIndex: frameSeed + frameIndex,
+                                width: 400,
+                                height: 400,
+                            )
+                            try await appendProbeVideo(
+                                writer: writer,
+                                pixelBuffer: pixelBuffer,
+                                presentationTime: CMTime(value: Int64(frameIndex), timescale: 30),
+                                orientation: .up,
+                            )
+                        }
+                    }
+                    group.addTask {
+                        let totalAudioFrames = Int64(exactDuration * 48_000)
+                        for frameOffset in stride(from: Int64.zero, to: totalAudioFrames, by: 1_024) {
+                            let frameCount = Int(min(1_024, totalAudioFrames - frameOffset))
+                            let sampleBuffer = try makeAudioSampleBuffer(
+                                frameOffset: frameOffset,
+                                frameCount: frameCount,
+                                amplitude: Int16(2_000 + frameSeed * 10),
+                            )
+                            guard try writer.appendAudio(sampleBuffer) == .appended else {
+                                throw VideoNoteAssetWriterError.appendFailed
+                            }
+                        }
+                    }
+                    try await group.waitForAll()
+                }
+                writer.markVideoFinished()
+                writer.markAudioFinished()
+                return try await writer.finish()
+            } catch {
+                writer.cancel()
+                throw error
+            }
+        }
+
         static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-writer") else { return }
             writeDebugProbeResult("Video note writer probe started")

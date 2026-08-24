@@ -27,9 +27,9 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: UIKit single-segment video-note capture/preview/send/playback with durable TDLib ownership.
-- Verification: `./test.sh` and `./run.sh` pass; writer and manifest probes cover crossfade/retiming and transactional
-  outcomes. idb hierarchy proves mode toggle, native permission path, honest simulator camera failure and cleanup without
-  message mutation; screenshot capture was unavailable and physical-camera behavior remains explicitly unproved.
-- Next slice: persist ordered stopped segments, compose/export their A/V tracks, add Record More and Telegram-style
-  thumbnails/1…60s trim with materialization before `InputVideoNote`; then prove the full flow on camera hardware.
+- Current slice: ordered video-note segment composition, 13-frame derivation and eager global-trim materialization.
+- Verification: `./test.sh` and `./run.sh` pass; a deterministic two-segment probe proves strict `0→1` A/V insertion,
+  1.5s aggregate duration, 13 chronological zero-tolerance thumbnails and a validated 1.1s trimmed 400×400 MP4. Earlier
+  writer/manifest/idb proofs remain green; screenshot and physical-camera proof remain unavailable.
+- Next slice: persist the editable ordered segment manifest, bind Record More and the 13-thumbnail 1…60s global trim UI,
+  then hand the materialized MP4 to the existing transactional `InputVideoNote` promotion.
