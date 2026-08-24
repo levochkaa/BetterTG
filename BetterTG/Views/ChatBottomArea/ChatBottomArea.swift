@@ -33,6 +33,7 @@ final class ChatComposerView: UIView {
     var onCancelVideoNoteRecording: (() -> Void)?
     var onLockVideoNoteRecording: (() -> Void)?
     var onPauseVideoNoteRecording: (() -> Void)?
+    var onRecordMoreVideoNoteRecording: (() -> Void)?
     var onSendVideoNoteRecording: (() -> Void)?
     var onStartVideoNoteRecording: (() async -> Bool)?
     var onToggleVideoNotePreview: (() -> Void)?
@@ -467,6 +468,7 @@ final class ChatComposerView: UIView {
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
         recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
         recordingPreviewPlayButton.addTarget(self, action: #selector(toggleRecordingPreview), for: .touchUpInside)
+        actionButton.addTarget(self, action: #selector(actionTouchDown(_:)), for: .touchDown)
         actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         actionButton.addGestureRecognizer(recordingGestureRecognizer)
@@ -974,7 +976,7 @@ final class ChatComposerView: UIView {
             recordingPauseResumeButton.accessibilityLabel = "Stop video recording for preview"
             recordingSendButton.isHidden = false
             recordingSendButton.accessibilityLabel = "Send video message"
-        case let .preview(duration, isPlaying):
+        case let .preview(duration, isPlaying, canRecordMore):
             recordingLabel.textColor = .label
             recordingLabel.text = formatVideoDuration(duration)
             recordingLabel.accessibilityLabel = "Video message preview, \(formatVideoDuration(duration))"
@@ -986,6 +988,9 @@ final class ChatComposerView: UIView {
             recordingPreviewPlayButton.accessibilityLabel = isPlaying
                 ? "Pause video message preview"
                 : "Play video message preview"
+            recordingPauseResumeButton.isHidden = !canRecordMore
+            recordingPauseResumeButton.setImage(UIImage(systemName: "video.badge.plus"), for: .normal)
+            recordingPauseResumeButton.accessibilityLabel = "Record more video"
             recordingSendButton.isHidden = false
             recordingSendButton.accessibilityLabel = "Send video message"
         case .stopping:
@@ -1060,6 +1065,11 @@ final class ChatComposerView: UIView {
         }
         chatVM.sendMessageTask?.cancel()
         chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage() }
+    }
+
+    @objc private func actionTouchDown(_ sender: UIButton) {
+        guard sender === actionButton else { return }
+        voiceGestureSuppressesButtonAction = false
     }
 
     private func startLockedRecordingForAccessibility() {
@@ -1411,11 +1421,8 @@ final class ChatComposerView: UIView {
     }
 
     private func resetVoiceGestureButtonSuppressionAfterCurrentEvent() {
-        let generation = voiceGestureGeneration
-        DispatchQueue.main.async { [weak self] in
-            guard let self, voiceGestureGeneration == generation else { return }
-            voiceGestureSuppressesButtonAction = false
-        }
+        // The matching touchUpInside consumes suppression. If UIKit omits that event,
+        // the next intentional touchDown clears it before a new action can fire.
     }
 
     private func isRecordingReady(mode: ChatMediaRecordingMode) -> Bool {
@@ -1478,6 +1485,8 @@ final class ChatComposerView: UIView {
         if videoNoteState.isActive {
             if case .locked = videoNoteState {
                 onPauseVideoNoteRecording?()
+            } else if case .preview = videoNoteState {
+                onRecordMoreVideoNoteRecording?()
             }
             return
         }

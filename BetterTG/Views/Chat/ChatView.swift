@@ -51,6 +51,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configureDataSource()
         observeState()
         updateSnapshot(animated: false)
+        restoreVideoRecordingIfNeeded()
         if let targetMessageID {
             scrollToMessage(id: targetMessageID)
         }
@@ -60,13 +61,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         super.viewDidDisappear(animated)
         guard presentationMode == .full else { return }
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
-        composerView.cancelActiveRecordingGesture()
+        isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
+        composerView.cancelActiveRecordingGesture()
         Task { [chatVM] in await chatVM.updateDraft() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        isTerminatingNavigation = false
         if presentationMode == .full {
             navigationController?.setNavigationBarHidden(true, animated: animated)
         }
@@ -218,6 +221,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingScrollMessageID: Int64?
     private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
+    private var isTerminatingNavigation = false
     private var composerLeadingConstraint: NSLayoutConstraint?
     private var composerTrailingConstraint: NSLayoutConstraint?
     private var composerBottomConstraint: NSLayoutConstraint?
@@ -226,6 +230,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var videoNoteRecorder: VideoNoteRecorderViewController?
     private var videoNoteReplyMessage: CustomMessage?
     private var videoNoteChatActionActive = false
+    private var restoredVideoRecordingDraftIDHandled: UUID?
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
         let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
@@ -372,6 +377,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onPauseVideoNoteRecording = { [weak self] in
                 self?.videoNoteRecorder?.finishForPreview()
             }
+            composerView.onRecordMoreVideoNoteRecording = { [weak self] in
+                self?.videoNoteRecorder?.recordMore()
+            }
             composerView.onSendVideoNoteRecording = { [weak self] in
                 self?.videoNoteRecorder?.finishForSend()
             }
@@ -425,8 +433,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return await recorder.beginHolding()
     }
 
-    private func installVideoNoteRecorder() -> VideoNoteRecorderViewController {
-        let recorder = VideoNoteRecorderViewController()
+    private func installVideoNoteRecorder(
+        restoring restoredDraft: VideoNoteRecordingDraft? = nil,
+        restoredReply: CustomMessage? = nil,
+    ) -> VideoNoteRecorderViewController {
+        let replySnapshot = restoredDraft == nil ? videoNoteReplyMessage : restoredReply
+        let recorder = VideoNoteRecorderViewController(
+            chatID: chatVM.chatID,
+            replyMessageID: restoredDraft?.replyMessageID ?? replySnapshot?.id,
+            replyTo: restoredDraft?.replyTo ?? chatVM.getMessageReplyTo(from: replySnapshot),
+        )
         recorder.onStateChange = { [weak self, weak recorder] state in
             guard let self, videoNoteRecorder === recorder else { return }
             composerView.updateVideoNoteState(state)
@@ -457,12 +473,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 await VideoNoteFileStore.shared.discardAsset(at: asset.url)
             }
         }
-        let replySnapshot = videoNoteReplyMessage
-        recorder.onSubmit = { [weak chatVM] asset in
+        recorder.onSubmit = { [weak chatVM] asset, originRecordingDraftID, storedReplyMessageID, storedReplyTo in
             guard let chatVM else {
-                return .retained(asset, message: "The chat was closed before the video message could be sent.")
+                return .retained(
+                    asset,
+                    originConsumed: false,
+                    message: "The chat was closed before the video message could be sent.",
+                )
             }
-            return await chatVM.submitVideoNote(asset, replyingTo: replySnapshot)
+            return await chatVM.submitVideoNote(
+                asset,
+                originRecordingDraftID: originRecordingDraftID,
+                replyingTo: replySnapshot,
+                storedReplyMessageID: storedReplyMessageID,
+                storedReplyTo: storedReplyTo,
+            )
         }
         recorder.onDismiss = { [weak self, weak recorder] in
             guard let self, let recorder, videoNoteRecorder === recorder else { return }
@@ -487,13 +512,45 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ])
         recorder.didMove(toParent: self)
         videoNoteRecorder = recorder
+        if let restoredDraft {
+            recorder.restore(restoredDraft)
+        }
         return recorder
+    }
+
+    private func restoreVideoRecordingIfNeeded() {
+        guard showsComposer,
+              !isTerminatingNavigation,
+              videoNoteRecorder == nil,
+              let draft = chatVM.restoredVideoRecordingDraft,
+              restoredVideoRecordingDraftIDHandled != draft.id
+        else { return }
+        restoredVideoRecordingDraftIDHandled = draft.id
+        videoNoteReplyMessage = chatVM.restoredVideoRecordingReplyMessage
+        composerView.setVideoNoteReplyMessage(videoNoteReplyMessage)
+        _ = installVideoNoteRecorder(
+            restoring: draft,
+            restoredReply: videoNoteReplyMessage,
+        )
+        chatVM.consumeRestoredVideoRecordingDraft(id: draft.id)
     }
 
     private func presentVideoNoteErrorIfNeeded(_ message: String) {
         guard !didPresentVideoNoteError, presentedViewController == nil else { return }
         didPresentVideoNoteError = true
         let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
+        if videoNoteRecorder?.hasPersistedRecordingDraft == true {
+            alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                self?.didPresentVideoNoteError = false
+                self?.videoNoteRecorder?.retryPersistedPreview()
+            })
+            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in
+                self?.didPresentVideoNoteError = false
+                self?.videoNoteRecorder?.cancel()
+            })
+            present(alert, animated: true)
+            return
+        }
         alert.addAction(UIAlertAction(title: "OK", style: .cancel) { [weak self] _ in
             self?.didPresentVideoNoteError = false
             if self?.videoNoteRecorder?.state.isActive != true {
@@ -632,6 +689,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     presentMicrophoneErrorIfNeeded()
                     presentVoiceNoteErrorIfNeeded()
                     presentVideoNoteSendErrorIfNeeded()
+                    restoreVideoRecordingIfNeeded()
                 }
             }
             .store(in: &cancellables)

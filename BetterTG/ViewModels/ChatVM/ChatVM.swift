@@ -49,6 +49,7 @@ import UIKit
             async let sendDrafts = VoiceNoteDraftStore.shared.drafts(for: chatID)
             async let recordingDrafts = VoiceRecordingDraftStore.shared.drafts(for: chatID)
             async let videoDrafts = VideoNoteFileStore.shared.drafts(for: chatID)
+            async let videoRecordingDrafts = VideoNoteRecordingDraftStore.shared.drafts(for: chatID)
             var restoredPendingDraft: VoiceNoteSendDraft?
             for draft in await sendDrafts {
                 if let temporaryMessageID = draft.temporaryMessageID {
@@ -82,6 +83,20 @@ import UIKit
                 } else if let status = pendingVideoRetryStatusMessage {
                     videoNoteErrorMessage = status
                 }
+            }
+            let storedVideoRecordingDrafts = await videoRecordingDrafts
+            if restoredVideoDraft == nil,
+               !hasPendingVoiceNote,
+               !recordingVoiceNote,
+               let recordingDraft = storedVideoRecordingDrafts.first
+            {
+                let reply: CustomMessage? = if let replyMessageID = recordingDraft.replyMessageID {
+                    await getCustomMessage(fromId: replyMessageID)
+                } else {
+                    nil
+                }
+                restoredVideoRecordingReplyMessage = reply
+                restoredVideoRecordingDraft = recordingDraft
             }
             self.loadingVoiceDraft = false
         }
@@ -147,6 +162,8 @@ import UIKit
     @Published private(set) var hasPendingVoiceNote = false
     @Published private(set) var hasPendingVideoNote = false
     @Published private(set) var retryingVideoNote = false
+    @Published private(set) var restoredVideoRecordingDraft: VideoNoteRecordingDraft?
+    @Published private(set) var restoredVideoRecordingReplyMessage: CustomMessage?
     @Published private(set) var pendingVoiceReplyMessage: CustomMessage?
     @Published private(set) var pendingVideoReplyMessage: CustomMessage?
     @Published private(set) var voiceRecordingPreviewIsPlaying = false
@@ -205,6 +222,12 @@ import UIKit
               pendingVideoNote.enqueueStartedAt == nil
         else { return false }
         return pendingVideoNote.failedSendState?.canRetryNow ?? true
+    }
+
+    func consumeRestoredVideoRecordingDraft(id: UUID) {
+        guard restoredVideoRecordingDraft?.id == id else { return }
+        restoredVideoRecordingDraft = nil
+        restoredVideoRecordingReplyMessage = nil
     }
 
     var pendingVideoReplyMessageID: Int64? {
@@ -761,6 +784,8 @@ import UIKit
         _ asset: VideoNoteAsset,
         originRecordingDraftID: UUID? = nil,
         replyingTo reply: CustomMessage?,
+        storedReplyMessageID: Int64? = nil,
+        storedReplyTo: InputMessageReplyTo? = nil,
     ) async -> VideoNoteSubmissionResult {
         var draft: VideoNoteSendDraft
         var alreadyEnqueued = false
@@ -770,8 +795,8 @@ import UIKit
                 asset,
                 chatID: chatID,
                 originRecordingDraftID: originRecordingDraftID,
-                replyMessageID: reply?.id,
-                replyTo: getMessageReplyTo(from: reply),
+                replyMessageID: reply?.id ?? storedReplyMessageID,
+                replyTo: getMessageReplyTo(from: reply) ?? storedReplyTo,
             )
             switch preparation {
             case .alreadyEnqueued(let preparedDraft):
@@ -784,7 +809,11 @@ import UIKit
                 draft = preparedDraft
             }
         } catch {
-            return .retained(asset, message: "Couldn’t preserve the video message for sending.")
+            return .retained(
+                asset,
+                originConsumed: false,
+                message: "Couldn’t preserve the video message for sending.",
+            )
         }
         if let adoptedOriginID = draft.originRecordingDraftID ?? originRecordingDraftID {
             await VideoNoteRecordingDraftStore.shared.discard(id: adoptedOriginID)
@@ -798,6 +827,7 @@ import UIKit
         guard didBeginEnqueue else {
             return .retained(
                 draft.asset,
+                originConsumed: true,
                 message: "Another video message is still being sent. Try again when it finishes.",
             )
         }
@@ -885,6 +915,7 @@ import UIKit
             if let resolution, resolution.outcome == .failed {
                 return .retained(
                     resolution.draft.asset,
+                    originConsumed: true,
                     message: "Couldn’t upload the video message. You can retry without recording again.",
                 )
             }
@@ -898,7 +929,11 @@ import UIKit
                 )) ?? draft
                 activatePendingVideoDraft(draft)
             }
-            return .retained(draft.asset, message: "Video message sending was cancelled.")
+            return .retained(
+                draft.asset,
+                originConsumed: true,
+                message: "Video message sending was cancelled.",
+            )
         } catch {
             if didBeginEnqueue {
                 submittingVideoDraftIDs.remove(draft.id)
@@ -911,6 +946,7 @@ import UIKit
             try? await tdSendChatAction(.chatActionCancel)
             return .retained(
                 draft.asset,
+                originConsumed: true,
                 message: "Couldn’t send the video message. You can retry without recording again.",
             )
         }
@@ -932,8 +968,10 @@ import UIKit
                 draft.asset,
                 originRecordingDraftID: draft.originRecordingDraftID,
                 replyingTo: pendingVideoReplyMessage,
+                storedReplyMessageID: draft.replyMessageID,
+                storedReplyTo: draft.replyTo,
             )
-            if case let .retained(_, message) = result {
+            if case let .retained(_, _, message) = result {
                 videoNoteErrorMessage = message
             }
         }
