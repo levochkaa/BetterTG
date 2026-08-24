@@ -622,7 +622,8 @@ private actor TDLibVODResourceReadGate {
                     try await waitUntil {
                         let didAdvance = await playbackRecorder.didAdvance
                         let didLoadDuration = await playbackRecorder.didLoadDuration
-                        return didAdvance && didLoadDuration
+                        let didLoadBufferedRanges = await playbackRecorder.didLoadBufferedRanges
+                        return didAdvance && didLoadDuration && didLoadBufferedRanges
                     }
                 } catch {
                     let detail = await playbackRecorder.proof
@@ -671,7 +672,11 @@ private actor TDLibVODResourceReadGate {
                 try await waitUntil {
                     await MainActor.run { playbackProbe.didReachExternalEnd }
                 }
+                let replayGeneration = await MainActor.run { playbackProbe.externalReplayGeneration }
                 await MainActor.run { playbackProbe.resumeExternally(atRate: 2) }
+                try await waitUntil {
+                    await MainActor.run { playbackProbe.externalReplayGeneration > replayGeneration }
+                }
                 await MainActor.run { playbackProbe.pauseExternally() }
                 try await waitUntil {
                     await MainActor.run { playbackProbe.didCancelExternalReplay }
@@ -687,11 +692,24 @@ private actor TDLibVODResourceReadGate {
                 }
                 await MainActor.run { playbackProbe.pauseExternally() }
                 try await waitUntil {
-                    await MainActor.run { playbackProbe.didAdoptExternalPause }
+                    await MainActor.run { playbackProbe.didSettleExternalPausedRate }
+                }
+                try await Task<Never, Never>.sleep(for: .milliseconds(100))
+                let externalPauseStayedSettled = await MainActor.run {
+                    playbackProbe.didSettleExternalPausedRate
+                }
+                guard externalPauseStayedSettled else {
+                    let detail = await MainActor.run { playbackProbe.debugPlaybackSnapshot }
+                    throw TDLibVODResourceLoaderProbeError.detail(
+                        "external paused-rate state did not settle: \(detail)",
+                    )
                 }
                 let externalControlEnded = await MainActor.run { playbackProbe.endExternalControl() }
                 guard externalControlEnded else {
-                    throw TDLibVODResourceLoaderProbeError.detail("external playback intent was not retained")
+                    let detail = await MainActor.run { playbackProbe.debugPlaybackSnapshot }
+                    throw TDLibVODResourceLoaderProbeError.detail(
+                        "external playback intent was not retained: \(detail)",
+                    )
                 }
 
                 let playbackDownloadCalls = await playbackBackend.downloadCalls
@@ -738,7 +756,7 @@ private actor TDLibVODResourceReadGate {
                 let proof = "VOD resource-loader probe: duration=\(duration.seconds), tracks=A/V, "
                     + "requests=\(playbackDownloadCalls.count), progressive-before-complete=true, "
                     + "native-playing-before-complete, controls=pause/seek/rate/mute/resume/"
-                    + "external-rate+replay-race+paused-exit, "
+                    + "external-rate+replay-race+paused-exit, buffered-segments=true, "
                     + "finite-priority/queued-cancel/no-full-download=true"
                 writeDebugProbeResult(proof)
                 log(proof)
@@ -776,6 +794,7 @@ private actor TDLibVODResourceReadGate {
 
         private(set) var didAdvance = false
         private(set) var didLoadDuration = false
+        private(set) var didLoadBufferedRanges = false
         private(set) var didReachExpectedTime = false
         private(set) var maximumTime = TimeInterval.zero
 
@@ -791,6 +810,10 @@ private actor TDLibVODResourceReadGate {
         func update(duration: TimeInterval) {
             self.duration = max(self.duration, duration)
             didLoadDuration = duration >= 17.5
+        }
+
+        func update(bufferedRanges: [LocalMediaPlayer.BufferedRange]) {
+            didLoadBufferedRanges = bufferedRanges.contains { $0.end > $0.start }
         }
 
         func update(time: TimeInterval) {
@@ -829,6 +852,11 @@ private actor TDLibVODResourceReadGate {
             player.durationPublisher
                 .sink { duration in
                     Task { await recorder.update(duration: duration) }
+                }
+                .store(in: &cancellables)
+            player.bufferedRangesPublisher
+                .sink { ranges in
+                    Task { await recorder.update(bufferedRanges: ranges) }
                 }
                 .store(in: &cancellables)
             player.statePublisher
@@ -881,6 +909,10 @@ private actor TDLibVODResourceReadGate {
             player.isPlaybackRequested && player.rate == 2
         }
 
+        var didSettleExternalPausedRate: Bool {
+            player.debugExternalPauseSettled(preferredRate: 2)
+        }
+
         func simulateExternalEnd() {
             player.simulateExternalEndForProbe()
         }
@@ -890,7 +922,14 @@ private actor TDLibVODResourceReadGate {
         }
 
         var didRestartAfterExternalEnd: Bool {
-            player.isPlaybackRequested && player.currentTime < 2
+            player.isPlaybackRequested
+                && player.state == .playing
+                && player.currentTime >= 0.05
+                && player.currentTime < 2
+        }
+
+        var externalReplayGeneration: UInt64 {
+            player.debugExternalReplayGeneration
         }
 
         var didCancelExternalReplay: Bool {
@@ -900,6 +939,10 @@ private actor TDLibVODResourceReadGate {
         func endExternalControl() -> Bool {
             player.setExternalPlaybackControlActive(false)
             return !player.isPlaybackRequested && player.rate == 2
+        }
+
+        var debugPlaybackSnapshot: String {
+            player.debugPlaybackSnapshot
         }
 
         func stop() {

@@ -27,16 +27,17 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: Telegram-style four-second fullscreen control auto-hide and tap reveal.
-- Verification: `./test.sh` and `RUN_ARGUMENTS="-media-probe-gallery-owner" ./run.sh` pass; BetterTG remains Running as PID 41347
-  and idb reads `Gallery playback owner probe: same-view=true, detach-retains-session=true, central-visibility=true,
-  transfer-retains=true, delete-revokes=true, commands=back15+forward15+toggle, controls=two-row+44pt+auto-hide4s,
-  pip-supported=false, readiness-gated=true, invalidate=true`. The full-width blur footer has a separate 36pt scrubber row and a
-  compact 44pt transport row. Controls hide after exactly 4s only while playing/visible; tap or any transport interaction reveals
-  them. Scrub, buffering, pause, EOF, failure, offscreen and PiP cancel hiding. VoiceOver activation synchronously restores controls,
-  blocks tap-hide and observes later disable to reschedule safely. The non-canceling tap recognizer excludes footer/retry controls and
-  coexists with collection paging.
-- Architecture checkpoint: one cancelable work item is owned by the stable player view and torn down on reuse; its fire-time predicate
-  revalidates playback, visibility, scrub, PiP and VoiceOver state before mutating UIKit.
-- Next slice: implement loaded-range/offline/retry scrubber status, then connect an inline handoff; after that implement the FFmpeg
-  sample-buffer engine for non-Apple WebM/VP9 VOD and its PiP playback delegate.
+- Current slice: exact disjoint loaded-range visualization under the fullscreen scrubber.
+- Verification: `./test.sh` passes and two independent
+  `RUN_ARGUMENTS="-media-probe-vod-resource-loader" ./run.sh` + idb runs pass, most recently with BetterTG Running as PID 47303.
+  Exact proof: `VOD resource-loader probe: duration=18.0, tracks=A/V, requests=2, progressive-before-complete=true,
+  native-playing-before-complete, controls=pause/seek/rate/mute/resume/external-rate+replay-race+paused-exit,
+  buffered-segments=true, finite-priority/queued-cancel/no-full-download=true`. `LocalMediaPlayer` publishes finite sorted ranges,
+  merges only overlap/≤50ms adjacency, resets on item lifecycle and preserves disjoint post-seek cache segments. The UIKit slider
+  reuses separate 5pt CALayers under the native played track, clamps each range independently and disables implicit animations.
+  The resource probe requires a real AVPlayerItem loaded range; the UI invariant probe renders two separate segments.
+- Architecture checkpoint: buffered publication is Combine-delivered on main with item identity guards; no file IO, polling or per-frame
+  layer allocation was added. External preferred rate is retained separately in `AVPlayer.defaultRate`, and the replay race proof waits
+  for a real generation plus settled played/paused state rather than same-turn coalesced KVO.
+- Next slice: expose TDLib resource-loader offline/retry status and retry VOD without forced full download, then connect inline handoff;
+  after that implement the FFmpeg sample-buffer engine for non-Apple WebM/VP9 VOD and its PiP playback delegate.

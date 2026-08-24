@@ -1584,6 +1584,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             ]
             let fixedTransportWidth = CGFloat(transportButtons.count * 44)
                 + CGFloat((transportStack.arrangedSubviews.count - 1) * 4)
+            seekSlider.bufferedRanges = [0...0.25, 0.5...0.75]
+            seekSlider.layoutIfNeeded()
             return controlsStack.axis == .vertical
                 && scrubberStack.arrangedSubviews == [timeLabel, seekSlider]
                 && transportButtons.allSatisfy { button in
@@ -1591,6 +1593,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                         && button.constraints.contains { $0.firstAttribute == .height && $0.constant == 44 }
                 }
                 && fixedTransportWidth <= 296
+                && seekSlider.debugBufferedSegmentCount == 2
         }
 
         var debugControlsAutoHidePolicyProbePassed: Bool {
@@ -1678,6 +1681,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         durationCancellable = player.durationPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] duration in self?.updatePlaybackDuration(duration) }
+        bufferedRangesCancellable = player.bufferedRangesPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ranges in self?.updateBufferedRanges(ranges) }
         if file.local.isDownloadingCompleted {
             update(file: file)
         } else if supportsStreaming,
@@ -1717,6 +1723,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         timeCancellable = nil
         durationCancellable?.cancel()
         durationCancellable = nil
+        bufferedRangesCancellable?.cancel()
+        bufferedRangesCancellable = nil
         voiceOverCancellable?.cancel()
         voiceOverCancellable = nil
         preview.cancel()
@@ -1742,7 +1750,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         playbackRate = 1
         currentPlaybackTime = 0
         playbackDuration = 0
+        bufferedRanges = []
         seekSlider.value = 0
+        seekSlider.bufferedRanges = []
         seekSlider.isEnabled = false
         updatePlaybackTime(0)
         updateControlIcons()
@@ -1851,7 +1861,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private let jumpBackwardButton = UIButton(type: .system)
     private let jumpForwardButton = UIButton(type: .system)
     private let timeLabel = UILabel()
-    private let seekSlider = UISlider()
+    private let seekSlider = GalleryBufferedSlider()
     private let muteButton = UIButton(type: .system)
     private let rateButton = UIButton(type: .system)
     private let pictureInPictureButton = UIButton(type: .system)
@@ -1861,6 +1871,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var playbackCancellable: AnyCancellable?
     private var timeCancellable: AnyCancellable?
     private var durationCancellable: AnyCancellable?
+    private var bufferedRangesCancellable: AnyCancellable?
     private var voiceOverCancellable: AnyCancellable?
     private var displayCancellable: AnyCancellable?
     private var isPlaybackVisible = false
@@ -1881,6 +1892,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var playbackRate: Float = 1
     private var currentPlaybackTime = TimeInterval.zero
     private var playbackDuration = TimeInterval.zero
+    private var bufferedRanges = [LocalMediaPlayer.BufferedRange]()
     private var isPictureInPictureActive = false
     private var vodRanges = TDLib.shared.vodRanges
     private var controlsAreVisible = false
@@ -1928,7 +1940,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         seekSlider.minimumValue = 0
         seekSlider.maximumValue = 1
         seekSlider.minimumTrackTintColor = .white
-        seekSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.35)
+        seekSlider.maximumTrackTintColor = .clear
         seekSlider.isEnabled = false
         seekSlider.accessibilityLabel = "Video position"
         seekSlider.accessibilityHint = "Swipe up or down to seek"
@@ -2481,7 +2493,27 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             seekSlider.value = Float(min(playbackDuration, currentPlaybackTime))
             updateTimeLabel(current: currentPlaybackTime)
         }
+        refreshBufferedSliderRanges()
         updateControlIcons()
+    }
+
+    private func updateBufferedRanges(_ ranges: [LocalMediaPlayer.BufferedRange]) {
+        bufferedRanges = ranges
+        refreshBufferedSliderRanges()
+    }
+
+    private func refreshBufferedSliderRanges() {
+        guard playbackDuration > 0 else {
+            seekSlider.bufferedRanges = []
+            return
+        }
+        let duration = Float(playbackDuration)
+        seekSlider.bufferedRanges = bufferedRanges.compactMap { range in
+            let lowerBound = min(1, max(0, Float(range.start) / duration))
+            let upperBound = min(1, max(0, Float(range.end) / duration))
+            guard upperBound > lowerBound else { return nil }
+            return lowerBound...upperBound
+        }
     }
 
     private func updateTimeLabel(current: TimeInterval) {
@@ -2512,4 +2544,74 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         loadedPath = nil
         startLegacyDownload(file: sourceFile)
     }
+}
+
+// MARK: - GalleryBufferedSlider
+
+final class GalleryBufferedSlider: UISlider {
+    // MARK: Lifecycle
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundTrackLayer.backgroundColor = UIColor.white.withAlphaComponent(0.2).cgColor
+        backgroundTrackLayer.cornerRadius = 2.5
+        layer.insertSublayer(backgroundTrackLayer, at: 0)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    var bufferedRanges = [ClosedRange<Float>]() {
+        didSet {
+            setNeedsLayout()
+        }
+    }
+
+    #if DEBUG
+        var debugBufferedSegmentCount: Int {
+            bufferedTrackLayers.count
+        }
+    #endif
+
+    override func trackRect(forBounds bounds: CGRect) -> CGRect {
+        let rect = super.trackRect(forBounds: bounds)
+        return CGRect(x: rect.minX, y: rect.midY - 2.5, width: rect.width, height: 5)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let track = trackRect(forBounds: bounds)
+        while bufferedTrackLayers.count < bufferedRanges.count {
+            let bufferedLayer = CALayer()
+            bufferedLayer.backgroundColor = UIColor.white.withAlphaComponent(0.45).cgColor
+            bufferedLayer.cornerRadius = 2.5
+            layer.insertSublayer(bufferedLayer, above: backgroundTrackLayer)
+            bufferedTrackLayers.append(bufferedLayer)
+        }
+        while bufferedTrackLayers.count > bufferedRanges.count {
+            bufferedTrackLayers.removeLast().removeFromSuperlayer()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundTrackLayer.frame = track
+        for (range, bufferedLayer) in zip(bufferedRanges, bufferedTrackLayers) {
+            let lowerBound = CGFloat(min(1, max(0, range.lowerBound)))
+            let upperBound = CGFloat(min(1, max(0, range.upperBound)))
+            bufferedLayer.frame = CGRect(
+                x: track.minX + track.width * lowerBound,
+                y: track.minY,
+                width: track.width * max(0, upperBound - lowerBound),
+                height: track.height,
+            )
+        }
+        CATransaction.commit()
+    }
+
+    // MARK: Private
+
+    private let backgroundTrackLayer = CALayer()
+    private var bufferedTrackLayers = [CALayer]()
 }
