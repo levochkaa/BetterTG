@@ -29,54 +29,32 @@ enum TelegramAccountError: LocalizedError {
 final class TDLib: @unchecked Sendable {
     // MARK: Private
 
-    private struct ClientSnapshot {
-        let client: TDLibClient
-        let accountID: UUID
+    private init() {
+        let fileUpdates = PassthroughSubject<UpdateFile, Never>()
+        let client = manager.createClient { data, client in
+            do {
+                let decoded = try client.decoder.decode(Update.self, from: data)
+                if case .updateFile(let fileUpdate) = decoded {
+                    fileUpdates.send(fileUpdate)
+                }
+                update(decoded)
+            } catch {
+                log("Error TdLibUpdateHandler: \(error)")
+            }
+        }
+        self.td = client
+        self.vodRanges = TDLibVODRangeCoordinator(
+            accountID: "primary",
+            client: .live(client),
+            updates: fileUpdates.eraseToAnyPublisher(),
+        )
     }
 
     // MARK: Internal
 
     static let shared = TDLib()
 
-    private(set) var accounts = [TelegramAccount]()
-    private(set) var activeAccountID: UUID?
-    private(set) var isActiveAccountReady = false
-
-    private let manager = TDLibClientManager()
-    private let registry = TelegramAccountRegistry()
-    private var processLock: TDLibProcessLock?
-    private var ownershipReleaseTask: Task<Void, Never>?
-    private var ownershipResumeTask: Task<Void, Never>?
-    private var ownershipBackgroundTaskIdentifier = UIBackgroundTaskIdentifier.invalid
-    private var ownershipBackgroundTaskEndTask: Task<Void, Never>?
-    private var lifecycleSuspended = false
-    private var wantsForegroundOwnership = true
-    private let clientLock = NSLock()
-    private var storedActiveClient: TDLibClient?
-    private var started = false
-    private var configuredClientIDs = Set<Int32>()
-    private var retiringClientIDs = Set<Int32>()
-    private var recoveringClientIDs = Set<Int32>()
-    private var cancellables = Set<AnyCancellable>()
-
-    var activeAccount: TelegramAccount? {
-        accounts.first(where: { $0.id == activeAccountID })
-    }
-
-    var sortedAccounts: [TelegramAccount] {
-        accounts.sorted(by: { $0.lastActiveAt > $1.lastActiveAt })
-    }
-
-    var activeClient: TDLibClient {
-        clientLock.lock()
-        defer { clientLock.unlock() }
-        guard let storedActiveClient else {
-            preconditionFailure("TDLib was accessed before account bootstrap completed")
-        }
-        return storedActiveClient
-    }
-
-    private init() {}
+    let vodRanges: TDLibVODRangeCoordinator
 
     func startTdLibUpdateHandler() {
         guard !started else { return }

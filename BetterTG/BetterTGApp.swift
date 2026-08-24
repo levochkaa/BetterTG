@@ -19,6 +19,7 @@ import UIKit
             VideoNoteFileStore.runDebugProbeIfRequested()
             VideoNoteSegmentComposer.runDebugProbeIfRequested()
             VideoNoteRecordingDraftStore.runDebugProbeIfRequested()
+            TDLibVODRangeSource.runDebugProbeIfRequested()
         #endif
         PushRelayCoordinator.shared.start()
         VoiceNoteDraftCoordinator.shared.start()
