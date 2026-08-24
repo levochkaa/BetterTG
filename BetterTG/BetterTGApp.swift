@@ -16,9 +16,11 @@ import UIKit
         #if DEBUG
             VoiceNoteCodec.runDebugProbeIfRequested()
             VideoNoteAssetWriter.runDebugProbeIfRequested()
+            VideoNoteFileStore.runDebugProbeIfRequested()
         #endif
         PushRelayCoordinator.shared.start()
         VoiceNoteDraftCoordinator.shared.start()
+        VideoNoteDraftCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()
