@@ -62,4 +62,42 @@ int BetterTGFFmpegVideoDecoderReadFrame(
     int *hasAlpha
 );
 
+typedef int (*BetterTGFFmpegRangeReadCallback)(
+    void *context,
+    int64_t offset,
+    uint8_t *destination,
+    int destinationCapacity
+);
+
+typedef struct BetterTGFFmpegLookaheadJob BetterTGFFmpegLookaheadJob;
+
+BetterTGFFmpegLookaheadJob *BetterTGFFmpegLookaheadJobCreate(
+    void *context,
+    int64_t fileSize,
+    BetterTGFFmpegRangeReadCallback readCallback
+);
+void BetterTGFFmpegLookaheadJobCancel(BetterTGFFmpegLookaheadJob *job);
+
+// Opens the custom AVIO input, seeks to seekTime, and demuxes until every
+// present audio/video stream reaches seekTime + lookaheadDuration or EOF.
+// Returns 1 on success, 0 on FFmpeg/read failure, or -1 on cancellation.
+int BetterTGFFmpegLookaheadJobRun(
+    BetterTGFFmpegLookaheadJob *job,
+    double seekTime,
+    double lookaheadDuration
+);
+void BetterTGFFmpegLookaheadJobDestroy(BetterTGFFmpegLookaheadJob *job);
+
+int BetterTGFFmpegLookaheadJobHasAudio(const BetterTGFFmpegLookaheadJob *job);
+int BetterTGFFmpegLookaheadJobHasVideo(const BetterTGFFmpegLookaheadJob *job);
+int BetterTGFFmpegLookaheadJobIsEnded(const BetterTGFFmpegLookaheadJob *job);
+double BetterTGFFmpegLookaheadJobAudioReadableTo(const BetterTGFFmpegLookaheadJob *job);
+double BetterTGFFmpegLookaheadJobVideoReadableTo(const BetterTGFFmpegLookaheadJob *job);
+double BetterTGFFmpegLookaheadJobDuration(const BetterTGFFmpegLookaheadJob *job);
+int64_t BetterTGFFmpegLookaheadJobBytesRead(const BetterTGFFmpegLookaheadJob *job);
+int BetterTGFFmpegLookaheadJobReadCallCount(const BetterTGFFmpegLookaheadJob *job);
+int BetterTGFFmpegLookaheadJobSeekCallCount(const BetterTGFFmpegLookaheadJob *job);
+int BetterTGFFmpegLookaheadJobSizeCallCount(const BetterTGFFmpegLookaheadJob *job);
+int BetterTGFFmpegLookaheadJobErrorCode(const BetterTGFFmpegLookaheadJob *job);
+
 #endif

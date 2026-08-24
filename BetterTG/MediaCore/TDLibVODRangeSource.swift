@@ -121,6 +121,15 @@ actor TDLibVODRangeSource {
         requiresFullDownload = true
     }
 
+    func resolvedFileSize() async throws -> Int64 {
+        let waiterID = UUID()
+        return try await withTaskCancellationHandler {
+            try await resolveSizeIfNeeded(waiterID: waiterID)
+        } onCancel: {
+            Task { await self.cancelWaiter(id: waiterID) }
+        }
+    }
+
     /// Invalidates completion from a last-lease cancellation that is still crossing the
     /// TDLib command barrier. Existing non-empty lease sets never call this method.
     func reviveAfterLastLeaseRelease() {
@@ -1230,11 +1239,11 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         case invariant(String)
     }
 
-    private struct TDLibVODProbeDownload: Sendable {
+    struct TDLibVODProbeDownload: Sendable {
         let range: Range<Int64>
     }
 
-    private final class TDLibVODProbeNetwork: @unchecked Sendable {
+    final class TDLibVODProbeNetwork: @unchecked Sendable {
         // MARK: Lifecycle
 
         init(available: Bool) {
@@ -1262,7 +1271,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         private var storedAvailable: Bool
     }
 
-    private actor TDLibVODProbeBackend {
+    actor TDLibVODProbeBackend {
         // MARK: Lifecycle
 
         init(fileURL: URL, fileSize: Int64, network: TDLibVODProbeNetwork) {
@@ -1275,6 +1284,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         private(set) var downloadCalls = [TDLibVODProbeDownload]()
         private(set) var cancelCount = 0
+        private(set) var completedCancelCount = 0
         private(set) var cancelStarted = false
 
         nonisolated let fileSize: Int64
@@ -1304,6 +1314,10 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         func setAutoFulfill(_ value: Bool) {
             autoFulfill = value
+        }
+
+        func setReportsExactSize(_ value: Bool) {
+            reportsExactSize = value
         }
 
         func setSuspendCancel(_ value: Bool) {
@@ -1336,6 +1350,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         private let fileURL: URL
         private var autoFulfill = false
+        private var reportsExactSize = true
         private var suspendCancel = false
         private var cachedRanges = [Range<Int64>]()
         private var lastDownloadRange: Range<Int64>?
@@ -1350,6 +1365,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 }
             }
             lastDownloadRange = nil
+            completedCancelCount += 1
         }
 
         private func download(offset: Int64, limit: Int64) -> File {
@@ -1369,7 +1385,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 downloadOffset: range.lowerBound,
                 downloadedPrefixSize: prefix(from: range.lowerBound),
                 expectedSize: fileSize * 2,
-                exactSize: fileSize,
+                exactSize: reportsExactSize ? fileSize : 0,
                 isActive: !autoFulfill,
                 isCompleted: covers(0..<fileSize),
             )
