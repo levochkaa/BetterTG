@@ -59,12 +59,23 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             animated: false,
         )
         updateCounter()
+        prunePlaybackOwners(around: selectedIndex)
     }
 
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        selectedIndex = Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))
-        updateCounter()
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            invalidatePlaybackOwners()
+        }
     }
+
+    private let messages: [Message]
+    private var selectedIndex: Int
+    private var didSetInitialPosition = false
+    private var videoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    private let toolbar = UIToolbar()
+    private let counterLabel = UILabel()
+    private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
 
     private func makeLayout() -> UICollectionViewLayout {
         let layout = UICollectionViewFlowLayout()
@@ -113,16 +124,25 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        selectedIndex = Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))
-        updateCounter()
+        updateSelection(from: scrollView)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            updateSelection(from: scrollView)
+        }
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        updateSelection(from: scrollView)
     }
 
     func collectionView(
         _: UICollectionView,
         willDisplay cell: UICollectionViewCell,
-        forItemAt _: IndexPath,
+        forItemAt indexPath: IndexPath,
     ) {
-        (cell as? MediaGalleryCell)?.setPlaybackVisible(true)
+        (cell as? MediaGalleryCell)?.setPlaybackVisible(indexPath.item == selectedIndex)
     }
 
     func collectionView(
@@ -137,7 +157,61 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         counterLabel.text = messages.count > 1 ? "\(selectedIndex + 1) of \(messages.count)" : ""
     }
 
+    private func updateSelection(from scrollView: UIScrollView) {
+        guard !messages.isEmpty else { return }
+        let updatedIndex = min(
+            messages.count - 1,
+            max(0, Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))),
+        )
+        guard updatedIndex != selectedIndex else {
+            collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
+                .flatMap { $0 as? MediaGalleryCell }?
+                .setPlaybackVisible(true)
+            prunePlaybackOwners(around: selectedIndex)
+            return
+        }
+        collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
+            .flatMap { $0 as? MediaGalleryCell }?
+            .setPlaybackVisible(false)
+        selectedIndex = updatedIndex
+        collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
+            .flatMap { $0 as? MediaGalleryCell }?
+            .setPlaybackVisible(true)
+        updateCounter()
+        prunePlaybackOwners(around: selectedIndex)
+    }
+
+    private func playbackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
+        guard case .messageVideo = message.content else { return nil }
+        if let owner = videoPlaybackOwners[message.id] {
+            return owner
+        }
+        guard let owner = GalleryVideoPlaybackOwner(message: message) else { return nil }
+        videoPlaybackOwners[message.id] = owner
+        return owner
+    }
+
+    private func invalidatePlaybackOwners() {
+        videoPlaybackOwners.values.forEach { $0.invalidate() }
+        videoPlaybackOwners.removeAll()
+    }
+
+    private func prunePlaybackOwners(around index: Int) {
+        guard messages.indices.contains(index) else { return }
+        let lowerBound = max(messages.startIndex, index - 1)
+        let upperBound = min(messages.index(before: messages.endIndex), index + 1)
+        let retainedMessageIDs = Set(messages[lowerBound ... upperBound].compactMap { message -> Int64? in
+            guard case .messageVideo = message.content else { return nil }
+            return message.id
+        })
+        let evictedMessageIDs = videoPlaybackOwners.keys.filter { !retainedMessageIDs.contains($0) }
+        for messageID in evictedMessageIDs {
+            videoPlaybackOwners.removeValue(forKey: messageID)?.invalidate()
+        }
+    }
+
     @objc private func close() {
+        invalidatePlaybackOwners()
         dismiss(animated: true)
     }
 
@@ -181,12 +255,139 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             withReuseIdentifier: MediaGalleryCell.reuseIdentifier,
             for: indexPath,
         ) as? MediaGalleryCell else { return UICollectionViewCell() }
-        cell.configure(message: messages[indexPath.item])
+        let message = messages[indexPath.item]
+        cell.configure(message: message, videoPlaybackOwner: playbackOwner(for: message))
         return cell
     }
 }
 
-// MARK: - MediaGalleryCell
+// MARK: - GalleryVideoPlaybackOwner
+
+@MainActor final class GalleryVideoPlaybackOwner {
+    // MARK: Lifecycle
+
+    init?(message: Message) {
+        guard case .messageVideo(let video) = message.content else { return nil }
+        messageID = message.id
+        mediaView.configure(
+            file: video.video.video,
+            thumbnail: video.video.thumbnail,
+            minithumbnail: video.video.minithumbnail,
+            canPlay: true,
+            loops: false,
+            mimeType: video.video.mimeType,
+            fileName: video.video.fileName,
+            supportsStreaming: video.video.supportsStreaming,
+            isSecret: video.isSecret,
+            startTimestamp: TimeInterval(video.startTimestamp),
+        )
+    }
+
+    #if DEBUG
+        private init(probeMessageID: Int64) {
+            messageID = probeMessageID
+        }
+    #endif
+
+    // MARK: Internal
+
+    let messageID: Int64
+
+    #if DEBUG
+        static func runDebugProbeIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-media-probe-gallery-owner") else { return }
+            Task { @MainActor in runDebugProbe() }
+        }
+    #endif
+
+    func attach(to container: UIView) {
+        guard !isInvalidated else { return }
+        if mediaView.superview !== container {
+            mediaView.removeFromSuperview()
+            mediaView.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(mediaView)
+            NSLayoutConstraint.activate([
+                mediaView.topAnchor.constraint(equalTo: container.topAnchor),
+                mediaView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                mediaView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                mediaView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+        }
+        isPlaybackVisible = false
+        mediaView.setPlaybackVisible(false)
+    }
+
+    func detach(from container: UIView) {
+        guard mediaView.superview === container else { return }
+        isPlaybackVisible = false
+        mediaView.setPlaybackVisible(false)
+        mediaView.removeFromSuperview()
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        guard !isInvalidated else { return }
+        self.isPlaybackVisible = isVisible
+        mediaView.setPlaybackVisible(isVisible)
+    }
+
+    func invalidate() {
+        guard !isInvalidated else { return }
+        isInvalidated = true
+        isPlaybackVisible = false
+        mediaView.removeFromSuperview()
+        mediaView.prepareForReuse()
+    }
+
+    // MARK: Private
+
+    private let mediaView = GalleryFilePlayerView()
+    private var isInvalidated = false
+    private var isPlaybackVisible = false
+
+    #if DEBUG
+        private static func runDebugProbe() {
+            let result: String
+            let owner = GalleryVideoPlaybackOwner(probeMessageID: 9001)
+            let firstContainer = UIView()
+            let secondContainer = UIView()
+            let viewIdentifier = ObjectIdentifier(owner.mediaView)
+
+            owner.attach(to: firstContainer)
+            let startsPaused = !owner.isPlaybackVisible && owner.mediaView.superview === firstContainer
+            owner.setPlaybackVisible(true)
+            let becameVisible = owner.isPlaybackVisible
+            owner.detach(from: firstContainer)
+            let detachedWithoutInvalidation = !owner.isInvalidated
+                && !owner.isPlaybackVisible
+                && owner.mediaView.superview == nil
+            owner.attach(to: secondContainer)
+            let reusedExactView = ObjectIdentifier(owner.mediaView) == viewIdentifier
+                && owner.mediaView.superview === secondContainer
+            owner.invalidate()
+            let invalidatedCleanly = owner.isInvalidated
+                && !owner.isPlaybackVisible
+                && owner.mediaView.superview == nil
+
+            if startsPaused, becameVisible, detachedWithoutInvalidation, reusedExactView, invalidatedCleanly {
+                result = "Gallery playback owner probe: same-view=true, detach-retains-session=true, "
+                    + "central-visibility=true, invalidate=true"
+            } else {
+                result = "Gallery playback owner probe failed: startsPaused=\(startsPaused), "
+                    + "becameVisible=\(becameVisible), detached=\(detachedWithoutInvalidation), "
+                    + "reused=\(reusedExactView), invalidated=\(invalidatedCleanly)"
+                assertionFailure(result)
+            }
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+            if let documentsURL = documents.first {
+                try? Data(result.utf8).write(
+                    to: documentsURL.appendingPathComponent("gallery-playback-owner-probe.txt"),
+                    options: .atomic,
+                )
+            }
+            log(result)
+        }
+    #endif
+}
 
 final class MediaGalleryCell: UICollectionViewCell {
     // MARK: Internal
@@ -208,14 +409,23 @@ final class MediaGalleryCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        videoPlaybackOwner?.detach(from: contentView)
+        videoPlaybackOwner = nil
         contentMediaView?.prepareForReuse()
         contentMediaView?.removeFromSuperview()
         contentMediaView = nil
     }
 
-    func configure(message: Message) {
+    private var contentMediaView: (UIView & GalleryMediaView)?
+
+    func configure(message: Message, videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil) {
         prepareForReuse()
-        let view: UIView & GalleryMediaView
+        if let videoPlaybackOwner {
+            self.videoPlaybackOwner = videoPlaybackOwner
+            videoPlaybackOwner.attach(to: contentView)
+            return
+        }
+        let view: (UIView & GalleryMediaView)
         switch message.content {
         case .messagePhoto(let photo):
             let imageView = ZoomableGalleryImageView()
@@ -242,21 +452,8 @@ final class MediaGalleryCell: UICollectionViewCell {
                 )
                 view = player
             }
-        case .messageVideo(let video):
-            let player = GalleryFilePlayerView()
-            player.configure(
-                file: video.video.video,
-                thumbnail: video.video.thumbnail,
-                minithumbnail: video.video.minithumbnail,
-                canPlay: true,
-                loops: false,
-                mimeType: video.video.mimeType,
-                fileName: video.video.fileName,
-                supportsStreaming: video.video.supportsStreaming,
-                isSecret: video.isSecret,
-                startTimestamp: TimeInterval(video.startTimestamp),
-            )
-            view = player
+        case .messageVideo:
+            view = ZoomableGalleryImageView()
         case .messageSticker(let sticker):
             if sticker.sticker.format == .stickerFormatTgs {
                 let stickerView = TGSStickerView(frame: .zero)
@@ -298,12 +495,18 @@ final class MediaGalleryCell: UICollectionViewCell {
             view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
-        view.setPlaybackVisible(window != nil)
+        view.setPlaybackVisible(false)
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
-        contentMediaView?.setPlaybackVisible(isVisible)
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.setPlaybackVisible(isVisible)
+        } else {
+            contentMediaView?.setPlaybackVisible(isVisible)
+        }
     }
+
+    private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
 }
 
 // MARK: - GalleryMediaView
@@ -469,7 +672,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         if let thumbnail {
             preview.load(file: thumbnail.file, placeholderData: minithumbnail?.data)
         } else {
-            preview.load(file: file, placeholderData: minithumbnail?.data)
+            preview.loadPlaceholder(data: minithumbnail?.data)
         }
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()
@@ -555,6 +758,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
+        if !isVisible, isSeeking {
+            isSeeking = false
+            resumeAfterSeeking = false
+            seekSlider.value = Float(min(playbackDuration, currentPlaybackTime))
+            updateTimeLabel(current: currentPlaybackTime)
+        }
         isPlaybackVisible = isVisible
         if isVisible, !isUserPaused {
             player.play()

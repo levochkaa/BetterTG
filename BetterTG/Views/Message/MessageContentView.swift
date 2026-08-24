@@ -541,6 +541,11 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
+    func loadPlaceholder(data: Data?) {
+        cancel()
+        image = data.flatMap(UIImage.init(data:))
+    }
+
     func cancel() {
         let request = representedRequest
         let client = representedClient
