@@ -1,0 +1,651 @@
+// TDLibVODResourceLoader.swift
+
+import AVFoundation
+import Foundation
+import UniformTypeIdentifiers
+
+// MARK: - TDLibVODResourceLoaderSession
+
+final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
+    // MARK: Lifecycle
+
+    init?(
+        lease: TDLibVODRangeLease,
+        mimeType: String,
+        fileName: String,
+    ) {
+        let extensionValue = (fileName as NSString).pathExtension.lowercased()
+        let mimeContentType = Self.contentType(forMIMEType: mimeType)
+        let extensionContentType = Self.contentType(forExtension: extensionValue)
+        guard mimeContentType == nil
+            || extensionContentType == nil
+            || mimeContentType == extensionContentType
+        else { return nil }
+        guard let contentType = mimeContentType ?? extensionContentType else { return nil }
+
+        let fallbackExtension = contentType == UTType.quickTimeMovie.identifier ? "mov" : "mp4"
+        let candidateName = (fileName as NSString).lastPathComponent
+        let resourceName = candidateName.isEmpty ? "media.\(fallbackExtension)" : candidateName
+        var components = URLComponents()
+        components.scheme = Self.urlScheme
+        components.host = "file-\(lease.source.fileID)"
+        components.path = "/\(resourceName)"
+        guard let resourceURL = components.url else { return nil }
+
+        let delegateQueue = DispatchQueue(
+            label: "bettertg.vod.resource-loader.\(lease.source.fileID)",
+            qos: .userInitiated,
+        )
+        self.resourceURL = resourceURL
+        self.state = TDLibVODResourceLoaderState(
+            lease: lease,
+            contentType: contentType,
+            delegateQueue: delegateQueue,
+        )
+        self.asset = AVURLAsset(
+            url: resourceURL,
+            options: [AVURLAssetPreferPreciseDurationAndTimingKey: true],
+        )
+        super.init()
+        asset.resourceLoader.setDelegate(self, queue: delegateQueue)
+    }
+
+    deinit {
+        state.invalidate()
+    }
+
+    // MARK: Internal
+
+    let asset: AVURLAsset
+
+    #if DEBUG
+        static func runDebugProbeIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-media-probe-vod-resource-loader") else { return }
+            writeDebugProbeResult("VOD resource-loader probe started")
+            Task { await runDebugProbe() }
+        }
+    #endif
+
+    func invalidate() {
+        state.invalidate()
+    }
+
+    func resourceLoader(
+        _: AVAssetResourceLoader,
+        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest,
+    ) -> Bool {
+        guard loadingRequest.request.url == resourceURL else { return false }
+        return state.start(loadingRequest)
+    }
+
+    func resourceLoader(
+        _: AVAssetResourceLoader,
+        didCancel loadingRequest: AVAssetResourceLoadingRequest,
+    ) {
+        state.cancel(loadingRequest)
+    }
+
+    // MARK: Private
+
+    private static let urlScheme = "bettertg-vod"
+
+    private let resourceURL: URL
+    private let state: TDLibVODResourceLoaderState
+
+    private static func contentType(forMIMEType mimeType: String) -> String? {
+        switch mimeType.lowercased() {
+        case "application/mp4", "video/mp4", "video/x-m4v":
+            UTType.mpeg4Movie.identifier
+        case "video/quicktime":
+            UTType.quickTimeMovie.identifier
+        default:
+            nil
+        }
+    }
+
+    private static func contentType(forExtension pathExtension: String) -> String? {
+        switch pathExtension {
+        case "m4v", "mp4":
+            UTType.mpeg4Movie.identifier
+        case "mov":
+            UTType.quickTimeMovie.identifier
+        default:
+            nil
+        }
+    }
+}
+
+// MARK: - TDLibVODResourceLoaderState
+
+private final class TDLibVODResourceLoaderState: @unchecked Sendable {
+    // MARK: Lifecycle
+
+    init(
+        lease: TDLibVODRangeLease,
+        contentType: String,
+        delegateQueue: DispatchQueue,
+    ) {
+        self.lease = lease
+        self.contentType = contentType
+        self.delegateQueue = delegateQueue
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    // MARK: Internal
+
+    func start(_ loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+        let operation = LoadingOperation(request: loadingRequest)
+        lock.lock()
+        guard !invalidated else {
+            lock.unlock()
+            loadingRequest.finishLoading(with: URLError(.cancelled))
+            return true
+        }
+        operations[operation.identifier] = operation
+        lock.unlock()
+
+        let task = Task { [self, operation] in
+            await fulfill(operation)
+        }
+        operation.install(task: task)
+        return true
+    }
+
+    func cancel(_ loadingRequest: AVAssetResourceLoadingRequest) {
+        let identifier = ObjectIdentifier(loadingRequest)
+        lock.lock()
+        let operation = operations.removeValue(forKey: identifier)
+        lock.unlock()
+        operation?.cancel()
+    }
+
+    func invalidate() {
+        lock.lock()
+        guard !invalidated else {
+            lock.unlock()
+            return
+        }
+        invalidated = true
+        let currentOperations = Array(operations.values)
+        operations.removeAll()
+        lock.unlock()
+
+        let cancellationError = URLError(.cancelled)
+        for operation in currentOperations {
+            operation.cancel()
+            delegateQueue.async {
+                guard !operation.request.isCancelled, !operation.request.isFinished else { return }
+                operation.request.finishLoading(with: cancellationError)
+            }
+        }
+        let lease = lease
+        leaseReleaseTask = Task { await lease.invalidate() }
+    }
+
+    // MARK: Private
+
+    private enum ResourceError: Swift.Error {
+        case invalidRange
+        case shortRead
+        case unreadable
+        case unsupportedContentType
+    }
+
+    private final class LoadingOperation: @unchecked Sendable {
+        // MARK: Lifecycle
+
+        init(request: AVAssetResourceLoadingRequest) {
+            self.request = request
+            self.identifier = ObjectIdentifier(request)
+        }
+
+        // MARK: Internal
+
+        let identifier: ObjectIdentifier
+        let request: AVAssetResourceLoadingRequest
+
+        func install(task: Task<Void, Never>) {
+            lock.lock()
+            if !cancelled {
+                self.task = task
+            }
+            let shouldCancel = cancelled
+            lock.unlock()
+            if shouldCancel {
+                task.cancel()
+            }
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let task = task
+            self.task = nil
+            lock.unlock()
+            task?.cancel()
+        }
+
+        func finish() {
+            lock.lock()
+            task = nil
+            lock.unlock()
+        }
+
+        // MARK: Private
+
+        private let lock = NSLock()
+        private var cancelled = false
+        private var task: Task<Void, Never>?
+    }
+
+    private let lease: TDLibVODRangeLease
+    private let contentType: String
+    private let delegateQueue: DispatchQueue
+    private let gate = TDLibVODResourceReadGate()
+    private let lock = NSLock()
+    private var invalidated = false
+    private var leaseReleaseTask: Task<Void, Never>?
+    private var operations = [ObjectIdentifier: LoadingOperation]()
+
+    private func isActive(_ operation: LoadingOperation) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !invalidated && operations[operation.identifier] === operation
+    }
+
+    private func takeActive(_ operation: LoadingOperation) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard operations[operation.identifier] === operation else { return false }
+        operations[operation.identifier] = nil
+        operation.finish()
+        return !invalidated
+    }
+
+    private func fulfill(_ operation: LoadingOperation) async {
+        do {
+            let size = try await lease.source.resolvedFileSize()
+            try Task.checkCancellation()
+            try await publishContentInformation(size: size, operation: operation)
+            if let dataRequest = operation.request.dataRequest {
+                try await fulfill(dataRequest: dataRequest, size: size, operation: operation)
+            }
+            complete(operation, error: nil)
+        } catch is CancellationError {
+            complete(operation, error: URLError(.cancelled))
+        } catch let error as TDLibVODRangeError {
+            complete(operation, error: resourceError(for: error))
+        } catch {
+            complete(operation, error: error)
+        }
+    }
+
+    private func fulfill(
+        dataRequest: AVAssetResourceLoadingDataRequest,
+        size: Int64,
+        operation: LoadingOperation,
+    ) async throws {
+        let requestedOffset = dataRequest.requestedOffset
+        let currentOffset = max(requestedOffset, dataRequest.currentOffset)
+        guard requestedOffset >= 0, currentOffset >= 0, currentOffset <= size else {
+            throw ResourceError.invalidRange
+        }
+        let upperBound: Int64
+        if dataRequest.requestsAllDataToEndOfResource {
+            upperBound = size
+        } else {
+            let requestedLength = Int64(max(0, dataRequest.requestedLength))
+            upperBound = requestedOffset + min(requestedLength, size - requestedOffset)
+        }
+
+        let isAllDataToEnd = dataRequest.requestsAllDataToEndOfResource
+        guard var permit = await gate.acquire(isAllDataToEnd: isAllDataToEnd) else {
+            throw CancellationError()
+        }
+        do {
+            var offset = currentOffset
+            while offset < upperBound {
+                try Task.checkCancellation()
+                guard isActive(operation) else { throw CancellationError() }
+                let count = Int(min(
+                    TDLibVODRangeSource.maximumReadSize,
+                    upperBound - offset,
+                ))
+                let chunk = try await read(offset: offset, count: count)
+                guard !chunk.data.isEmpty else { throw ResourceError.shortRead }
+                guard await publish(
+                    data: chunk.data,
+                    dataRequest: dataRequest,
+                    operation: operation,
+                ) else { throw CancellationError() }
+                offset += Int64(chunk.data.count)
+
+                if isAllDataToEnd, await gate.hasBoundedWaiter {
+                    await gate.release(permit)
+                    guard let resumedPermit = await gate.acquire(isAllDataToEnd: true) else {
+                        throw CancellationError()
+                    }
+                    permit = resumedPermit
+                }
+            }
+            await gate.release(permit)
+        } catch {
+            await gate.release(permit)
+            throw error
+        }
+    }
+
+    private func read(offset: Int64, count: Int) async throws -> TDLibVODChunk {
+        while true {
+            do {
+                return try await lease.source.serializedRead(offset: offset, count: count)
+            } catch TDLibVODRangeError.staleRequest {
+                try Task.checkCancellation()
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
+    private func publishContentInformation(
+        size: Int64,
+        operation: LoadingOperation,
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
+            delegateQueue.async { [weak self] in
+                guard let self,
+                      isActive(operation),
+                      !operation.request.isCancelled,
+                      !operation.request.isFinished
+                else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if let information = operation.request.contentInformationRequest {
+                    if let allowedTypes = information.allowedContentTypes,
+                       !allowedTypes.isEmpty,
+                       !allowedTypes.contains(contentType)
+                    {
+                        continuation.resume(throwing: ResourceError.unsupportedContentType)
+                        return
+                    }
+                    information.contentLength = size
+                    information.contentType = contentType
+                    information.isByteRangeAccessSupported = true
+                    information.isEntireLengthAvailableOnDemand = false
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    private func publish(
+        data: Data,
+        dataRequest: AVAssetResourceLoadingDataRequest,
+        operation: LoadingOperation,
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            delegateQueue.async { [weak self] in
+                guard let self,
+                      isActive(operation),
+                      !operation.request.isCancelled,
+                      !operation.request.isFinished
+                else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                dataRequest.respond(with: data)
+                continuation.resume(returning: true)
+            }
+        }
+    }
+
+    private func complete(_ operation: LoadingOperation, error: Swift.Error?) {
+        delegateQueue.async { [weak self] in
+            guard let self, takeActive(operation) else { return }
+            guard !operation.request.isCancelled, !operation.request.isFinished else { return }
+            if let error {
+                operation.request.finishLoading(with: error)
+            } else {
+                operation.request.finishLoading()
+            }
+        }
+    }
+
+    private func resourceError(for error: TDLibVODRangeError) -> Swift.Error {
+        switch error {
+        case .cancelled, .staleRequest:
+            URLError(.cancelled)
+        case .offline:
+            URLError(.notConnectedToInternet)
+        case .timedOut:
+            URLError(.timedOut)
+        case .invalidRange:
+            ResourceError.invalidRange
+        case .missingLocalPath, .readFailed, .unknownSize:
+            ResourceError.unreadable
+        }
+    }
+}
+
+// MARK: - TDLibVODResourceReadGate
+
+private actor TDLibVODResourceReadGate {
+    // MARK: Internal
+
+    struct Permit: Sendable {
+        fileprivate let id: UUID
+    }
+
+    var hasBoundedWaiter: Bool {
+        waiters.contains { !$0.isAllDataToEnd }
+    }
+
+    #if DEBUG
+        static func runDebugProbe() async throws {
+            let gate = TDLibVODResourceReadGate()
+            guard let first = await gate.acquire(isAllDataToEnd: true) else {
+                throw TDLibVODResourceLoaderProbeError.gate
+            }
+            let allToEnd = Task { await gate.acquire(isAllDataToEnd: true) }
+            try await Task<Never, Never>.sleep(for: .milliseconds(5))
+            let bounded = Task { await gate.acquire(isAllDataToEnd: false) }
+            try await Task<Never, Never>.sleep(for: .milliseconds(5))
+            await gate.release(first)
+            guard let boundedPermit = await bounded.value else {
+                throw TDLibVODResourceLoaderProbeError.gate
+            }
+            let cancelled = Task { await gate.acquire(isAllDataToEnd: false) }
+            try await Task<Never, Never>.sleep(for: .milliseconds(5))
+            cancelled.cancel()
+            guard await cancelled.value == nil else {
+                throw TDLibVODResourceLoaderProbeError.gate
+            }
+            await gate.release(boundedPermit)
+            guard let allToEndPermit = await allToEnd.value else {
+                throw TDLibVODResourceLoaderProbeError.gate
+            }
+            await gate.release(allToEndPermit)
+        }
+    #endif
+
+    func acquire(isAllDataToEnd: Bool) async -> Permit? {
+        guard !Task.isCancelled else { return nil }
+        let permit = Permit(id: UUID())
+        if holder == nil {
+            holder = permit
+            return permit
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let waiter = Waiter(
+                    continuation: continuation,
+                    isAllDataToEnd: isAllDataToEnd,
+                    permit: permit,
+                )
+                if isAllDataToEnd {
+                    waiters.append(waiter)
+                } else {
+                    let insertion = waiters.firstIndex(where: \.isAllDataToEnd) ?? waiters.endIndex
+                    waiters.insert(waiter, at: insertion)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(id: permit.id) }
+        }
+    }
+
+    func release(_ permit: Permit) {
+        guard holder?.id == permit.id else { return }
+        if waiters.isEmpty {
+            holder = nil
+        } else {
+            let waiter = waiters.removeFirst()
+            holder = waiter.permit
+            waiter.continuation.resume(returning: waiter.permit)
+        }
+    }
+
+    // MARK: Private
+
+    private struct Waiter {
+        let continuation: CheckedContinuation<Permit?, Never>
+        let isAllDataToEnd: Bool
+        let permit: Permit
+    }
+
+    private var holder: Permit?
+    private var waiters = [Waiter]()
+
+    private func cancel(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.permit.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(returning: nil)
+    }
+}
+
+#if DEBUG
+    private enum TDLibVODResourceLoaderProbeError: Swift.Error {
+        case asset
+        case gate
+    }
+
+    private extension TDLibVODResourceLoaderSession {
+        static func runDebugProbe() async {
+            let temporaryDirectory = FileManager.default.temporaryDirectory
+            let url = temporaryDirectory.appendingPathComponent("bettertg-vod-resource-loader-probe.mp4")
+            try? FileManager.default.removeItem(at: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+            do {
+                try await TDLibVODResourceReadGate.runDebugProbe()
+                _ = try await VideoNoteAssetWriter.makeDebugSegment(
+                    outputURL: url,
+                    duration: 18,
+                    frameSeed: 700,
+                )
+                let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                guard let size = (attributes[.size] as? NSNumber)?.int64Value,
+                      size > TDLibVODRangeSource.normalFetchSize
+                else { throw TDLibVODResourceLoaderProbeError.asset }
+
+                let network = TDLibVODProbeNetwork(available: true)
+                let backend = TDLibVODProbeBackend(fileURL: url, fileSize: size, network: network)
+                await backend.setAutoFulfill(true)
+                let coordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-resource-loader",
+                    client: backend.client,
+                    requestTimeout: .seconds(2),
+                )
+                let lease = await coordinator.acquire(file: backend.file(expectedSize: size * 2))
+                guard let session = TDLibVODResourceLoaderSession(
+                    lease: lease,
+                    mimeType: "video/mp4",
+                    fileName: "probe.mp4",
+                ) else { throw TDLibVODResourceLoaderProbeError.asset }
+
+                async let loadedDuration = session.asset.load(.duration)
+                async let loadedVideoTracks = session.asset.loadTracks(withMediaType: .video)
+                async let loadedAudioTracks = session.asset.loadTracks(withMediaType: .audio)
+                let (duration, videoTracks, audioTracks) = try await (
+                    loadedDuration,
+                    loadedVideoTracks,
+                    loadedAudioTracks,
+                )
+                let downloadCalls = await backend.downloadCalls
+                let snapshot = await backend.file(expectedSize: size)
+                guard duration.seconds >= 17.5,
+                      !videoTracks.isEmpty,
+                      !audioTracks.isEmpty,
+                      !downloadCalls.isEmpty,
+                      downloadCalls.allSatisfy({ !$0.isFullDownload }),
+                      !snapshot.local.isDownloadingCompleted
+                else { throw TDLibVODResourceLoaderProbeError.asset }
+                session.invalidate()
+                try await waitUntil { await backend.completedCancelCount == 1 }
+
+                let blockedBackend = TDLibVODProbeBackend(
+                    fileURL: url,
+                    fileSize: size,
+                    network: network,
+                )
+                await blockedBackend.setAutoFulfill(false)
+                let blockedCoordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-resource-loader-cancel",
+                    client: blockedBackend.client,
+                    requestTimeout: .seconds(2),
+                )
+                let blockedLease = await blockedCoordinator.acquire(
+                    file: blockedBackend.file(expectedSize: size),
+                )
+                guard let blockedSession = TDLibVODResourceLoaderSession(
+                    lease: blockedLease,
+                    mimeType: "video/mp4",
+                    fileName: "blocked.mp4",
+                ) else { throw TDLibVODResourceLoaderProbeError.asset }
+                let blockedLoad = Task { try await blockedSession.asset.load(.duration) }
+                try await waitUntil { await blockedBackend.downloadCalls.count == 1 }
+                blockedSession.invalidate()
+                var blockedLoadFailed = false
+                do {
+                    _ = try await blockedLoad.value
+                } catch {
+                    blockedLoadFailed = true
+                }
+                guard blockedLoadFailed else { throw TDLibVODResourceLoaderProbeError.asset }
+                try await waitUntil { await blockedBackend.completedCancelCount == 1 }
+
+                let proof = "VOD resource-loader probe: duration=\(duration.seconds), tracks=A/V, "
+                    + "requests=\(downloadCalls.count), progressive-before-complete=true, "
+                    + "finite-priority/queued-cancel/no-full-download=true"
+                writeDebugProbeResult(proof)
+                log(proof)
+            } catch {
+                let proof = "VOD resource-loader probe failed: \(error)"
+                writeDebugProbeResult(proof)
+                assertionFailure(proof)
+            }
+        }
+
+        static func waitUntil(
+            _ condition: @escaping @Sendable () async -> Bool,
+        ) async throws {
+            for _ in 0..<300 {
+                if await condition() {
+                    return
+                }
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            }
+            throw TDLibVODResourceLoaderProbeError.asset
+        }
+
+        static func writeDebugProbeResult(_ result: String) {
+            let documentURLs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+            guard let documentsURL = documentURLs.first else { return }
+            try? Data(result.utf8).write(
+                to: documentsURL.appendingPathComponent("vod-resource-loader-probe.txt"),
+                options: .atomic,
+            )
+        }
+    }
+#endif

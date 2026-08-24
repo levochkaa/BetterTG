@@ -214,6 +214,20 @@ actor TDLibVODRangeSource {
         }
     }
 
+    func serializedRead(offset: Int64, count: Int) async throws -> TDLibVODChunk {
+        guard let permit = await serializedReadGate.acquire() else {
+            throw TDLibVODRangeError.cancelled
+        }
+        do {
+            let chunk = try await read(offset: offset, count: count)
+            await serializedReadGate.release(permit)
+            return chunk
+        } catch {
+            await serializedReadGate.release(permit)
+            throw error
+        }
+    }
+
     /// Update sequence is assigned before hopping from Combine into the actor, preventing
     /// spawned update tasks from rolling the aggregate TDLib File snapshot backwards.
     func update(file: File, sequence: UInt64) {
@@ -306,6 +320,7 @@ actor TDLibVODRangeSource {
     private let client: TDLibVODRangeClient
     private let commands: TDLibVODCommandQueue
     private let requestTimeout: Duration
+    private let serializedReadGate = TDLibVODSerializedReadGate()
     private var latestFile: File
     private var exactSize: Int64?
     private var requiresFullDownload: Bool
@@ -690,6 +705,58 @@ actor TDLibVODRangeSource {
         case .invalidRange, .unknownSize:
             state = .terminalFailure(String(describing: error))
         }
+    }
+}
+
+// MARK: - TDLibVODSerializedReadGate
+
+private actor TDLibVODSerializedReadGate {
+    // MARK: Internal
+
+    struct Permit: Sendable {
+        fileprivate let id: UUID
+    }
+
+    func acquire() async -> Permit? {
+        guard !Task.isCancelled else { return nil }
+        let permit = Permit(id: UUID())
+        if holder == nil {
+            holder = permit
+            return permit
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(Waiter(continuation: continuation, permit: permit))
+            }
+        } onCancel: {
+            Task { await self.cancel(id: permit.id) }
+        }
+    }
+
+    func release(_ permit: Permit) {
+        guard holder?.id == permit.id else { return }
+        if waiters.isEmpty {
+            holder = nil
+        } else {
+            let waiter = waiters.removeFirst()
+            holder = waiter.permit
+            waiter.continuation.resume(returning: waiter.permit)
+        }
+    }
+
+    // MARK: Private
+
+    private struct Waiter {
+        let continuation: CheckedContinuation<Permit?, Never>
+        let permit: Permit
+    }
+
+    private var holder: Permit?
+    private var waiters = [Waiter]()
+
+    private func cancel(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.permit.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(returning: nil)
     }
 }
 
@@ -1240,6 +1307,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
     }
 
     struct TDLibVODProbeDownload: Sendable {
+        let isFullDownload: Bool
         let range: Range<Int64>
     }
 
@@ -1376,7 +1444,10 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                     adding: limit,
                     limit: fileSize,
                 )
-            downloadCalls.append(TDLibVODProbeDownload(range: range))
+            downloadCalls.append(TDLibVODProbeDownload(
+                isFullDownload: limit == 0,
+                range: range,
+            ))
             lastDownloadRange = range
             if autoFulfill {
                 cachedRanges.append(range)

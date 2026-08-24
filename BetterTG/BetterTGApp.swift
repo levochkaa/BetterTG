@@ -21,6 +21,7 @@ import UIKit
             VideoNoteRecordingDraftStore.runDebugProbeIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
+            TDLibVODResourceLoaderSession.runDebugProbeIfRequested()
         #endif
         PushRelayCoordinator.shared.start()
         VoiceNoteDraftCoordinator.shared.start()
