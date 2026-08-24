@@ -20,14 +20,205 @@ struct VideoPlaybackAttachmentToken: Hashable {
     fileprivate let id = UUID()
 }
 
+@MainActor final class MediaGalleryTransitionTarget {
+    init?(
+        messageID: Int64,
+        sourceView: UIView,
+        capturesSnapshot: Bool = true,
+        snapshotFactory: (() -> UIView?)? = nil,
+        validation: @escaping () -> Bool = { true },
+    ) {
+        sourceView.layoutIfNeeded()
+        guard let window = sourceView.window else { return nil }
+        let fullFrameInWindow = sourceView.convert(sourceView.bounds, to: window)
+        var frameInWindow = fullFrameInWindow
+        var ancestor = sourceView.superview
+        while let current = ancestor {
+            if current.clipsToBounds {
+                frameInWindow = frameInWindow.intersection(current.convert(current.bounds, to: window))
+            }
+            ancestor = current.superview
+        }
+        frameInWindow = frameInWindow.intersection(window.bounds)
+        guard frameInWindow.width > 0, frameInWindow.height > 0 else { return nil }
+        self.messageID = messageID
+        self.sourceView = sourceView
+        coordinateWindow = window
+        self.frameInWindow = frameInWindow
+        self.cornerRadius = sourceView.layer.cornerRadius
+        self.maskedCorners = sourceView.layer.maskedCorners
+        self.validation = validation
+        if capturesSnapshot {
+            let cropRect = sourceView.convert(frameInWindow, from: window).intersection(sourceView.bounds)
+            if let customSnapshot = snapshotFactory?() {
+                customSnapshot.frame = sourceView.bounds
+                customSnapshot.layoutIfNeeded()
+                let image = UIGraphicsImageRenderer(size: cropRect.size).image { context in
+                    context.cgContext.translateBy(x: -cropRect.minX, y: -cropRect.minY)
+                    customSnapshot.layer.render(in: context.cgContext)
+                }
+                let imageView = UIImageView(image: image)
+                imageView.contentMode = .scaleToFill
+                imageView.clipsToBounds = true
+                snapshotView = imageView
+            } else {
+                snapshotView = sourceView.resizableSnapshotView(
+                    from: cropRect,
+                    afterScreenUpdates: false,
+                    withCapInsets: .zero,
+                )
+                    ?? sourceView.snapshotView(afterScreenUpdates: false)
+            }
+        } else {
+            snapshotView = nil
+        }
+    }
+
+    let messageID: Int64
+    let frameInWindow: CGRect
+    let cornerRadius: CGFloat
+    let maskedCorners: CACornerMask
+    let snapshotView: UIView?
+    private weak var sourceView: UIView?
+    private weak var coordinateWindow: UIWindow?
+    private let validation: () -> Bool
+
+    var validatedSourceView: UIView? {
+        validation() ? sourceView : nil
+    }
+
+    func frame(in coordinateSpace: UIView) -> CGRect? {
+        guard let coordinateWindow else { return nil }
+        return coordinateSpace.convert(frameInWindow, from: coordinateWindow)
+    }
+}
+
+#if DEBUG
+    extension MediaGalleryTransitionTarget {
+        static func runDebugProbeIfRequested(in window: UIWindow) {
+            guard ProcessInfo.processInfo.arguments.contains("-media-probe-gallery-transition") else { return }
+            let root = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            root.isHidden = true
+            window.addSubview(root)
+            defer { root.removeFromSuperview() }
+            let clip = UIView(frame: CGRect(x: 20, y: 100, width: 300, height: 160))
+            clip.clipsToBounds = true
+            let source = UIView(frame: CGRect(x: -20, y: 10, width: 280, height: 180))
+            source.backgroundColor = .systemBlue
+            source.layer.cornerRadius = 13
+            source.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            root.addSubview(clip)
+            clip.addSubview(source)
+            window.layoutIfNeeded()
+            root.layoutIfNeeded()
+            var generationIsValid = true
+            let initial = MediaGalleryTransitionTarget(
+                messageID: 7,
+                sourceView: source,
+                capturesSnapshot: false,
+                validation: { generationIsValid },
+            )
+            let expectedInitialFrame = CGRect(x: 20, y: 110, width: 260, height: 150)
+            let exactSource = initial?.frameInWindow.equalTo(expectedInitialFrame) == true
+            let clippedSource = initial?.frameInWindow != source.convert(source.bounds, to: nil)
+                && initial?.maskedCorners == source.layer.maskedCorners
+            let destination = AVMakeRect(
+                aspectRatio: CGSize(width: 16, height: 9),
+                insideRect: CGRect(x: 0, y: 0, width: 390, height: 700),
+            )
+            let aspectFitDestination = abs(destination.width - 390) < 0.01
+                && abs(destination.height - 219.375) < 0.01
+                && abs(destination.minY - 240.3125) < 0.01
+            let snapshotBeforeHide = !source.isHidden
+            let rasterized = MediaGalleryTransitionTarget(
+                messageID: 8,
+                sourceView: source,
+                snapshotFactory: {
+                    let content = UIView(frame: source.bounds)
+                    content.backgroundColor = .systemGreen
+                    return content
+                },
+            )?.snapshotView is UIImageView
+            source.frame.origin.x = 15
+            let fresh = MediaGalleryTransitionTarget(
+                messageID: 7,
+                sourceView: source,
+                capturesSnapshot: false,
+            )
+            let freshDismissTarget = fresh?.frameInWindow != initial?.frameInWindow
+            generationIsValid = false
+            let staleSourceRejected = initial?.validatedSourceView == nil
+
+            var cancelCommitCount = 0
+            var cancelCleanupCount = 0
+            let cancelGate = MediaGalleryTransitionCompletionGate()
+            cancelGate.finish(
+                completed: false,
+                commit: { cancelCommitCount += 1 },
+                cleanup: { cancelCleanupCount += 1 },
+            )
+            cancelGate.finish(
+                completed: true,
+                commit: { cancelCommitCount += 1 },
+                cleanup: { cancelCleanupCount += 1 },
+            )
+            let cancelSkipsCommit = cancelCommitCount == 0 && cancelCleanupCount == 1
+            var completedCommitCount = 0
+            var completedCleanupCount = 0
+            let completedGate = MediaGalleryTransitionCompletionGate()
+            completedGate.finish(
+                completed: true,
+                commit: { completedCommitCount += 1 },
+                cleanup: { completedCleanupCount += 1 },
+            )
+            completedGate.finish(
+                completed: true,
+                commit: { completedCommitCount += 1 },
+                cleanup: { completedCleanupCount += 1 },
+            )
+            let completionOnce = completedCommitCount == 1 && completedCleanupCount == 1
+            let passed = exactSource
+                && clippedSource
+                && aspectFitDestination
+                && snapshotBeforeHide
+                && rasterized
+                && freshDismissTarget
+                && staleSourceRejected
+                && cancelSkipsCommit
+                && completionOnce
+            let result = "Gallery transition probe: exact-source=\(exactSource), clipped-source=\(clippedSource), "
+                + "aspect-fit-destination=\(aspectFitDestination), snapshot-before-hide=\(snapshotBeforeHide), "
+                + "rasterized-snapshot=\(rasterized), "
+                + "fresh-dismiss-target=\(freshDismissTarget), stale-source-rejected=\(staleSourceRejected), "
+                + "cancel-skips-commit=\(cancelSkipsCommit), completion-once=\(completionOnce), "
+                + "initial-frame=\(String(describing: initial?.frameInWindow)), "
+                + "fresh-frame=\(String(describing: fresh?.frameInWindow))"
+            if !passed {
+                assertionFailure(result)
+            }
+            if let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? Data(result.utf8).write(
+                    to: documentsURL.appendingPathComponent("gallery-transition-probe.txt"),
+                    options: .atomic,
+                )
+            }
+            log(result)
+        }
+    }
+#endif
+
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate {
     init(
         messages: [Message],
         selection: Int64,
         tdlib: TDLib = .shared,
         transferredPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
+        transitionSource: MediaGalleryTransitionTarget? = nil,
+        transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)? = nil,
     ) {
         self.tdlib = tdlib
+        self.transitionSource = transitionSource
+        self.transitionSourceProvider = transitionSourceProvider
         self.messages = messages.filter { message in
             switch message.content {
             case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
@@ -39,6 +230,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         self.selectedIndex = self.messages.firstIndex(where: { $0.id == selection }) ?? 0
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
+        modalPresentationCapturesStatusBarAppearance = true
+        if transitionSource?.snapshotView != nil {
+            let transitionController = MediaGalleryTransitionController()
+            mediaTransitionController = transitionController
+            transitioningDelegate = transitionController
+        }
         if let transferredPlaybackOwner,
            transferredPlaybackOwner.tdlib === tdlib,
            self.messages.contains(where: { $0.id == transferredPlaybackOwner.messageID })
@@ -88,12 +285,51 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            shouldReleasePlaybackOwnersAfterDisappearance = true
+        }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if shouldReleasePlaybackOwnersAfterDisappearance {
             releasePlaybackOwnersForDismissal()
         }
     }
 
     override var canBecomeFirstResponder: Bool {
         true
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        .lightContent
+    }
+
+    override var prefersStatusBarHidden: Bool {
+        false
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: any UIViewControllerTransitionCoordinator,
+    ) {
+        let selectedMessageID = self.selectedMessageID
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self,
+                  let selectedMessageID,
+                  let selectedIndex = messages.firstIndex(where: { $0.id == selectedMessageID })
+            else { return }
+            self.selectedIndex = selectedIndex
+            view.layoutIfNeeded()
+            collectionView.scrollToItem(
+                at: IndexPath(item: selectedIndex, section: 0),
+                at: .centeredHorizontally,
+                animated: false,
+            )
+            collectionView.layoutIfNeeded()
+            updateCounter()
+            prunePlaybackOwners(around: selectedIndex)
+        }
     }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -138,9 +374,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private var messages: [Message]
     private let tdlib: TDLib
+    fileprivate let transitionSource: MediaGalleryTransitionTarget?
+    fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
     private var selectedIndex: Int
     private var didSetInitialPosition = false
     private var videoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    private var mediaTransitionController: MediaGalleryTransitionController?
+    private var shouldReleasePlaybackOwnersAfterDisappearance = false
+    private var didReleasePlaybackOwners = false
+    private var forcedDismissalSnapshot: UIView?
+    private var forcesFadeDismissal = false
     private let toolbar = UIToolbar()
     private let counterLabel = UILabel()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -262,6 +505,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func releasePlaybackOwnersForDismissal() {
+        guard !didReleasePlaybackOwners else { return }
+        didReleasePlaybackOwners = true
         let pictureInPictureCoordinator = GalleryPictureInPictureCoordinator.shared
         pictureInPictureCoordinator.galleryWillDismiss(self)
         for owner in videoPlaybackOwners.values {
@@ -303,7 +548,6 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func close() {
-        releasePlaybackOwnersForDismissal()
         dismiss(animated: true)
     }
 
@@ -360,6 +604,52 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         return URL(filePath: path)
     }
 
+    fileprivate var selectedMessageID: Int64? {
+        messages.indices.contains(selectedIndex) ? messages[selectedIndex].id : nil
+    }
+
+    fileprivate var isSelectedPictureInPictureRetained: Bool {
+        guard let selectedMessageID,
+              let owner = videoPlaybackOwners[selectedMessageID]
+        else { return false }
+        return owner.isPictureInPictureRetained
+    }
+
+    fileprivate func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
+        selectedGalleryCell()?.transitionContentFrame(in: coordinateSpace)
+    }
+
+    fileprivate func makeTransitionSnapshot() -> UIView? {
+        forcedDismissalSnapshot ?? selectedGalleryCell()?.makeTransitionSnapshot()
+    }
+
+    fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
+        guard !forcesFadeDismissal else { return nil }
+        guard let selectedMessageID else { return nil }
+        return transitionSourceProvider?(selectedMessageID)
+    }
+
+    fileprivate func preparePlaybackOwnersForDismissalTransition() {
+        shouldReleasePlaybackOwnersAfterDisappearance = true
+        releasePlaybackOwnersForDismissal()
+    }
+
+    fileprivate func presentationTransitionDidCancel() {
+        releasePlaybackOwnersForDismissal()
+    }
+
+    private func selectedGalleryCell() -> MediaGalleryCell? {
+        guard messages.indices.contains(selectedIndex) else { return nil }
+        loadViewIfNeeded()
+        view.layoutIfNeeded()
+        let indexPath = IndexPath(item: selectedIndex, section: 0)
+        if collectionView.cellForItem(at: indexPath) == nil {
+            collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: false)
+            collectionView.layoutIfNeeded()
+        }
+        return collectionView.cellForItem(at: indexPath) as? MediaGalleryCell
+    }
+
     func preparePictureInPicture(for owner: GalleryVideoPlaybackOwner) -> Bool {
         GalleryPictureInPictureCoordinator.shared.prepare(
             owner: owner,
@@ -375,7 +665,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if deletedIndex == selectedIndex
             || GalleryPictureInPictureCoordinator.shared.isRetaining(owner)
         {
-            releasePlaybackOwnersForDismissal()
+            forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
+            forcesFadeDismissal = true
+            shouldReleasePlaybackOwnersAfterDisappearance = true
             dismiss(animated: true)
             return
         }
@@ -469,6 +761,230 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
         let message = messages[indexPath.item]
         cell.configure(message: message, videoPlaybackOwner: playbackOwner(for: message))
         return cell
+    }
+}
+
+// MARK: - MediaGalleryTransitionController
+
+private final class MediaGalleryTransitionController: NSObject, UIViewControllerTransitioningDelegate {
+    func animationController(
+        forPresented presented: UIViewController,
+        presenting _: UIViewController,
+        source _: UIViewController,
+    ) -> (any UIViewControllerAnimatedTransitioning)? {
+        guard presented is MediaGalleryViewController else { return nil }
+        return MediaGalleryTransitionAnimator(isPresenting: true)
+    }
+
+    func animationController(
+        forDismissed dismissed: UIViewController,
+    ) -> (any UIViewControllerAnimatedTransitioning)? {
+        guard dismissed is MediaGalleryViewController else { return nil }
+        return MediaGalleryTransitionAnimator(isPresenting: false)
+    }
+}
+
+@MainActor private final class MediaGalleryTransitionCompletionGate {
+    func finish(
+        completed: Bool,
+        commit: () -> Void,
+        cleanup: () -> Void,
+    ) {
+        guard !didFinish else { return }
+        didFinish = true
+        if completed {
+            commit()
+        }
+        cleanup()
+    }
+
+    private var didFinish = false
+}
+
+private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+    init(isPresenting: Bool) {
+        self.isPresenting = isPresenting
+    }
+
+    func transitionDuration(using _: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
+        Self.duration
+    }
+
+    func animateTransition(using transitionContext: any UIViewControllerContextTransitioning) {
+        if isPresenting {
+            animatePresentation(using: transitionContext)
+        } else {
+            animateDismissal(using: transitionContext)
+        }
+    }
+
+    private static let duration = TimeInterval(0.38)
+    private let isPresenting: Bool
+
+    private func animatePresentation(using transitionContext: any UIViewControllerContextTransitioning) {
+        guard let gallery = transitionContext.viewController(forKey: .to) as? MediaGalleryViewController,
+              let toView = transitionContext.view(forKey: .to)
+        else {
+            transitionContext.completeTransition(false)
+            return
+        }
+        let container = transitionContext.containerView
+        toView.frame = transitionContext.finalFrame(for: gallery)
+        container.addSubview(toView)
+        toView.layoutIfNeeded()
+        guard let target = gallery.transitionSource,
+              let snapshot = target.snapshotView,
+              let sourceFrame = target.frame(in: container),
+              let destinationFrame = gallery.transitionContentFrame(in: container)
+        else {
+            animateFade(
+                appearingView: toView,
+                disappearingView: nil,
+                transitionContext: transitionContext,
+            ) { completed in
+                if !completed {
+                    gallery.presentationTransitionDidCancel()
+                }
+            }
+            return
+        }
+        let sourceView = target.validatedSourceView
+        let sourceWasHidden = sourceView?.isHidden ?? false
+        sourceView?.isHidden = true
+        snapshot.frame = sourceFrame
+        snapshot.layer.cornerRadius = target.cornerRadius
+        snapshot.layer.maskedCorners = target.maskedCorners
+        snapshot.clipsToBounds = true
+        container.addSubview(snapshot)
+        toView.alpha = 0
+        UIView.animate(
+            withDuration: Self.duration,
+            delay: 0,
+            usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            toView.alpha = 1
+            snapshot.frame = destinationFrame
+            snapshot.layer.cornerRadius = 0
+        } completion: { _ in
+            let completed = !transitionContext.transitionWasCancelled
+            if target.validatedSourceView === sourceView {
+                sourceView?.isHidden = sourceWasHidden
+            }
+            snapshot.removeFromSuperview()
+            if !completed {
+                toView.removeFromSuperview()
+            }
+            transitionContext.completeTransition(completed)
+            if !completed {
+                gallery.presentationTransitionDidCancel()
+            }
+        }
+    }
+
+    private func animateDismissal(using transitionContext: any UIViewControllerContextTransitioning) {
+        guard let gallery = transitionContext.viewController(forKey: .from) as? MediaGalleryViewController,
+              let toController = transitionContext.viewController(forKey: .to),
+              let fromView = transitionContext.view(forKey: .from),
+              let toView = transitionContext.view(forKey: .to)
+        else {
+            transitionContext.completeTransition(false)
+            return
+        }
+        let container = transitionContext.containerView
+        let completionGate = MediaGalleryTransitionCompletionGate()
+        toView.frame = transitionContext.finalFrame(for: toController)
+        container.insertSubview(toView, belowSubview: fromView)
+        toView.layoutIfNeeded()
+        let sourceTarget = gallery.isSelectedPictureInPictureRetained
+            ? nil
+            : gallery.currentTransitionTarget()
+        let sourceView = sourceTarget?.validatedSourceView
+        let sourceWasHidden = sourceView?.isHidden ?? false
+        let snapshot = gallery.makeTransitionSnapshot()
+        let sourceFrame = sourceTarget?.frame(in: container)
+        let startFrame = gallery.transitionContentFrame(in: container)
+        sourceView?.isHidden = true
+        guard let snapshot, let sourceTarget, let sourceFrame, let startFrame else {
+            if let snapshot, let startFrame {
+                snapshot.frame = fromView.convert(startFrame, from: container)
+                snapshot.clipsToBounds = true
+                fromView.addSubview(snapshot)
+            }
+            animateFade(
+                appearingView: toView,
+                disappearingView: fromView,
+                transitionContext: transitionContext,
+            ) { completed in
+                completionGate.finish(
+                    completed: completed,
+                    commit: { gallery.preparePlaybackOwnersForDismissalTransition() },
+                    cleanup: {
+                        if sourceTarget?.validatedSourceView === sourceView {
+                            sourceView?.isHidden = sourceWasHidden
+                        }
+                        snapshot?.removeFromSuperview()
+                    },
+                )
+            }
+            return
+        }
+        snapshot.frame = startFrame
+        snapshot.clipsToBounds = true
+        snapshot.layer.cornerRadius = 0
+        container.addSubview(snapshot)
+        UIView.animate(
+            withDuration: Self.duration,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+        ) {
+            fromView.alpha = 0
+            snapshot.frame = sourceFrame
+            snapshot.layer.cornerRadius = sourceTarget.cornerRadius
+            snapshot.layer.maskedCorners = sourceTarget.maskedCorners
+        } completion: { _ in
+            let completed = !transitionContext.transitionWasCancelled
+            if !completed {
+                fromView.alpha = 1
+            }
+            transitionContext.completeTransition(completed)
+            completionGate.finish(
+                completed: completed,
+                commit: { gallery.preparePlaybackOwnersForDismissalTransition() },
+                cleanup: {
+                    if sourceTarget.validatedSourceView === sourceView {
+                        sourceView?.isHidden = sourceWasHidden
+                    }
+                    snapshot.removeFromSuperview()
+                },
+            )
+        }
+    }
+
+    private func animateFade(
+        appearingView: UIView,
+        disappearingView: UIView?,
+        transitionContext: any UIViewControllerContextTransitioning,
+        completion: ((Bool) -> Void)? = nil,
+    ) {
+        appearingView.alpha = 0
+        UIView.animate(
+            withDuration: Self.duration,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+        ) {
+            appearingView.alpha = 1
+            disappearingView?.alpha = 0
+        } completion: { _ in
+            let completed = !transitionContext.transitionWasCancelled
+            if !completed {
+                appearingView.alpha = 0
+                disappearingView?.alpha = 1
+            }
+            transitionContext.completeTransition(completed)
+            completion?(completed)
+        }
     }
 }
 
@@ -630,6 +1146,10 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
         mediaView.performPlaybackCommand(command)
     }
 
+    func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
+        mediaView.makeTransitionSnapshot(contentMode: contentMode)
+    }
+
     func detachFromGallery() {
         guard attachmentContext == .fullscreen else { return }
         attachmentToken = nil
@@ -643,12 +1163,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
 
     func returnToInlineIfAvailable() -> Bool {
         guard !isDeleted,
-              let onReturnToInline,
-              onReturnToInline(self)
+              let onReturnToInline
         else { return false }
         galleryController = nil
         detachFromGallery()
-        return true
+        return onReturnToInline(self)
     }
 
     func invalidate() {
@@ -1535,6 +2054,7 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
         videoPlaybackAttachmentToken = nil
         videoPlaybackOwner = nil
+        transitionMediaSize = nil
         contentMediaView?.prepareForReuse()
         contentMediaView?.removeFromSuperview()
         contentMediaView = nil
@@ -1544,6 +2064,7 @@ final class MediaGalleryCell: UICollectionViewCell {
 
     func configure(message: Message, videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil) {
         prepareForReuse()
+        transitionMediaSize = Self.mediaSize(for: message)
         if let videoPlaybackOwner {
             self.videoPlaybackOwner = videoPlaybackOwner
             videoPlaybackAttachmentToken = videoPlaybackOwner.attach(
@@ -1644,8 +2165,51 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
+    func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
+        guard let transitionMediaSize,
+              transitionMediaSize.width > 0,
+              transitionMediaSize.height > 0,
+              contentView.bounds.width > 0,
+              contentView.bounds.height > 0
+        else { return nil }
+        let contentFrame = AVMakeRect(aspectRatio: transitionMediaSize, insideRect: contentView.bounds)
+        return contentView.convert(contentFrame, to: coordinateSpace)
+    }
+
+    func makeTransitionSnapshot() -> UIView? {
+        if let videoPlaybackOwner {
+            return videoPlaybackOwner.makeTransitionSnapshot(contentMode: .scaleAspectFit)
+        }
+        guard let transitionMediaSize else { return contentView.snapshotView(afterScreenUpdates: false) }
+        let contentFrame = AVMakeRect(aspectRatio: transitionMediaSize, insideRect: contentView.bounds)
+        return contentView.resizableSnapshotView(
+            from: contentFrame,
+            afterScreenUpdates: false,
+            withCapInsets: .zero,
+        ) ?? contentView.snapshotView(afterScreenUpdates: false)
+    }
+
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
     private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
+    private var transitionMediaSize: CGSize?
+
+    private static func mediaSize(for message: Message) -> CGSize? {
+        switch message.content {
+        case .messagePhoto(let photo):
+            guard let size = photo.photo.sizes.max(by: {
+                $0.width * $0.height < $1.width * $1.height
+            }) else { return nil }
+            return CGSize(width: max(1, size.width), height: max(1, size.height))
+        case .messageAnimation(let animation):
+            return CGSize(width: max(1, animation.animation.width), height: max(1, animation.animation.height))
+        case .messageSticker(let sticker):
+            return CGSize(width: max(1, sticker.sticker.width), height: max(1, sticker.sticker.height))
+        case .messageVideo(let video):
+            return CGSize(width: max(1, video.video.width), height: max(1, video.video.height))
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - GalleryMediaView
@@ -1832,6 +2396,18 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     var onPictureInPictureToggle: (() -> Void)?
     var onPictureInPictureEligibilityChanged: (() -> Void)?
     var onPlaybackIntentChanged: (() -> Void)?
+
+    func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
+        if preview.image != nil {
+            return preview.makeImageSnapshot(contentMode: contentMode)
+        }
+        if !videoSurface.isHidden,
+           let snapshot = videoSurface.snapshotView(afterScreenUpdates: false)
+        {
+            return snapshot
+        }
+        return preview.snapshotView(afterScreenUpdates: false)
+    }
 
     #if DEBUG
         var pictureInPictureControlIsHidden: Bool {

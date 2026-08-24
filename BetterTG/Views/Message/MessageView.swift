@@ -64,6 +64,8 @@ final class MessageCell: UICollectionViewCell {
         mediaTimestampLabel.isHidden = true
         onReplyTap = nil
         onMediaTap = nil
+        representedGalleryMessageIDs.removeAll()
+        mediaTransitionGeneration = UUID()
     }
 
     override func layoutSubviews() {
@@ -86,6 +88,28 @@ final class MessageCell: UICollectionViewCell {
         mediaView.restoreInlineVideoPlaybackOwner(owner)
     }
 
+    func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
+        guard representedGalleryMessageIDs.contains(messageID),
+              !mediaView.isHidden,
+              mediaView.window != nil
+        else { return nil }
+        let generation = mediaTransitionGeneration
+        let sourceView = mediaView
+        return MediaGalleryTransitionTarget(
+            messageID: messageID,
+            sourceView: sourceView,
+            snapshotFactory: { [weak self] in
+                self?.mediaView.makeGalleryTransitionSnapshot()
+            },
+            validation: { [weak self, weak sourceView] in
+                guard let self, let sourceView else { return false }
+                return self.mediaTransitionGeneration == generation
+                    && self.representedGalleryMessageIDs.contains(messageID)
+                    && self.mediaView === sourceView
+            },
+        )
+    }
+
     func configure(
         message: CustomMessage,
         chat: CustomChat,
@@ -96,8 +120,8 @@ final class MessageCell: UICollectionViewCell {
     ) {
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
-        swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
-        swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil
+        mediaTransitionGeneration = UUID()
+        representedGalleryMessageIDs = message.album.isEmpty ? [message.id] : []
         configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
 
         let isVideoNoteMessage: Bool = if case .messageVideoNote = message.message.content { true } else { false }
@@ -222,6 +246,8 @@ final class MessageCell: UICollectionViewCell {
     )
     private var onReplyTap: ((Int64) -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
+    private var representedGalleryMessageIDs = Set<Int64>()
+    private var mediaTransitionGeneration = UUID()
 
     private var bubbleView: UIView { bubbleContainerView.extractedContentView }
 

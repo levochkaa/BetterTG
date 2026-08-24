@@ -118,6 +118,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = RootViewController(rootVM: .shared)
         window.makeKeyAndVisible()
         self.window = window
+        #if DEBUG
+            MediaGalleryTransitionTarget.runDebugProbeIfRequested(in: window)
+        #endif
 
         if let response = connectionOptions.notificationResponse {
             Task {

@@ -182,6 +182,19 @@ final class MessageMediaView: UIView {
         return inlineView.reattach(owner: owner)
     }
 
+    func makeGalleryTransitionSnapshot() -> UIView? {
+        switch contentView {
+        case let photoView as SinglePhotoView:
+            photoView.makeTransitionSnapshot()
+        case let fileView as FileMediaPreviewView:
+            fileView.makeTransitionSnapshot()
+        case let videoView as InlineVideoMediaView:
+            videoView.makeTransitionSnapshot()
+        default:
+            contentView?.snapshotView(afterScreenUpdates: false)
+        }
+    }
+
     // MARK: Private
 
     private var contentView: UIView?
@@ -247,6 +260,17 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         imageView.cancel()
         onTap = nil
     }
+
+    func makeTransitionSnapshot() -> UIView? {
+        imageView.makeImageSnapshot(contentMode: imageView.contentMode)
+    }
+
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
+    private var onTap: (() -> Void)?
 
     @objc private func tapped() {
         onTap?()
@@ -487,6 +511,11 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         return attachmentToken != nil
     }
 
+    func makeTransitionSnapshot() -> UIView? {
+        owner?.makeTransitionSnapshot(contentMode: .scaleAspectFill)
+            ?? snapshotView(afterScreenUpdates: false)
+    }
+
     // MARK: Private
 
     private weak var owner: GalleryVideoPlaybackOwner?
@@ -569,6 +598,18 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         imageView.cancel()
         onTap = nil
     }
+
+    func makeTransitionSnapshot() -> UIView? {
+        imageView.makeImageSnapshot(contentMode: imageView.contentMode)
+    }
+
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
+    private var onTap: (() -> Void)?
 
     @objc private func tapped() {
         onTap?()
@@ -656,6 +697,14 @@ final class TDImageLoadingView: UIImageView {
     func loadPlaceholder(data: Data?) {
         cancel()
         image = data.flatMap(UIImage.init(data:))
+    }
+
+    func makeImageSnapshot(contentMode: UIView.ContentMode) -> UIView? {
+        guard let image else { return snapshotView(afterScreenUpdates: false) }
+        let snapshot = UIImageView(image: image)
+        snapshot.contentMode = contentMode
+        snapshot.clipsToBounds = true
+        return snapshot
     }
 
     func cancel() {

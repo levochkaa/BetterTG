@@ -970,6 +970,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func showMedia(_ messages: [Message], selection: Int64) {
         let transferredOwner = inlineVideoPlaybackOwners[selection]
+        let transitionSource = galleryTransitionTarget(for: selection)
         pauseInlineVideoPlayback(excluding: transferredOwner?.messageID)
         present(
             MediaGalleryViewController(
@@ -977,9 +978,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 selection: selection,
                 tdlib: tdlib,
                 transferredPlaybackOwner: transferredOwner,
+                transitionSource: transitionSource,
+                transitionSourceProvider: { [weak self] messageID in
+                    self?.galleryTransitionTarget(for: messageID)
+                },
             ),
             animated: true,
         )
+    }
+
+    private func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
+        guard let displayedMessageID = chatVM.displayedMessageID(containing: messageID),
+              let index = dataSource.snapshot().indexOfItem(displayedMessageID),
+              let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell
+        else { return nil }
+        return cell.galleryTransitionTarget(for: messageID)
     }
 
     private func inlineVideoPlaybackOwner(for message: CustomMessage) -> GalleryVideoPlaybackOwner? {
@@ -1003,6 +1016,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   inlineVideoPlaybackOwners[returnedOwner.messageID] === returnedOwner
             else { return false }
             pendingInlineVideoOwnerReturns.insert(returnedOwner.messageID)
+            restoreReturnedInlineVideoOwnerIfVisible(returnedOwner)
             DispatchQueue.main.async { [weak self] in
                 self?.restoreVisibleInlineVideoPlayback()
                 self?.pruneInlineVideoPlaybackOwnerIfOffscreen(messageID: returnedOwner.messageID)
@@ -1018,6 +1032,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         inlineVideoPlaybackOwners[message.id] = owner
         return owner
+    }
+
+    private func restoreReturnedInlineVideoOwnerIfVisible(_ owner: GalleryVideoPlaybackOwner) {
+        guard let index = dataSource.snapshot().indexOfItem(owner.messageID),
+              let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell,
+              cell.restoreInlineVideoPlaybackOwner(owner)
+        else { return }
+        pendingInlineVideoOwnerReturns.remove(owner.messageID)
     }
 
     private func pauseInlineVideoPlayback(excluding excludedMessageID: Int64?) {
