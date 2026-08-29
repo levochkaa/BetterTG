@@ -12,6 +12,7 @@ SCHEME="BetterTG"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
 SIMULATOR_NAME="${SIMULATOR_NAME:-iPhone 17 Pro}"
+SIMULATOR_OS="${SIMULATOR_OS:-}"
 SIMULATOR_ID="${SIMULATOR_ID:-}"
 DEVICE_ID="${DEVICE_ID:-}"
 CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
@@ -35,6 +36,7 @@ Options:
 
 Examples:
   ./build.sh run
+  SIMULATOR_OS=26.5 ./build.sh run
   ./build.sh run --device
   RUN_ARGUMENTS="-example value" ./build.sh run --device
 EOF
@@ -152,24 +154,29 @@ tdlib_update_model_exists() {
 simulator_id() {
   local simctl_json
   simctl_json="$(xcrun simctl list devices available -j)"
-  SIMCTL_JSON="$simctl_json" python3 - "$SIMULATOR_NAME" <<'PY'
+  SIMCTL_JSON="$simctl_json" python3 - "$SIMULATOR_NAME" "$SIMULATOR_OS" <<'PY'
 import json
 import os
 import re
 import sys
 
 target_name = sys.argv[1]
+target_os = sys.argv[2]
 data = json.loads(os.environ["SIMCTL_JSON"])
 matches = []
 for runtime, devices in data.get("devices", {}).items():
     version_match = re.search(r"iOS-(\d+)-(\d+)", runtime)
     version = tuple(map(int, version_match.groups())) if version_match else (0, 0)
+    version_string = ".".join(map(str, version))
+    if target_os and version_string != target_os:
+        continue
     for device in devices:
         if device.get("name") == target_name and device.get("isAvailable", False):
             matches.append((version, device["udid"]))
 
 if not matches:
-    raise SystemExit(f"error: no available simulator named {target_name!r}")
+    os_suffix = f" with iOS {target_os}" if target_os else ""
+    raise SystemExit(f"error: no available simulator named {target_name!r}{os_suffix}")
 
 print(sorted(matches)[-1][1])
 PY

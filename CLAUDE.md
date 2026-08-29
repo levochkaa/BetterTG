@@ -8,7 +8,7 @@
 - Build through the root multiplexer: `./build.sh build` (or `./build.sh`, which defaults to build).
 - Run through the root multiplexer: `./build.sh run`. BetterTG currently has no dedicated test target, so build is the repository-level validation.
 - The build script owns Xcode environment setup, project generation, TDLib model generation, package resolution, derived data location, and simulator selection.
-- Use `SIMULATOR_NAME="..."` or `SIMULATOR_ID="..."` only when the default simulator needs to be overridden.
+- Use `SIMULATOR_OS="..."`, `SIMULATOR_NAME="..."`, or `SIMULATOR_ID="..."` only when the default simulator needs to be overridden.
 - Use `./build.sh build --device` to build for the available paired physical iPhone and `./build.sh run --device` to build, install, and launch on it. Device builds use Xcode automatic provisioning. Set `DEVICE_ID="..."` only when a specific physical iPhone must be selected.
 - Use `RUN_ARGUMENTS="..." ./build.sh run` when an automated launch smoke needs app arguments; do not bypass `build.sh` with a direct simulator launch.
 - Do not close or shut down a booted Simulator when finishing a task. Leave it running for the user unless the user explicitly asks to close or shut it down.
