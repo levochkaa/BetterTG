@@ -33,14 +33,18 @@ FULL_OUTPUT=0
 USE_DEVICE=0
 HAS_LAUNCH_ARGUMENTS=0
 LAUNCH_ARGUMENTS=()
+SKIP_BUILD=0
+SIMULATOR_BOOT_TIMEOUT_SECONDS=120
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [build|run] [options]
+Usage: ./build.sh [build|run|clean-intermediates] [options]
 
 Commands:
   build     Build BetterTG (default).
   run       Build, install, and launch BetterTG.
+  clean-intermediates
+            Remove compilation, index, module, and SDK-stat intermediates while preserving products and Swift packages.
 
 Options:
   --device  Use the available paired physical iPhone instead of Simulator.
@@ -66,6 +70,10 @@ Options:
             Argument passed to the launched app. Repeat for multiple arguments.
   --no-code-signing
             Compile without code signing. Not valid for run.
+  --skip-build
+            For run: install and launch the existing compatible app product.
+  --simulator-boot-timeout-seconds COUNT
+            Maximum time to wait for simulator boot readiness. Default: 120.
   --full-output, --verbose
             Print complete build output instead of concise progress.
 
@@ -80,7 +88,7 @@ EOF
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    build|run)
+    build|run|clean-intermediates)
       ACTION="$1"
       shift
       ;;
@@ -196,6 +204,17 @@ while [[ $# -gt 0 ]]; do
     --no-code-signing)
       CODE_SIGNING_ALLOWED="NO"
       ;;
+    --skip-build)
+      SKIP_BUILD=1
+      ;;
+    --simulator-boot-timeout-seconds)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --simulator-boot-timeout-seconds requires a positive integer" >&2
+        exit 2
+      fi
+      SIMULATOR_BOOT_TIMEOUT_SECONDS="$2"
+      shift
+      ;;
     --build-lock-held)
       BUILD_LOCK_HELD=1
       ;;
@@ -247,6 +266,16 @@ validate_configuration() {
 
   if [[ "$ACTION" == "run" && "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
     echo "error: --no-code-signing cannot be used for run" >&2
+    exit 2
+  fi
+
+  if [[ "$SKIP_BUILD" == "1" && "$ACTION" != "run" ]]; then
+    echo "error: --skip-build is only valid for run" >&2
+    exit 2
+  fi
+
+  if [[ ! "$SIMULATOR_BOOT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: --simulator-boot-timeout-seconds must be a positive integer" >&2
     exit 2
   fi
 }
@@ -457,15 +486,15 @@ publish_package_cache() {
   touch "$CLONED_SOURCE_PACKAGES_DIR_PATH/.ready"
 }
 
-clean_default_derived_data_intermediates() {
+clean_derived_data_intermediates() {
   case "$DERIVED_DATA_PATH" in
-    "$ROOT_DIR/.build/"*) ;;
-    *)
-      echo "error: refusing to clean intermediates outside $ROOT_DIR/.build: $DERIVED_DATA_PATH" >&2
+    ""|/|"$HOME"|"$ROOT_DIR"|"$ROOT_DIR/.build")
+      echo "error: refusing unsafe DerivedData cleanup path: $DERIVED_DATA_PATH" >&2
       return 1
       ;;
   esac
 
+  echo "Cleaning DerivedData intermediates: $DERIVED_DATA_PATH"
   rm -rf \
     "$DERIVED_DATA_PATH/Build/Intermediates.noindex" \
     "$DERIVED_DATA_PATH/CompilationCache.noindex" \
@@ -524,7 +553,7 @@ migrate_legacy_caches_if_needed() {
     { [[ ! -f "$DERIVED_DATA_PATH/.bettertg-cache-layout-v1" ]] ||
       [[ "$cache_metadata_rewritten" == "1" ]]; }; then
     echo "Removing path-sensitive intermediates while preserving products and Swift packages..."
-    clean_default_derived_data_intermediates
+    clean_derived_data_intermediates
     touch "$DERIVED_DATA_PATH/.bettertg-cache-layout-v1"
   fi
 }
@@ -642,7 +671,11 @@ launch_on_device() {
 }
 
 launch_on_simulator() {
+  echo "Booting simulator and waiting for readiness: $SIMULATOR_ID"
   xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+  "$ROOT_DIR/script/simulator_boot_status.sh" \
+    --simulator-id "$SIMULATOR_ID" \
+    --timeout-seconds "$SIMULATOR_BOOT_TIMEOUT_SECONDS"
   open -a Simulator
   xcrun simctl install "$SIMULATOR_ID" "$APP_BUNDLE"
 
@@ -662,6 +695,12 @@ configure_xcode
 configure_cache_paths
 migrate_legacy_caches_if_needed
 
+if [[ "$ACTION" == "clean-intermediates" ]]; then
+  clean_derived_data_intermediates
+  echo "Preserved build products and Swift package cache."
+  exit 0
+fi
+
 if [[ "$USE_DEVICE" == "1" ]]; then
   echo "Finding a connected iPhone..."
   DEVICE_ID="$(resolve_connected_iphone_id "$DEVICE_ID")"
@@ -676,52 +715,56 @@ else
   product_platform="iphonesimulator"
 fi
 
-echo "Generating the Xcode project..."
-run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
+if [[ "$SKIP_BUILD" == "0" ]]; then
+  echo "Generating the Xcode project..."
+  run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
 
-prepare_swift_packages
+  prepare_swift_packages
 
-echo "Updating generated TDLib models..."
-run_with_filtered_output python3 "$ROOT_DIR/td.py" \
-  --skip-resolve \
-  --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+  echo "Updating generated TDLib models..."
+  run_with_filtered_output python3 "$ROOT_DIR/td.py" \
+    --skip-resolve \
+    --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
 
-xcodebuild_args=(
-  -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
-  -scheme "$SCHEME"
-  -configuration "$CONFIGURATION"
-  -derivedDataPath "$DERIVED_DATA_PATH"
-  -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
-  -destination "$destination"
-  -packageAuthorizationProvider netrc
-  -scmProvider system
-  -skipPackagePluginValidation
-  -skipMacroValidation
-  -disableAutomaticPackageResolution
-  "CLANG_MODULE_CACHE_PATH=$CLANG_MODULE_CACHE_PATH"
-)
-
-if [[ "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
-  xcodebuild_args+=(
-    "CODE_SIGNING_ALLOWED=NO"
-    "CODE_SIGNING_REQUIRED=NO"
-    "CODE_SIGN_IDENTITY="
+  xcodebuild_args=(
+    -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
+    -scheme "$SCHEME"
+    -configuration "$CONFIGURATION"
+    -derivedDataPath "$DERIVED_DATA_PATH"
+    -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+    -destination "$destination"
+    -packageAuthorizationProvider netrc
+    -scmProvider system
+    -skipPackagePluginValidation
+    -skipMacroValidation
+    -disableAutomaticPackageResolution
+    "CLANG_MODULE_CACHE_PATH=$CLANG_MODULE_CACHE_PATH"
   )
+
+  if [[ "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
+    xcodebuild_args+=(
+      "CODE_SIGNING_ALLOWED=NO"
+      "CODE_SIGNING_REQUIRED=NO"
+      "CODE_SIGN_IDENTITY="
+    )
+  else
+    xcodebuild_args+=("CODE_SIGNING_ALLOWED=YES")
+  fi
+
+  if [[ "$USE_DEVICE" == "1" ]]; then
+    xcodebuild_args+=(
+      -allowProvisioningUpdates
+      -allowProvisioningDeviceRegistration
+    )
+  fi
+
+  echo "Building $APP_NAME for $destination..."
+  build_started_at=$SECONDS
+  run_xcodebuild xcodebuild "${xcodebuild_args[@]}" build
+  echo "$APP_NAME built in $((SECONDS - build_started_at))s."
 else
-  xcodebuild_args+=("CODE_SIGNING_ALLOWED=YES")
+  echo "Skipping build and reusing the existing $CONFIGURATION app product."
 fi
-
-if [[ "$USE_DEVICE" == "1" ]]; then
-  xcodebuild_args+=(
-    -allowProvisioningUpdates
-    -allowProvisioningDeviceRegistration
-  )
-fi
-
-echo "Building $APP_NAME for $destination..."
-build_started_at=$SECONDS
-run_xcodebuild xcodebuild "${xcodebuild_args[@]}" build
-echo "$APP_NAME built in $((SECONDS - build_started_at))s."
 
 if [[ "$ACTION" == "build" ]]; then
   exit 0
@@ -730,6 +773,9 @@ fi
 APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION-$product_platform/$APP_NAME.app"
 if [[ ! -d "$APP_BUNDLE" ]]; then
   echo "error: app bundle not found at $APP_BUNDLE" >&2
+  if [[ "$SKIP_BUILD" == "1" ]]; then
+    echo "Run the same command once without --skip-build." >&2
+  fi
   exit 1
 fi
 

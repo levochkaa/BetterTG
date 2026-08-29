@@ -8,13 +8,14 @@
 - Build through the root multiplexer: `./build.sh build` (or `./build.sh`, which defaults to build).
 - Run through the root multiplexer: `./build.sh run`. BetterTG currently has no dedicated test target, so build is the repository-level validation.
 - The build script owns Xcode environment setup, project generation, TDLib model generation, package resolution, derived data location, and simulator selection.
-- Pass all build and run overrides as wrapper options; never prefix `build.sh` with configuration environment assignments. Available overrides include `--xcode`, `--configuration`, `--simulator`, `--simulator-id`, `--ios`, `--device-id`, `--derived-data`, `--cloned-source-packages-dir-path`, `--xcodebuild-log-dir`, `--launch-argument`, and `--no-code-signing`.
+- Pass all build and run overrides as wrapper options; never prefix `build.sh` with configuration environment assignments. Available overrides include `--xcode`, `--configuration`, `--simulator`, `--simulator-id`, `--ios`, `--device-id`, `--derived-data`, `--cloned-source-packages-dir-path`, `--xcodebuild-log-dir`, `--launch-argument`, `--no-code-signing`, `--skip-build`, and `--simulator-boot-timeout-seconds`.
 - Use `./build.sh build --device` to build for the available paired physical iPhone and `./build.sh run --device` to build, install, and launch on it. Device builds use Xcode automatic provisioning. Pass `--device-id ID` only when a specific physical iPhone must be selected.
 - Use repeated `--launch-argument VALUE` options when an automated launch smoke needs app arguments; do not bypass `build.sh` with a direct simulator launch.
 - Swift packages are cached separately from DerivedData by a graph hash containing the `project.yml` package declarations and exact Xcode version. Reuse the graph cache and restored `Package.resolved`; do not delete or redownload it when clearing DerivedData.
 - Default DerivedData and module caches are isolated by Xcode version. Build and run actions serialize the full generate/package/codegen/xcodebuild pipeline through `/tmp/bettertg-build.lock`.
 - Xcode builds print compact progress and save complete command output under `.build/logs/xcodebuild`; use `--full-output` only when the complete stream is needed in the terminal.
-- Do not close or shut down a booted Simulator when finishing a task. Leave it running for the user unless the user explicitly asks to close or shut it down.
+- Use `./build.sh clean-intermediates` to remove compilation/index/module/SDK-stat intermediates while preserving app products, complete logs, and the separate Swift package cache. `./build.sh run --skip-build` reuses the compatible product for the selected Xcode, configuration, and platform without running XcodeGen, package preparation, TD generation, or xcodebuild.
+- Simulator runs wait for bounded `simctl bootstatus` readiness before install. Do not close or shut down the booted Simulator when finishing a task unless the user explicitly asks.
 
 ## Project Notes
 

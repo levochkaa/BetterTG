@@ -4,6 +4,13 @@ set -euo pipefail
 LOG_PATH="${1:-xcodebuild log}"
 
 awk -v log_path="$LOG_PATH" '
+  function shortened(line) {
+    if (length(line) > 240) {
+      return substr(line, 1, 237) "..."
+    }
+    return line
+  }
+
   BEGIN {
     progress = 0
     suppressed = 0
@@ -22,6 +29,11 @@ awk -v log_path="$LOG_PATH" '
     next
   }
 
+  /warning: Metadata extraction (disabled|skipped)/ {
+    suppressed += 1
+    next
+  }
+
   /(^\*\* (BUILD|ARCHIVE) (FAILED|SUCCEEDED) \*\*$|[Ee]rror:|fatal error:|Command .* failed|No such file|Undefined symbols)/ {
     print
     next
@@ -35,7 +47,7 @@ awk -v log_path="$LOG_PATH" '
   /^(Compile|SwiftCompile|SwiftDriver|Ld |ProcessInfoPlistFile|CodeSign|PhaseScriptExecution|Copy |CpResource|Touch |CreateBuildDirectory|MkDir |WriteAuxiliaryFile|GenerateDSYMFile|CompileAssetCatalog|ProcessProductPackaging|Validate|RegisterExecutionPolicyException)/ {
     progress += 1
     if (progress == 1 || progress % 100 == 0) {
-      print "[xcodebuild] progress " progress ": " $0
+      print "[xcodebuild] progress " progress ": " shortened($0)
     } else {
       suppressed += 1
     }
