@@ -44,6 +44,16 @@ curl http://localhost:8080/health/ready
 SMOKE_REDIS_URL=redis://localhost:6380 bun run smoke:relay
 ```
 
+On a VPS that already has a system reverse proxy bound to ports 80 and 443, publish only the
+API on loopback and leave the Compose Caddy service stopped:
+
+```bash
+docker compose -f compose.yaml -f compose.vps.yaml up --build -d \
+  postgres redis migrate api worker
+```
+
+Point the host reverse proxy at `127.0.0.1:8080`. PostgreSQL and Redis remain bound to loopback.
+
 Development defaults use APNs dry-run and bypass App Attest. These modes are rejected as production App Attest configuration and must not be exposed publicly.
 
 ## Verification
