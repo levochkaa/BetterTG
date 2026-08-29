@@ -21,6 +21,8 @@ CLONED_SOURCE_PACKAGES_DIR_PATH=""
 TOOLCHAIN_KEY=""
 BUILD_LOCK_PATH="/tmp/bettertg-build.lock"
 BUILD_LOCK_HELD=0
+XCODEBUILD_LOG_DIR="$ROOT_DIR/.build/logs/xcodebuild"
+LAST_XCODEBUILD_LOG_PATH=""
 SIMULATOR_NAME="iPhone 17 Pro"
 SIMULATOR_ID=""
 DEVICE_ID=""
@@ -56,6 +58,8 @@ Options:
             DerivedData path. Default: .build/xcodebuild-derived-data/<Xcode version>.
   --cloned-source-packages-dir-path PATH
             Root for graph-keyed Swift package caches.
+  --xcodebuild-log-dir PATH
+            Full xcodebuild log directory. Default: .build/logs/xcodebuild.
   --configuration Debug|Release, --debug, --release
             Build configuration. Default: Debug.
   --launch-argument VALUE
@@ -145,6 +149,14 @@ while [[ $# -gt 0 ]]; do
       fi
       PACKAGE_CACHE_ROOT="$2"
       PACKAGE_CACHE_ROOT_OVERRIDDEN=1
+      shift
+      ;;
+    --xcodebuild-log-dir)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --xcodebuild-log-dir requires a path" >&2
+        exit 2
+      fi
+      XCODEBUILD_LOG_DIR="$2"
       shift
       ;;
     --configuration)
@@ -304,6 +316,7 @@ configure_cache_paths() {
     DERIVED_DATA_PATH="$(expand_path "$DERIVED_DATA_PATH")"
   fi
   PACKAGE_CACHE_ROOT="$(expand_path "$PACKAGE_CACHE_ROOT")"
+  XCODEBUILD_LOG_DIR="$(expand_path "$XCODEBUILD_LOG_DIR")"
   PACKAGE_GRAPH_KEY="$("$ROOT_DIR/script/package_graph_key.sh")"
   CLONED_SOURCE_PACKAGES_DIR_PATH="$PACKAGE_CACHE_ROOT/$PACKAGE_GRAPH_KEY"
 
@@ -313,6 +326,7 @@ configure_cache_paths() {
   mkdir -p \
     "$(dirname "$DERIVED_DATA_PATH")" \
     "$PACKAGE_CACHE_ROOT" \
+    "$XCODEBUILD_LOG_DIR" \
     "$CLANG_MODULE_CACHE_PATH" \
     "$SWIFTPM_MODULECACHE_OVERRIDE"
 }
@@ -360,24 +374,45 @@ run_with_filtered_output() {
 }
 
 run_xcodebuild() {
+  local timestamp
+  local log_path
+  local command_status
+  local formatter_status=0
+  local pipeline_status=()
+  timestamp="$(date +%Y%m%d-%H%M%S)"
+  log_path="$XCODEBUILD_LOG_DIR/${ACTION}-${CONFIGURATION}-${timestamp}-$$-$RANDOM.log"
+  LAST_XCODEBUILD_LOG_PATH="$log_path"
+
+  {
+    printf 'Command:'
+    printf ' %q' "$@"
+    printf '\n'
+  } > "$log_path"
+  echo "Full xcodebuild log: $log_path"
+
+  set +e
   if [[ "$FULL_OUTPUT" == "1" ]]; then
-    "$@"
-    return
+    "$@" 2>&1 | tee -a "$log_path"
+    pipeline_status=("${PIPESTATUS[@]}")
+  else
+    "$@" 2>&1 |
+      tee -a "$log_path" |
+      "$ROOT_DIR/script/compact_xcodebuild_output.sh" "$log_path"
+    pipeline_status=("${PIPESTATUS[@]}")
+    formatter_status="${pipeline_status[2]}"
   fi
+  set -e
+  command_status="${pipeline_status[0]}"
 
-  if command -v xcbeautify >/dev/null 2>&1; then
-    set +e
-    "$@" 2>&1 | xcbeautify
-    local command_status=${PIPESTATUS[0]}
-    set -e
-
-    if [[ "$command_status" -ne 0 ]]; then
-      echo "error: command failed: $*" >&2
-    fi
-    return "$command_status"
+  if [[ "$formatter_status" -ne 0 ]]; then
+    echo "warning: compact xcodebuild formatter failed with status $formatter_status" >&2
   fi
-
-  run_with_filtered_output "$@"
+  if [[ "$command_status" -ne 0 ]]; then
+    echo "error: command failed: $*" >&2
+    echo "Last 60 xcodebuild log lines:" >&2
+    tail -n 60 "$log_path" >&2
+  fi
+  return "$command_status"
 }
 
 generated_package_resolved_path() {
