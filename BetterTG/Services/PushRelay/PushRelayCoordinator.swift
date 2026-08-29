@@ -46,6 +46,7 @@ import UserNotifications
             .sink { [weak self] _ in
                 guard let self else { return }
                 telegramReady = true
+                log("Push relay TDLib authorization is ready")
                 scheduleSynchronization()
                 openPendingRouteIfPossible()
             }
@@ -65,15 +66,29 @@ import UserNotifications
             return
         }
 
+        log("Push relay enabled: \(configuration?.baseURL.absoluteString ?? "unknown URL")")
+
         Task {
             await retryPendingRevocation()
-            _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+                let settings = await center.notificationSettings()
+                log(
+                    "Notification authorization completed: granted=\(granted), status=\(settings.authorizationStatus.rawValue)",
+                )
+            } catch {
+                log("Notification authorization failed: \(error.localizedDescription)")
+            }
+            log("Requesting APNs device token")
             UIApplication.shared.registerForRemoteNotifications()
         }
     }
 
     func didRegisterForRemoteNotifications(deviceToken: Data) {
         apnsToken = deviceToken.map { String(format: "%02x", $0) }.joined()
+        log(
+            "APNs device token received: bytes=\(deviceToken.count), environment=\(RelayAPNsEnvironment.current.rawValue)",
+        )
         scheduleSynchronization()
     }
 
@@ -83,6 +98,7 @@ import UserNotifications
 
     func handleNotificationResponse(userInfo: [AnyHashable: Any]) {
         guard let route = PushNotificationRoute(userInfo: userInfo) else { return }
+        log("Push notification response received: event=\(route.event ?? "unknown")")
         if !telegramReady {
             pendingRoute = route
             return
@@ -91,9 +107,14 @@ import UserNotifications
     }
 
     func handleBackgroundNotification(userInfo: [AnyHashable: Any]) async -> Bool {
-        guard let stateRoute = PushNotificationRoute(userInfo: userInfo),
-              ["MESSAGE_DELETED", "READ_HISTORY", "READ_REACTION"].contains(stateRoute.event)
-        else { return false }
+        guard let stateRoute = PushNotificationRoute(userInfo: userInfo) else {
+            log("Background push received without a recognized route")
+            return false
+        }
+        log("Background push received: event=\(stateRoute.event ?? "unknown")")
+        guard ["MESSAGE_DELETED", "READ_HISTORY", "READ_REACTION"].contains(stateRoute.event) else {
+            return false
+        }
 
         let center = UNUserNotificationCenter.current()
         let delivered = await center.deliveredNotifications()
@@ -155,9 +176,14 @@ import UserNotifications
 
     nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter,
-        willPresent _: UNNotification,
+        willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void,
     ) {
+        if let route = PushNotificationRoute(userInfo: notification.request.content.userInfo) {
+            log("Foreground push received: event=\(route.event ?? "unknown")")
+        } else {
+            log("Foreground push received without a recognized route")
+        }
         completionHandler([.banner, .list, .sound])
     }
 
@@ -224,13 +250,23 @@ import UserNotifications
     }
 
     private func synchronize() async throws {
-        guard telegramReady,
-              let apnsToken,
-              let api,
-              let appAttest
-        else { return }
+        guard telegramReady else {
+            log("Push relay synchronization waiting for TDLib authorization")
+            return
+        }
+        guard let apnsToken else {
+            log("Push relay synchronization waiting for APNs device token")
+            return
+        }
+        guard let api, let appAttest else {
+            log("Push relay synchronization skipped: relay is not configured")
+            return
+        }
 
         var state = try await stateStore.load()
+        log(
+            "Push relay synchronization started: installation=\(state.installation != nil), subscription=\(state.subscription != nil)",
+        )
         if state.pendingSubscriptionRevocation,
            state.installation != nil,
            state.subscription != nil
@@ -240,6 +276,7 @@ import UserNotifications
         }
 
         if state.installation == nil {
+            log("Creating push relay installation")
             if state.installationIdempotencyKey == nil {
                 state.installationIdempotencyKey = UUID().uuidString.lowercased()
                 try await stateStore.save(state)
@@ -271,10 +308,12 @@ import UserNotifications
             state.apnsToken = apnsToken
             state.installationIdempotencyKey = nil
             try await stateStore.save(state)
+            log("Push relay installation created")
         }
 
         guard let installation = state.installation else { return }
         if state.apnsToken != apnsToken {
+            log("Updating push relay APNs device token")
             try await api.updateAPNsToken(
                 installation: installation,
                 request: RelayUpdateAPNsTokenRequest(
@@ -286,11 +325,14 @@ import UserNotifications
             )
             state.apnsToken = apnsToken
             try await stateStore.save(state)
+            log("Push relay APNs device token updated")
         }
 
         if state.subscription == nil {
+            log("Creating Telegram Web Push subscription")
             state.subscription = try await api.createTelegramSubscription(installation: installation)
             try await stateStore.save(state)
+            log("Telegram Web Push subscription created")
         }
 
         guard let subscription = state.subscription else { return }
@@ -300,10 +342,12 @@ import UserNotifications
         } ?? true
         guard registrationExpired || state.registeredTelegramUserId != currentUser.id else {
             let age = Date().timeIntervalSince(state.lastTDLibRegistrationAt ?? .distantPast)
+            log("TDLib Web Push registration is current")
             scheduleRegistrationRefresh(after: max(60, 24 * 60 * 60 - age))
             return
         }
 
+        log("Registering Telegram Web Push endpoint with TDLib")
         let receiver = try await td.registerDevice(
             deviceToken: .deviceTokenWebPush(
                 DeviceTokenWebPush(
@@ -318,6 +362,7 @@ import UserNotifications
         state.registeredTelegramUserId = currentUser.id
         state.pushReceiverId = receiver.id.rawValue
         try await stateStore.save(state)
+        log("TDLib Web Push endpoint registered: receiverId=\(receiver.id.rawValue)")
         scheduleRegistrationRefresh(after: 24 * 60 * 60)
     }
 

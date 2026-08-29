@@ -93,7 +93,8 @@ actor PushRelayAPIClient {
         body: Data? = nil,
         headers: [String: String] = [:],
     ) async throws -> Data {
-        var request = URLRequest(url: url(path: path))
+        let requestURL = url(path: path)
+        var request = URLRequest(url: requestURL)
         request.httpMethod = method
         request.httpBody = body
         if body != nil {
@@ -101,11 +102,21 @@ actor PushRelayAPIClient {
         }
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
 
-        let (responseData, response) = try await session.data(for: request)
+        log("Push relay request started: \(method) \(requestURL.path)")
+        let responseData: Data
+        let response: URLResponse
+        do {
+            (responseData, response) = try await session.data(for: request)
+        } catch {
+            log("Push relay request failed: \(method) \(requestURL.path), error=\(error.localizedDescription)")
+            throw error
+        }
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        log("Push relay request completed: \(method) \(requestURL.path), status=\(statusCode)")
         guard let httpResponse = response as? HTTPURLResponse,
               200..<300 ~= httpResponse.statusCode
         else {
-            throw RelayAPIError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1)
+            throw RelayAPIError(statusCode: statusCode)
         }
         return responseData
     }

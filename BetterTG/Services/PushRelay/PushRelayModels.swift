@@ -137,6 +137,10 @@ struct PushRelayConfiguration {
 
 // MARK: - RelayAPIError
 
-struct RelayAPIError: Error {
+struct RelayAPIError: Error, LocalizedError {
     let statusCode: Int
+
+    var errorDescription: String? {
+        "Push relay returned HTTP \(statusCode)"
+    }
 }

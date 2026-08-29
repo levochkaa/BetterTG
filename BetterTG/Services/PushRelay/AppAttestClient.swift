@@ -19,12 +19,14 @@ actor AppAttestClient {
     ) async throws -> RelaySignedRequest {
         let service = DCAppAttestService.shared
         guard service.isSupported else {
+            log("App Attest is unsupported; creating unsigned installation request")
             return try RelaySignedRequest(
                 body: encodeInstallation(apnsToken: apnsToken, challenge: nil),
                 headers: [:],
             )
         }
 
+        log("Generating App Attest assertion for installation request")
         let keyId = try await attestedKeyId(api: api, service: service)
         let challenge = try await api.challenge().challenge
         let body = try encodeInstallation(apnsToken: apnsToken, challenge: challenge)
@@ -53,9 +55,11 @@ actor AppAttestClient {
         service: DCAppAttestService,
     ) async throws -> String {
         if let keyId = try await stateStore.load().appAttestKeyId {
+            log("Using existing App Attest key")
             return keyId
         }
 
+        log("Creating and attesting a new App Attest key")
         let challenge = try await api.challenge().challenge
         let keyId = try await service.generateKey()
         let clientDataHash = Data(SHA256.hash(data: Data(challenge.utf8)))
@@ -68,6 +72,7 @@ actor AppAttestClient {
             ),
         )
         try await stateStore.update { $0.appAttestKeyId = keyId }
+        log("App Attest key registered with push relay")
         return keyId
     }
 
