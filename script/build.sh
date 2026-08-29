@@ -33,6 +33,7 @@ FULL_OUTPUT=0
 USE_DEVICE=0
 HAS_LAUNCH_ARGUMENTS=0
 LAUNCH_ARGUMENTS=()
+ATTACH_CONSOLE=0
 SKIP_BUILD=0
 SIMULATOR_BOOT_TIMEOUT_SECONDS=120
 
@@ -70,6 +71,7 @@ Options:
             Argument passed to the launched app. Repeat for multiple arguments.
   -- ARGUMENT...
             Pass all remaining values to the launched app. Only valid for run.
+  --console Attach to stdout/stderr of an app launched on a physical device and wait for it to exit.
   --no-code-signing
             Compile without code signing. Not valid for run.
   --skip-build
@@ -84,6 +86,7 @@ Examples:
   ./build.sh run --ios 26.5
   ./build.sh run --device
   ./build.sh run --device-id 00008150-00110D923412401C
+  ./build.sh run --device --console -- -example value
   ./build.sh run --device -- -example value
   ./build.sh run --launch-argument=-example --launch-argument value
 EOF
@@ -217,6 +220,9 @@ while [[ $# -gt 0 ]]; do
     --no-code-signing)
       CODE_SIGNING_ALLOWED="NO"
       ;;
+    --console)
+      ATTACH_CONSOLE=1
+      ;;
     --skip-build)
       SKIP_BUILD=1
       ;;
@@ -274,6 +280,11 @@ validate_configuration() {
 
   if [[ "$ACTION" != "run" && "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
     echo "error: --launch-argument is only valid for run" >&2
+    exit 2
+  fi
+
+  if [[ "$ATTACH_CONSOLE" == "1" && ("$ACTION" != "run" || "$USE_DEVICE" != "1") ]]; then
+    echo "error: --console is only valid for run with --device or --device-id" >&2
     exit 2
   fi
 
@@ -682,19 +693,25 @@ launch_on_device() {
 
   echo "Launching $APP_NAME in the foreground on the connected iPhone..."
   if [[ "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
-    xcrun devicectl device process launch \
-      --device "$DEVICE_ID" \
-      --terminate-existing \
-      --activate \
-      -- \
-      "$BUNDLE_ID" \
-      "${LAUNCH_ARGUMENTS[@]}"
+    local launch_options=(
+      --device "$DEVICE_ID"
+      --terminate-existing
+      --activate
+    )
+    if [[ "$ATTACH_CONSOLE" == "1" ]]; then
+      launch_options+=(--console)
+    fi
+    xcrun devicectl device process launch "${launch_options[@]}" -- "$BUNDLE_ID" "${LAUNCH_ARGUMENTS[@]}"
   else
-    xcrun devicectl device process launch \
-      --device "$DEVICE_ID" \
-      --terminate-existing \
-      --activate \
-      "$BUNDLE_ID"
+    local launch_options=(
+      --device "$DEVICE_ID"
+      --terminate-existing
+      --activate
+    )
+    if [[ "$ATTACH_CONSOLE" == "1" ]]; then
+      launch_options+=(--console)
+    fi
+    xcrun devicectl device process launch "${launch_options[@]}" "$BUNDLE_ID"
   fi
 }
 
@@ -732,7 +749,6 @@ fi
 if [[ "$USE_DEVICE" == "1" ]]; then
   echo "Finding a connected iPhone..."
   DEVICE_ID="$(resolve_connected_iphone_id "$DEVICE_ID")"
-  validate_connected_iphone "$DEVICE_ID"
   destination="platform=iOS,id=$DEVICE_ID"
   product_platform="iphoneos"
 else
