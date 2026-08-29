@@ -68,6 +68,8 @@ Options:
             Build configuration. Default: Debug.
   --launch-argument VALUE
             Argument passed to the launched app. Repeat for multiple arguments.
+  -- ARGUMENT...
+            Pass all remaining values to the launched app. Only valid for run.
   --no-code-signing
             Compile without code signing. Not valid for run.
   --skip-build
@@ -82,6 +84,7 @@ Examples:
   ./build.sh run --ios 26.5
   ./build.sh run --device
   ./build.sh run --device-id 00008150-00110D923412401C
+  ./build.sh run --device -- -example value
   ./build.sh run --launch-argument=-example --launch-argument value
 EOF
 }
@@ -200,6 +203,16 @@ while [[ $# -gt 0 ]]; do
     --launch-argument=*)
       LAUNCH_ARGUMENTS+=("${1#*=}")
       HAS_LAUNCH_ARGUMENTS=1
+      ;;
+    --)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "error: -- requires at least one launch argument" >&2
+        exit 2
+      fi
+      LAUNCH_ARGUMENTS+=("$@")
+      HAS_LAUNCH_ARGUMENTS=1
+      break
       ;;
     --no-code-signing)
       CODE_SIGNING_ALLOWED="NO"
@@ -659,6 +672,7 @@ launch_on_device() {
       --device "$DEVICE_ID" \
       --terminate-existing \
       --activate \
+      -- \
       "$BUNDLE_ID" \
       "${LAUNCH_ARGUMENTS[@]}"
   else
