@@ -23,8 +23,12 @@ final class TDLib: @unchecked Sendable {
             log("TDLib requested client parameters")
             Task.background {
                 do {
-                    try await self.configureTDLibParameters()
-                    log("TDLib client parameters configured")
+                    let state = try await self.configureTDLibParameters()
+                    log("TDLib client parameters configured; state=\(state.diagnosticName)")
+                    if case .authorizationStateWaitTdlibParameters = state {
+                        return
+                    }
+                    self.UpdateAuthorizationState(state)
                 } catch {
                     log("TDLib client parameter configuration failed: \(error.localizedDescription)")
                 }
@@ -42,6 +46,7 @@ final class TDLib: @unchecked Sendable {
     }
 
     func UpdateAuthorizationState(_ updateAuthorizationState: AuthorizationState) {
+        log("TDLib authorization state received: \(updateAuthorizationState.diagnosticName)")
         switch updateAuthorizationState {
         case .authorizationStateWaitTdlibParameters:
             nc.post(name: .authorizationStateWaitTdlibParameters)
@@ -90,7 +95,7 @@ final class TDLib: @unchecked Sendable {
     private var cancellables = Set<AnyCancellable>()
     private let manager = TDLibClientManager()
 
-    private func configureTDLibParameters() async throws {
+    private func configureTDLibParameters() async throws -> AuthorizationState {
         let dir = try FileManager.default
             .url(
                 for: .documentDirectory,
@@ -117,5 +122,39 @@ final class TDLib: @unchecked Sendable {
             useSecretChats: true,
             useTestDc: false,
         )
+        return try await td.getAuthorizationState()
+    }
+}
+
+private extension AuthorizationState {
+    var diagnosticName: String {
+        switch self {
+        case .authorizationStateWaitTdlibParameters:
+            "waitTdlibParameters"
+        case .authorizationStateWaitPhoneNumber:
+            "waitPhoneNumber"
+        case .authorizationStateWaitEmailAddress:
+            "waitEmailAddress"
+        case .authorizationStateWaitEmailCode:
+            "waitEmailCode"
+        case .authorizationStateWaitCode:
+            "waitCode"
+        case .authorizationStateWaitOtherDeviceConfirmation:
+            "waitOtherDeviceConfirmation"
+        case .authorizationStateWaitRegistration:
+            "waitRegistration"
+        case .authorizationStateWaitPassword:
+            "waitPassword"
+        case .authorizationStateReady:
+            "ready"
+        case .authorizationStateLoggingOut:
+            "loggingOut"
+        case .authorizationStateClosing:
+            "closing"
+        case .authorizationStateClosed:
+            "closed"
+        case .authorizationStateWaitPremiumPurchase:
+            "waitPremiumPurchase"
+        }
     }
 }
