@@ -2,23 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/script/xcode_env.sh"
 source "$ROOT_DIR/script/device.sh"
 
 PROJECT_NAME="BetterTG"
 APP_NAME="BetterTG"
 BUNDLE_ID="com.levochkaaa.BetterTG"
 SCHEME="BetterTG"
-CONFIGURATION="${CONFIGURATION:-Debug}"
+DEFAULT_XCODE_PATH="/Applications/Xcode-26.6.0.app"
+XCODE_PATH="$DEFAULT_XCODE_PATH"
+CONFIGURATION="Debug"
 DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
-SIMULATOR_NAME="${SIMULATOR_NAME:-iPhone 17 Pro}"
-SIMULATOR_ID="${SIMULATOR_ID:-}"
-DEVICE_ID="${DEVICE_ID:-}"
-CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
+SIMULATOR_NAME="iPhone 17 Pro"
+SIMULATOR_ID=""
+DEVICE_ID=""
+CODE_SIGNING_ALLOWED="YES"
 IOS_VERSION="latest"
 ACTION="build"
 FULL_OUTPUT=0
 USE_DEVICE=0
+HAS_LAUNCH_ARGUMENTS=0
+LAUNCH_ARGUMENTS=()
 
 usage() {
   cat <<'EOF'
@@ -30,9 +33,22 @@ Commands:
 
 Options:
   --device  Use the available paired physical iPhone instead of Simulator.
-            Set DEVICE_ID to choose a specific iPhone when more than one is available.
+  --device-id ID
+            Use a specific paired physical iPhone identifier.
+  --simulator NAME
+            Simulator name. Default: iPhone 17 Pro.
+  --simulator-id ID
+            Use a specific simulator UDID instead of resolving by name and runtime.
   --ios VERSION|latest
             Simulator iOS runtime. Default: latest existing runtime for the simulator.
+  --xcode PATH
+            Xcode .app or Developer directory. Default: /Applications/Xcode-26.6.0.app.
+  --configuration Debug|Release, --debug, --release
+            Build configuration. Default: Debug.
+  --launch-argument VALUE
+            Argument passed to the launched app. Repeat for multiple arguments.
+  --no-code-signing
+            Compile without code signing. Not valid for run.
   --full-output, --verbose
             Print complete build output instead of concise progress.
 
@@ -40,7 +56,8 @@ Examples:
   ./build.sh run
   ./build.sh run --ios 26.5
   ./build.sh run --device
-  RUN_ARGUMENTS="-example value" ./build.sh run --device
+  ./build.sh run --device-id 00008150-00110D923412401C
+  ./build.sh run --launch-argument=-example --launch-argument value
 EOF
 }
 
@@ -58,6 +75,31 @@ while [[ $# -gt 0 ]]; do
     --device)
       USE_DEVICE=1
       ;;
+    --device-id)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --device-id requires an identifier" >&2
+        exit 2
+      fi
+      USE_DEVICE=1
+      DEVICE_ID="$2"
+      shift
+      ;;
+    --simulator)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --simulator requires a name" >&2
+        exit 2
+      fi
+      SIMULATOR_NAME="$2"
+      shift
+      ;;
+    --simulator-id)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --simulator-id requires a UDID" >&2
+        exit 2
+      fi
+      SIMULATOR_ID="$2"
+      shift
+      ;;
     --ios)
       if [[ $# -lt 2 || -z "$2" ]]; then
         echo "error: --ios requires VERSION or latest" >&2
@@ -65,6 +107,51 @@ while [[ $# -gt 0 ]]; do
       fi
       IOS_VERSION="$2"
       shift
+      ;;
+    --xcode)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --xcode requires an Xcode .app or Developer directory" >&2
+        exit 2
+      fi
+      XCODE_PATH="$2"
+      shift
+      ;;
+    --configuration)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --configuration requires Debug or Release" >&2
+        exit 2
+      fi
+      case "$2" in
+        Debug|debug) CONFIGURATION="Debug" ;;
+        Release|release) CONFIGURATION="Release" ;;
+        *)
+          echo "error: unsupported configuration '$2' (expected Debug or Release)" >&2
+          exit 2
+          ;;
+      esac
+      shift
+      ;;
+    --debug)
+      CONFIGURATION="Debug"
+      ;;
+    --release)
+      CONFIGURATION="Release"
+      ;;
+    --launch-argument)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --launch-argument requires a value" >&2
+        exit 2
+      fi
+      LAUNCH_ARGUMENTS+=("$2")
+      HAS_LAUNCH_ARGUMENTS=1
+      shift
+      ;;
+    --launch-argument=*)
+      LAUNCH_ARGUMENTS+=("${1#*=}")
+      HAS_LAUNCH_ARGUMENTS=1
+      ;;
+    --no-code-signing)
+      CODE_SIGNING_ALLOWED="NO"
       ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
@@ -94,6 +181,51 @@ validate_configuration() {
 
   if [[ "$IOS_VERSION" != "latest" && ! "$IOS_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
     echo "error: unsupported iOS version '$IOS_VERSION' (expected VERSION or latest)" >&2
+    exit 2
+  fi
+
+  if [[ "$USE_DEVICE" == "1" && -n "$SIMULATOR_ID" ]]; then
+    echo "error: --simulator-id cannot be combined with --device or --device-id" >&2
+    exit 2
+  fi
+
+  if [[ -n "$SIMULATOR_ID" && "$IOS_VERSION" != "latest" ]]; then
+    echo "error: --simulator-id cannot be combined with --ios" >&2
+    exit 2
+  fi
+
+  if [[ "$ACTION" != "run" && "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
+    echo "error: --launch-argument is only valid for run" >&2
+    exit 2
+  fi
+
+  if [[ "$ACTION" == "run" && "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
+    echo "error: --no-code-signing cannot be used for run" >&2
+    exit 2
+  fi
+}
+
+configure_xcode() {
+  local developer_dir="${XCODE_PATH%/}"
+  local xcode_version
+  case "$developer_dir" in
+    *.app) developer_dir="$developer_dir/Contents/Developer" ;;
+  esac
+
+  if [[ ! -x "$developer_dir/usr/bin/xcodebuild" ]]; then
+    echo "error: Xcode developer directory is invalid: $developer_dir" >&2
+    exit 2
+  fi
+
+  export DEVELOPER_DIR="$developer_dir"
+  xcode_version="$(xcodebuild -version)"
+  xcode_version="${xcode_version%%$'\n'*}"
+  echo "Using $xcode_version ($developer_dir)"
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "error: required command '$1' is not installed" >&2
     exit 2
   fi
 }
@@ -168,34 +300,65 @@ tdlib_update_model_exists() {
 
 simulator_id() {
   local simctl_json
+  local selected_id
   simctl_json="$(xcrun simctl list devices available -j)"
-  SIMCTL_JSON="$simctl_json" python3 - "$SIMULATOR_NAME" "$IOS_VERSION" <<'PY'
-import json
-import os
-import re
-import sys
 
-target_name = sys.argv[1]
-target_os = sys.argv[2]
-target_version = None if target_os == "latest" else tuple(map(int, target_os.split(".")))
-fallback_version = target_version[:2] if target_version and len(target_version) == 3 else None
-data = json.loads(os.environ["SIMCTL_JSON"])
-matches = []
-for runtime, devices in data.get("devices", {}).items():
-    version_match = re.search(r"iOS-([0-9-]+)$", runtime)
-    version = tuple(map(int, version_match.group(1).split("-"))) if version_match else (0, 0)
-    if target_version and version not in {target_version, fallback_version}:
-        continue
-    for device in devices:
-        if device.get("name") == target_name and device.get("isAvailable", False):
-            matches.append((version, device["udid"]))
+  if [[ "$IOS_VERSION" == "latest" ]]; then
+    selected_id="$(
+      jq -r --arg name "$SIMULATOR_NAME" '
+        [
+          .devices
+          | to_entries[]
+          | .key as $runtime
+          | select($runtime | contains("com.apple.CoreSimulator.SimRuntime.iOS-"))
+          | .value[]?
+          | select((.isAvailable // true) and .name == $name)
+          | {
+              udid: .udid,
+              version: (
+                ($runtime | capture("iOS-(?<version>[0-9-]+)$")? | .version // "0")
+                | split("-")
+                | map(tonumber)
+              )
+            }
+        ]
+        | sort_by(.version)
+        | last
+        | .udid // empty
+      ' <<< "$simctl_json"
+    )"
+  else
+    local runtime="com.apple.CoreSimulator.SimRuntime.iOS-${IOS_VERSION//./-}"
+    local fallback_runtime=""
+    if [[ "$IOS_VERSION" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+      fallback_runtime="com.apple.CoreSimulator.SimRuntime.iOS-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+    fi
 
-if not matches:
-    os_suffix = f" with iOS {target_os}" if target_version else ""
-    raise SystemExit(f"error: no available simulator named {target_name!r}{os_suffix}")
+    selected_id="$(
+      jq -r \
+        --arg runtime "$runtime" \
+        --arg fallbackRuntime "$fallback_runtime" \
+        --arg name "$SIMULATOR_NAME" '
+          [
+            (.devices[$runtime] // .devices[$fallbackRuntime] // [])[]?
+            | select((.isAvailable // true) and .name == $name)
+          ]
+          | first
+          | .udid // empty
+        ' <<< "$simctl_json"
+    )"
+  fi
 
-print(sorted(matches)[-1][1])
-PY
+  if [[ -z "$selected_id" ]]; then
+    local os_suffix=""
+    if [[ "$IOS_VERSION" != "latest" ]]; then
+      os_suffix=" with iOS $IOS_VERSION"
+    fi
+    echo "error: no available simulator named '$SIMULATOR_NAME'$os_suffix" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$selected_id"
 }
 
 launch_on_device() {
@@ -203,15 +366,13 @@ launch_on_device() {
   xcrun devicectl device install app --device "$DEVICE_ID" "$APP_BUNDLE"
 
   echo "Launching $APP_NAME in the foreground on the connected iPhone..."
-  if [[ -n "${RUN_ARGUMENTS:-}" ]]; then
-    local launch_arguments=()
-    read -r -a launch_arguments <<< "$RUN_ARGUMENTS"
+  if [[ "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
     xcrun devicectl device process launch \
       --device "$DEVICE_ID" \
       --terminate-existing \
       --activate \
       "$BUNDLE_ID" \
-      "${launch_arguments[@]}"
+      "${LAUNCH_ARGUMENTS[@]}"
   else
     xcrun devicectl device process launch \
       --device "$DEVICE_ID" \
@@ -226,16 +387,17 @@ launch_on_simulator() {
   open -a Simulator
   xcrun simctl install "$SIMULATOR_ID" "$APP_BUNDLE"
 
-  if [[ -n "${RUN_ARGUMENTS:-}" ]]; then
-    local launch_arguments=()
-    read -r -a launch_arguments <<< "$RUN_ARGUMENTS"
-    xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID" "${launch_arguments[@]}"
+  if [[ "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
+    xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID" "${LAUNCH_ARGUMENTS[@]}"
   else
     xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID"
   fi
 }
 
 validate_configuration
+require_command jq
+require_command xcrun
+configure_xcode
 
 if [[ "$USE_DEVICE" == "1" ]]; then
   echo "Finding a connected iPhone..."
@@ -260,7 +422,7 @@ if ! tdlib_update_model_exists; then
 fi
 
 echo "Updating generated TDLib models..."
-run_with_filtered_output env BETTERTG_TD_SKIP_RESOLVE=1 python3 "$ROOT_DIR/td.py"
+run_with_filtered_output python3 "$ROOT_DIR/td.py" --skip-resolve
 
 xcodebuild_args=(
   -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
@@ -272,8 +434,17 @@ xcodebuild_args=(
   -scmProvider system
   -skipPackagePluginValidation
   -skipMacroValidation
-  "CODE_SIGNING_ALLOWED=$CODE_SIGNING_ALLOWED"
 )
+
+if [[ "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
+  xcodebuild_args+=(
+    "CODE_SIGNING_ALLOWED=NO"
+    "CODE_SIGNING_REQUIRED=NO"
+    "CODE_SIGN_IDENTITY="
+  )
+else
+  xcodebuild_args+=("CODE_SIGNING_ALLOWED=YES")
+fi
 
 if [[ "$USE_DEVICE" == "1" ]]; then
   xcodebuild_args+=(

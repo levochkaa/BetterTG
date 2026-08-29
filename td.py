@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import argparse
 import subprocess
-import os
 from pathlib import Path
 
 
@@ -137,7 +137,15 @@ def generate(update_source: str) -> bool:
 
 
 def main() -> None:
-    if os.environ.get("BETTERTG_TD_SKIP_RESOLVE") == "1":
+    parser = argparse.ArgumentParser(description="Generate BetterTG TDLib update bindings")
+    parser.add_argument(
+        "--skip-resolve",
+        action="store_true",
+        help="reuse the existing TDLibKit checkout instead of resolving packages",
+    )
+    arguments = parser.parse_args()
+
+    if arguments.skip_resolve:
         ensure_xcode_project()
     else:
         resolve_xcode_packages()

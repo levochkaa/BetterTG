@@ -3,66 +3,63 @@
 resolve_connected_iphone_id() {
   local requested_id="${1:-}"
   local devices_json
+  local matches_json
+  local match_count
 
   if ! devices_json="$(xcrun devicectl list devices --quiet --json-output -)"; then
     echo "error: failed to discover devices through devicectl" >&2
     return 1
   fi
 
-  BETTERTG_DEVICES_JSON="$devices_json" python3 - "$requested_id" <<'PY'
-import json
-import os
-import sys
+  matches_json="$(
+    jq -c --arg requested "$requested_id" '
+      [
+        .result.devices[]?
+        | {
+            identifier: .identifier,
+            name: (.properties.state.name // .deviceProperties.name // "iPhone"),
+            reality: (.properties.hardware.reality // .hardwareProperties.reality),
+            platform: (.properties.hardware.platform // .hardwareProperties.platform),
+            deviceType: (.properties.hardware.deviceType // .hardwareProperties.deviceType),
+            bootState: (.properties.state.bootState // .deviceProperties.bootState),
+            pairingState: (.properties.connection.pairingState // .connectionProperties.pairingState),
+            udid: (.properties.hardware.udid // .hardwareProperties.udid)
+          }
+        | select(
+            .reality == "physical"
+            and .platform == "iOS"
+            and .deviceType == "iPhone"
+            and .bootState == "booted"
+            and .pairingState == "paired"
+            and ((.udid | length) > 0)
+          )
+        | select(
+            $requested == ""
+            or .identifier == $requested
+            or .udid == $requested
+          )
+      ]
+    ' <<< "$devices_json"
+  )"
+  match_count="$(jq -r 'length' <<< "$matches_json")"
 
-requested_id = sys.argv[1]
-data = json.loads(os.environ["BETTERTG_DEVICES_JSON"])
-matches = []
+  if [[ "$match_count" == "0" ]]; then
+    if [[ -n "$requested_id" ]]; then
+      echo "error: physical iPhone '$requested_id' is not available; connect, unlock, trust this Mac, and enable Developer Mode" >&2
+    else
+      echo "error: no available paired physical iPhone; connect, unlock, trust this Mac, and enable Developer Mode" >&2
+    fi
+    return 1
+  fi
 
-for device in data.get("result", {}).get("devices", []):
-    properties = device.get("properties", {})
-    hardware = properties.get("hardware", {})
-    state = properties.get("state", {})
-    connection = properties.get("connection", {})
-    legacy_hardware = device.get("hardwareProperties", {})
-    legacy_state = device.get("deviceProperties", {})
-    legacy_connection = device.get("connectionProperties", {})
+  if [[ "$match_count" -gt 1 ]]; then
+    local choices
+    choices="$(jq -r 'map("\(.name) (\(.udid))") | join(", ")' <<< "$matches_json")"
+    echo "error: multiple physical iPhones are available: $choices; pass --device-id ID" >&2
+    return 1
+  fi
 
-    reality = hardware.get("reality", legacy_hardware.get("reality"))
-    platform = hardware.get("platform", legacy_hardware.get("platform"))
-    device_type = hardware.get("deviceType", legacy_hardware.get("deviceType"))
-    boot_state = state.get("bootState", legacy_state.get("bootState"))
-    pairing_state = connection.get("pairingState", legacy_connection.get("pairingState"))
-    udid = hardware.get("udid", legacy_hardware.get("udid"))
-    identifier = device.get("identifier")
-    name = state.get("name", legacy_state.get("name", "iPhone"))
-
-    if reality != "physical" or platform != "iOS" or device_type != "iPhone":
-        continue
-    if boot_state != "booted" or pairing_state != "paired" or not udid:
-        continue
-    if requested_id and requested_id not in {identifier, udid}:
-        continue
-    matches.append((name, udid))
-
-if not matches:
-    if requested_id:
-        raise SystemExit(
-            f"error: physical iPhone {requested_id!r} is not available; "
-            "connect, unlock, trust this Mac, and enable Developer Mode"
-        )
-    raise SystemExit(
-        "error: no available paired physical iPhone; "
-        "connect, unlock, trust this Mac, and enable Developer Mode"
-    )
-
-if len(matches) > 1:
-    choices = ", ".join(f"{name} ({udid})" for name, udid in matches)
-    raise SystemExit(
-        f"error: multiple physical iPhones are available: {choices}; set DEVICE_ID"
-    )
-
-print(matches[0][1])
-PY
+  jq -r '.[0].udid' <<< "$matches_json"
 }
 
 validate_connected_iphone() {
@@ -79,22 +76,14 @@ validate_connected_iphone() {
     return 1
   fi
 
-  BETTERTG_DEVICE_DETAILS_JSON="$details_json" python3 - <<'PY'
-import json
-import os
+  if [[ "$(jq -r '.result.deviceProperties.developerModeStatus // ""' <<< "$details_json")" != "enabled" ]]; then
+    echo "error: Developer Mode is not enabled on the physical iPhone" >&2
+    return 1
+  fi
 
-data = json.loads(os.environ["BETTERTG_DEVICE_DETAILS_JSON"])
-result = data.get("result", {})
-device = result.get("deviceProperties", {})
-connection = result.get("connectionProperties", {})
-
-if device.get("developerModeStatus") != "enabled":
-    raise SystemExit("error: Developer Mode is not enabled on the physical iPhone")
-
-if device.get("ddiServicesAvailable") is not True or connection.get("tunnelState") != "connected":
-    raise SystemExit(
-        "error: development services are unavailable; unlock the physical iPhone "
-        "and keep its screen on"
-    )
-PY
+  if [[ "$(jq -r '.result.deviceProperties.ddiServicesAvailable == true' <<< "$details_json")" != "true" ]] ||
+    [[ "$(jq -r '.result.connectionProperties.tunnelState // ""' <<< "$details_json")" != "connected" ]]; then
+    echo "error: development services are unavailable; unlock the physical iPhone and keep its screen on" >&2
+    return 1
+  fi
 }

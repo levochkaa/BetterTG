@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/script/xcode_env.sh"
 PROJECT_SPEC="$ROOT_DIR/project.yml"
 PROJECT_PATH="$ROOT_DIR/BetterTG.xcodeproj"
 
