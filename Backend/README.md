@@ -53,6 +53,8 @@ docker compose -f compose.yaml -f compose.vps.yaml up --build -d \
 ```
 
 Point the host reverse proxy at `127.0.0.1:8080`. PostgreSQL and Redis remain bound to loopback.
+When APNs keys are bind-mounted with mode `0600`, set `BETTERTG_WORKER_UID` and
+`BETTERTG_WORKER_GID` to the numeric owner reported by `id -u` and `id -g` on the VPS.
 
 Development defaults use APNs dry-run and bypass App Attest. These modes are rejected as production App Attest configuration and must not be exposed publicly.
 

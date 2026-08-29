@@ -2,3 +2,5 @@ services:
     api:
         ports:
             - '127.0.0.1:8080:3000'
+    worker:
+        user: '${BETTERTG_WORKER_UID:-1000}:${BETTERTG_WORKER_GID:-1000}'
