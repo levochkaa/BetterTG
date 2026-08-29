@@ -11,54 +11,30 @@ var td: TDLibClient { TDLib.shared.td }
 final class TDLib: @unchecked Sendable {
     // MARK: Lifecycle
 
-    private init() {
-        self.td = manager.createClient { data, client in
-            do {
-                try update(client.decoder.decode(Update.self, from: data))
-            } catch {
-                log("Error TdLibUpdateHandler: \(error)")
-            }
-        }
-    }
+    private init() {}
 
     // MARK: Internal
 
     static let shared = TDLib()
 
     func startTdLibUpdateHandler() {
-        // Xcode 15+ is unable to handle so many logs
-        try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
-
-        nc.publisher(&cancellables, for: .authorizationStateWaitTdlibParameters) { _ in
+        nc.publisher(&cancellables, for: .authorizationStateWaitTdlibParameters) { [weak self] _ in
+            guard let self else { return }
+            log("TDLib requested client parameters")
             Task.background {
-                let dir = try FileManager.default
-                    .url(
-                        for: .documentDirectory,
-                        in: .userDomainMask,
-                        appropriateFor: nil,
-                        create: true,
-                    )
-                    .appending(path: "td")
-                    .path()
-
-                try await self.td.setTdlibParameters(
-                    apiHash: Secret.apiHash,
-                    apiId: Secret.apiId,
-                    applicationVersion: Utils.applicationVersion,
-                    databaseDirectory: dir,
-                    databaseEncryptionKey: Data(),
-                    deviceModel: Utils.modelName,
-                    filesDirectory: dir,
-                    systemLanguageCode: "en-US",
-                    systemVersion: UIDevice.current.systemVersion,
-                    useChatInfoDatabase: true,
-                    useFileDatabase: true,
-                    useMessageDatabase: true,
-                    useSecretChats: true,
-                    useTestDc: false,
-                )
+                do {
+                    try await self.configureTDLibParameters()
+                    log("TDLib client parameters configured")
+                } catch {
+                    log("TDLib client parameter configuration failed: \(error.localizedDescription)")
+                }
             }
         }
+
+        // Access the lazy client only after the initial authorization-state observer is installed.
+        // Otherwise TDLib can emit waitTdlibParameters while TDLib.shared is still initializing.
+        // Xcode 15+ is unable to handle so many logs.
+        try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
 
         nc.publisher(&cancellables, for: UIApplication.willTerminateNotification) { [weak self] _ in
             self?.manager.closeClients()
@@ -101,10 +77,45 @@ final class TDLib: @unchecked Sendable {
 
     // MARK: Fileprivate
 
-    fileprivate let td: TDLibClient
+    fileprivate lazy var td = manager.createClient { data, client in
+        do {
+            try update(client.decoder.decode(Update.self, from: data))
+        } catch {
+            log("Error TdLibUpdateHandler: \(error)")
+        }
+    }
 
     // MARK: Private
 
     private var cancellables = Set<AnyCancellable>()
     private let manager = TDLibClientManager()
+
+    private func configureTDLibParameters() async throws {
+        let dir = try FileManager.default
+            .url(
+                for: .documentDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true,
+            )
+            .appending(path: "td")
+            .path()
+
+        try await td.setTdlibParameters(
+            apiHash: Secret.apiHash,
+            apiId: Secret.apiId,
+            applicationVersion: Utils.applicationVersion,
+            databaseDirectory: dir,
+            databaseEncryptionKey: Data(),
+            deviceModel: Utils.modelName,
+            filesDirectory: dir,
+            systemLanguageCode: "en-US",
+            systemVersion: UIDevice.current.systemVersion,
+            useChatInfoDatabase: true,
+            useFileDatabase: true,
+            useMessageDatabase: true,
+            useSecretChats: true,
+            useTestDc: false,
+        )
+    }
 }
