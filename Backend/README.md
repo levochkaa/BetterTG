@@ -73,7 +73,7 @@ Catalog updates require human review. A newly introduced key remains non-visible
 Before deployment:
 
 1. Point a public DNS name at the server and set `SERVER_ADDRESS`/`PUBLIC_BASE_URL` to its HTTPS URL.
-2. Create an APNs `.p8` provider key and set `APPLE_KEY_ID`, `APPLE_TEAM_ID`, and `APPLE_AUTH_KEY`. `APPLE_AUTH_KEY` accepts either PEM text with escaped newlines or base64-encoded PEM.
+2. Create separate APNs `.p8` provider keys for Sandbox and Production. Set `APPLE_TEAM_ID`, `APNS_SANDBOX_KEY_ID`, `APNS_SANDBOX_AUTH_KEY`, `APNS_PRODUCTION_KEY_ID`, and `APNS_PRODUCTION_AUTH_KEY`. Auth-key values accept either PEM text with escaped newlines or base64-encoded PEM. Legacy APNs keys that support both environments may be supplied in both pairs.
 3. Set `APNS_DRY_RUN=false`.
 4. Set `APP_ATTEST_MODE=enforce` and normally `APP_ATTEST_ALLOW_DEVELOPMENT=false`.
 5. Generate independent 32-byte values for the encryption key and management-token pepper:
@@ -93,7 +93,7 @@ The production process refuses non-HTTPS public URLs, App Attest bypass, develop
 
 `ENCRYPTION_KEYS` is a comma-separated keyring such as `v1:<base64>,v2:<base64>`. Set `ENCRYPTION_CURRENT_KEY_ID=v2` to encrypt new values with `v2` while retaining `v1` for reads. Re-encrypt existing rows before removing an old key. Changing `MANAGEMENT_TOKEN_PEPPER` invalidates every installation bearer token and therefore requires re-registration by all clients.
 
-APNs token-signing JWTs are cached for 50 minutes. Rotating the Apple `.p8` key requires replacing the three Apple settings and restarting workers so existing HTTP/2 sessions close.
+APNs token-signing JWTs are cached independently for Sandbox and Production for 50 minutes. Rotating an Apple `.p8` key requires replacing that environment's key ID and auth key, then restarting workers so existing HTTP/2 sessions close.
 
 ## Backup and restore
 

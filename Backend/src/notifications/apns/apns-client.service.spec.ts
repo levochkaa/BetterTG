@@ -28,12 +28,20 @@ describe('ApnsClientService', () => {
         let requests = 0
         let lastHeaders: http2.IncomingHttpHeaders = {}
         let lastBody = ''
+        const authorizationKeyIds: string[] = []
         server.on('session', () => {
             sessions += 1
         })
         server.on('stream', (stream: ServerHttp2Stream, headers) => {
             requests += 1
             lastHeaders = headers
+            const token = String(headers.authorization).replace(/^bearer /, '')
+            const encodedHeader = token.split('.')[0]
+            if (!encodedHeader) throw new Error('provider token has no JWT header')
+            const header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString()) as {
+                kid: string
+            }
+            authorizationKeyIds.push(header.kid)
             lastBody = ''
             stream.setEncoding('utf8')
             stream.on('data', (chunk: string) => {
@@ -60,9 +68,11 @@ describe('ApnsClientService', () => {
                 APNS_SANDBOX_URL: endpoint,
                 APNS_PRODUCTION_URL: endpoint,
                 APNS_REQUEST_TIMEOUT_MS: 1000,
-                APPLE_KEY_ID: 'ABCDEFGHIJ',
                 APPLE_TEAM_ID: 'KLMNOPQRST',
-                APPLE_AUTH_KEY: privateKey,
+                APNS_SANDBOX_KEY_ID: 'SBXKEY0001',
+                APNS_SANDBOX_AUTH_KEY: privateKey,
+                APNS_PRODUCTION_KEY_ID: 'PRDKEY0001',
+                APNS_PRODUCTION_AUTH_KEY: privateKey,
             } as Environment),
             { apnsConnectionEvents: { add: () => undefined } } as unknown as MetricsService,
         )
@@ -80,8 +90,15 @@ describe('ApnsClientService', () => {
 
         expect(await service.send(request)).toEqual({ kind: 'success', status: 200 })
         expect(await service.send(request)).toEqual({ kind: 'success', status: 200 })
+        expect(
+            await service.send({
+                ...request,
+                environment: 'production',
+            }),
+        ).toEqual({ kind: 'success', status: 200 })
         expect(sessions).toBe(1)
-        expect(requests).toBe(2)
+        expect(requests).toBe(3)
+        expect(authorizationKeyIds).toEqual(['SBXKEY0001', 'SBXKEY0001', 'PRDKEY0001'])
         expect(lastHeaders['apns-topic']).toBe('com.example.App')
         expect(lastHeaders['apns-push-type']).toBe('alert')
         expect(String(lastHeaders.authorization)).toStartWith('bearer ')
@@ -119,9 +136,11 @@ describe('ApnsClientService', () => {
                 APNS_SANDBOX_URL: endpoint,
                 APNS_PRODUCTION_URL: endpoint,
                 APNS_REQUEST_TIMEOUT_MS: 1000,
-                APPLE_KEY_ID: 'ABCDEFGHIJ',
                 APPLE_TEAM_ID: 'KLMNOPQRST',
-                APPLE_AUTH_KEY: privateKey,
+                APNS_SANDBOX_KEY_ID: 'SBXKEY0001',
+                APNS_SANDBOX_AUTH_KEY: privateKey,
+                APNS_PRODUCTION_KEY_ID: 'PRDKEY0001',
+                APNS_PRODUCTION_AUTH_KEY: privateKey,
             } as Environment),
             { apnsConnectionEvents: { add: () => undefined } } as unknown as MetricsService,
         )

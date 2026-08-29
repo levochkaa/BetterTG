@@ -14,8 +14,10 @@ const environmentSchema = z
         REDIS_URL: z.string().url().default('redis://localhost:6380/0'),
         BUNDLE_ID: z.string().min(3).default('com.levochkaaa.BetterTG'),
         APPLE_TEAM_ID: z.string().min(1).default('7Z2WHPKU8W'),
-        APPLE_KEY_ID: z.string().default(''),
-        APPLE_AUTH_KEY: z.string().default(''),
+        APNS_SANDBOX_KEY_ID: z.string().default(''),
+        APNS_SANDBOX_AUTH_KEY: z.string().default(''),
+        APNS_PRODUCTION_KEY_ID: z.string().default(''),
+        APNS_PRODUCTION_AUTH_KEY: z.string().default(''),
         APNS_DRY_RUN: booleanString.default(true),
         APNS_SANDBOX_URL: z.string().url().default('https://api.sandbox.push.apple.com'),
         APNS_PRODUCTION_URL: z.string().url().default('https://api.push.apple.com'),
@@ -61,12 +63,22 @@ const environmentSchema = z
         }
         if (
             !environment.APNS_DRY_RUN &&
-            (!environment.APPLE_KEY_ID || !environment.APPLE_AUTH_KEY)
+            (!environment.APNS_SANDBOX_KEY_ID || !environment.APNS_SANDBOX_AUTH_KEY)
         ) {
             context.addIssue({
                 code: 'custom',
-                path: ['APPLE_AUTH_KEY'],
-                message: 'APNs credentials are required when dry-run mode is disabled',
+                path: ['APNS_SANDBOX_AUTH_KEY'],
+                message: 'sandbox APNs credentials are required when dry-run mode is disabled',
+            })
+        }
+        if (
+            !environment.APNS_DRY_RUN &&
+            (!environment.APNS_PRODUCTION_KEY_ID || !environment.APNS_PRODUCTION_AUTH_KEY)
+        ) {
+            context.addIssue({
+                code: 'custom',
+                path: ['APNS_PRODUCTION_AUTH_KEY'],
+                message: 'production APNs credentials are required when dry-run mode is disabled',
             })
         }
         if (

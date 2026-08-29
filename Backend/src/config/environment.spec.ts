@@ -32,4 +32,26 @@ describe('validateEnvironment', () => {
 
         expect(environment.APP_ATTEST_MODE).toBe('enforce')
     })
+
+    it('requires credentials for both APNs environments in real production delivery', () => {
+        const production = {
+            NODE_ENV: 'production',
+            PUBLIC_BASE_URL: 'https://push.example.com',
+            APP_ATTEST_MODE: 'enforce',
+            ENCRYPTION_CURRENT_KEY_ID: 'v1',
+            ENCRYPTION_KEYS: 'v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+            APNS_DRY_RUN: 'false',
+            APNS_SANDBOX_KEY_ID: 'SBXKEY0001',
+            APNS_SANDBOX_AUTH_KEY: 'sandbox-key',
+        }
+
+        expect(() => validateEnvironment(production)).toThrow()
+        expect(
+            validateEnvironment({
+                ...production,
+                APNS_PRODUCTION_KEY_ID: 'PRDKEY0001',
+                APNS_PRODUCTION_AUTH_KEY: 'production-key',
+            }).APNS_DRY_RUN,
+        ).toBe(false)
+    })
 })
