@@ -40,7 +40,7 @@ import UserNotifications
             ),
         ])
 
-        NotificationCenter.default
+        nc
             .publisher(for: .authorizationStateReady)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -52,7 +52,7 @@ import UserNotifications
             }
             .store(in: &cancellables)
 
-        NotificationCenter.default
+        nc
             .publisher(for: .authorizationStateLoggingOut)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
