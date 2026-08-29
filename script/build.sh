@@ -12,17 +12,17 @@ SCHEME="BetterTG"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
 SIMULATOR_NAME="${SIMULATOR_NAME:-iPhone 17 Pro}"
-SIMULATOR_OS="${SIMULATOR_OS:-}"
 SIMULATOR_ID="${SIMULATOR_ID:-}"
 DEVICE_ID="${DEVICE_ID:-}"
 CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
+IOS_VERSION="latest"
 ACTION="build"
 FULL_OUTPUT=0
 USE_DEVICE=0
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [build|run] [--device] [--full-output|--verbose]
+Usage: ./build.sh [build|run] [options]
 
 Commands:
   build     Build BetterTG (default).
@@ -31,12 +31,14 @@ Commands:
 Options:
   --device  Use the available paired physical iPhone instead of Simulator.
             Set DEVICE_ID to choose a specific iPhone when more than one is available.
+  --ios VERSION|latest
+            Simulator iOS runtime. Default: latest existing runtime for the simulator.
   --full-output, --verbose
             Print complete build output instead of concise progress.
 
 Examples:
   ./build.sh run
-  SIMULATOR_OS=26.5 ./build.sh run
+  ./build.sh run --ios 26.5
   ./build.sh run --device
   RUN_ARGUMENTS="-example value" ./build.sh run --device
 EOF
@@ -55,6 +57,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --device)
       USE_DEVICE=1
+      ;;
+    --ios)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --ios requires VERSION or latest" >&2
+        exit 2
+      fi
+      IOS_VERSION="$2"
+      shift
       ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
@@ -81,6 +91,11 @@ validate_configuration() {
       exit 2
       ;;
   esac
+
+  if [[ "$IOS_VERSION" != "latest" && ! "$IOS_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "error: unsupported iOS version '$IOS_VERSION' (expected VERSION or latest)" >&2
+    exit 2
+  fi
 }
 
 filter_command_output() {
@@ -154,7 +169,7 @@ tdlib_update_model_exists() {
 simulator_id() {
   local simctl_json
   simctl_json="$(xcrun simctl list devices available -j)"
-  SIMCTL_JSON="$simctl_json" python3 - "$SIMULATOR_NAME" "$SIMULATOR_OS" <<'PY'
+  SIMCTL_JSON="$simctl_json" python3 - "$SIMULATOR_NAME" "$IOS_VERSION" <<'PY'
 import json
 import os
 import re
@@ -162,20 +177,21 @@ import sys
 
 target_name = sys.argv[1]
 target_os = sys.argv[2]
+target_version = None if target_os == "latest" else tuple(map(int, target_os.split(".")))
+fallback_version = target_version[:2] if target_version and len(target_version) == 3 else None
 data = json.loads(os.environ["SIMCTL_JSON"])
 matches = []
 for runtime, devices in data.get("devices", {}).items():
-    version_match = re.search(r"iOS-(\d+)-(\d+)", runtime)
-    version = tuple(map(int, version_match.groups())) if version_match else (0, 0)
-    version_string = ".".join(map(str, version))
-    if target_os and version_string != target_os:
+    version_match = re.search(r"iOS-([0-9-]+)$", runtime)
+    version = tuple(map(int, version_match.group(1).split("-"))) if version_match else (0, 0)
+    if target_version and version not in {target_version, fallback_version}:
         continue
     for device in devices:
         if device.get("name") == target_name and device.get("isAvailable", False):
             matches.append((version, device["udid"]))
 
 if not matches:
-    os_suffix = f" with iOS {target_os}" if target_os else ""
+    os_suffix = f" with iOS {target_os}" if target_version else ""
     raise SystemExit(f"error: no available simulator named {target_name!r}{os_suffix}")
 
 print(sorted(matches)[-1][1])

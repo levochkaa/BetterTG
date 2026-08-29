@@ -13,4 +13,4 @@ command = "./build.sh run --device"
 [[actions]]
 name = "Run on Simulator 26.5"
 icon = "run"
-command = "SIMULATOR_OS=26.5 ./build.sh run"
+command = "./build.sh run --ios 26.5"
