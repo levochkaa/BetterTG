@@ -98,7 +98,7 @@ def parse_update_cases(update_source: str) -> list[tuple[str, str]]:
     return cases
 
 
-def generate(update_source: str) -> None:
+def generate(update_source: str) -> bool:
     notifications: list[str] = []
     notification_names: list[str] = []
     update_cases: list[tuple[str, str]] = []
@@ -119,24 +119,21 @@ def generate(update_source: str) -> None:
             )
         )
 
-    with OUTPUT_PATH.open("w") as file:
-        file.write(CORE)
-        file.write(UPDATE_FUNC)
-        for update_case in update_cases:
-            file.write(update_case[0])
-            file.write(update_case[1])
-        file.write("    }\n")
-        file.write("}\n\n")
+    output_parts = [CORE, UPDATE_FUNC]
+    for update_case in update_cases:
+        output_parts.extend(update_case)
+    output_parts.extend(["    }\n", "}\n\n", "extension TdNotification {\n"])
+    output_parts.extend(notifications)
+    output_parts.extend(["}\n\n", "extension Foundation.Notification.Name {\n"])
+    output_parts.extend(notification_names)
+    output_parts.append("}\n")
+    output = "".join(output_parts)
 
-        file.write("extension TdNotification {\n")
-        for notification in notifications:
-            file.write(notification)
-        file.write("}\n\n")
+    if OUTPUT_PATH.is_file() and OUTPUT_PATH.read_text() == output:
+        return False
 
-        file.write("extension Foundation.Notification.Name {\n")
-        for notification_name in notification_names:
-            file.write(notification_name)
-        file.write("}\n")
+    OUTPUT_PATH.write_text(output)
+    return True
 
 
 def main() -> None:
@@ -145,8 +142,9 @@ def main() -> None:
     else:
         resolve_xcode_packages()
     source_path = update_model_source()
-    generate(source_path.read_text())
-    print(f"Generated {OUTPUT_PATH.relative_to(ROOT_DIR)} from {source_path.relative_to(ROOT_DIR)}")
+    changed = generate(source_path.read_text())
+    status = "Generated" if changed else "Kept unchanged"
+    print(f"{status} {OUTPUT_PATH.relative_to(ROOT_DIR)} from {source_path.relative_to(ROOT_DIR)}")
 
 
 if __name__ == "__main__":

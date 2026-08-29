@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/xcode_env.sh"
 source "$ROOT_DIR/script/device.sh"
+
 PROJECT_NAME="BetterTG"
+APP_NAME="BetterTG"
+BUNDLE_ID="com.levochkaaa.BetterTG"
 SCHEME="BetterTG"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
@@ -12,26 +15,44 @@ SIMULATOR_NAME="${SIMULATOR_NAME:-iPhone 17 Pro}"
 SIMULATOR_ID="${SIMULATOR_ID:-}"
 DEVICE_ID="${DEVICE_ID:-}"
 CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
+ACTION="build"
 FULL_OUTPUT=0
-BUILD_FOR_DEVICE=0
+USE_DEVICE=0
 
 usage() {
   cat <<'EOF'
-Usage: ./script/build.sh [--device] [--full-output|--verbose]
+Usage: ./build.sh [build|run] [--device] [--full-output|--verbose]
 
-By default, build output is filtered to error and warning lines. Pass
---full-output or --verbose to print the complete command output.
+Commands:
+  build     Build BetterTG (default).
+  run       Build, install, and launch BetterTG.
 
 Options:
-  --device  Build for the available paired physical iPhone. Set DEVICE_ID to
-            choose a specific iPhone when more than one is available.
+  --device  Use the available paired physical iPhone instead of Simulator.
+            Set DEVICE_ID to choose a specific iPhone when more than one is available.
+  --full-output, --verbose
+            Print complete build output instead of concise progress.
+
+Examples:
+  ./build.sh run
+  ./build.sh run --device
+  RUN_ARGUMENTS="-example value" ./build.sh run --device
 EOF
 }
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    build|run)
+      ACTION="$1"
+      shift
+      ;;
+  esac
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device)
-      BUILD_FOR_DEVICE=1
+      USE_DEVICE=1
       ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
@@ -60,7 +81,7 @@ validate_configuration() {
   esac
 }
 
-filter_build_output() {
+filter_command_output() {
   if [[ "$FULL_OUTPUT" == "1" ]]; then
     cat
     return
@@ -79,7 +100,7 @@ run_with_filtered_output() {
   fi
 
   set +e
-  "$@" 2>&1 | filter_build_output
+  "$@" 2>&1 | filter_command_output
   local command_status=${PIPESTATUS[0]}
   set -e
 
@@ -90,8 +111,29 @@ run_with_filtered_output() {
   return "$command_status"
 }
 
+run_xcodebuild() {
+  if [[ "$FULL_OUTPUT" == "1" ]]; then
+    "$@"
+    return
+  fi
+
+  if command -v xcbeautify >/dev/null 2>&1; then
+    set +e
+    "$@" 2>&1 | xcbeautify
+    local command_status=${PIPESTATUS[0]}
+    set -e
+
+    if [[ "$command_status" -ne 0 ]]; then
+      echo "error: command failed: $*" >&2
+    fi
+    return "$command_status"
+  fi
+
+  run_with_filtered_output "$@"
+}
+
 resolve_swift_packages() {
-  run_with_filtered_output xcodebuild \
+  run_xcodebuild xcodebuild \
     -resolvePackageDependencies \
     -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj" \
     -scheme "$SCHEME" \
@@ -100,6 +142,11 @@ resolve_swift_packages() {
     -scmProvider system \
     -skipPackagePluginValidation \
     -skipMacroValidation
+}
+
+tdlib_update_model_exists() {
+  [[ -f "$DERIVED_DATA_PATH/SourcePackages/checkouts/TDLibKit/Sources/TDLibKit/Generated/Models/Update.swift" ]] ||
+    [[ -f "$DERIVED_DATA_PATH/SourcePackages/checkouts/tdlibkit/Sources/TDLibKit/Generated/Models/Update.swift" ]]
 }
 
 simulator_id() {
@@ -128,21 +175,68 @@ print(sorted(matches)[-1][1])
 PY
 }
 
+launch_on_device() {
+  echo "Installing $APP_NAME on the connected iPhone..."
+  xcrun devicectl device install app --device "$DEVICE_ID" "$APP_BUNDLE"
+
+  echo "Launching $APP_NAME in the foreground on the connected iPhone..."
+  if [[ -n "${RUN_ARGUMENTS:-}" ]]; then
+    local launch_arguments=()
+    read -r -a launch_arguments <<< "$RUN_ARGUMENTS"
+    xcrun devicectl device process launch \
+      --device "$DEVICE_ID" \
+      --terminate-existing \
+      --activate \
+      "$BUNDLE_ID" \
+      "${launch_arguments[@]}"
+  else
+    xcrun devicectl device process launch \
+      --device "$DEVICE_ID" \
+      --terminate-existing \
+      --activate \
+      "$BUNDLE_ID"
+  fi
+}
+
+launch_on_simulator() {
+  xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+  open -a Simulator
+  xcrun simctl install "$SIMULATOR_ID" "$APP_BUNDLE"
+
+  if [[ -n "${RUN_ARGUMENTS:-}" ]]; then
+    local launch_arguments=()
+    read -r -a launch_arguments <<< "$RUN_ARGUMENTS"
+    xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID" "${launch_arguments[@]}"
+  else
+    xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID"
+  fi
+}
+
 validate_configuration
 
-if [[ "$BUILD_FOR_DEVICE" == "1" ]]; then
+if [[ "$USE_DEVICE" == "1" ]]; then
+  echo "Finding a connected iPhone..."
   DEVICE_ID="$(resolve_connected_iphone_id "$DEVICE_ID")"
   validate_connected_iphone "$DEVICE_ID"
   destination="platform=iOS,id=$DEVICE_ID"
+  product_platform="iphoneos"
 else
   if [[ -z "$SIMULATOR_ID" ]]; then
     SIMULATOR_ID="$(simulator_id)"
   fi
   destination="platform=iOS Simulator,id=$SIMULATOR_ID"
+  product_platform="iphonesimulator"
 fi
 
+echo "Generating the Xcode project..."
 run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
-resolve_swift_packages
+
+if ! tdlib_update_model_exists; then
+  echo "Resolving Swift packages for the initial build..."
+  resolve_swift_packages
+fi
+
+echo "Updating generated TDLib models..."
 run_with_filtered_output env BETTERTG_TD_SKIP_RESOLVE=1 python3 "$ROOT_DIR/td.py"
 
 xcodebuild_args=(
@@ -158,15 +252,30 @@ xcodebuild_args=(
   "CODE_SIGNING_ALLOWED=$CODE_SIGNING_ALLOWED"
 )
 
-if [[ "$BUILD_FOR_DEVICE" == "1" ]]; then
+if [[ "$USE_DEVICE" == "1" ]]; then
   xcodebuild_args+=(
     -allowProvisioningUpdates
     -allowProvisioningDeviceRegistration
   )
 fi
 
-run_with_filtered_output xcodebuild "${xcodebuild_args[@]}" build
+echo "Building $APP_NAME for $destination..."
+build_started_at=$SECONDS
+run_xcodebuild xcodebuild "${xcodebuild_args[@]}" build
+echo "$APP_NAME built in $((SECONDS - build_started_at))s."
 
-if [[ "$FULL_OUTPUT" == "1" ]]; then
-  echo "BetterTG built successfully for $destination"
+if [[ "$ACTION" == "build" ]]; then
+  exit 0
+fi
+
+APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION-$product_platform/$APP_NAME.app"
+if [[ ! -d "$APP_BUNDLE" ]]; then
+  echo "error: app bundle not found at $APP_BUNDLE" >&2
+  exit 1
+fi
+
+if [[ "$USE_DEVICE" == "1" ]]; then
+  launch_on_device
+else
+  launch_on_simulator
 fi

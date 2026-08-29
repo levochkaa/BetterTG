@@ -6,26 +6,11 @@ name = "BetterTG"
 script = ""
 
 [[actions]]
-name = "Build"
-icon = "tool"
-command = "./build.sh"
-
-[[actions]]
-name = "Test"
-icon = "test"
-command = "./test.sh"
-
-[[actions]]
 name = "Run"
 icon = "run"
-command = "./run.sh"
-
-[[actions]]
-name = "Build on Connected iPhone"
-icon = "tool"
-command = "./build.sh --device"
+command = "./build.sh run"
 
 [[actions]]
 name = "Run on Connected iPhone"
 icon = "run"
-command = "./run.sh --device"
+command = "./build.sh run --device"
