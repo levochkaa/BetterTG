@@ -16,8 +16,10 @@ const environmentSchema = z
         APPLE_TEAM_ID: z.string().min(1).default('7Z2WHPKU8W'),
         APNS_SANDBOX_KEY_ID: z.string().default(''),
         APNS_SANDBOX_AUTH_KEY: z.string().default(''),
+        APNS_SANDBOX_AUTH_KEY_FILE: z.string().default(''),
         APNS_PRODUCTION_KEY_ID: z.string().default(''),
         APNS_PRODUCTION_AUTH_KEY: z.string().default(''),
+        APNS_PRODUCTION_AUTH_KEY_FILE: z.string().default(''),
         APNS_DRY_RUN: booleanString.default(true),
         APNS_SANDBOX_URL: z.string().url().default('https://api.sandbox.push.apple.com'),
         APNS_PRODUCTION_URL: z.string().url().default('https://api.push.apple.com'),
@@ -63,7 +65,8 @@ const environmentSchema = z
         }
         if (
             !environment.APNS_DRY_RUN &&
-            (!environment.APNS_SANDBOX_KEY_ID || !environment.APNS_SANDBOX_AUTH_KEY)
+            (!environment.APNS_SANDBOX_KEY_ID ||
+                (!environment.APNS_SANDBOX_AUTH_KEY && !environment.APNS_SANDBOX_AUTH_KEY_FILE))
         ) {
             context.addIssue({
                 code: 'custom',
@@ -73,7 +76,9 @@ const environmentSchema = z
         }
         if (
             !environment.APNS_DRY_RUN &&
-            (!environment.APNS_PRODUCTION_KEY_ID || !environment.APNS_PRODUCTION_AUTH_KEY)
+            (!environment.APNS_PRODUCTION_KEY_ID ||
+                (!environment.APNS_PRODUCTION_AUTH_KEY &&
+                    !environment.APNS_PRODUCTION_AUTH_KEY_FILE))
         ) {
             context.addIssue({
                 code: 'custom',

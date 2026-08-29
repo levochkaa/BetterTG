@@ -36,6 +36,14 @@ services:
     worker:
         <<: *app
         command: ['bun', 'dist/worker.js']
+        environment:
+            DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://bettertg:bettertg@postgres:5432/bettertg}
+            REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+            APNS_SANDBOX_AUTH_KEY_FILE: /run/secrets/apns-sandbox.p8
+            APNS_PRODUCTION_AUTH_KEY_FILE: /run/secrets/apns-production.p8
+        volumes:
+            - ${APNS_SANDBOX_AUTH_KEY_HOST_PATH:-/dev/null}:/run/secrets/apns-sandbox.p8:ro
+            - ${APNS_PRODUCTION_AUTH_KEY_HOST_PATH:-/dev/null}:/run/secrets/apns-production.p8:ro
         depends_on:
             postgres:
                 condition: service_healthy

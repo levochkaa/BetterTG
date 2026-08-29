@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { createSigner } from 'fast-jwt'
 import http2, { type ClientHttp2Session, type IncomingHttpHeaders } from 'node:http2'
+import { readFileSync } from 'node:fs'
 
 import type { Environment } from '@/config/environment'
 import { MetricsService } from '@/observability/metrics.service'
@@ -47,10 +48,12 @@ export class ApnsClientService implements OnModuleDestroy {
             sandbox: this.makeCredentials(
                 config.get('APNS_SANDBOX_KEY_ID', { infer: true }),
                 config.get('APNS_SANDBOX_AUTH_KEY', { infer: true }),
+                config.get('APNS_SANDBOX_AUTH_KEY_FILE', { infer: true }),
             ),
             production: this.makeCredentials(
                 config.get('APNS_PRODUCTION_KEY_ID', { infer: true }),
                 config.get('APNS_PRODUCTION_AUTH_KEY', { infer: true }),
+                config.get('APNS_PRODUCTION_AUTH_KEY_FILE', { infer: true }),
             ),
         }
     }
@@ -208,8 +211,13 @@ export class ApnsClientService implements OnModuleDestroy {
         return value
     }
 
-    private makeCredentials(keyId: string, authKeyValue: string): ProviderCredentials {
-        const authKey = this.normalizeAuthKey(authKeyValue)
+    private makeCredentials(
+        keyId: string,
+        authKeyValue: string,
+        authKeyFile: string,
+    ): ProviderCredentials {
+        const value = authKeyValue || (authKeyFile ? readFileSync(authKeyFile, 'utf8') : '')
+        const authKey = this.normalizeAuthKey(value)
         return {
             keyId,
             signer: authKey ? createSigner({ key: authKey, algorithm: 'ES256', kid: keyId }) : null,

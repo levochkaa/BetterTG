@@ -73,7 +73,7 @@ Catalog updates require human review. A newly introduced key remains non-visible
 Before deployment:
 
 1. Point a public DNS name at the server and set `SERVER_ADDRESS`/`PUBLIC_BASE_URL` to its HTTPS URL.
-2. Create separate APNs `.p8` provider keys for Sandbox and Production. Set `APPLE_TEAM_ID`, `APNS_SANDBOX_KEY_ID`, `APNS_SANDBOX_AUTH_KEY`, `APNS_PRODUCTION_KEY_ID`, and `APNS_PRODUCTION_AUTH_KEY`. Auth-key values accept either PEM text with escaped newlines or base64-encoded PEM. Legacy APNs keys that support both environments may be supplied in both pairs.
+2. Create separate APNs `.p8` provider keys for Sandbox and Production. Set `APPLE_TEAM_ID`, each environment's `*_KEY_ID`, and either its inline `*_AUTH_KEY` or `*_AUTH_KEY_FILE`. Inline values accept PEM text with escaped newlines or base64-encoded PEM. Compose can mount the files read-only from `APNS_SANDBOX_AUTH_KEY_HOST_PATH` and `APNS_PRODUCTION_AUTH_KEY_HOST_PATH`. Legacy APNs keys that support both environments may be supplied in both pairs.
 3. Set `APNS_DRY_RUN=false`.
 4. Set `APP_ATTEST_MODE=enforce` and normally `APP_ATTEST_ALLOW_DEVELOPMENT=false`.
 5. Generate independent 32-byte values for the encryption key and management-token pepper:
