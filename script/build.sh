@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/device.sh"
+ORIGINAL_ARGS=("$@")
 
 PROJECT_NAME="BetterTG"
 APP_NAME="BetterTG"
@@ -11,7 +12,15 @@ SCHEME="BetterTG"
 DEFAULT_XCODE_PATH="/Applications/Xcode-26.6.0.app"
 XCODE_PATH="$DEFAULT_XCODE_PATH"
 CONFIGURATION="Debug"
-DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
+DERIVED_DATA_PATH=""
+DERIVED_DATA_OVERRIDDEN=0
+PACKAGE_CACHE_ROOT="$HOME/Library/Developer/Xcode/PackageGraphCaches"
+PACKAGE_CACHE_ROOT_OVERRIDDEN=0
+PACKAGE_GRAPH_KEY=""
+CLONED_SOURCE_PACKAGES_DIR_PATH=""
+TOOLCHAIN_KEY=""
+BUILD_LOCK_PATH="/tmp/bettertg-build.lock"
+BUILD_LOCK_HELD=0
 SIMULATOR_NAME="iPhone 17 Pro"
 SIMULATOR_ID=""
 DEVICE_ID=""
@@ -43,6 +52,10 @@ Options:
             Simulator iOS runtime. Default: latest existing runtime for the simulator.
   --xcode PATH
             Xcode .app or Developer directory. Default: /Applications/Xcode-26.6.0.app.
+  --derived-data PATH
+            DerivedData path. Default: .build/xcodebuild-derived-data/<Xcode version>.
+  --cloned-source-packages-dir-path PATH
+            Root for graph-keyed Swift package caches.
   --configuration Debug|Release, --debug, --release
             Build configuration. Default: Debug.
   --launch-argument VALUE
@@ -116,6 +129,24 @@ while [[ $# -gt 0 ]]; do
       XCODE_PATH="$2"
       shift
       ;;
+    --derived-data)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --derived-data requires a path" >&2
+        exit 2
+      fi
+      DERIVED_DATA_PATH="$2"
+      DERIVED_DATA_OVERRIDDEN=1
+      shift
+      ;;
+    --cloned-source-packages-dir-path)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --cloned-source-packages-dir-path requires a path" >&2
+        exit 2
+      fi
+      PACKAGE_CACHE_ROOT="$2"
+      PACKAGE_CACHE_ROOT_OVERRIDDEN=1
+      shift
+      ;;
     --configuration)
       if [[ $# -lt 2 || -z "$2" ]]; then
         echo "error: --configuration requires Debug or Release" >&2
@@ -152,6 +183,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-code-signing)
       CODE_SIGNING_ALLOWED="NO"
+      ;;
+    --build-lock-held)
+      BUILD_LOCK_HELD=1
       ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
@@ -230,6 +264,71 @@ require_command() {
   fi
 }
 
+expand_path() {
+  local requested_path="$1"
+  case "$requested_path" in
+    "~") requested_path="$HOME" ;;
+    "~/"*) requested_path="$HOME/${requested_path#\~/}" ;;
+  esac
+  if [[ "$requested_path" != /* ]]; then
+    requested_path="$ROOT_DIR/$requested_path"
+  fi
+  printf '%s\n' "$requested_path"
+}
+
+safe_path_component() {
+  printf '%s' "$1" | tr -c '[:alnum:]_.-' '-'
+}
+
+resolve_toolchain_key() {
+  local version_output
+  local version
+  local build_version
+  version_output="$(xcodebuild -version)"
+  version="$(awk '/^Xcode / { print $2; exit }' <<< "$version_output")"
+  build_version="$(awk '/^Build version / { print $3; exit }' <<< "$version_output")"
+  if [[ -z "$version" || -z "$build_version" ]]; then
+    echo "error: could not resolve the active Xcode version for cache isolation" >&2
+    exit 2
+  fi
+  printf 'xcode-%s-%s\n' \
+    "$(safe_path_component "$version")" \
+    "$(safe_path_component "$build_version")"
+}
+
+configure_cache_paths() {
+  TOOLCHAIN_KEY="$(resolve_toolchain_key)"
+  if [[ "$DERIVED_DATA_OVERRIDDEN" == "0" ]]; then
+    DERIVED_DATA_PATH="$ROOT_DIR/.build/xcodebuild-derived-data/$TOOLCHAIN_KEY"
+  else
+    DERIVED_DATA_PATH="$(expand_path "$DERIVED_DATA_PATH")"
+  fi
+  PACKAGE_CACHE_ROOT="$(expand_path "$PACKAGE_CACHE_ROOT")"
+  PACKAGE_GRAPH_KEY="$("$ROOT_DIR/script/package_graph_key.sh")"
+  CLONED_SOURCE_PACKAGES_DIR_PATH="$PACKAGE_CACHE_ROOT/$PACKAGE_GRAPH_KEY"
+
+  local module_cache_root="$ROOT_DIR/.build/tool-caches/modules/$TOOLCHAIN_KEY"
+  export CLANG_MODULE_CACHE_PATH="$module_cache_root/clang"
+  export SWIFTPM_MODULECACHE_OVERRIDE="$module_cache_root/swiftpm"
+  mkdir -p \
+    "$(dirname "$DERIVED_DATA_PATH")" \
+    "$PACKAGE_CACHE_ROOT" \
+    "$CLANG_MODULE_CACHE_PATH" \
+    "$SWIFTPM_MODULECACHE_OVERRIDE"
+}
+
+acquire_build_lock() {
+  if [[ "$BUILD_LOCK_HELD" == "1" ]]; then
+    return
+  fi
+  echo "Waiting for BetterTG build lock: $BUILD_LOCK_PATH"
+  exec /usr/bin/lockf \
+    "$BUILD_LOCK_PATH" \
+    "$ROOT_DIR/script/build.sh" \
+    "${ORIGINAL_ARGS[@]}" \
+    --build-lock-held
+}
+
 filter_command_output() {
   if [[ "$FULL_OUTPUT" == "1" ]]; then
     cat
@@ -281,21 +380,146 @@ run_xcodebuild() {
   run_with_filtered_output "$@"
 }
 
+generated_package_resolved_path() {
+  printf '%s/BetterTG.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved\n' "$ROOT_DIR"
+}
+
+cached_package_resolved_path() {
+  printf '%s/.workspace-Package.resolved\n' "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+}
+
+package_cache_is_ready() {
+  [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/.ready" ]] &&
+    [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json" ]] &&
+    [[ -f "$(cached_package_resolved_path)" ]] &&
+    {
+      [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/checkouts/TDLibKit/Sources/TDLibKit/Generated/Models/Update.swift" ]] ||
+        [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/checkouts/tdlibkit/Sources/TDLibKit/Generated/Models/Update.swift" ]]
+    }
+}
+
+restore_package_resolved() {
+  local destination
+  local temporary
+  destination="$(generated_package_resolved_path)"
+  temporary="$destination.tmp.$$"
+  mkdir -p "$(dirname "$destination")"
+  cp "$(cached_package_resolved_path)" "$temporary"
+  mv "$temporary" "$destination"
+}
+
+publish_package_cache() {
+  local source
+  local cached
+  source="$(generated_package_resolved_path)"
+  cached="$(cached_package_resolved_path)"
+  if [[ ! -f "$source" || ! -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json" ]]; then
+    echo "error: Swift package resolution did not produce reusable cache metadata" >&2
+    return 1
+  fi
+  cp "$source" "$cached.tmp.$$"
+  mv "$cached.tmp.$$" "$cached"
+  touch "$CLONED_SOURCE_PACKAGES_DIR_PATH/.ready"
+}
+
+clean_default_derived_data_intermediates() {
+  case "$DERIVED_DATA_PATH" in
+    "$ROOT_DIR/.build/"*) ;;
+    *)
+      echo "error: refusing to clean intermediates outside $ROOT_DIR/.build: $DERIVED_DATA_PATH" >&2
+      return 1
+      ;;
+  esac
+
+  rm -rf \
+    "$DERIVED_DATA_PATH/Build/Intermediates.noindex" \
+    "$DERIVED_DATA_PATH/CompilationCache.noindex" \
+    "$DERIVED_DATA_PATH/Index.noindex" \
+    "$DERIVED_DATA_PATH/ModuleCache.noindex" \
+    "$DERIVED_DATA_PATH/SDKStatCaches.noindex"
+}
+
+migrate_legacy_caches_if_needed() {
+  local legacy_derived_data="$ROOT_DIR/.build/xcode"
+  local legacy_source_packages="$legacy_derived_data/SourcePackages"
+  local current_resolved
+  local cache_metadata_rewritten=0
+  current_resolved="$(generated_package_resolved_path)"
+
+  if [[ "$PACKAGE_CACHE_ROOT_OVERRIDDEN" == "0" ]] &&
+    [[ ! -e "$CLONED_SOURCE_PACKAGES_DIR_PATH" ]] &&
+    [[ -f "$legacy_source_packages/workspace-state.json" ]]; then
+    echo "Adopting existing Swift packages without downloading: $CLONED_SOURCE_PACKAGES_DIR_PATH"
+    mv "$legacy_source_packages" "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+    if [[ -f "$current_resolved" ]]; then
+      cp "$current_resolved" "$(cached_package_resolved_path)"
+      touch "$CLONED_SOURCE_PACKAGES_DIR_PATH/.ready"
+    fi
+  fi
+
+  local workspace_state="$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json"
+  if [[ -f "$workspace_state" ]] &&
+    grep -Fq "$legacy_source_packages" "$workspace_state"; then
+    echo "Updating migrated Swift package artifact paths..."
+    jq \
+      --arg oldRoot "$legacy_source_packages" \
+      --arg newRoot "$CLONED_SOURCE_PACKAGES_DIR_PATH" \
+      --argjson oldRootLength "${#legacy_source_packages}" '
+        .object.artifacts |= map(
+          if ((.path // "") | startswith($oldRoot)) then
+            .path = ($newRoot + (.path[$oldRootLength:]))
+          else
+            .
+          end
+        )
+      ' "$workspace_state" > "$workspace_state.tmp.$$"
+    mv "$workspace_state.tmp.$$" "$workspace_state"
+    cache_metadata_rewritten=1
+  fi
+
+  if [[ "$DERIVED_DATA_OVERRIDDEN" == "0" ]] &&
+    [[ ! -e "$DERIVED_DATA_PATH" ]] &&
+    [[ -d "$legacy_derived_data" ]]; then
+    echo "Adopting existing DerivedData for $TOOLCHAIN_KEY: $DERIVED_DATA_PATH"
+    mv "$legacy_derived_data" "$DERIVED_DATA_PATH"
+  fi
+
+  mkdir -p "$DERIVED_DATA_PATH" "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+  if [[ "$DERIVED_DATA_OVERRIDDEN" == "0" ]] &&
+    { [[ ! -f "$DERIVED_DATA_PATH/.bettertg-cache-layout-v1" ]] ||
+      [[ "$cache_metadata_rewritten" == "1" ]]; }; then
+    echo "Removing path-sensitive intermediates while preserving products and Swift packages..."
+    clean_default_derived_data_intermediates
+    touch "$DERIVED_DATA_PATH/.bettertg-cache-layout-v1"
+  fi
+}
+
 resolve_swift_packages() {
+  local resolved_path
+  resolved_path="$(generated_package_resolved_path)"
+  rm -f "$resolved_path"
   run_xcodebuild xcodebuild \
     -resolvePackageDependencies \
     -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj" \
     -scheme "$SCHEME" \
     -derivedDataPath "$DERIVED_DATA_PATH" \
+    -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH" \
     -packageAuthorizationProvider netrc \
     -scmProvider system \
     -skipPackagePluginValidation \
     -skipMacroValidation
+  publish_package_cache
 }
 
-tdlib_update_model_exists() {
-  [[ -f "$DERIVED_DATA_PATH/SourcePackages/checkouts/TDLibKit/Sources/TDLibKit/Generated/Models/Update.swift" ]] ||
-    [[ -f "$DERIVED_DATA_PATH/SourcePackages/checkouts/tdlibkit/Sources/TDLibKit/Generated/Models/Update.swift" ]]
+prepare_swift_packages() {
+  if package_cache_is_ready; then
+    echo "Reusing Swift package graph ${PACKAGE_GRAPH_KEY:0:12}: $CLONED_SOURCE_PACKAGES_DIR_PATH"
+    restore_package_resolved
+    return
+  fi
+
+  echo "Resolving Swift package graph ${PACKAGE_GRAPH_KEY:0:12}..."
+  resolve_swift_packages
 }
 
 simulator_id() {
@@ -397,7 +621,11 @@ launch_on_simulator() {
 validate_configuration
 require_command jq
 require_command xcrun
+require_command lockf
+acquire_build_lock
 configure_xcode
+configure_cache_paths
+migrate_legacy_caches_if_needed
 
 if [[ "$USE_DEVICE" == "1" ]]; then
   echo "Finding a connected iPhone..."
@@ -416,24 +644,26 @@ fi
 echo "Generating the Xcode project..."
 run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
 
-if ! tdlib_update_model_exists; then
-  echo "Resolving Swift packages for the initial build..."
-  resolve_swift_packages
-fi
+prepare_swift_packages
 
 echo "Updating generated TDLib models..."
-run_with_filtered_output python3 "$ROOT_DIR/td.py" --skip-resolve
+run_with_filtered_output python3 "$ROOT_DIR/td.py" \
+  --skip-resolve \
+  --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
 
 xcodebuild_args=(
   -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
   -scheme "$SCHEME"
   -configuration "$CONFIGURATION"
   -derivedDataPath "$DERIVED_DATA_PATH"
+  -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
   -destination "$destination"
   -packageAuthorizationProvider netrc
   -scmProvider system
   -skipPackagePluginValidation
   -skipMacroValidation
+  -disableAutomaticPackageResolution
+  "CLANG_MODULE_CACHE_PATH=$CLANG_MODULE_CACHE_PATH"
 )
 
 if [[ "$CODE_SIGNING_ALLOWED" == "NO" ]]; then

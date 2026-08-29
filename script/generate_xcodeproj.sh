@@ -13,7 +13,6 @@ fi
 echo "Generating BetterTG.xcodeproj from project.yml"
 if [[ -d "$PROJECT_PATH" ]]; then
   chmod -R u+w "$PROJECT_PATH"
-  rm -rf "$PROJECT_PATH"
 fi
 cd "$ROOT_DIR"
 xcodegen generate --spec "$PROJECT_SPEC"

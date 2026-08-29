@@ -62,10 +62,10 @@ def resolve_xcode_packages() -> None:
     )
 
 
-def update_model_source() -> Path:
+def update_model_source(cloned_source_packages_path: Path) -> Path:
     candidates = [
-        DERIVED_DATA_PATH / "SourcePackages/checkouts/TDLibKit" / UPDATE_MODEL_PATH,
-        DERIVED_DATA_PATH / "SourcePackages/checkouts/tdlibkit" / UPDATE_MODEL_PATH,
+        cloned_source_packages_path / "checkouts/TDLibKit" / UPDATE_MODEL_PATH,
+        cloned_source_packages_path / "checkouts/tdlibkit" / UPDATE_MODEL_PATH,
     ]
 
     for candidate in candidates:
@@ -143,16 +143,26 @@ def main() -> None:
         action="store_true",
         help="reuse the existing TDLibKit checkout instead of resolving packages",
     )
+    parser.add_argument(
+        "--cloned-source-packages-dir-path",
+        type=Path,
+        default=DERIVED_DATA_PATH / "SourcePackages",
+        help="Swift package cache containing the TDLibKit checkout",
+    )
     arguments = parser.parse_args()
 
     if arguments.skip_resolve:
         ensure_xcode_project()
     else:
         resolve_xcode_packages()
-    source_path = update_model_source()
+    source_path = update_model_source(arguments.cloned_source_packages_dir_path)
     changed = generate(source_path.read_text())
     status = "Generated" if changed else "Kept unchanged"
-    print(f"{status} {OUTPUT_PATH.relative_to(ROOT_DIR)} from {source_path.relative_to(ROOT_DIR)}")
+    try:
+        source_description = source_path.relative_to(ROOT_DIR)
+    except ValueError:
+        source_description = source_path
+    print(f"{status} {OUTPUT_PATH.relative_to(ROOT_DIR)} from {source_description}")
 
 
 if __name__ == "__main__":
