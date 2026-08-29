@@ -377,12 +377,26 @@ acquire_build_lock() {
   if [[ "$BUILD_LOCK_HELD" == "1" ]]; then
     return
   fi
+
+  local reentry_args=()
+  case "${ORIGINAL_ARGS[0]:-}" in
+    build|run|clean-intermediates)
+      reentry_args=(
+        "${ORIGINAL_ARGS[0]}"
+        --build-lock-held
+        "${ORIGINAL_ARGS[@]:1}"
+      )
+      ;;
+    *)
+      reentry_args=(--build-lock-held "${ORIGINAL_ARGS[@]}")
+      ;;
+  esac
+
   echo "Waiting for BetterTG build lock: $BUILD_LOCK_PATH"
   exec /usr/bin/lockf \
     "$BUILD_LOCK_PATH" \
     "$ROOT_DIR/script/build.sh" \
-    "${ORIGINAL_ARGS[@]}" \
-    --build-lock-held
+    "${reentry_args[@]}"
 }
 
 filter_command_output() {
