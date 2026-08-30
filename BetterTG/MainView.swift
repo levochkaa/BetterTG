@@ -29,7 +29,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var cancellables = Set<AnyCancellable>()
     private var searchQuery = ""
     private var pageScrollObservation: NSKeyValueObservation?
-    private var interactiveFolderTransition: (fromID: Int, toID: Int)?
+    private var interactiveFolderTransition: (
+        fromID: Int,
+        toID: Int,
+        fromSearchOffset: CGFloat,
+        toSearchOffset: CGFloat,
+    )?
     private var folderUnreadStates = [ChatList: FolderUnreadState]()
 
     private var currentFolderController: FolderViewController? {
@@ -103,10 +108,15 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         _: UIPageViewController,
         willTransitionTo pendingViewControllers: [UIViewController],
     ) {
-        guard let fromID = currentFolderController?.folder.id,
-              let toID = (pendingViewControllers.first as? FolderViewController)?.folder.id
+        guard let currentFolderController,
+              let targetController = pendingViewControllers.first as? FolderViewController
         else { return }
-        interactiveFolderTransition = (fromID, toID)
+        interactiveFolderTransition = (
+            fromID: currentFolderController.folder.id,
+            toID: targetController.folder.id,
+            fromSearchOffset: currentFolderController.searchScrollOffset,
+            toSearchOffset: targetController.searchScrollOffset,
+        )
     }
 
     func pageViewController(
@@ -119,12 +129,18 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else {
             let previousID = (previousViewControllers.first as? FolderViewController)?.folder.id
             folderPicker.select(id: previousID, animated: true)
+            if let interactiveFolderTransition {
+                applySearchScrollOffset(
+                    offset: interactiveFolderTransition.fromSearchOffset,
+                    animated: true,
+                )
+            }
             return
         }
         rootVM.currentFolder = folder.id
         folderPicker.select(id: folder.id, animated: true)
         if let currentFolderController {
-            customNavigationBar.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
+            applySearchScrollOffset(offset: currentFolderController.searchScrollOffset, animated: true)
         }
     }
 
@@ -218,6 +234,24 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
     }
 
+    private func applySearchScrollOffset(offset: CGFloat, animated: Bool) {
+        guard animated else {
+            customNavigationBar.applyScroll(offset: offset)
+            return
+        }
+        view.layoutIfNeeded()
+        UIView.animate(
+            withDuration: 0.28,
+            delay: 0,
+            usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            self.customNavigationBar.applyScroll(offset: offset)
+            self.view.layoutIfNeeded()
+        }
+    }
+
     private func reloadFromState() {
         let currentIDs = folderControllers.map(\.folder.id)
         let newIDs = rootVM.folders.map(\.id)
@@ -269,7 +303,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let direction: UIPageViewController.NavigationDirection = targetIndex >= previousIndex ? .forward : .reverse
         rootVM.currentFolder = id
         folderPicker.select(id: id, animated: animated)
-        customNavigationBar.applyScroll(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
+        applySearchScrollOffset(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
     }
 
@@ -279,6 +313,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
               scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
         else { return }
         let fraction = min(1, abs(scrollView.contentOffset.x - scrollView.bounds.width) / scrollView.bounds.width)
+        let searchScrollOffsetDelta = transition.toSearchOffset - transition.fromSearchOffset
+        if abs(searchScrollOffsetDelta) >= 1 {
+            customNavigationBar.applyScroll(
+                offset: transition.fromSearchOffset + searchScrollOffsetDelta * fraction,
+            )
+        }
         folderPicker.updateSelectionTransition(
             fromID: transition.fromID,
             toID: transition.toID,
