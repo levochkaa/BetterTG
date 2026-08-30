@@ -684,9 +684,9 @@ import UIKit
             return
         }
         publishBufferedRange(snapshot: snapshot)
-        fulfillSeekIfReady(snapshot: snapshot)
         updateTime(snapshot.currentTime)
         updatePlaybackGate()
+        fulfillSeekIfReady(snapshot: snapshot)
     }
 
     private func consume(

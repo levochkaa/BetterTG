@@ -20,6 +20,20 @@ enum VideoPlaybackAttachmentContext: Equatable {
     case inline
 }
 
+// MARK: - GalleryPictureInPictureSourceKind
+
+enum GalleryPictureInPictureSourceKind: Equatable {
+    case playerLayer
+    case sampleBufferDisplayLayer
+}
+
+// MARK: - GalleryPictureInPictureSourceIdentity
+
+struct GalleryPictureInPictureSourceIdentity: Equatable {
+    let kind: GalleryPictureInPictureSourceKind
+    let layerIdentifier: ObjectIdentifier
+}
+
 // MARK: - VideoPlaybackAttachmentToken
 
 struct VideoPlaybackAttachmentToken: Hashable {
@@ -1008,9 +1022,130 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     }
 }
 
+// MARK: - GallerySampleBufferPictureInPictureAdapter
+
+final class GallerySampleBufferPictureInPictureAdapter: NSObject,
+    AVPictureInPictureSampleBufferPlaybackDelegate,
+    @unchecked Sendable
+{
+    private struct Snapshot {
+        let currentTime: TimeInterval
+        let duration: TimeInterval
+        let isPaused: Bool
+    }
+
+    private let lock = NSLock()
+    private weak var controller: AVPictureInPictureController?
+    private weak var owner: GalleryVideoPlaybackOwner?
+    private var snapshot = Snapshot(currentTime: 0, duration: 0, isPaused: true)
+
+    init(owner: GalleryVideoPlaybackOwner) {
+        self.owner = owner
+    }
+
+    func update(
+        controller: AVPictureInPictureController?,
+        currentTime: TimeInterval,
+        duration: TimeInterval,
+        isPaused: Bool,
+    ) {
+        lock.lock()
+        self.controller = controller
+        snapshot = Snapshot(
+            currentTime: currentTime.isFinite ? max(0, currentTime) : 0,
+            duration: duration.isFinite ? max(0, duration) : 0,
+            isPaused: isPaused,
+        )
+        lock.unlock()
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        setPlaying playing: Bool,
+    ) {
+        guard matches(pictureInPictureController) else { return }
+        Task { @MainActor [weak owner] in
+            owner?.setSampleBufferPictureInPicturePlaying(playing)
+        }
+    }
+
+    func pictureInPictureControllerTimeRangeForPlayback(
+        _ pictureInPictureController: AVPictureInPictureController,
+    ) -> CMTimeRange {
+        guard let snapshot = snapshot(for: pictureInPictureController),
+              snapshot.duration > 0
+        else { return .invalid }
+        let upperBound = max(snapshot.duration, snapshot.currentTime + 0.001)
+        return CMTimeRange(
+            start: .zero,
+            duration: CMTime(seconds: upperBound, preferredTimescale: 600),
+        )
+    }
+
+    func pictureInPictureControllerIsPlaybackPaused(
+        _ pictureInPictureController: AVPictureInPictureController,
+    ) -> Bool {
+        snapshot(for: pictureInPictureController)?.isPaused ?? true
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        didTransitionToRenderSize newRenderSize: CMVideoDimensions,
+    ) {
+        guard matches(pictureInPictureController) else { return }
+        Task { @MainActor [weak owner] in
+            owner?.setSampleBufferPictureInPictureRenderSize(newRenderSize)
+        }
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        skipByInterval skipInterval: CMTime,
+        completion completionHandler: @escaping @Sendable () -> Void,
+    ) {
+        guard matches(pictureInPictureController), skipInterval.seconds.isFinite else {
+            completionHandler()
+            return
+        }
+        Task { @MainActor [weak owner] in
+            guard let owner else {
+                completionHandler()
+                return
+            }
+            owner.skipSampleBufferPictureInPicture(
+                by: skipInterval.seconds,
+                completion: completionHandler,
+            )
+        }
+    }
+
+    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(
+        _ pictureInPictureController: AVPictureInPictureController,
+    ) -> Bool {
+        !matches(pictureInPictureController)
+    }
+
+    private func matches(_ controller: AVPictureInPictureController) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return self.controller === controller
+    }
+
+    private func snapshot(
+        for controller: AVPictureInPictureController,
+    ) -> Snapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard self.controller === controller else { return nil }
+        return snapshot
+    }
+}
+
 // MARK: - GalleryVideoPlaybackOwner
 
-@MainActor final class GalleryVideoPlaybackOwner: NSObject, @preconcurrency AVPictureInPictureControllerDelegate {
+@MainActor final class GalleryVideoPlaybackOwner: NSObject,
+    @preconcurrency AVPictureInPictureControllerDelegate
+{
     // MARK: Internal
 
     let messageID: Int64
@@ -1024,17 +1159,25 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     // MARK: Private
 
     private let mediaView = GalleryFilePlayerView()
+    private lazy var sampleBufferPictureInPictureAdapter =
+        GallerySampleBufferPictureInPictureAdapter(owner: self)
     private let allowsPictureInPicture: Bool
     private var pictureInPictureController: AVPictureInPictureController?
+    private var pictureInPictureSourceIdentity: GalleryPictureInPictureSourceIdentity?
     private var pictureInPicturePossibleCancellable: AnyCancellable?
+    private var pendingPictureInPictureSkipCompletion: (() -> Void)?
+    private var pictureInPictureSkipGeneration = UInt64.zero
+    private var pictureInPictureSkipTimeout: DispatchWorkItem?
     private var isInvalidated = false
     private var isPlaybackVisible = false
     private var isPictureInPictureStartRequested = false
     private var isPictureInPictureActive = false
+    private var ignoresPictureInPictureControllerActiveState = false
     private var pendingInvalidationAfterPictureInPicture = false
     private var pictureInPictureAudioSessionToken: UUID?
     private var pictureInPictureStartTimeout: DispatchWorkItem?
     private var pictureInPictureStopTimeout: DispatchWorkItem?
+    private var isPictureInPictureStopRequested = false
     private var rejectsLatePictureInPictureStart = false
     private var mediaTakeoverCancellable: AnyCancellable?
     private var tdUpdateCancellables = Set<AnyCancellable>()
@@ -1045,7 +1188,9 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     var isPictureInPictureRetained: Bool {
         isPictureInPictureStartRequested
             || isPictureInPictureActive
-            || pictureInPictureController?.isPictureInPictureActive == true
+            || isPictureInPictureStopRequested
+            || !ignoresPictureInPictureControllerActiveState
+            && pictureInPictureController?.isPictureInPictureActive == true
     }
 
     var isBorrowedFromInline: Bool {
@@ -1128,6 +1273,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     #if DEBUG
         private static func runDebugProbe() async {
             let result: String
+            var probeFailed = false
             let probeURL = FileManager.default
 .temporaryDirectory
                 .appendingPathComponent("bettertg-inline-handoff-probe.mp4")
@@ -1300,6 +1446,27 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             coordinator.didFail(owner: transferredOwner)
             let transferCleanedUp = transferredOwner.isInvalidated && coordinator.activeOwner == nil
 
+            let pendingStartOwner = GalleryVideoPlaybackOwner(probeMessageID: 9005)
+            let pendingStartGallery = MediaGalleryViewController(messages: [], selection: 0)
+            let preparedPendingStart = coordinator.prepare(
+                owner: pendingStartOwner,
+                gallery: pendingStartGallery,
+                messages: [],
+            )
+            coordinator.galleryWillDismiss(pendingStartGallery)
+            pendingStartOwner.isPictureInPictureStartRequested = true
+            pendingStartOwner.cancelPendingPictureInPictureStart(rejectLateStart: true)
+            let pendingStartRetained = preparedPendingStart
+                && coordinator.isRetaining(pendingStartOwner)
+                && pendingStartOwner.isPictureInPictureStopRequested
+                && !pendingStartOwner.mediaView.debugPictureInPictureControlIsEnabled
+            pendingStartOwner.togglePictureInPicture()
+            let pendingRestartRejected = pendingStartOwner.isPictureInPictureStopRequested
+                && !pendingStartOwner.isPictureInPictureStartRequested
+            pendingStartOwner.completePictureInPictureStop()
+            let pendingStartReleased = pendingStartOwner.isInvalidated
+                && coordinator.activeOwner == nil
+
             let deletedOwner = GalleryVideoPlaybackOwner(probeMessageID: 9003)
             deletedOwner.handlePermanentDeletion()
             let deletionRevoked = deletedOwner.isDeleted && deletedOwner.isInvalidated
@@ -1321,6 +1488,9 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                invalidatedCleanly,
                retainedAcrossDismissal,
                transferCleanedUp,
+               pendingStartRetained,
+               pendingRestartRejected,
+               pendingStartReleased,
                deletionRevoked,
                ffmpegRouting.passed
             {
@@ -1329,12 +1499,14 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     + "borrowed-return=true, vod-session-continuous=true, no-full-download=true, "
                     + "transfer-cancel-delta=0/final-cancel-delta=1, "
                     + "stale-attachment-ignored=true, detach-retains-session=true, "
-                    + "central-visibility=true, transfer-retains=true, delete-revokes=true, "
+                    + "central-visibility=true, transfer-retains=true, pending-start-retains=true, "
+                    + "stop-barrier=true, delete-revokes=true, "
                     + "commands=back15+forward15+toggle, controls=two-row+44pt+auto-hide4s, "
                     + "\(ffmpegRouting.summary), "
                     + "pip-supported=\(AVPictureInPictureController.isPictureInPictureSupported()), "
                     + "readiness-gated=true, invalidate=true"
             } else {
+                probeFailed = true
                 result = "Gallery playback owner probe failed: startsPaused=\(startsPaused), "
                     + "becameVisible=\(becameVisible), detached=\(detachedWithoutInvalidation), "
                     + "staleIgnored=\(staleInlineCallbacksIgnored), reused=\(reusedExactView), "
@@ -1348,9 +1520,10 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     + "accessibleControls=\(accessibleControls), "
                     + "autoHide=\(autoHidePolicy), "
                     + "invalidated=\(invalidatedCleanly), transfer=\(retainedAcrossDismissal), "
-                    + "transferCleanup=\(transferCleanedUp), deletion=\(deletionRevoked), "
+                    + "transferCleanup=\(transferCleanedUp), pendingRetained=\(pendingStartRetained), "
+                    + "pendingRestartRejected=\(pendingRestartRejected), pendingReleased=\(pendingStartReleased), "
+                    + "deletion=\(deletionRevoked), "
                     + "\(ffmpegRouting.summary)"
-                assertionFailure(result)
             }
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
             if let documentsURL = documents.first {
@@ -1360,6 +1533,9 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                 )
             }
             log(result)
+            if probeFailed {
+                assertionFailure(result)
+            }
         }
 
         private static func runFFmpegRoutingProbe() async -> (passed: Bool, summary: String) {
@@ -1432,6 +1608,11 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     owner.mediaView.debugCurrentItemIdentifier == itemIdentifier
                         && owner.mediaView.debugPlaybackTime >= inlineTime
                 }
+                let sampleBufferPictureInPicture = await runSampleBufferPictureInPictureProbe(
+                    owner: owner,
+                    backend: backend,
+                    itemIdentifier: itemIdentifier,
+                )
                 let downloadCalls = await backend.downloadCalls
                 let finiteRangesOnly = !downloadCalls.isEmpty
                     && downloadCalls.allSatisfy { !$0.isFullDownload }
@@ -1448,18 +1629,248 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     && transferContinuous
                     && offscreenIntentPreserved
                     && resumedSameController
+                    && sampleBufferPictureInPicture.passed
                     && finiteRangesOnly
                     && invalidated
                 return (
                     passed,
                     "ffmpeg-route=\(becameReady), same-controller=\(transferContinuous && resumedSameController), "
                         + "offscreen-intent=\(offscreenIntentPreserved), finite-ranges=\(finiteRangesOnly), "
+                        + "\(sampleBufferPictureInPicture.summary), "
                         + "ffmpeg-invalidate=\(invalidated)",
                 )
             } catch {
                 try? FileManager.default.removeItem(at: fixtureURL)
                 return (false, "ffmpeg-route-error=\(error)")
             }
+        }
+
+        private final class PictureInPictureProbeCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var storedValue = 0
+
+            var value: Int {
+                lock.lock()
+                defer { lock.unlock() }
+                return storedValue
+            }
+
+            func increment() {
+                lock.lock()
+                storedValue += 1
+                lock.unlock()
+            }
+        }
+
+        private static func runSampleBufferPictureInPictureProbe(
+            owner: GalleryVideoPlaybackOwner,
+            backend: TDLibVODProbeBackend,
+            itemIdentifier: ObjectIdentifier?,
+        ) async -> (passed: Bool, summary: String) {
+            guard !AVPictureInPictureController.isPictureInPictureSupported(),
+                  owner.pictureInPictureController == nil,
+                  owner.mediaView.pictureInPictureSourceKind == .sampleBufferDisplayLayer,
+                  let displayLayer = owner.mediaView.debugSampleBufferPictureInPictureDisplayLayer,
+                  let contentSource = owner.mediaView.makePictureInPictureContentSource(
+                      playbackDelegate: owner.sampleBufferPictureInPictureAdapter,
+                  )
+            else {
+                return (false, "sample-pip-probe-environment=false")
+            }
+            let adapter = owner.sampleBufferPictureInPictureAdapter
+            let controller = AVPictureInPictureController(contentSource: contentSource)
+            controller.delegate = owner
+            controller.requiresLinearPlayback = false
+            owner.pictureInPictureController = controller
+            owner.pictureInPictureSourceIdentity = owner.mediaView.pictureInPictureSourceIdentity
+            owner.isPictureInPictureStartRequested = true
+            owner.isPictureInPictureStopRequested = true
+            owner.rejectsLatePictureInPictureStart = true
+            owner.pictureInPictureControllerWillStartPictureInPicture(controller)
+            let lateStartRejected = !owner.isPictureInPictureStartRequested
+                && !owner.isPictureInPictureActive
+                && owner.isPictureInPictureStopRequested
+            owner.isPictureInPictureStopRequested = false
+            owner.rejectsLatePictureInPictureStart = false
+            owner.isPictureInPictureActive = true
+            owner.mediaView.setPictureInPictureActive(true)
+            owner.applyEffectivePlaybackVisibility()
+            owner.refreshSampleBufferPictureInPicturePlaybackState()
+            owner.mediaView.setSampleBufferPictureInPicturePlaying(true)
+            let playbackActive = await waitUntil {
+                owner.mediaView.debugPlaybackState == .playing
+            }
+            owner.refreshSampleBufferPictureInPicturePlaybackState()
+
+            let exactLayer = contentSource.sampleBufferDisplayLayer === displayLayer
+            let exactDelegate = contentSource.sampleBufferPlaybackDelegate === adapter
+            let range = adapter.pictureInPictureControllerTimeRangeForPlayback(controller)
+            let currentTime = CMTime(
+                seconds: owner.mediaView.debugPlaybackTime,
+                preferredTimescale: 600,
+            )
+            let rangeContainsCurrent = range.isValid && CMTimeRangeContainsTime(range, time: currentTime)
+            let initiallyPlaying = !adapter.pictureInPictureControllerIsPlaybackPaused(controller)
+            let commandCancelBaseline = await backend.completedCancelCount
+
+            adapter.pictureInPictureController(controller, setPlaying: false)
+            let paused = await waitUntil {
+                owner.mediaView.debugPlaybackState == .paused
+                    && adapter.pictureInPictureControllerIsPlaybackPaused(controller)
+            }
+            adapter.pictureInPictureController(controller, setPlaying: true)
+            let resumed = await waitUntil {
+                owner.mediaView.debugPlaybackState == .playing
+                    && !adapter.pictureInPictureControllerIsPlaybackPaused(controller)
+            }
+
+            let firstSkip = PictureInPictureProbeCounter()
+            adapter.pictureInPictureController(
+                controller,
+                skipByInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+                completion: { firstSkip.increment() },
+            )
+            let firstSkipCompleted = await waitUntil { firstSkip.value == 1 }
+
+            let supersededSkip = PictureInPictureProbeCounter()
+            let newestSkip = PictureInPictureProbeCounter()
+            adapter.pictureInPictureController(
+                controller,
+                skipByInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
+                completion: { supersededSkip.increment() },
+            )
+            adapter.pictureInPictureController(
+                controller,
+                skipByInterval: CMTime(seconds: -0.05, preferredTimescale: 600),
+                completion: { newestSkip.increment() },
+            )
+            let supersessionCompleted = await waitUntil {
+                supersededSkip.value == 1 && newestSkip.value == 1
+            }
+
+            let timeoutCompletion = PictureInPictureProbeCounter()
+            owner.pictureInPictureSkipGeneration &+= 1
+            let timeoutGeneration = owner.pictureInPictureSkipGeneration
+            owner.pendingPictureInPictureSkipCompletion = { timeoutCompletion.increment() }
+            owner.schedulePictureInPictureSkipTimeout(generation: timeoutGeneration)
+            owner.pictureInPictureSkipTimeout?.perform()
+            let timeoutCompletedOnce = timeoutCompletion.value == 1
+
+            let pastEndSkip = PictureInPictureProbeCounter()
+            adapter.pictureInPictureController(
+                controller,
+                skipByInterval: CMTime(
+                    seconds: owner.mediaView.sampleBufferPictureInPictureDuration + 1,
+                    preferredTimescale: 600,
+                ),
+                completion: { pastEndSkip.increment() },
+            )
+            let pastEndPolicy = await waitUntil {
+                pastEndSkip.value == 1
+                    && owner.mediaView.debugPlaybackTime < 0.05
+                    && owner.mediaView.debugPlaybackState == .paused
+            }
+
+            let renderSize = CMVideoDimensions(width: 320, height: 180)
+            adapter.pictureInPictureController(controller, didTransitionToRenderSize: renderSize)
+            let renderSizeForwarded = await waitUntil {
+                owner.mediaView.debugSampleBufferPictureInPictureRenderSize?.width == 320
+                    && owner.mediaView.debugSampleBufferPictureInPictureRenderSize?.height == 180
+            }
+            let backgroundAudioAllowed = !adapter
+                .pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(controller)
+            let samePlayer = owner.mediaView.debugCurrentItemIdentifier == itemIdentifier
+            let sameLayer = owner.mediaView.debugSampleBufferPictureInPictureDisplayLayer === displayLayer
+            let commandCancelDelta = await backend.completedCancelCount - commandCancelBaseline
+
+            owner.mediaView.debugSimulateFFmpegOfflineFailure()
+            let deferredFailureHeldLayer = owner.mediaView.debugHasDeferredPictureInPictureFailureResolution
+                && owner.mediaView.debugSampleBufferPictureInPictureDisplayLayer === displayLayer
+                && owner.mediaView.debugSampleBufferPictureInPictureLayerIsVisible
+                && owner.mediaView.debugCurrentItemIdentifier == itemIdentifier
+            let stopTimeout = owner.pictureInPictureStopTimeout
+            owner.refreshPictureInPictureConfiguration()
+            let stopRequestIsIdempotent = owner.isPictureInPictureStopRequested
+                && owner.pictureInPictureStopTimeout === stopTimeout
+            owner.completePictureInPictureStop()
+            await owner.mediaView.debugWaitForFFmpegClose()
+            let deferredFailureReleasedAfterStop = !owner.mediaView.debugHasDeferredPictureInPictureFailureResolution
+                && !owner.mediaView.debugUsesFFmpegPlayback
+
+            owner.reconcilePictureInPictureContentSourceAfterStop()
+
+            let nativeSource = owner.mediaView.makePictureInPictureContentSource(
+                playbackDelegate: adapter,
+            )
+            let nativeFactoryRoute = nativeSource?.playerLayer === owner.mediaView.pictureInPicturePlayerLayer
+            let nativeOwnerReconciled = owner.pictureInPictureSourceIdentity
+                == owner.mediaView.pictureInPictureSourceIdentity
+            let nativeControllerRoute = controller.contentSource?.playerLayer
+                === owner.mediaView.pictureInPicturePlayerLayer
+            let controllerRetiredOnUnsupportedPlatform = !AVPictureInPictureController
+                .isPictureInPictureSupported()
+                && owner.pictureInPictureController == nil
+            let nativeRoute = nativeFactoryRoute
+                && (controllerRetiredOnUnsupportedPlatform
+                    || nativeOwnerReconciled && nativeControllerRoute)
+            owner.completePictureInPictureStop(retiringController: true)
+            let staleTimeoutCallbackRejected: Bool
+            if let nativeSource {
+                let replacementController = AVPictureInPictureController(contentSource: nativeSource)
+                replacementController.delegate = owner
+                owner.pictureInPictureController = replacementController
+                owner.pictureInPictureSourceIdentity = owner.mediaView.pictureInPictureSourceIdentity
+                owner.pictureInPictureControllerDidStopPictureInPicture(controller)
+                staleTimeoutCallbackRejected = owner.pictureInPictureController === replacementController
+                replacementController.delegate = nil
+            } else {
+                staleTimeoutCallbackRejected = false
+            }
+            owner.finishPictureInPictureSkip()
+            adapter.update(controller: nil, currentTime: 0, duration: 0, isPaused: true)
+            owner.pictureInPictureController = nil
+            owner.pictureInPictureSourceIdentity = nil
+
+            let passed = exactLayer
+                && exactDelegate
+                && lateStartRejected
+                && playbackActive
+                && rangeContainsCurrent
+                && initiallyPlaying
+                && paused
+                && resumed
+                && firstSkipCompleted
+                && firstSkip.value == 1
+                && supersessionCompleted
+                && supersededSkip.value == 1
+                && newestSkip.value == 1
+                && timeoutCompletedOnce
+                && pastEndPolicy
+                && renderSizeForwarded
+                && backgroundAudioAllowed
+                && samePlayer
+                && sameLayer
+                && commandCancelDelta == 0
+                && deferredFailureHeldLayer
+                && stopRequestIsIdempotent
+                && deferredFailureReleasedAfterStop
+                && nativeRoute
+                && staleTimeoutCallbackRejected
+            return (
+                passed,
+                "sample-pip-source=\(exactLayer), delegate=\(exactDelegate), range=\(rangeContainsCurrent), "
+                    + "late-start-rejected=\(lateStartRejected), "
+                    + "play-pause=\(paused && resumed), skip-once=\(firstSkip.value == 1), "
+                    + "supersession=\(supersessionCompleted), timeout-once=\(timeoutCompletedOnce), "
+                    + "past-end=\(pastEndPolicy), render-size=\(renderSizeForwarded), "
+                    + "same-player-layer=\(samePlayer && sameLayer), cancel-delta=\(commandCancelDelta), "
+                    + "deferred-teardown=\(deferredFailureHeldLayer && deferredFailureReleasedAfterStop), "
+                    + "stop-idempotent=\(stopRequestIsIdempotent), "
+                    + "native-route=\(nativeRoute)/factory=\(nativeFactoryRoute)/owner=\(nativeOwnerReconciled)"
+                    + "/controller=\(nativeControllerRoute)/retired=\(controllerRetiredOnUnsupportedPlatform), "
+                    + "stale-timeout=\(staleTimeoutCallbackRejected), "
+                    + "pip-supported=false",
+            )
         }
 
         private static func waitUntil(
@@ -1586,7 +1997,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             cancelPendingPictureInPictureStart(rejectLateStart: true)
             return
         }
-        if isPictureInPictureActive || pictureInPictureController?.isPictureInPictureActive == true {
+        if isPictureInPictureRetained {
             pendingInvalidationAfterPictureInPicture = true
             requestPictureInPictureStop()
             return
@@ -1594,7 +2005,10 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         finishInvalidation()
     }
 
-    func pictureInPictureControllerWillStartPictureInPicture(_: AVPictureInPictureController) {
+    func pictureInPictureControllerWillStartPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController,
+    ) {
+        guard self.pictureInPictureController === pictureInPictureController else { return }
         cancelPictureInPictureStartTimeout()
         if rejectsLatePictureInPictureStart {
             isPictureInPictureStartRequested = false
@@ -1603,22 +2017,29 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         }
         isPictureInPictureStartRequested = false
         isPictureInPictureActive = true
+        ignoresPictureInPictureControllerActiveState = false
+        isPictureInPictureStopRequested = false
         mediaView.setPictureInPictureActive(true)
         applyEffectivePlaybackVisibility()
         updatePictureInPictureControl()
     }
 
     func pictureInPictureController(
-        _: AVPictureInPictureController,
+        _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: any Swift.Error,
     ) {
+        guard self.pictureInPictureController === pictureInPictureController else { return }
         cancelPictureInPictureStartTimeout()
         cancelPictureInPictureStopTimeout()
+        finishPictureInPictureSkip()
         rejectsLatePictureInPictureStart = false
         log("Gallery Picture in Picture failed: \(error.localizedDescription)")
         isPictureInPictureStartRequested = false
         isPictureInPictureActive = false
+        ignoresPictureInPictureControllerActiveState = true
+        isPictureInPictureStopRequested = false
         mediaView.setPictureInPictureActive(false)
+        applyEffectivePlaybackVisibility()
         releasePictureInPictureAudioSession()
         updatePictureInPictureControl()
         GalleryPictureInPictureCoordinator.shared.didFail(owner: self)
@@ -1627,28 +2048,92 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         }
     }
 
-    func pictureInPictureControllerDidStopPictureInPicture(_: AVPictureInPictureController) {
+    func pictureInPictureControllerDidStopPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController,
+    ) {
+        guard self.pictureInPictureController === pictureInPictureController else { return }
         cancelPictureInPictureStartTimeout()
         cancelPictureInPictureStopTimeout()
         completePictureInPictureStop()
     }
 
     func pictureInPictureController(
-        _: AVPictureInPictureController,
+        _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void,
     ) {
+        guard self.pictureInPictureController === pictureInPictureController else {
+            completionHandler(false)
+            return
+        }
         GalleryPictureInPictureCoordinator.shared.restore(
             owner: self,
             completion: completionHandler,
         )
     }
 
-    private func completePictureInPictureStop() {
+    func setSampleBufferPictureInPicturePlaying(_ playing: Bool) {
+        guard isPictureInPictureRetained,
+              !isPictureInPictureStopRequested,
+              pictureInPictureSourceIdentity?.kind == .sampleBufferDisplayLayer
+        else { return }
+        mediaView.setSampleBufferPictureInPicturePlaying(playing)
+        refreshSampleBufferPictureInPicturePlaybackState()
+    }
+
+    func setSampleBufferPictureInPictureRenderSize(_ newRenderSize: CMVideoDimensions) {
+        guard isPictureInPictureRetained,
+              !isPictureInPictureStopRequested,
+              pictureInPictureSourceIdentity?.kind == .sampleBufferDisplayLayer
+        else { return }
+        mediaView.setSampleBufferPictureInPictureRenderSize(newRenderSize)
+    }
+
+    func skipSampleBufferPictureInPicture(
+        by interval: TimeInterval,
+        completion completionHandler: @escaping @Sendable () -> Void,
+    ) {
+        let previousCompletion = pendingPictureInPictureSkipCompletion
+        pendingPictureInPictureSkipCompletion = nil
+        previousCompletion?()
+        pictureInPictureSkipGeneration &+= 1
+        let generation = pictureInPictureSkipGeneration
+        pendingPictureInPictureSkipCompletion = completionHandler
+        schedulePictureInPictureSkipTimeout(generation: generation)
+        guard isPictureInPictureRetained,
+              !isPictureInPictureStopRequested,
+              pictureInPictureSourceIdentity?.kind == .sampleBufferDisplayLayer,
+              interval.isFinite
+        else {
+            finishPictureInPictureSkip(generation: generation)
+            return
+        }
+        mediaView.skipSampleBufferPictureInPicture(by: interval) { [weak self] in
+            guard let self, pictureInPictureSkipGeneration == generation else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, pictureInPictureSkipGeneration == generation else { return }
+                refreshSampleBufferPictureInPicturePlaybackState()
+                finishPictureInPictureSkip(generation: generation)
+            }
+        }
+    }
+
+    private func completePictureInPictureStop(retiringController: Bool = false) {
+        cancelPictureInPictureStartTimeout()
+        cancelPictureInPictureStopTimeout()
+        finishPictureInPictureSkip()
+        if retiringController {
+            retirePictureInPictureController()
+        }
         rejectsLatePictureInPictureStart = false
         isPictureInPictureStartRequested = false
         isPictureInPictureActive = false
+        isPictureInPictureStopRequested = false
+        ignoresPictureInPictureControllerActiveState = true
         mediaView.setPictureInPictureActive(false)
         applyEffectivePlaybackVisibility()
+        if !retiringController {
+            reconcilePictureInPictureContentSourceAfterStop()
+        }
         releasePictureInPictureAudioSession(
             keepForGalleryPlayback: isPlaybackVisible && mediaView.isPlaybackRequested,
         )
@@ -1656,13 +2141,62 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         GalleryPictureInPictureCoordinator.shared.didStop(owner: self)
         if pendingInvalidationAfterPictureInPicture {
             finishInvalidation()
+        } else if !isInvalidated, retiringController {
+            refreshPictureInPictureConfiguration()
         }
+    }
+
+    private func retirePictureInPictureController() {
+        pictureInPicturePossibleCancellable?.cancel()
+        pictureInPicturePossibleCancellable = nil
+        sampleBufferPictureInPictureAdapter.update(
+            controller: nil,
+            currentTime: 0,
+            duration: 0,
+            isPaused: true,
+        )
+        pictureInPictureController?.delegate = nil
+        pictureInPictureController = nil
+        pictureInPictureSourceIdentity = nil
+    }
+
+    private func reconcilePictureInPictureContentSourceAfterStop() {
+        guard let pictureInPictureController,
+              let contentSource = mediaView.makePictureInPictureContentSource(
+                  playbackDelegate: sampleBufferPictureInPictureAdapter,
+              )
+        else { return }
+        let desiredIdentity = mediaView.pictureInPictureSourceIdentity
+        if pictureInPictureSourceIdentity != desiredIdentity {
+            pictureInPictureController.contentSource = contentSource
+            pictureInPictureSourceIdentity = desiredIdentity
+        }
+        refreshSampleBufferPictureInPicturePlaybackState()
+    }
+
+    private func finishPictureInPictureSkip(generation: UInt64? = nil) {
+        if let generation, generation != pictureInPictureSkipGeneration { return }
+        pictureInPictureSkipTimeout?.cancel()
+        pictureInPictureSkipTimeout = nil
+        pictureInPictureSkipGeneration &+= 1
+        let completion = pendingPictureInPictureSkipCompletion
+        pendingPictureInPictureSkipCompletion = nil
+        completion?()
+    }
+
+    private func schedulePictureInPictureSkipTimeout(generation: UInt64) {
+        pictureInPictureSkipTimeout?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finishPictureInPictureSkip(generation: generation)
+        }
+        pictureInPictureSkipTimeout = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
     }
 
     private func configurePictureInPicture() {
         mediaView.onPictureInPictureToggle = { [weak self] in self?.togglePictureInPicture() }
         mediaView.onPictureInPictureEligibilityChanged = { [weak self] in
-            self?.updatePictureInPictureControl()
+            self?.refreshPictureInPictureConfiguration()
         }
         mediaView.onPlaybackIntentChanged = { [weak self] in
             guard let self,
@@ -1688,28 +2222,97 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                 }
                 mediaView.pauseForAudioTakeover()
             }
+        refreshPictureInPictureConfiguration()
+    }
+
+    private func refreshPictureInPictureConfiguration() {
+        if isPictureInPictureRetained,
+           mediaView.sampleBufferPictureInPictureHasTerminalFailure
+        {
+            refreshSampleBufferPictureInPicturePlaybackState()
+            finishPictureInPictureSkip()
+            if isPictureInPictureStartRequested {
+                rejectsLatePictureInPictureStart = true
+            }
+            requestPictureInPictureStop()
+            updatePictureInPictureControl()
+            return
+        }
+        let desiredIdentity = mediaView.pictureInPictureSourceIdentity
+        if isPictureInPictureRetained, pictureInPictureSourceIdentity != desiredIdentity {
+            finishPictureInPictureSkip()
+            if isPictureInPictureStartRequested {
+                rejectsLatePictureInPictureStart = true
+            }
+            requestPictureInPictureStop()
+            updatePictureInPictureControl()
+            return
+        }
+        if pictureInPictureSourceIdentity?.kind == .sampleBufferDisplayLayer {
+            refreshSampleBufferPictureInPicturePlaybackState()
+        }
         guard allowsPictureInPicture,
               AVPictureInPictureController.isPictureInPictureSupported()
+              || pictureInPictureController != nil
         else {
             updatePictureInPictureControl()
             return
         }
-        guard let controller = AVPictureInPictureController(
-            playerLayer: mediaView.pictureInPicturePlayerLayer,
+        guard let contentSource = mediaView.makePictureInPictureContentSource(
+            playbackDelegate: sampleBufferPictureInPictureAdapter,
         ) else {
             updatePictureInPictureControl()
             return
         }
-        controller.delegate = self
-        controller.canStartPictureInPictureAutomaticallyFromInline = false
-        pictureInPictureController = controller
-        pictureInPicturePossibleCancellable = controller.publisher(
-            for: \.isPictureInPicturePossible,
-            options: [.initial, .new],
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in self?.updatePictureInPictureControl() }
+        if let pictureInPictureController {
+            if pictureInPictureSourceIdentity != desiredIdentity {
+                pictureInPictureController.contentSource = contentSource
+                pictureInPictureSourceIdentity = desiredIdentity
+            }
+        } else {
+            let controller: AVPictureInPictureController
+            switch desiredIdentity.kind {
+            case .playerLayer:
+                guard let nativeController = AVPictureInPictureController(
+                    playerLayer: mediaView.pictureInPicturePlayerLayer,
+                ) else {
+                    updatePictureInPictureControl()
+                    return
+                }
+                controller = nativeController
+            case .sampleBufferDisplayLayer:
+                controller = AVPictureInPictureController(contentSource: contentSource)
+            }
+            controller.delegate = self
+            controller.canStartPictureInPictureAutomaticallyFromInline = false
+            controller.requiresLinearPlayback = false
+            pictureInPictureController = controller
+            pictureInPictureSourceIdentity = desiredIdentity
+            pictureInPicturePossibleCancellable = controller.publisher(
+                for: \.isPictureInPicturePossible,
+                options: [.initial, .new],
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak controller] _ in
+                guard let self, pictureInPictureController === controller else { return }
+                updatePictureInPictureControl()
+            }
+        }
+        refreshSampleBufferPictureInPicturePlaybackState()
         updatePictureInPictureControl()
+    }
+
+    private func refreshSampleBufferPictureInPicturePlaybackState() {
+        let controller = pictureInPictureSourceIdentity?.kind == .sampleBufferDisplayLayer
+            ? pictureInPictureController
+            : nil
+        sampleBufferPictureInPictureAdapter.update(
+            controller: controller,
+            currentTime: mediaView.sampleBufferPictureInPictureCurrentTime,
+            duration: mediaView.sampleBufferPictureInPictureDuration,
+            isPaused: mediaView.sampleBufferPictureInPictureIsPaused,
+        )
+        controller?.invalidatePlaybackState()
     }
 
     private func observeMessageDeletion() {
@@ -1736,9 +2339,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         if isPictureInPictureStartRequested {
             pendingInvalidationAfterPictureInPicture = true
             cancelPendingPictureInPictureStart(rejectLateStart: true)
-        } else if isPictureInPictureActive
-            || pictureInPictureController?.isPictureInPictureActive == true
-        {
+        } else if isPictureInPictureRetained {
             pendingInvalidationAfterPictureInPicture = true
             requestPictureInPictureStop()
         } else {
@@ -1748,6 +2349,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
 
     private func togglePictureInPicture() {
         guard let pictureInPictureController else { return }
+        guard !isPictureInPictureStopRequested else { return }
         if isPictureInPictureStartRequested {
             cancelPendingPictureInPictureStart(rejectLateStart: true)
             return
@@ -1757,6 +2359,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             return
         }
         guard isPlaybackVisible,
+              pictureInPictureSourceIdentity == mediaView.pictureInPictureSourceIdentity,
               mediaView.isPictureInPictureReady,
               pictureInPictureController.isPictureInPicturePossible,
               galleryController?.preparePictureInPicture(for: self) == true
@@ -1766,6 +2369,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             return
         }
         rejectsLatePictureInPictureStart = false
+        isPictureInPictureStopRequested = false
+        ignoresPictureInPictureControllerActiveState = false
         isPictureInPictureStartRequested = true
         applyEffectivePlaybackVisibility()
         updatePictureInPictureControl()
@@ -1774,20 +2379,24 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     }
 
     private func applyEffectivePlaybackVisibility() {
+        mediaView.setPictureInPictureRetained(isPictureInPictureRetained)
         mediaView.setPlaybackVisible(isPlaybackVisible || isPictureInPictureRetained)
     }
 
     private func updatePictureInPictureControl() {
         let isPossible = pictureInPictureController?.isPictureInPicturePossible == true
         let isReady = mediaView.isPictureInPictureReady
+        let sourceMatchesPlayback = pictureInPictureSourceIdentity == mediaView.pictureInPictureSourceIdentity
         let isVisible = allowsPictureInPicture
             && !isDeleted
             && isPlaybackVisible
             && !rejectsLatePictureInPictureStart
+            && sourceMatchesPlayback
             && (isPictureInPictureRetained || isPossible && isReady)
         mediaView.setPictureInPictureControl(
             visible: isVisible,
-            enabled: isPictureInPictureActive || !isPictureInPictureStartRequested && isPossible && isReady,
+            enabled: !isPictureInPictureStopRequested
+                && (isPictureInPictureActive || !isPictureInPictureStartRequested && isPossible && isReady),
             active: isPictureInPictureRetained,
         )
     }
@@ -1813,12 +2422,16 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
 
     private func schedulePictureInPictureStartTimeout() {
         cancelPictureInPictureStartTimeout()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, isPictureInPictureStartRequested else { return }
-            if let pictureInPictureController,
-               pictureInPictureController.isPictureInPictureActive
-            {
-                pictureInPictureControllerWillStartPictureInPicture(pictureInPictureController)
+        let controller = pictureInPictureController
+        let sourceIdentity = pictureInPictureSourceIdentity
+        let workItem = DispatchWorkItem { [weak self, weak controller] in
+            guard let self,
+                  pictureInPictureController === controller,
+                  pictureInPictureSourceIdentity == sourceIdentity,
+                  isPictureInPictureStartRequested
+            else { return }
+            if let controller, controller.isPictureInPictureActive {
+                pictureInPictureControllerWillStartPictureInPicture(controller)
                 return
             }
             cancelPendingPictureInPictureStart(rejectLateStart: true)
@@ -1833,24 +2446,32 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     }
 
     private func requestPictureInPictureStop() {
+        guard !isPictureInPictureStopRequested else { return }
+        isPictureInPictureStopRequested = true
         pictureInPictureController?.stopPictureInPicture()
         schedulePictureInPictureStopTimeout()
     }
 
     private func schedulePictureInPictureStopTimeout() {
         cancelPictureInPictureStopTimeout()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+        let controller = pictureInPictureController
+        let sourceIdentity = pictureInPictureSourceIdentity
+        let workItem = DispatchWorkItem { [weak self, weak controller] in
+            guard let self,
+                  pictureInPictureController === controller,
+                  pictureInPictureSourceIdentity == sourceIdentity
+            else { return }
             guard isPictureInPictureActive
-                || pictureInPictureController?.isPictureInPictureActive == true
+                || controller?.isPictureInPictureActive == true
+                || isPictureInPictureStopRequested
                 || pendingInvalidationAfterPictureInPicture
             else { return }
-            pictureInPictureController?.stopPictureInPicture()
-            if pictureInPictureController?.isPictureInPictureActive == true {
+            controller?.stopPictureInPicture()
+            if controller?.isPictureInPictureActive == true {
                 schedulePictureInPictureStopTimeout()
                 return
             }
-            completePictureInPictureStop()
+            completePictureInPictureStop(retiringController: true)
         }
         pictureInPictureStopTimeout = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
@@ -1864,16 +2485,16 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     private func cancelPendingPictureInPictureStart(rejectLateStart: Bool) {
         guard isPictureInPictureStartRequested else { return }
         cancelPictureInPictureStartTimeout()
+        finishPictureInPictureSkip()
         isPictureInPictureStartRequested = false
         isPictureInPictureActive = false
+        isPictureInPictureStopRequested = true
         rejectsLatePictureInPictureStart = rejectLateStart
         pictureInPictureController?.stopPictureInPicture()
+        applyEffectivePlaybackVisibility()
+        schedulePictureInPictureStopTimeout()
         releasePictureInPictureAudioSession()
         updatePictureInPictureControl()
-        GalleryPictureInPictureCoordinator.shared.didFail(owner: self)
-        if pendingInvalidationAfterPictureInPicture {
-            finishInvalidation()
-        }
     }
 
     private func finishInvalidation() {
@@ -1882,15 +2503,15 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         isPlaybackVisible = false
         pendingInvalidationAfterPictureInPicture = false
         rejectsLatePictureInPictureStart = false
+        isPictureInPictureStopRequested = false
+        ignoresPictureInPictureControllerActiveState = true
         cancelPictureInPictureStartTimeout()
         cancelPictureInPictureStopTimeout()
+        finishPictureInPictureSkip()
         mediaTakeoverCancellable?.cancel()
         mediaTakeoverCancellable = nil
         tdUpdateCancellables.removeAll()
-        pictureInPicturePossibleCancellable?.cancel()
-        pictureInPicturePossibleCancellable = nil
-        pictureInPictureController?.delegate = nil
-        pictureInPictureController = nil
+        retirePictureInPictureController()
         attachmentToken = nil
         attachmentContext = nil
         attachmentContainer = nil
@@ -2501,6 +3122,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var currentFFmpegFailure: TDLibVODFFmpegSampleBufferPlayer.Failure?
     private var playbackBindingGeneration = UInt64.zero
     private var isPictureInPictureActive = false
+    private var isPictureInPictureRetainedByOwner = false
+    private var deferredPictureInPictureFailureResolution: (() -> Void)?
+    private var sampleBufferPictureInPictureRenderSize: CMVideoDimensions?
     private var vodRanges = TDLib.shared.vodRanges
     private var controlsAreVisible = false
     private var controlsAutoHideWorkItem: DispatchWorkItem?
@@ -2521,12 +3145,65 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         videoSurface.playerLayer
     }
 
+    var pictureInPictureSourceKind: GalleryPictureInPictureSourceKind {
+        usesFFmpegVOD && ffmpegPlayer?.pictureInPictureDisplayLayer != nil
+            ? .sampleBufferDisplayLayer
+            : .playerLayer
+    }
+
+    var pictureInPictureSourceIdentity: GalleryPictureInPictureSourceIdentity {
+        if pictureInPictureSourceKind == .sampleBufferDisplayLayer,
+           let displayLayer = ffmpegPlayer?.pictureInPictureDisplayLayer
+        {
+            return GalleryPictureInPictureSourceIdentity(
+                kind: .sampleBufferDisplayLayer,
+                layerIdentifier: ObjectIdentifier(displayLayer),
+            )
+        }
+        return GalleryPictureInPictureSourceIdentity(
+            kind: .playerLayer,
+            layerIdentifier: ObjectIdentifier(pictureInPicturePlayerLayer),
+        )
+    }
+
+    var sampleBufferPictureInPictureTimeRange: CMTimeRange {
+        guard pictureInPictureSourceKind == .sampleBufferDisplayLayer,
+              playbackDuration.isFinite,
+              playbackDuration > 0
+        else { return .invalid }
+        let upperBound = max(playbackDuration, playbackCurrentTime + 0.001)
+        return CMTimeRange(
+            start: .zero,
+            duration: CMTime(seconds: upperBound, preferredTimescale: 600),
+        )
+    }
+
+    var sampleBufferPictureInPictureCurrentTime: TimeInterval {
+        playbackCurrentTime
+    }
+
+    var sampleBufferPictureInPictureDuration: TimeInterval {
+        playbackDuration
+    }
+
+    var sampleBufferPictureInPictureIsPaused: Bool {
+        currentPlaybackState != .playing
+    }
+
+    var sampleBufferPictureInPictureHasTerminalFailure: Bool {
+        currentPlaybackState == .failed || currentFFmpegFailure != nil
+    }
+
     var isPictureInPictureReady: Bool {
-        guard !usesFFmpegVOD,
-              !loopsPlayback,
-              player.hasItem,
-              isSurfaceReady
-        else { return false }
+        guard !loopsPlayback, isSurfaceReady else { return false }
+        switch pictureInPictureSourceKind {
+        case .playerLayer:
+            guard player.hasItem else { return false }
+        case .sampleBufferDisplayLayer:
+            guard ffmpegPlayer?.hasItem == true,
+                  playbackDuration > 0
+            else { return false }
+        }
         return switch currentPlaybackState {
         case .buffering, .ended, .paused, .playing:
             true
@@ -2542,6 +3219,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     #if DEBUG
         var pictureInPictureControlIsHidden: Bool {
             pictureInPictureButton.isHidden
+        }
+
+        var debugPictureInPictureControlIsEnabled: Bool {
+            pictureInPictureButton.isEnabled
         }
 
         var debugPlaybackCommandProbePassed: Bool {
@@ -2635,12 +3316,38 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             usesFFmpegVOD && ffmpegPlayer != nil
         }
 
+        var debugSampleBufferPictureInPictureDisplayLayer: AVSampleBufferDisplayLayer? {
+            ffmpegPlayer?.pictureInPictureDisplayLayer
+        }
+
+        var debugSampleBufferPictureInPictureLayerIsVisible: Bool {
+            ffmpegPlayer?.surfaceView.isHidden == false
+        }
+
+        var debugSampleBufferPictureInPictureRenderSize: CMVideoDimensions? {
+            sampleBufferPictureInPictureRenderSize
+        }
+
+        var debugHasDeferredPictureInPictureFailureResolution: Bool {
+            deferredPictureInPictureFailureResolution != nil
+        }
+
+        var debugPlaybackState: LocalMediaPlayer.State {
+            currentPlaybackState
+        }
+
         var debugPlaybackSurfaceIsReady: Bool {
             isSurfaceReady
         }
 
         func debugForceVODSeek(to time: TimeInterval) {
             playbackPlay(from: time)
+        }
+
+        func debugSimulateFFmpegOfflineFailure() {
+            guard usesFFmpegVOD, sourceFile != nil else { return }
+            currentStreamingStatus = .offline
+            render(state: .failed)
         }
 
         func debugWaitForFFmpegClose() async {
@@ -2784,6 +3491,23 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             return (0, true)
         }
         return (target, false)
+    }
+
+    func makePictureInPictureContentSource(
+        playbackDelegate: any AVPictureInPictureSampleBufferPlaybackDelegate,
+    ) -> AVPictureInPictureController.ContentSource? {
+        switch pictureInPictureSourceKind {
+        case .playerLayer:
+            return AVPictureInPictureController.ContentSource(
+                playerLayer: pictureInPicturePlayerLayer,
+            )
+        case .sampleBufferDisplayLayer:
+            guard let displayLayer = ffmpegPlayer?.pictureInPictureDisplayLayer else { return nil }
+            return AVPictureInPictureController.ContentSource(
+                sampleBufferDisplayLayer: displayLayer,
+                playbackDelegate: playbackDelegate,
+            )
+        }
     }
 
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
@@ -2938,6 +3662,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         resumeAfterSeeking = false
         isUserPaused = false
         isMuted = false
+        isPictureInPictureActive = false
+        isPictureInPictureRetainedByOwner = false
+        deferredPictureInPictureFailureResolution = nil
+        sampleBufferPictureInPictureRenderSize = nil
         playbackRate = 1
         currentPlaybackTime = 0
         playbackDuration = 0
@@ -3022,6 +3750,60 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         }
         updateControlIcons()
         onPlaybackIntentChanged?()
+    }
+
+    func setPictureInPictureRetained(_ isRetained: Bool) {
+        guard isPictureInPictureRetainedByOwner != isRetained else { return }
+        isPictureInPictureRetainedByOwner = isRetained
+        guard !isRetained else { return }
+        let resolution = deferredPictureInPictureFailureResolution
+        deferredPictureInPictureFailureResolution = nil
+        resolution?()
+    }
+
+    func setSampleBufferPictureInPicturePlaying(_ playing: Bool) {
+        guard pictureInPictureSourceKind == .sampleBufferDisplayLayer else { return }
+        isUserPaused = !playing
+        if playing {
+            playbackSetVisible(true)
+            playbackPlay()
+        } else {
+            playbackPause()
+        }
+        updateControlIcons()
+        updatePictureInPictureEligibility()
+        onPlaybackIntentChanged?()
+    }
+
+    func skipSampleBufferPictureInPicture(
+        by interval: TimeInterval,
+        completion: @escaping () -> Void,
+    ) {
+        guard interval.isFinite,
+              let ffmpegPlayer,
+              ffmpegPlayer.hasItem,
+              playbackDuration > 0
+        else {
+            completion()
+            return
+        }
+        let requestedTarget = max(0, playbackCurrentTime + interval)
+        let skipsPastEnd = interval > 0 && requestedTarget >= playbackDuration
+        let target = skipsPastEnd ? 0 : min(playbackDuration, requestedTarget)
+        if skipsPastEnd {
+            isUserPaused = true
+            ffmpegPlayer.pause()
+        }
+        currentPlaybackTime = target
+        ffmpegPlayer.seek(to: target, completion: completion)
+        updateTimeLabel(current: target)
+        updateControlIcons()
+        updatePictureInPictureEligibility()
+        onPlaybackIntentChanged?()
+    }
+
+    func setSampleBufferPictureInPictureRenderSize(_ renderSize: CMVideoDimensions) {
+        sampleBufferPictureInPictureRenderSize = renderSize
     }
 
     func setPictureInPictureControl(visible: Bool, enabled: Bool, active: Bool) {
@@ -3273,7 +4055,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         ffmpegFailureCancellable = nil
         currentFFmpegFailure = nil
         ffmpegPlayer.surfaceView.removeFromSuperview()
-        ffmpegCloseTask = Task { @MainActor in await ffmpegPlayer.close() }
+        ffmpegCloseTask = Task { @MainActor [weak self] in
+            await ffmpegPlayer.close()
+            self?.updatePictureInPictureEligibility()
+        }
     }
 
     private func configurePlaybackControls() {
@@ -3602,7 +4387,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 false
             }
         videoSurface.isHidden = usesFFmpegVOD || !canShowSurface
-        ffmpegPlayer?.surfaceView.isHidden = !usesFFmpegVOD || !canShowSurface
+        let keepsSampleBufferLayerVisible = usesFFmpegVOD && isPictureInPictureRetainedByOwner
+        ffmpegPlayer?.surfaceView.isHidden = !usesFFmpegVOD
+            || !canShowSurface && !keepsSampleBufferLayerVisible
         if canShowSurface {
             spinner.stopAnimating()
         } else if currentPlaybackState != .failed, currentPlaybackState != .idle {
@@ -3653,27 +4440,21 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             spinner.stopAnimating()
             if usesVOD, let sourceFile {
                 let failedWithFFmpeg = usesFFmpegVOD
-                if currentStreamingStatus == .offline
+                let retriesVOD = currentStreamingStatus == .offline
                     || currentStreamingStatus == .retrying
                     || failedWithFFmpeg && currentFFmpegFailureIsRetryable
-                {
-                    vodConfiguration?.startTimestamp = currentPlaybackTime
-                    usesVOD = false
-                    prepareSurfaceForNewItem()
-                    player.stop()
-                    let statusText = currentStreamingStatus == .offline ? "Offline" : "Stream timed out"
-                    showRetryState(statusText: statusText, retryMode: .vod)
+                let resolution: () -> Void = { [weak self] in
+                    guard let self else { return }
+                    resolveVODPlaybackFailure(
+                        sourceFile: sourceFile,
+                        failedWithFFmpeg: failedWithFFmpeg,
+                        retriesVOD: retriesVOD,
+                    )
+                }
+                if failedWithFFmpeg, isPictureInPictureRetainedByOwner {
+                    deferredPictureInPictureFailureResolution = resolution
                 } else {
-                    startPlaybackTimestamp = currentPlaybackTime
-                    vodConfiguration?.startTimestamp = currentPlaybackTime
-                    usesVOD = false
-                    prepareSurfaceForNewItem()
-                    player.stop()
-                    if failedWithFFmpeg, sourceFile.local.isDownloadingCompleted {
-                        showRetryState(statusText: "Couldn't decode video", retryMode: .vod)
-                    } else {
-                        startLegacyDownload(file: sourceFile)
-                    }
+                    resolution()
                 }
             } else if usesLegacyDownload || sourceFile != nil {
                 usesLegacyDownload = false
@@ -3694,6 +4475,29 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         case .idle:
             cancelControlsAutoHide()
         }
+    }
+
+    private func resolveVODPlaybackFailure(
+        sourceFile: File,
+        failedWithFFmpeg: Bool,
+        retriesVOD: Bool,
+    ) {
+        vodConfiguration?.startTimestamp = currentPlaybackTime
+        usesVOD = false
+        if !retriesVOD {
+            startPlaybackTimestamp = currentPlaybackTime
+        }
+        prepareSurfaceForNewItem()
+        player.stop()
+        if retriesVOD {
+            let statusText = currentStreamingStatus == .offline ? "Offline" : "Stream timed out"
+            showRetryState(statusText: statusText, retryMode: .vod)
+        } else if failedWithFFmpeg, sourceFile.local.isDownloadingCompleted {
+            showRetryState(statusText: "Couldn't decode video", retryMode: .vod)
+        } else {
+            startLegacyDownload(file: sourceFile)
+        }
+        updatePictureInPictureEligibility()
     }
 
     private func showRetryState(statusText: String, retryMode: RetryMode) {
@@ -3986,6 +4790,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         }
         refreshBufferedSliderRanges()
         updateControlIcons()
+        updatePictureInPictureEligibility()
     }
 
     private func updateBufferedRanges(_ ranges: [LocalMediaPlayer.BufferedRange]) {
