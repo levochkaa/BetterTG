@@ -47,6 +47,8 @@ import UIKit
         case send
     }
 
+    private static let historyPageSize = 30
+
     let messagesDidChange = PassthroughSubject<Void, Never>()
     let messageBubblesWillDelete = PassthroughSubject<Set<DisplayedMessageID>, Never>()
     let sendTransitionAccepted = PassthroughSubject<ComposerSendTransitionAcceptance, Never>()
@@ -449,250 +451,13 @@ import UIKit
         }
         return resultString
     }
-
-    var voiceRecordingPreviewDuration: Int {
-        guard let activeVoiceRecordingDraft else { return max(1, Int(ceil(timerCount))) }
-        let range = activeVoiceRecordingDraft.effectiveRange
-        return max(1, Int(ceil(range.upperBound - range.lowerBound)))
+    
+    private var oldestLoadedMessageID: Int64 {
+        guard let oldestMessage = messages.last else { return 0 }
+        return ([oldestMessage.id] + oldestMessage.album.map(\.id)).min() ?? oldestMessage.id
     }
 
-    var canPauseVoiceRecording: Bool {
-        recordingVoiceNote
-            && voiceRecordingInteractionState == .locked
-            && voiceRecordingDraftTask == nil
-            && (activeVoiceRecordingDraft != nil || timerCount - voiceRecordingTimerBaseline >= 0.5)
-    }
-
-    var canContinueVoiceRecording: Bool {
-        if let draft = activeVoiceRecordingDraft {
-            return (try? resolveFrozenMediaSendContext(
-                for: .voiceNote,
-                destination: draft.destination,
-                sendTopic: draft.sendTopic,
-                replyTo: draft.replyTo,
-            )) != nil
-        }
-        if let context = activeVoiceRecordingContext {
-            return (try? resolveFrozenMediaSendContext(
-                for: .voiceNote,
-                destination: context.draftKey,
-                sendTopic: context.destinationTopic,
-                replyTo: context.replyTo,
-            )) != nil
-        }
-        return canRecordVoiceNote
-    }
-
-    var voiceRecordingPreviewPath: String? {
-        guard voiceRecordingInteractionState == .preview else { return nil }
-        return activeVoiceRecordingDraft?.fileURL.path()
-    }
-
-    var voiceRecordingPreviewWaveform: [CGFloat] {
-        guard let activeVoiceRecordingDraft else { return [] }
-        return VoiceNoteCodec.normalizedWaveform(data: activeVoiceRecordingDraft.waveform).map(CGFloat.init)
-    }
-
-    var voiceRecordingPreviewProgress: CGFloat {
-        guard let draft = activeVoiceRecordingDraft, draft.exactDuration > 0 else { return 0 }
-        return min(1, max(0, CGFloat(voiceRecordingPreviewPosition / draft.exactDuration)))
-    }
-
-    var voiceRecordingPreviewReady: Bool {
-        voiceRecordingInteractionState == .preview
-            && activeVoiceRecordingDraft != nil
-            && voiceRecordingDraftTask == nil
-            && voiceRecordingTrimTask == nil
-            && !voiceRecordingTrimIsUpdating
-    }
-
-    var voiceRecordingTrimControlsEnabled: Bool {
-        voiceRecordingInteractionState == .preview
-            && activeVoiceRecordingDraft != nil
-            && voiceRecordingDraftTask == nil
-            && voiceRecordingTrimTask == nil
-    }
-
-    var voiceRecordingPreviewExactDuration: Double {
-        activeVoiceRecordingDraft?.exactDuration ?? timerCount
-    }
-
-    var voiceRecordingTrimRange: Range<Double>? {
-        activeVoiceRecordingDraft?.effectiveRange
-    }
-
-    var voiceRecordingResumeRequiresTrimConfirmation: Bool {
-        guard let draft = activeVoiceRecordingDraft else { return false }
-        let range = draft.effectiveRange
-        return range.lowerBound > 0.000_001 || abs(range.upperBound - draft.exactDuration) > 0.000_001
-    }
-
-    var formattedVoiceRecordingPreviewDuration: String {
-        guard let draft = activeVoiceRecordingDraft else { return formattedTimerCount }
-        let range = draft.effectiveRange
-        return formatVoiceDuration(range.upperBound - range.lowerBound)
-    }
-
-    private var usesOrdinaryDeliveryReceipts: Bool {
-        guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
-        if case .chatTypeSupergroup(let type) = customChat.chat.type {
-            guard let group = customChat.supergroup, group.id == type.supergroupId else { return false }
-            return !type.isChannel && !group.isForum && !group.isDirectMessagesGroup && !group.isChannel
-        }
-        return customChat.supergroup == nil
-    }
-
-    private var usesForumDeliveryReceipts: Bool {
-        guard let id = location.forumTopicID, id > 0, !customChat.isSavedMessages else { return false }
-        switch customChat.chat.type {
-        case .chatTypeSupergroup(let type):
-            guard let group = customChat.supergroup, group.id == type.supergroupId else { return false }
-            return group.isForum && !type.isChannel && !group.isChannel && !group.isDirectMessagesGroup
-        case .chatTypePrivate(let type):
-            return customChat.user?.id == type.userId && customChat.bot?.hasTopics == true
-        default: return false
-        }
-    }
-
-    private var pendingVideoRetryStatusMessage: String? {
-        guard let failed = pendingVideoNote?.failedSendState else { return nil }
-        if failed.requiredPaidMessageStarCount > 0 {
-            return "This video-message retry requires a paid-message flow, which BetterTG doesn’t support."
-        }
-        if failed.needAnotherReplyQuote || failed.needAnotherSender {
-            return "This failed video message can’t be retried with the original reply or sender."
-        }
-        if !failed.canRetry {
-            return "TDLib marked this video message as non-retryable."
-        }
-        if failed.retryAvailableAt > Foundation.Date() {
-            return "This video message can be retried shortly."
-        }
-        return nil
-    }
-
-    private var pendingVoiceRetryStatusMessage: String? {
-        guard let draft = pendingVoiceNote else { return nil }
-        if draft.enqueueStartedAt != nil {
-            return "A previous voice send ended before its status was confirmed. Check the chat before discarding it."
-        }
-        guard let failedState = draft.failedSendState else { return nil }
-        if failedState.requiredPaidMessageStarCount > 0 {
-            return "Retrying this voice message requires a paid message, which BetterTG does not support."
-        }
-        if failedState.needAnotherReplyQuote || failedState.needAnotherSender {
-            return "Telegram requires a different reply or sender before this voice message can be retried."
-        }
-        guard failedState.canRetry else {
-            return "Telegram marked this voice message as non-retryable. You can discard the draft."
-        }
-        if failedState.retryAvailableAt > Foundation.Date() {
-            let seconds = max(1, Int(ceil(failedState.retryAvailableAt.timeIntervalSinceNow)))
-            return "Telegram will allow retrying this voice message in \(seconds) seconds."
-        }
-        return nil
-    }
-
-    private var canManageForumTopics: Bool {
-        customChat.adminRights?.canManageTopics == true
-            || {
-                if case .chatMemberStatusCreator = customChat.supergroup?.status {
-                    true
-                } else {
-                    false
-                }
-            }()
-    }
-
-    private var generalForumTopic: ForumTopic? {
-        forumTopicsByID.values.first(where: { $0.info.isGeneral })
-    }
-
-    private var composerCanTransfer: Bool {
-        !previewing && !composerRestorationLifetime.isRetired
-            && !sendingComposerMessage && sendMessageTask == nil
-            && !loadingVoiceDraft && !startingVoiceNote && !finalizingVoiceNote
-            && !pendingVoiceDraftIsFinalizing && voiceFinalizeTask == nil
-            && !recordingVoiceNote && audioRecorder == nil && recordingVoiceNoteURL == nil
-            && voiceRecordingDraftTask == nil && voiceRecordingTrimTask == nil
-            && !voiceRecordingTrimIsUpdating && !hasPendingVoiceNote && !hasPendingVideoNote
-            && pendingVoiceNote == nil && activeVoiceRecordingDraft == nil && pendingVideoNote == nil
-            && !retryingVideoNote && videoRetryTask == nil && submittingVideoDraftIDs.isEmpty
-            && restoredVideoRecordingDraft == nil
-    }
-
-    convenience init(
-        customChat: CustomChat,
-        location: ChatLocation? = nil,
-        forumTopic: ForumTopic? = nil,
-        previewing: Bool = false,
-        client: TDLibClient? = nil,
-    ) {
-        self.init(
-            customChat: customChat, location: location, forumTopic: forumTopic,
-            previewing: previewing, restoration: nil, history: nil, visibleMessageIDs: [], client: client ?? td,
-        )
-    }
-
-    deinit {
-        deliveryReadTask?.cancel()
-        log("deinit \(chatID)")
-        loadingMessagesTask?.cancel()
-        messageRefreshTask?.cancel()
-        sendMessageTask?.cancel()
-        voiceFinalizeTask?.cancel()
-        voiceRecordingDraftTask?.cancel()
-        voiceRecordingTrimTask?.cancel()
-        voiceRetryAvailabilityTask?.cancel()
-        videoRetryAvailabilityTask?.cancel()
-        videoRetryTask?.cancel()
-        reactionMutationTasks.values.forEach { $0.cancel() }
-        pinnedMessageTask?.cancel()
-        forumTopicTask?.cancel()
-        draftClearTask?.cancel()
-        composerMediaDraftTask?.cancel()
-        pinMutationTasks.values.forEach { $0.cancel() }
-        voiceRecordingPreviewPlayer.stop()
-        timer?.invalidate()
-        audioRecorder?.stop()
-        MainActor.assumeIsolated {
-            allMessagesTopicReads?.retire()
-            voiceBackgroundCheckpoint.finish()
-            messageRefresh?.cancel()
-            composerRestorationLifetime.finish {
-                if audioRecorder != nil {
-                    Media.shared.endAudioSessionRecord()
-                }
-                if voiceRecordingPreviewOwnsAudioSession {
-                    Media.shared.endAudioSessionRecord()
-                }
-                if let recordingVoiceNoteURL {
-                    try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
-                }
-                let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
-                SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
-                    !outgoingDocumentURLs.contains($0.standardizedFileURL)
-                })
-                if !previewing { Media.shared.onChatDismiss() }
-            }
-        }
-        chatOpenLease.invalidate()
-    }
-
-    private init(
-        customChat: CustomChat,
-        location: ChatLocation?,
-        forumTopic: ForumTopic?,
-        previewing: Bool,
-        restoration: ChatComposerRestorationState?,
-        history: ChatHistoryRestorationState?,
-        visibleMessageIDs: [Int64],
-        client: TDLibClient,
-    ) {
-        let resolvedLocation = location ?? ChatLocation.current(
-            chatID: customChat.id,
-            client: client,
-        )
+    init(customChat: CustomChat, previewing: Bool = false) {
         self.customChat = customChat
         self.chatID = resolvedLocation.chatID
         self.accountID = resolvedLocation.accountID
@@ -719,20 +484,6 @@ import UIKit
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
         }
-
-        // Install local intent before any publisher, server draft, or async load
-        // can fill the new composer. Only the one-shot factory can pass this seed.
-        if let restoration {
-            seedComposerRestoration(restoration)
-        }
-        if let history {
-            self.messages = history.makeMessages()
-            self.oldestHistoryMessageID = history.oldestHistoryMessageID
-            self.hasMoreMessages = history.hasMoreMessages
-            self.latestRestorationCursor = ChatHistoryLatestRefreshCursor(seed: history)
-            self.restorationWaitsForViewport = true
-        }
-        configureMessageRefresh(seedIDs: history?.sourceMessageIDs ?? [], visibleIDs: visibleMessageIDs)
 
         setPublishers()
         loadDeliveryReceiptIfNeeded()
@@ -1189,38 +940,76 @@ import UIKit
     }
 
     func loadMessages() {
-        guard !restorationWaitsForViewport, latestRestorationCursor == nil,
-              loadingMessagesTask == nil, hasMoreMessages else { return }
-        let fromMessageID = oldestHistoryMessageID ?? messages.last?.oldestSourceMessageID ?? 0
+        guard loadingMessagesTask == nil, hasMoreMessages else { return }
+        let fromMessageID = oldestLoadedMessageID
+        let client = td
         loadingMessagesTask = Task { [weak self] in
-            await self?._loadMessages(fromMessageID: fromMessageID)
+            guard let self else { return }
+            if fromMessageID == 0 {
+                _ = try? await client.openChat(chatId: chatID)
+            }
+            guard !Task.isCancelled else {
+                loadingMessagesTask = nil
+                return
+            }
+            await _loadMessages(fromMessageID: fromMessageID, client: client)
         }
     }
+    
+    func _loadMessages(fromMessageID: Int64, client: TDLibClient) async {
+        var knownIDs = Set(messages.flatMap { message in
+            [message.id] + message.album.map(\.id)
+        })
+        var cursor = fromMessageID
+        var chatHistory = [Message]()
+        var consecutiveNoProgressCount = 0
+        var reachedEnd = false
 
-    func _loadMessages(fromMessageID: Int64) async {
-        guard !Task.isCancelled, locationContextIsCurrent else {
-            loadingMessagesTask = nil
-            return
-        }
-        let readToken = messageRefresh?.beginRead()
-        guard let chatHistory = await loadHistory(
-            fromMessageId: fromMessageID,
-            limit: 30,
-            offset: 0,
-        ) else {
-            await main { self.loadingMessagesTask = nil }
-            return
-        }
-        guard !Task.isCancelled, locationContextIsCurrent else {
-            loadingMessagesTask = nil
-            return
-        }
-        guard !chatHistory.isEmpty else {
-            await main {
-                self.hasMoreMessages = false
-                self.loadingMessagesTask = nil
+        while chatHistory.count < Self.historyPageSize,
+              consecutiveNoProgressCount < 2,
+              !Task.isCancelled
+        {
+            let remainingCount = Self.historyPageSize - chatHistory.count
+            let requestLimit = min(100, remainingCount + (cursor == 0 ? 0 : 1))
+            guard let fetched = try? await client.getChatHistory(
+                chatId: chatID,
+                fromMessageId: cursor,
+                limit: requestLimit,
+                offset: 0,
+                onlyLocal: false,
+            )
+            .messages else {
+                loadingMessagesTask = nil
+                return
             }
+            guard !fetched.isEmpty else {
+                reachedEnd = true
+                break
+            }
+
+            let previousCount = chatHistory.count
+            for message in fetched where knownIDs.insert(message.id).inserted {
+                chatHistory.append(message)
+                if chatHistory.count == Self.historyPageSize {
+                    break
+                }
+            }
+            let nextCursor = fetched.last?.id ?? cursor
+            if chatHistory.count == previousCount || nextCursor == cursor {
+                consecutiveNoProgressCount += 1
+                await Task.yield()
+            } else {
+                consecutiveNoProgressCount = 0
+            }
+            cursor = nextCursor
+        }
+
+        guard !Task.isCancelled else {
+            loadingMessagesTask = nil
             return
+        }
+        if consecutiveNoProgressCount == 2 {
+            reachedEnd = true
         }
         
         let customMessages = await chatHistory.filter { location.matches(message: $0) }.asyncMap { chatMessage in
@@ -1232,19 +1021,12 @@ import UIKit
                 self.loadingMessagesTask = nil
                 return
             }
-            let current = readToken.map {
-                self.messageRefresh?
-                    .takeCurrentValues(customMessages.map(ChatHistoryMessageValue.init), token: $0)
-                    .map { $0.makeMessage() } ?? []
-            } ?? customMessages
-            self.messages = self.canonicalMessages(
-                merging: self.messages,
-                with: current,
-                replacingExisting: true,
-            )
-            let cursorAdvanced = nextCursor != nil && (fromMessageID == 0 || nextCursor != fromMessageID)
-            self.oldestHistoryMessageID = nextCursor
-            self.hasMoreMessages = cursorAdvanced
+        }
+        
+        await main { [savedMessages] in
+            let existingIDs = Set(self.messages.map(\.id))
+            self.messages.append(contentsOf: savedMessages.filter { !existingIDs.contains($0.id) })
+            self.hasMoreMessages = !reachedEnd
             self.loadingMessagesTask = nil
             self.driveMessageRefresh()
         }

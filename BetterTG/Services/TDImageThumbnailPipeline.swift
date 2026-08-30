@@ -80,7 +80,6 @@ final class TDImageThumbnailPipeline: @unchecked Sendable {
         let queue = OperationQueue()
         queue.name = "com.bettertg.thumbnail-decoding"
         queue.qualityOfService = .utility
-        queue.maxConcurrentOperationCount = 2
         return queue
     }()
 
