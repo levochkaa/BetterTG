@@ -6,13 +6,19 @@ import UIKit
 // MARK: - TelegramContextMenuLayout
 
 private enum TelegramContextMenuLayout {
-    static let actionHeight = CGFloat(44)
     static let actionFontSize = CGFloat(17)
-    static let contentSideInset = CGFloat(16)
+    static let actionVerticalInset = CGFloat(11)
+    static let actionHeight = ceil(UIFont.systemFont(ofSize: actionFontSize).lineHeight)
+        + actionVerticalInset * 2
+    static let contentSideInset = CGFloat(18)
+    static let contentVerticalInset = CGFloat(10)
     static let iconSize = CGFloat(24)
-    static let titleToIconSpacing = CGFloat(20)
-    static let menuWidth = CGFloat(250)
-    static let sectionSeparatorHeight = CGFloat(8)
+    static let iconSlotWidth = CGFloat(32)
+    static let iconSideInset = CGFloat(20)
+    static let iconSpacing = CGFloat(8)
+    static let minimumMenuWidth = CGFloat(220)
+    static let maximumMenuWidth = CGFloat(240)
+    static let sectionSeparatorHeight = CGFloat(20)
 }
 
 // MARK: - TelegramContextMenuAction
@@ -361,9 +367,9 @@ private final class TelegramContextMenuController: UIViewController {
             }
         }
 
-        menuEffectView.layer.cornerRadius = 26
+        menuEffectView.layer.cornerRadius = 30
         menuEffectView.layer.cornerCurve = .continuous
-        menuEffectView.cornerConfiguration = .corners(radius: 26)
+        menuEffectView.cornerConfiguration = .corners(radius: 30)
         menuEffectView.clipsToBounds = true
         menuEffectView.alpha = 0
         view.addSubview(menuEffectView)
@@ -377,6 +383,13 @@ private final class TelegramContextMenuController: UIViewController {
 
         menuStack.axis = .vertical
         menuStack.alignment = .fill
+        menuStack.isLayoutMarginsRelativeArrangement = true
+        menuStack.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: TelegramContextMenuLayout.contentVerticalInset,
+            leading: 0,
+            bottom: TelegramContextMenuLayout.contentVerticalInset,
+            trailing: 0,
+        )
         menuStack.translatesAutoresizingMaskIntoConstraints = false
         menuEffectView.contentView.addSubview(menuStack)
         NSLayoutConstraint.activate([
@@ -411,8 +424,10 @@ private final class TelegramContextMenuController: UIViewController {
         let separatorHeight = actions.dropFirst().reduce(CGFloat.zero) {
             $0 + ($1.startsNewSection ? TelegramContextMenuLayout.sectionSeparatorHeight : 0)
         }
-        let menuHeight = CGFloat(actions.count) * TelegramContextMenuLayout.actionHeight + separatorHeight
-        let menuWidth = min(TelegramContextMenuLayout.menuWidth, availableWidth)
+        let menuHeight = TelegramContextMenuLayout.contentVerticalInset * 2
+            + CGFloat(actions.count) * TelegramContextMenuLayout.actionHeight
+            + separatorHeight
+        let menuWidth = menuWidth(availableWidth: availableWidth)
         let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
         let maximumBottom = view.bounds.height - bottomInset
 
@@ -554,6 +569,27 @@ private final class TelegramContextMenuController: UIViewController {
         if presentationStyle == .avatar {
             previewView?.layoutIfNeeded()
         }
+    }
+
+    private func menuWidth(availableWidth: CGFloat) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: TelegramContextMenuLayout.actionFontSize)
+        let naturalWidth = actions.reduce(CGFloat.zero) { width, action in
+            let titleWidth = ceil((action.title as NSString).size(withAttributes: [.font: font]).width)
+            let contentWidth = titleWidth + TelegramContextMenuLayout.contentSideInset * 2
+            guard action.image != nil else { return max(width, contentWidth) }
+            return max(
+                width,
+                titleWidth
+                    + TelegramContextMenuLayout.contentSideInset
+                    + TelegramContextMenuLayout.iconSlotWidth
+                    + TelegramContextMenuLayout.iconSideInset
+                    + TelegramContextMenuLayout.iconSpacing,
+            )
+        }
+        return min(
+            max(naturalWidth, TelegramContextMenuLayout.minimumMenuWidth),
+            min(TelegramContextMenuLayout.maximumMenuWidth, availableWidth),
+        )
     }
 
     private func animateIn() {
@@ -752,7 +788,10 @@ private final class TelegramContextMenuController: UIViewController {
             return
         }
 
-        let targetFrame = button.convert(button.bounds.insetBy(dx: 6, dy: 4), to: menuEffectView.contentView)
+        let targetFrame = button.convert(
+            button.bounds.insetBy(dx: TelegramContextMenuLayout.contentVerticalInset, dy: 0),
+            to: menuEffectView.contentView,
+        )
         let crossesSectionDivider: Bool = {
             guard let previousButton,
                   let previousIndex = actionButtons.firstIndex(where: { $0 === previousButton }),
@@ -814,8 +853,14 @@ private final class TelegramContextMenuSectionDivider: UIView {
         line.backgroundColor = UIColor.separator.withAlphaComponent(0.62)
         addSubview(line)
         NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            line.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            line.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: TelegramContextMenuLayout.contentSideInset,
+            ),
+            line.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -TelegramContextMenuLayout.contentSideInset,
+            ),
             line.centerYAnchor.constraint(equalTo: centerYAnchor),
             line.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
@@ -855,31 +900,34 @@ private final class TelegramContextMenuActionButton: UIControl {
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         var constraints = [
-            titleLabel.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: TelegramContextMenuLayout.contentSideInset,
-            ),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -TelegramContextMenuLayout.contentSideInset,
+            ),
         ]
         if action.image != nil {
             addSubview(iconView)
             constraints.append(contentsOf: [
-                iconView.trailingAnchor.constraint(
-                    equalTo: trailingAnchor,
-                    constant: -TelegramContextMenuLayout.contentSideInset,
+                iconView.leadingAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: TelegramContextMenuLayout.iconSideInset
+                        + (TelegramContextMenuLayout.iconSlotWidth - TelegramContextMenuLayout.iconSize) / 2,
                 ),
                 iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
                 iconView.widthAnchor.constraint(equalToConstant: TelegramContextMenuLayout.iconSize),
                 iconView.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.iconSize),
-                titleLabel.trailingAnchor.constraint(
-                    lessThanOrEqualTo: iconView.leadingAnchor,
-                    constant: -TelegramContextMenuLayout.titleToIconSpacing,
+                titleLabel.leadingAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: TelegramContextMenuLayout.iconSideInset
+                        + TelegramContextMenuLayout.iconSlotWidth
+                        + TelegramContextMenuLayout.iconSpacing,
                 ),
             ])
         } else {
-            constraints.append(titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingAnchor,
-                constant: -TelegramContextMenuLayout.contentSideInset,
+            constraints.append(titleLabel.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: TelegramContextMenuLayout.contentSideInset,
             ))
         }
         NSLayoutConstraint.activate(constraints)
