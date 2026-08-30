@@ -390,19 +390,22 @@ final class AppLocalization: @unchecked Sendable {
         }
     }
 
-    func configureTDLibClient(_ client: TDLibClient, databaseDirectory: URL) async throws {
+    func configureTDLibClient(_ client: TDLibClient, databaseDirectory: URL) throws {
         let databasePath = databaseDirectory.appendingPathComponent("language-packs.sqlite").path
-        try await client.setOption(
+        try enqueueTDLibOption(
             name: "language_pack_database_path",
             value: .optionValueString(.init(value: databasePath)),
+            client: client,
         )
-        try await client.setOption(
+        try enqueueTDLibOption(
             name: "localization_target",
             value: .optionValueString(.init(value: Self.localizationTarget)),
+            client: client,
         )
-        try await client.setOption(
+        try enqueueTDLibOption(
             name: "language_pack_id",
             value: .optionValueString(.init(value: selectedLanguagePackID)),
+            client: client,
         )
     }
 
@@ -493,6 +496,14 @@ final class AppLocalization: @unchecked Sendable {
             return (bundledString(key, table: "BetterTG", languageID: "en") ?? key, "en")
         }
         return Self.format(result.0, localeID: result.1, arguments: arguments)
+    }
+
+    private func enqueueTDLibOption(name: String, value: OptionValue, client: TDLibClient) throws {
+        try client.setOption(name: name, value: value) { result in
+            if case .failure(let error) = result {
+                log("TDLib localization option \(name) failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: Private

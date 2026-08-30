@@ -422,7 +422,7 @@ final class TDLib: @unchecked Sendable {
         Task {
             do {
                 let directory = try registry.databaseDirectory(for: accountID)
-                try await AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
+                try AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
                 try await client.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
