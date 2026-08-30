@@ -125,22 +125,24 @@ final class ChatComposerView: UIView {
         replyRow.axis = .horizontal
         replyRow.alignment = .center
         replyRow.spacing = 8
+        replyRow.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 10)
+        replyRow.isLayoutMarginsRelativeArrangement = true
         var closeReplyConfiguration = UIButton.Configuration.plain()
         closeReplyConfiguration.image = UIImage(systemName: "xmark")
         closeReplyConfiguration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
             pointSize: 11,
             weight: .semibold,
         )
-        closeReplyConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
+        closeReplyConfiguration.contentInsets = .zero
         closeReplyButton.configuration = closeReplyConfiguration
-        closeReplyButton.contentHorizontalAlignment = .right
+        closeReplyButton.contentHorizontalAlignment = .center
         closeReplyButton.tintColor = .secondaryLabel
         closeReplyButton.accessibilityLabel = "Cancel reply or edit"
         replyRow.addArrangedSubview(replySnippet)
         replyRow.addArrangedSubview(closeReplyButton)
         replySnippet.setContentHuggingPriority(.defaultLow, for: .horizontal)
         replySnippet.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        closeReplyButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        closeReplyButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
         closeReplyButton.heightAnchor.constraint(equalToConstant: 45).isActive = true
         replyContainer.addSubview(replyRow)
         replyContainerHeightConstraint = replyContainer.heightAnchor.constraint(equalToConstant: 0)

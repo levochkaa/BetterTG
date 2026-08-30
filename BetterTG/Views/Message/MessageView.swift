@@ -67,10 +67,13 @@ private final class SwipeToReplyIndicatorView: UIView {
         iconView.image = UIImage(systemName: "arrowshape.turn.up.left.fill")
         iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         iconView.tintColor = .systemBlue
+        iconView.contentMode = .center
         addSubview(iconView)
         NSLayoutConstraint.activate([
-            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.topAnchor.constraint(equalTo: topAnchor),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            iconView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            iconView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         progressLayer.fillColor = UIColor.clear.cgColor
@@ -330,7 +333,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         contentView.insertSubview(swipeToReplyIndicator, belowSubview: rowStack)
         NSLayoutConstraint.activate([
             swipeToReplyIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -2),
-            swipeToReplyIndicator.centerYAnchor.constraint(equalTo: bubbleContainerView.centerYAnchor),
+            swipeToReplyIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             swipeToReplyIndicator.widthAnchor.constraint(equalToConstant: 33),
             swipeToReplyIndicator.heightAnchor.constraint(equalToConstant: 33),
         ])
