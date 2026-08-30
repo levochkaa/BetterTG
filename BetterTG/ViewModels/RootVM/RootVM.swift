@@ -21,6 +21,7 @@ enum Route {
     @Published var folders = [CustomFolder]()
     @Published var archive: CustomFolder?
     @Published var activeAccountID: UUID?
+    @Published var scopeNotificationSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
     var cancellables = Set<AnyCancellable>()
 
     @Published var loggedIn = false
@@ -43,6 +44,42 @@ enum Route {
         self.activeAccountID = TDLib.shared.activeAccountID
         self.loggedIn = TDLib.shared.isActiveAccountReady
         setPublishers()
+        if loggedIn {
+            loadScopeNotificationSettings()
+        }
+    }
+
+    func isMuted(_ chat: CustomChat) -> Bool {
+        let settings = chat.chat.notificationSettings
+        if settings.useDefaultMuteFor,
+           let scopeSettings = scopeNotificationSettings[chat.notificationSettingsScope]
+        {
+            return scopeSettings.muteFor > 0
+        }
+        return settings.muteFor > 0
+    }
+
+    func loadScopeNotificationSettings() {
+        let sourceAccountID = activeAccountID
+        let client = td
+        Task { [weak self] in
+            guard let self else { return }
+            let scopes: [NotificationSettingsScope] = [
+                .notificationSettingsScopePrivateChats,
+                .notificationSettingsScopeGroupChats,
+                .notificationSettingsScopeChannelChats,
+            ]
+            var loadedSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
+            for scope in scopes {
+                if let settings = try? await client.getScopeNotificationSettings(scope: scope) {
+                    loadedSettings[scope] = settings
+                }
+            }
+            guard sourceAccountID == activeAccountID else { return }
+            var mergedSettings = scopeNotificationSettings
+            mergedSettings.merge(loadedSettings, uniquingKeysWith: { _, loaded in loaded })
+            scopeNotificationSettings = mergedSettings
+        }
     }
 
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {

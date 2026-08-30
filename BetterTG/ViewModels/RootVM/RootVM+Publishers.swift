@@ -9,6 +9,7 @@ extension RootVM {
             guard let self else { return }
             activeAccountID = TDLib.shared.activeAccountID
             loggedIn = TDLib.shared.isActiveAccountReady
+            scopeNotificationSettings = [:]
             folders = []
             archive = nil
             currentFolder = nil
@@ -17,7 +18,9 @@ extension RootVM {
             self?.updateChatFolders(update)
         }
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
-            self?.loggedIn = true
+            guard let self else { return }
+            loggedIn = true
+            loadScopeNotificationSettings()
         }
         nc.mergeMany(&cancellables, [
             .authorizationStateClosed,
@@ -58,6 +61,12 @@ extension RootVM {
         }
         nc.publisher(&cancellables, for: .updateChatIsMarkedAsUnread) { [weak self] update in
             self?.refreshChat(id: update.chatId)
+        }
+        nc.publisher(&cancellables, for: .updateScopeNotificationSettings) { [weak self] update in
+            guard let self else { return }
+            var updatedSettings = scopeNotificationSettings
+            updatedSettings[update.scope] = update.notificationSettings
+            scopeNotificationSettings = updatedSettings
         }
         nc.publisher(&cancellables, for: .updateUnreadChatCount) { update in
             FolderUnreadStore.shared.update(update, clientID: td.id)

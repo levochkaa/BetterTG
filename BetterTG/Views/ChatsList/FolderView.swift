@@ -295,7 +295,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                   ) as? ChatListCell,
                   let chat = chat(for: id)
             else { return UITableViewCell() }
-            cell.configure(chat: chat, folder: folder)
+            cell.configure(chat: chat, isMuted: rootVM.isMuted(chat))
             return cell
         }
     }
@@ -309,6 +309,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     self?.subscribeToChats()
                     self?.updateSnapshot(animated: true)
                 }
+            }
+            .store(in: &cancellables)
+        rootVM.$scopeNotificationSettings
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                updateSnapshot(animated: false, changedIDs: Set(folder.chats.map(\.id)))
             }
             .store(in: &cancellables)
         subscribeToChats()
@@ -374,7 +382,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let pinned = chat.position.isPinned
         let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
-        let muted = chat.chat.notificationSettings.muteFor > 0
+        let muted = rootVM.isMuted(chat)
         let isCustomFolder =
             if case .folder = folder.type {
                 true

@@ -50,6 +50,17 @@ import TDLibKitDynamic
         return nil
     }
 
+    var notificationSettingsScope: NotificationSettingsScope {
+        switch type {
+        case .bot, .user:
+            .notificationSettingsScopePrivateChats
+        case .group:
+            .notificationSettingsScopeGroupChats
+        case .supergroup(let group):
+            group.isChannel ? .notificationSettingsScopeChannelChats : .notificationSettingsScopeGroupChats
+        }
+    }
+
     var adminRights: ChatAdministratorRights? {
         if case .chatMemberStatusAdministrator(let administrator) = supergroup?.status {
             return administrator.rights

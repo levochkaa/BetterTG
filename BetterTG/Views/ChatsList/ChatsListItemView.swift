@@ -43,13 +43,13 @@ final class ChatListCell: UITableViewCell {
         avatarView.prepareForReuse()
     }
 
-    func configure(chat: CustomChat, folder _: CustomFolder) {
+    func configure(chat: CustomChat, isMuted: Bool) {
         pinView.isHidden = !chat.position.isPinned
         titleLabel.text = chat.chat.title
         messageLabel.attributedText = ChatSummary.attributedText(for: chat)
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         unreadLabel.text = chat.unreadCount > 0 ? compactNumericCountString(chat.unreadCount) : nil
-        unreadLabel.backgroundColor = chat.chat.notificationSettings.muteFor > 0 ? .systemGray : .systemBlue
+        unreadLabel.backgroundColor = isMuted ? .systemGray : .systemBlue
         unreadLabel.isHidden = !hasUnread
         avatarView.configure(
             file: chat.chat.photo?.big,
