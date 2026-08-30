@@ -1,5 +1,6 @@
 // BetterTGApp.swift
 
+import AppIntents
 import UIKit
 
 // MARK: - AppDelegate

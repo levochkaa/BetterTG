@@ -1,5 +1,6 @@
 // NotificationService.swift
 
+import AppIntents
 import os.log
 import UserNotifications
 
