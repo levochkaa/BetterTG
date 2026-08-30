@@ -104,6 +104,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var query = ""
     private var searchActive = false
     private var didSetInitialSearchOffset = false
+    private var initialSearchScrollOffset = ChatListNavigationSearchView.scrollHeight
     private var cancellables = Set<AnyCancellable>()
     private var chatCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
@@ -112,11 +113,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
 
     var searchScrollOffset: CGFloat {
-        guard isViewLoaded else { return 0 }
+        guard isViewLoaded, didSetInitialSearchOffset else { return initialSearchScrollOffset }
         return min(
             ChatListNavigationSearchView.scrollHeight,
             max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
         )
+    }
+
+    var isSearchNavigationHidden: Bool {
+        searchScrollOffset >= ChatListNavigationSearchView.scrollHeight - 1
     }
 
     private var filteredChats: [CustomChat] {
@@ -152,6 +157,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.separatorStyle = .none
         tableView.rowHeight = 84
         tableView.keyboardDismissMode = .interactive
+        tableView.alwaysBounceVertical = true
         let initialTopInset = searchActive
             ? TelegramListNavigationBar.titleHeight
             : TelegramListNavigationBar.expandedContentHeight
@@ -190,8 +196,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         super.viewDidLayoutSubviews()
         guard !didSetInitialSearchOffset else { return }
         didSetInitialSearchOffset = true
-        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
-        onSearchScrollOffsetChange?(0)
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + initialSearchScrollOffset),
+            animated: false,
+        )
+        onSearchScrollOffsetChange?(initialSearchScrollOffset)
     }
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -259,8 +268,22 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated)
     }
 
+    func adjustSearchOffsetForNavigation(isHidden: Bool) {
+        let targetOffset = isHidden ? ChatListNavigationSearchView.scrollHeight : 0
+        guard abs(searchScrollOffset - targetOffset) >= 1 else { return }
+        initialSearchScrollOffset = targetOffset
+        guard isViewLoaded, didSetInitialSearchOffset else { return }
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + targetOffset),
+            animated: false,
+        )
+    }
+
     func setSearchActive(_ active: Bool, animated: Bool) {
         searchActive = active
+        if active {
+            initialSearchScrollOffset = 0
+        }
         guard isViewLoaded else { return }
         let targetTopInset = active
             ? TelegramListNavigationBar.titleHeight

@@ -103,10 +103,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         _: UIPageViewController,
         willTransitionTo pendingViewControllers: [UIViewController],
     ) {
-        guard let fromID = currentFolderController?.folder.id,
-              let toID = (pendingViewControllers.first as? FolderViewController)?.folder.id
+        guard let currentFolderController,
+              let targetController = pendingViewControllers.first as? FolderViewController
         else { return }
-        interactiveFolderTransition = (fromID, toID)
+        targetController.adjustSearchOffsetForNavigation(
+            isHidden: currentFolderController.isSearchNavigationHidden,
+        )
+        interactiveFolderTransition = (currentFolderController.folder.id, targetController.folder.id)
     }
 
     func pageViewController(
@@ -267,10 +270,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         guard let targetIndex = folderControllers.firstIndex(where: { $0.folder.id == id }) else { return }
         let previousIndex = folderControllers.firstIndex(where: { $0.folder.id == rootVM.currentFolder }) ?? targetIndex
         let direction: UIPageViewController.NavigationDirection = targetIndex >= previousIndex ? .forward : .reverse
+        let targetController = folderControllers[targetIndex]
+        if let currentFolderController, currentFolderController !== targetController {
+            targetController.adjustSearchOffsetForNavigation(
+                isHidden: currentFolderController.isSearchNavigationHidden,
+            )
+        }
         rootVM.currentFolder = id
         folderPicker.select(id: id, animated: animated)
-        customNavigationBar.applyScroll(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
-        pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
+        customNavigationBar.applyScroll(offset: targetController.searchScrollOffset, animated: animated)
+        pageController.setViewControllers([targetController], direction: direction, animated: animated)
     }
 
     private func updateInteractiveFolderSelection(from scrollView: UIScrollView) {
