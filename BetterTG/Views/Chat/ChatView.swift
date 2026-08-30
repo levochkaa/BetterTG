@@ -35,7 +35,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
     private let scrollToLatestButton = UIButton(type: .system)
-    private let unreadBadgeLabel = UILabel()
+    private let unreadBadgeLabel = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 11)
     private var scrollToLatestButtonVisible = false
     private var didPresentMicrophoneError = false
     private var lastHighlightedMessageID: Int64?
@@ -374,10 +374,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         unreadBadgeLabel.backgroundColor = .systemBlue
         unreadBadgeLabel.textColor = .white
-        unreadBadgeLabel.font = .preferredFont(forTextStyle: .caption2)
-        unreadBadgeLabel.textAlignment = .center
-        unreadBadgeLabel.layer.cornerRadius = 9
-        unreadBadgeLabel.clipsToBounds = true
+        unreadBadgeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         scrollToLatestButton.addSubview(unreadBadgeLabel)
         view.addSubview(scrollToLatestButton)
         NSLayoutConstraint.activate([
@@ -385,10 +382,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             scrollToLatestButton.widthAnchor.constraint(equalToConstant: 36),
             scrollToLatestButton.heightAnchor.constraint(equalToConstant: 36),
-            unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -5),
+            unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -7),
             unreadBadgeLabel.centerXAnchor.constraint(equalTo: scrollToLatestButton.centerXAnchor),
-            unreadBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
-            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 18),
+            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 20),
         ])
     }
 
@@ -518,7 +514,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             statusColor: statusColor,
         )
         let unreadCount = chatVM.customChat.unreadCount
-        unreadBadgeLabel.text = unreadCount > 99 ? "99+" : "\(unreadCount)"
+        unreadBadgeLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
         unreadBadgeLabel.isHidden = unreadCount == 0
         scrollToLatestButton.accessibilityValue = unreadCount == 0 ? nil : "\(unreadCount) unread"
     }

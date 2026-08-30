@@ -17,7 +17,12 @@ final class ChatListCell: UITableViewCell {
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
-    private let unreadLabel = UILabel()
+    private let messageRow = UIStackView()
+    private let unreadLabel = TelegramUnreadBadgeLabel(
+        minimumDiameter: 20,
+        horizontalPadding: 10,
+        usesStableChatListWidth: true,
+    )
 
     var contextPreviewView: UIView { cardView }
 
@@ -42,8 +47,10 @@ final class ChatListCell: UITableViewCell {
         pinView.isHidden = !chat.position.isPinned
         titleLabel.text = chat.chat.title
         messageLabel.attributedText = ChatSummary.attributedText(for: chat)
-        unreadLabel.text = "\(chat.unreadCount)"
-        unreadLabel.isHidden = chat.unreadCount == 0
+        let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
+        unreadLabel.text = chat.unreadCount > 0 ? compactNumericCountString(chat.unreadCount) : nil
+        unreadLabel.backgroundColor = chat.chat.notificationSettings.muteFor > 0 ? .systemGray : .systemBlue
+        unreadLabel.isHidden = !hasUnread
         avatarView.configure(
             file: chat.chat.photo?.big,
             minithumbnail: chat.chat.photo?.minithumbnail,
@@ -53,9 +60,7 @@ final class ChatListCell: UITableViewCell {
         accessibilityLabel = [
             chat.chat.title,
             messageLabel.text,
-            chat.unreadCount > 0
-                ? "\(chat.unreadCount) unread"
-                : nil,
+            hasUnread ? (chat.unreadCount > 0 ? "\(chat.unreadCount) unread" : "unread") : nil,
         ]
             .compactMap(\.self)
             .joined(separator: ", ")
@@ -69,10 +74,15 @@ final class ChatListCell: UITableViewCell {
         cardView.clipsToBounds = true
         contentView.addSubview(cardView)
 
-        for item in [pinView, avatarView, titleLabel, messageLabel, unreadLabel] {
+        for item in [pinView, avatarView, titleLabel, messageRow] {
             item.translatesAutoresizingMaskIntoConstraints = false
             cardView.addSubview(item)
         }
+        messageRow.axis = .horizontal
+        messageRow.alignment = .center
+        messageRow.spacing = 8
+        messageRow.addArrangedSubview(messageLabel)
+        messageRow.addArrangedSubview(unreadLabel)
         pinView.tintColor = UIColor(red: 0x76 / 255, green: 0x76 / 255, blue: 0x77 / 255, alpha: 1)
         pinView.contentMode = .scaleAspectFit
         pinView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
@@ -83,13 +93,8 @@ final class ChatListCell: UITableViewCell {
         messageLabel.font = .preferredFont(forTextStyle: .subheadline)
         messageLabel.adjustsFontForContentSizeCategory = true
         messageLabel.lineBreakMode = .byTruncatingTail
-        unreadLabel.backgroundColor = .systemGray
         unreadLabel.textColor = .white
-        unreadLabel.textAlignment = .center
-        unreadLabel.font = .preferredFont(forTextStyle: .caption1)
-        unreadLabel.layer.cornerRadius = 16
-        unreadLabel.clipsToBounds = true
-        unreadLabel.adjustsFontSizeToFitWidth = true
+        unreadLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
     }
 
     private func configureConstraints() {
@@ -107,15 +112,12 @@ final class ChatListCell: UITableViewCell {
             avatarView.widthAnchor.constraint(equalToConstant: 60),
             avatarView.heightAnchor.constraint(equalToConstant: 60),
             titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: unreadLabel.leadingAnchor, constant: -8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: pinView.leadingAnchor, constant: -8),
             titleLabel.bottomAnchor.constraint(equalTo: cardView.centerYAnchor, constant: -2),
-            messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(lessThanOrEqualTo: unreadLabel.leadingAnchor, constant: -8),
-            messageLabel.topAnchor.constraint(equalTo: cardView.centerYAnchor, constant: 2),
-            unreadLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -10),
-            unreadLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            unreadLabel.widthAnchor.constraint(equalToConstant: 32),
-            unreadLabel.heightAnchor.constraint(equalToConstant: 32),
+            messageRow.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            messageRow.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -10),
+            messageRow.topAnchor.constraint(equalTo: cardView.centerYAnchor, constant: 2),
+            unreadLabel.heightAnchor.constraint(equalToConstant: 20),
         ])
     }
 }
