@@ -45,6 +45,9 @@ import UserNotifications
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                if !telegramReady {
+                    authorizationEpoch &+= 1
+                }
                 telegramReady = true
                 log("Push relay TDLib authorization is ready")
                 scheduleSynchronization()
@@ -57,6 +60,9 @@ import UserNotifications
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                telegramReady = false
+                registeredAuthorizationEpoch = nil
+                registrationRefreshTask?.cancel()
                 Task { await self.prepareForLogout() }
             }
             .store(in: &cancellables)
@@ -142,8 +148,14 @@ import UserNotifications
     }
 
     func prepareForLogout() async {
+        log("Push relay logout cleanup started")
+        telegramReady = false
+        registeredAuthorizationEpoch = nil
+        registrationRefreshTask?.cancel()
+        synchronizationRetryTask?.cancel()
+        synchronizationRetryTask = nil
+
         guard let api else {
-            telegramReady = false
             return
         }
         do {
@@ -151,27 +163,29 @@ import UserNotifications
             guard let installation = state.installation,
                   let subscription = state.subscription
             else {
-                telegramReady = false
+                try await clearSubscriptionState()
+                log("Push relay logout cleanup completed without an active subscription")
                 return
             }
 
             state.pendingSubscriptionRevocation = true
             try await stateStore.save(state)
-            await deregisterFromTDLib(subscription)
-            try await api.deleteTelegramSubscription(subscription, installation: installation)
-            try await stateStore.update {
-                $0.subscription = nil
-                $0.pendingSubscriptionRevocation = false
-                $0.lastTDLibRegistrationAt = nil
-                $0.registeredTelegramUserId = nil
-                $0.pushReceiverId = nil
+            do {
+                try await deregisterFromTDLib(subscription)
+            } catch {
+                log("TDLib Web Push logout deregistration failed: \(error.localizedDescription)")
             }
+            try await deleteTelegramSubscriptionIfPresent(
+                api: api,
+                subscription: subscription,
+                installation: installation,
+            )
+            try await clearSubscriptionState()
+            log("Push relay logout cleanup completed")
         } catch {
             log("Push relay logout cleanup failed: \(error.localizedDescription)")
             scheduleRevocationRetry()
         }
-        registrationRefreshTask?.cancel()
-        telegramReady = false
     }
 
     nonisolated func userNotificationCenter(
@@ -202,6 +216,8 @@ import UserNotifications
     private let appAttest: AppAttestClient?
     private var apnsToken: String?
     private var telegramReady = false
+    private var authorizationEpoch = 0
+    private var registeredAuthorizationEpoch: Int?
     private var started = false
     private var synchronizationTask: Task<Void, Never>?
     private var synchronizationRetryTask: Task<Void, Never>?
@@ -245,6 +261,7 @@ import UserNotifications
                 $0.pushReceiverId = nil
                 $0.pendingSubscriptionRevocation = false
             }
+            registeredAuthorizationEpoch = nil
             try await synchronize()
         }
     }
@@ -335,18 +352,34 @@ import UserNotifications
             log("Telegram Web Push subscription created")
         }
 
+        guard telegramReady else {
+            log("Push relay synchronization stopped because TDLib authorization changed")
+            return
+        }
         guard let subscription = state.subscription else { return }
         let currentUser = try await td.getMe()
+        let authorizationChanged = registeredAuthorizationEpoch != authorizationEpoch
         let registrationExpired = state.lastTDLibRegistrationAt.map {
             Date().timeIntervalSince($0) >= 24 * 60 * 60
         } ?? true
-        guard registrationExpired || state.registeredTelegramUserId != currentUser.id else {
+        let userChanged = state.registeredTelegramUserId != currentUser.id
+        guard authorizationChanged || registrationExpired || userChanged else {
             let age = Date().timeIntervalSince(state.lastTDLibRegistrationAt ?? .distantPast)
             log("TDLib Web Push registration is current")
             scheduleRegistrationRefresh(after: max(60, 24 * 60 * 60 - age))
             return
         }
 
+        let reason =
+            if authorizationChanged {
+                "authorization-ready"
+            } else if userChanged {
+                "telegram-user-changed"
+            } else {
+                "registration-expired"
+            }
+        log("Refreshing TDLib Web Push registration: reason=\(reason)")
+        try await deregisterFromTDLib(subscription)
         log("Registering Telegram Web Push endpoint with TDLib")
         let receiver = try await td.registerDevice(
             deviceToken: .deviceTokenWebPush(
@@ -362,12 +395,13 @@ import UserNotifications
         state.registeredTelegramUserId = currentUser.id
         state.pushReceiverId = receiver.id.rawValue
         try await stateStore.save(state)
+        registeredAuthorizationEpoch = authorizationEpoch
         log("TDLib Web Push endpoint registered: receiverId=\(receiver.id.rawValue)")
         scheduleRegistrationRefresh(after: 24 * 60 * 60)
     }
 
-    private func deregisterFromTDLib(_ subscription: RelayTelegramSubscription) async {
-        _ = try? await td.registerDevice(
+    private func deregisterFromTDLib(_ subscription: RelayTelegramSubscription) async throws {
+        let receiver = try await td.registerDevice(
             deviceToken: .deviceTokenWebPush(
                 DeviceTokenWebPush(
                     authBase64url: subscription.authBase64url,
@@ -377,6 +411,7 @@ import UserNotifications
             ),
             otherUserIds: [],
         )
+        log("TDLib Web Push endpoint deregistered: receiverId=\(receiver.id.rawValue)")
     }
 
     private func openPendingRouteIfPossible() {
@@ -430,8 +465,33 @@ import UserNotifications
         guard state.pendingSubscriptionRevocation,
               let installation = state.installation,
               let subscription = state.subscription
-        else { return }
-        try await api.deleteTelegramSubscription(subscription, installation: installation)
+        else {
+            if state.pendingSubscriptionRevocation {
+                try await clearSubscriptionState()
+            }
+            return
+        }
+        try await deleteTelegramSubscriptionIfPresent(
+            api: api,
+            subscription: subscription,
+            installation: installation,
+        )
+        try await clearSubscriptionState()
+    }
+
+    private func deleteTelegramSubscriptionIfPresent(
+        api: PushRelayAPIClient,
+        subscription: RelayTelegramSubscription,
+        installation: RelayInstallationCredentials,
+    ) async throws {
+        do {
+            try await api.deleteTelegramSubscription(subscription, installation: installation)
+        } catch let error as RelayAPIError where error.statusCode == 404 {
+            log("Telegram Web Push subscription was already revoked")
+        }
+    }
+
+    private func clearSubscriptionState() async throws {
         try await stateStore.update {
             $0.subscription = nil
             $0.pendingSubscriptionRevocation = false
