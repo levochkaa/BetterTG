@@ -586,14 +586,28 @@ private func makeFFmpegBGRAImage(data: Data, width: Int, height: Int) -> UIImage
 }
 
 func telegramAnimationUsesFFmpeg(_ animation: Animation) -> Bool {
-    mediaUsesFFmpeg(mimeType: animation.mimeType, fileName: animation.fileName)
+    telegramMediaUsesFFmpeg(mimeType: animation.mimeType, fileName: animation.fileName)
 }
 
-private func mediaUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
+func telegramMediaUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
     let normalizedMimeType = mimeType.lowercased()
     if normalizedMimeType == "video/mp4" || normalizedMimeType == "video/quicktime" {
         return false
     }
     let fileExtension = URL(fileURLWithPath: fileName).pathExtension.lowercased()
     return fileExtension != "mp4" && fileExtension != "m4v" && fileExtension != "mov"
+}
+
+func telegramVideoUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
+    let normalizedMimeType = mimeType.lowercased()
+    let fileExtension = URL(fileURLWithPath: fileName).pathExtension.lowercased()
+    let appleMimeTypes: Set = ["video/mp4", "video/quicktime", "video/x-m4v"]
+    let appleExtensions: Set = ["m4v", "mov", "mp4"]
+    guard !appleMimeTypes.contains(normalizedMimeType),
+          !appleExtensions.contains(fileExtension)
+    else { return false }
+    let ffmpegMimeTypes: Set = ["video/webm", "video/vp9", "video/x-matroska"]
+    let ffmpegExtensions: Set = ["mkv", "webm"]
+    return ffmpegMimeTypes.contains(normalizedMimeType)
+        || ffmpegExtensions.contains(fileExtension)
 }

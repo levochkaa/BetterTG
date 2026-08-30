@@ -1090,6 +1090,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             probeMessageID: Int64,
             videoFile: File? = nil,
             vodRanges: TDLibVODRangeCoordinator = TDLib.shared.vodRanges,
+            mimeType: String = "video/mp4",
+            fileName: String = "inline-handoff-probe.mp4",
             supportsStreaming: Bool = false,
         ) {
             self.tdlib = .shared
@@ -1104,8 +1106,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     minithumbnail: nil,
                     canPlay: true,
                     loops: false,
-                    mimeType: "video/mp4",
-                    fileName: "inline-handoff-probe.mp4",
+                    mimeType: mimeType,
+                    fileName: fileName,
                     supportsStreaming: supportsStreaming,
                     vodRanges: vodRanges,
                     deferPlaybackUntilVisible: true,
@@ -1301,6 +1303,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             let deletedOwner = GalleryVideoPlaybackOwner(probeMessageID: 9003)
             deletedOwner.handlePermanentDeletion()
             let deletionRevoked = deletedOwner.isDeleted && deletedOwner.isInvalidated
+            let ffmpegRouting = await runFFmpegRoutingProbe()
 
             if startsPaused,
                becameVisible,
@@ -1318,7 +1321,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                invalidatedCleanly,
                retainedAcrossDismissal,
                transferCleanedUp,
-               deletionRevoked
+               deletionRevoked,
+               ffmpegRouting.passed
             {
                 result = "Gallery playback owner probe: same-view=true, inline-handoff=true, "
                     + "same-item=true, playhead-continuous=true, inline-muted=true, "
@@ -1327,6 +1331,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     + "stale-attachment-ignored=true, detach-retains-session=true, "
                     + "central-visibility=true, transfer-retains=true, delete-revokes=true, "
                     + "commands=back15+forward15+toggle, controls=two-row+44pt+auto-hide4s, "
+                    + "\(ffmpegRouting.summary), "
                     + "pip-supported=\(AVPictureInPictureController.isPictureInPictureSupported()), "
                     + "readiness-gated=true, invalidate=true"
             } else {
@@ -1343,7 +1348,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     + "accessibleControls=\(accessibleControls), "
                     + "autoHide=\(autoHidePolicy), "
                     + "invalidated=\(invalidatedCleanly), transfer=\(retainedAcrossDismissal), "
-                    + "transferCleanup=\(transferCleanedUp), deletion=\(deletionRevoked)"
+                    + "transferCleanup=\(transferCleanedUp), deletion=\(deletionRevoked), "
+                    + "\(ffmpegRouting.summary)"
                 assertionFailure(result)
             }
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
@@ -1354,6 +1360,106 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                 )
             }
             log(result)
+        }
+
+        private static func runFFmpegRoutingProbe() async -> (passed: Bool, summary: String) {
+            let fixtureURL = FileManager.default
+.temporaryDirectory
+                .appendingPathComponent("bettertg-gallery-routing-probe.webm")
+            try? FileManager.default.removeItem(at: fixtureURL)
+            do {
+                try FFmpegVODProbeFixture.write(to: fixtureURL)
+                let attributes = try FileManager.default.attributesOfItem(atPath: fixtureURL.path)
+                guard let size = (attributes[.size] as? NSNumber)?.int64Value, size > 0 else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                let network = TDLibVODProbeNetwork(available: true)
+                let backend = TDLibVODProbeBackend(
+                    fileURL: fixtureURL,
+                    fileSize: size,
+                    network: network,
+                )
+                await backend.setAutoFulfill(true)
+                let vodRanges = TDLibVODRangeCoordinator(
+                    accountID: "probe-gallery-ffmpeg-routing",
+                    client: backend.client,
+                    requestTimeout: .seconds(3),
+                )
+                let probeFile = await backend.file(expectedSize: size)
+                let owner = GalleryVideoPlaybackOwner(
+                    probeMessageID: 9010,
+                    videoFile: probeFile,
+                    vodRanges: vodRanges,
+                    mimeType: "video/webm",
+                    fileName: "gallery-routing-probe.webm",
+                    supportsStreaming: true,
+                )
+                let inlineContainer = UIView()
+                let fullscreenContainer = UIView()
+                let inlineToken = owner.attach(to: inlineContainer, context: .inline)
+                if let inlineToken {
+                    owner.setPlaybackVisible(true, attachment: inlineToken)
+                }
+                let becameReady = await waitUntil(timeout: .seconds(15)) {
+                    owner.mediaView.debugUsesFFmpegPlayback
+                        && owner.mediaView.debugPlaybackSurfaceIsReady
+                        && owner.mediaView.debugPlaybackTime >= 0.1
+                }
+                let itemIdentifier = owner.mediaView.debugCurrentItemIdentifier
+                let inlineTime = owner.mediaView.debugPlaybackTime
+                let fullscreenToken = owner.attach(to: fullscreenContainer, context: .fullscreen)
+                if let fullscreenToken {
+                    owner.setPlaybackVisible(true, attachment: fullscreenToken)
+                }
+                if let inlineToken {
+                    owner.setPlaybackVisible(false, attachment: inlineToken)
+                    owner.detach(attachment: inlineToken)
+                }
+                let transferContinuous = await waitUntil {
+                    owner.mediaView.debugUsesFFmpegPlayback
+                        && owner.mediaView.debugCurrentItemIdentifier == itemIdentifier
+                        && owner.mediaView.debugPlaybackTime >= inlineTime
+                        && !owner.mediaView.debugIsMuted
+                }
+                if let fullscreenToken {
+                    owner.setPlaybackVisible(false, attachment: fullscreenToken)
+                }
+                let offscreenIntentPreserved = owner.mediaView.isPlaybackRequested
+                if let fullscreenToken {
+                    owner.setPlaybackVisible(true, attachment: fullscreenToken)
+                }
+                let resumedSameController = await waitUntil {
+                    owner.mediaView.debugCurrentItemIdentifier == itemIdentifier
+                        && owner.mediaView.debugPlaybackTime >= inlineTime
+                }
+                let downloadCalls = await backend.downloadCalls
+                let finiteRangesOnly = !downloadCalls.isEmpty
+                    && downloadCalls.allSatisfy { !$0.isFullDownload }
+                owner.invalidate()
+                await owner.mediaView.debugWaitForFFmpegClose()
+                let backendIsIdle = await backend.activeDownloadCount == 0
+                let invalidated = owner.isInvalidated
+                    && owner.mediaView.superview == nil
+                    && backendIsIdle
+                try? FileManager.default.removeItem(at: fixtureURL)
+                let passed = inlineToken != nil
+                    && fullscreenToken != nil
+                    && becameReady
+                    && transferContinuous
+                    && offscreenIntentPreserved
+                    && resumedSameController
+                    && finiteRangesOnly
+                    && invalidated
+                return (
+                    passed,
+                    "ffmpeg-route=\(becameReady), same-controller=\(transferContinuous && resumedSameController), "
+                        + "offscreen-intent=\(offscreenIntentPreserved), finite-ranges=\(finiteRangesOnly), "
+                        + "ffmpeg-invalidate=\(invalidated)",
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: fixtureURL)
+                return (false, "ffmpeg-route-error=\(error)")
+            }
         }
 
         private static func waitUntil(
@@ -2323,6 +2429,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private struct VODConfiguration {
         let fileName: String
         let mimeType: String
+        let supportsStreaming: Bool
+        let usesFFmpeg: Bool
         var startTimestamp: TimeInterval
     }
 
@@ -2356,6 +2464,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private let rateButton = UIButton(type: .system)
     private let pictureInPictureButton = UIButton(type: .system)
     private let player = LocalMediaPlayer()
+    private var ffmpegPlayer: TDLibVODFFmpegSampleBufferPlayer?
+    private var ffmpegCloseTask: Task<Void, Never>?
     private var fileID: Int?
     private var task: Task<Void, Never>?
     private var playbackCancellable: AnyCancellable?
@@ -2365,6 +2475,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var streamingStatusCancellable: AnyCancellable?
     private var voiceOverCancellable: AnyCancellable?
     private var displayCancellable: AnyCancellable?
+    private var ffmpegFailureCancellable: AnyCancellable?
+    private var ffmpegReadyCancellable: AnyCancellable?
     private var isPlaybackVisible = false
     private var isSurfaceReady = false
     private var loopsPlayback = false
@@ -2375,6 +2487,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var surfaceItemIdentifier: ObjectIdentifier?
     private var usesLegacyDownload = false
     private var usesVOD = false
+    private var usesFFmpegVOD = false
     private var currentPlaybackState = LocalMediaPlayer.State.idle
     private var isSeeking = false
     private var resumeAfterSeeking = false
@@ -2385,6 +2498,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var playbackDuration = TimeInterval.zero
     private var bufferedRanges = [LocalMediaPlayer.BufferedRange]()
     private var currentStreamingStatus = TDLibVODResourceLoaderStatus.idle
+    private var currentFFmpegFailure: TDLibVODFFmpegSampleBufferPlayer.Failure?
+    private var playbackBindingGeneration = UInt64.zero
     private var isPictureInPictureActive = false
     private var vodRanges = TDLib.shared.vodRanges
     private var controlsAreVisible = false
@@ -2407,7 +2522,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     var isPictureInPictureReady: Bool {
-        guard !loopsPlayback, player.hasItem, isSurfaceReady else { return false }
+        guard !usesFFmpegVOD,
+              !loopsPlayback,
+              player.hasItem,
+              isSurfaceReady
+        else { return false }
         return switch currentPlaybackState {
         case .buffering, .ended, .paused, .playing:
             true
@@ -2417,7 +2536,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     var isPlaybackRequested: Bool {
-        player.isPlaybackRequested
+        playbackIsRequested
     }
 
     #if DEBUG
@@ -2501,19 +2620,31 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         }
 
         var debugCurrentItemIdentifier: ObjectIdentifier? {
-            player.currentItemIdentifier
+            playbackItemIdentifier
         }
 
         var debugPlaybackTime: TimeInterval {
-            player.currentTime
+            playbackCurrentTime
         }
 
         var debugIsMuted: Bool {
-            player.isMuted
+            playbackIsMuted
+        }
+
+        var debugUsesFFmpegPlayback: Bool {
+            usesFFmpegVOD && ffmpegPlayer != nil
+        }
+
+        var debugPlaybackSurfaceIsReady: Bool {
+            isSurfaceReady
         }
 
         func debugForceVODSeek(to time: TimeInterval) {
-            player.play(from: time)
+            playbackPlay(from: time)
+        }
+
+        func debugWaitForFFmpegClose() async {
+            await ffmpegCloseTask?.value
         }
     #endif
 
@@ -2527,6 +2658,31 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             || currentStreamingStatus == .failed
             || currentStreamingStatus == .offline
             || currentStreamingStatus == .retrying
+    }
+
+    private var currentFFmpegFailureIsRetryable: Bool {
+        switch currentFFmpegFailure {
+        case .offline, .retryable:
+            true
+        case .decoding, nil, .renderer, .terminal:
+            false
+        }
+    }
+
+    private var playbackIsRequested: Bool {
+        ffmpegPlayer?.isPlaybackRequested ?? player.isPlaybackRequested
+    }
+
+    private var playbackItemIdentifier: ObjectIdentifier? {
+        ffmpegPlayer?.currentItemIdentifier ?? player.currentItemIdentifier
+    }
+
+    private var playbackCurrentTime: TimeInterval {
+        ffmpegPlayer?.currentTime ?? player.currentTime
+    }
+
+    private var playbackIsMuted: Bool {
+        ffmpegPlayer?.isMuted ?? player.isMuted
     }
 
     override init(frame: CGRect) {
@@ -2634,6 +2790,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         if preview.image != nil {
             return preview.makeImageSnapshot(contentMode: contentMode)
         }
+        if let ffmpegSurface = ffmpegPlayer?.surfaceView,
+           !ffmpegSurface.isHidden,
+           let snapshot = ffmpegSurface.snapshotView(afterScreenUpdates: false)
+        {
+            return snapshot
+        }
         if !videoSurface.isHidden,
            let snapshot = videoSurface.snapshotView(afterScreenUpdates: false)
         {
@@ -2662,16 +2824,23 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         startPlaybackTimestamp = startTimestamp
         self.vodRanges = vodRanges
         loopsPlayback = loops
-        if supportsStreaming,
-           !isSecret,
-           let mimeType,
+        if let mimeType,
            let fileName
         {
-            vodConfiguration = VODConfiguration(
-                fileName: fileName,
+            let usesFFmpeg = telegramVideoUsesFFmpeg(
                 mimeType: mimeType,
-                startTimestamp: startTimestamp,
+                fileName: fileName,
             )
+            let allowsRangeStreaming = supportsStreaming && !isSecret
+            if allowsRangeStreaming || usesFFmpeg {
+                vodConfiguration = VODConfiguration(
+                    fileName: fileName,
+                    mimeType: mimeType,
+                    supportsStreaming: allowsRangeStreaming,
+                    usesFFmpeg: usesFFmpeg,
+                    startTimestamp: startTimestamp,
+                )
+            }
         }
         videoSurface.isHidden = true
         if let thumbnail {
@@ -2697,21 +2866,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         updatePlaybackTime(0)
         updateControlIcons()
         configureVoiceOverObservation()
-        playbackCancellable = player.statePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in self?.render(state: state) }
-        timeCancellable = player.timePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] time in self?.updatePlaybackTime(time) }
-        durationCancellable = player.durationPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] duration in self?.updatePlaybackDuration(duration) }
-        bufferedRangesCancellable = player.bufferedRangesPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] ranges in self?.updateBufferedRanges(ranges) }
-        streamingStatusCancellable = player.streamingStatusPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in self?.renderStreamingStatus(status) }
+        bindLocalPlaybackPublishers()
         waitsForInitialPlaybackVisibility = deferPlaybackUntilVisible
         if deferPlaybackUntilVisible {
             spinner.stopAnimating()
@@ -2732,7 +2887,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         sourceFile = nil
         usesLegacyDownload = false
         usesVOD = false
+        usesFFmpegVOD = false
         player.stop()
+        stopFFmpegPlayback()
         task?.cancel()
         task = nil
         playbackCancellable?.cancel()
@@ -2745,6 +2902,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         bufferedRangesCancellable = nil
         streamingStatusCancellable?.cancel()
         streamingStatusCancellable = nil
+        ffmpegReadyCancellable?.cancel()
+        ffmpegReadyCancellable = nil
+        ffmpegFailureCancellable?.cancel()
+        ffmpegFailureCancellable = nil
         voiceOverCancellable?.cancel()
         voiceOverCancellable = nil
         preview.cancel()
@@ -2769,6 +2930,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         retryMode = nil
         retryStatusText = nil
         currentStreamingStatus = .idle
+        currentFFmpegFailure = nil
         startPlaybackTimestamp = 0
         surfaceItemIdentifier = nil
         currentPlaybackState = .idle
@@ -2795,15 +2957,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         isInlinePresentation = shouldPresentInline
         controlsTapGesture?.isEnabled = !shouldPresentInline
         videoSurface.playerLayer.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
+        ffmpegPlayer?.surfaceView.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
         if shouldPresentInline {
             mutedBeforeInlinePresentation = isMuted
             isMuted = true
-            player.setMuted(true)
+            playbackSetMuted(true)
             setControlsVisible(false, animated: false)
         } else {
             isMuted = mutedBeforeInlinePresentation ?? isMuted
             mutedBeforeInlinePresentation = nil
-            player.setMuted(isMuted)
+            playbackSetMuted(isMuted)
             if !loopsPlayback {
                 setControlsVisible(true, animated: false)
                 scheduleControlsAutoHideIfNeeded()
@@ -2831,10 +2994,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         if isPictureInPictureActive {
             return
         }
+        playbackSetVisible(isVisible)
         if isVisible, !isUserPaused {
-            player.play()
-        } else {
-            player.pause()
+            playbackPlay()
+        } else if isVisible || ffmpegPlayer == nil {
+            playbackPause()
         }
     }
 
@@ -2844,13 +3008,15 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         if isActive {
             cancelControlsAutoHide()
         }
-        player.setExternalPlaybackControlActive(isActive)
+        if !usesFFmpegVOD {
+            player.setExternalPlaybackControlActive(isActive)
+        }
         if !isActive {
-            isUserPaused = !player.isPlaybackRequested
+            isUserPaused = !playbackIsRequested
             if isPlaybackVisible, !isUserPaused {
-                player.play()
+                playbackPlay()
             } else if !isPlaybackVisible {
-                player.pause()
+                playbackPause()
             }
             scheduleControlsAutoHideIfNeeded()
         }
@@ -2889,7 +3055,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     func pauseForAudioTakeover() {
         isUserPaused = true
-        player.pause()
+        playbackPause()
         updateControlIcons()
         onPlaybackIntentChanged?()
     }
@@ -2902,6 +3068,212 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             return false
         }
         return true
+    }
+
+    private func playbackPlay() {
+        if let ffmpegPlayer {
+            ffmpegPlayer.play()
+        } else {
+            player.play()
+        }
+    }
+
+    private func playbackPause() {
+        if let ffmpegPlayer {
+            ffmpegPlayer.pause()
+        } else {
+            player.pause()
+        }
+    }
+
+    private func playbackPlay(from time: TimeInterval) {
+        if let ffmpegPlayer {
+            ffmpegPlayer.play()
+            ffmpegPlayer.seek(to: time)
+        } else {
+            player.play(from: time)
+        }
+    }
+
+    private func playbackSeek(to time: TimeInterval, tolerance: TimeInterval = 0.05) {
+        if let ffmpegPlayer {
+            ffmpegPlayer.seek(to: time)
+        } else {
+            player.seek(to: time, tolerance: tolerance)
+        }
+    }
+
+    private func playbackSetMuted(_ muted: Bool) {
+        if let ffmpegPlayer {
+            ffmpegPlayer.setMuted(muted)
+        } else {
+            player.setMuted(muted)
+        }
+    }
+
+    private func playbackSetRate(_ rate: Float) {
+        if let ffmpegPlayer {
+            ffmpegPlayer.setRate(rate)
+        } else {
+            player.setRate(rate)
+        }
+    }
+
+    private func playbackSetVisible(_ isVisible: Bool) {
+        if let ffmpegPlayer {
+            ffmpegPlayer.setPlaybackVisible(isVisible)
+        }
+    }
+
+    private func cancelPlaybackPublishers() {
+        playbackBindingGeneration &+= 1
+        playbackCancellable?.cancel()
+        playbackCancellable = nil
+        timeCancellable?.cancel()
+        timeCancellable = nil
+        durationCancellable?.cancel()
+        durationCancellable = nil
+        bufferedRangesCancellable?.cancel()
+        bufferedRangesCancellable = nil
+        streamingStatusCancellable?.cancel()
+        streamingStatusCancellable = nil
+        ffmpegReadyCancellable?.cancel()
+        ffmpegReadyCancellable = nil
+        ffmpegFailureCancellable?.cancel()
+        ffmpegFailureCancellable = nil
+    }
+
+    private func bindLocalPlaybackPublishers() {
+        cancelPlaybackPublishers()
+        currentFFmpegFailure = nil
+        let generation = playbackBindingGeneration
+        playbackCancellable = player.statePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      ffmpegPlayer == nil
+                else { return }
+                render(state: state)
+            }
+        timeCancellable = player.timePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      ffmpegPlayer == nil
+                else { return }
+                updatePlaybackTime(time)
+            }
+        durationCancellable = player.durationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] duration in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      ffmpegPlayer == nil
+                else { return }
+                updatePlaybackDuration(duration)
+            }
+        bufferedRangesCancellable = player.bufferedRangesPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ranges in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      ffmpegPlayer == nil
+                else { return }
+                updateBufferedRanges(ranges)
+            }
+        streamingStatusCancellable = player.streamingStatusPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      ffmpegPlayer == nil
+                else { return }
+                renderStreamingStatus(status)
+            }
+    }
+
+    private func bindFFmpegPlaybackPublishers(_ ffmpegPlayer: TDLibVODFFmpegSampleBufferPlayer) {
+        cancelPlaybackPublishers()
+        currentFFmpegFailure = nil
+        let generation = playbackBindingGeneration
+        playbackCancellable = ffmpegPlayer.statePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                render(state: state)
+            }
+        timeCancellable = ffmpegPlayer.timePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                updatePlaybackTime(time)
+            }
+        durationCancellable = ffmpegPlayer.durationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] duration in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                updatePlaybackDuration(duration)
+            }
+        bufferedRangesCancellable = ffmpegPlayer.bufferedRangesPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ranges in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                updateBufferedRanges(ranges)
+            }
+        streamingStatusCancellable = ffmpegPlayer.streamingStatusPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                renderStreamingStatus(status)
+            }
+        ffmpegFailureCancellable = ffmpegPlayer.failurePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] failure in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                currentFFmpegFailure = failure
+            }
+        ffmpegReadyCancellable = ffmpegPlayer.readyForDisplayPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isReady in
+                guard let self,
+                      playbackBindingGeneration == generation,
+                      self.ffmpegPlayer === ffmpegPlayer
+                else { return }
+                isSurfaceReady = isReady
+                refreshPlaybackSurfaceVisibility()
+            }
+    }
+
+    private func stopFFmpegPlayback() {
+        guard let ffmpegPlayer else { return }
+        self.ffmpegPlayer = nil
+        ffmpegReadyCancellable?.cancel()
+        ffmpegReadyCancellable = nil
+        ffmpegFailureCancellable?.cancel()
+        ffmpegFailureCancellable = nil
+        currentFFmpegFailure = nil
+        ffmpegPlayer.surfaceView.removeFromSuperview()
+        ffmpegCloseTask = Task { @MainActor in await ffmpegPlayer.close() }
     }
 
     private func configurePlaybackControls() {
@@ -2992,7 +3364,18 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     private func beginInitialPlayback(file: File) {
         guard file.id == fileID else { return }
-        if file.local.isDownloadingCompleted {
+        if let vodConfiguration, vodConfiguration.usesFFmpeg {
+            if file.local.isDownloadingCompleted || vodConfiguration.supportsStreaming {
+                startVOD(
+                    file: file,
+                    mimeType: vodConfiguration.mimeType,
+                    fileName: vodConfiguration.fileName,
+                    startTimestamp: vodConfiguration.startTimestamp,
+                )
+            } else {
+                startLegacyDownload(file: file)
+            }
+        } else if file.local.isDownloadingCompleted {
             update(file: file)
         } else if let vodConfiguration {
             startVOD(
@@ -3012,7 +3395,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         fileName: String,
         startTimestamp: TimeInterval,
     ) {
+        if telegramVideoUsesFFmpeg(mimeType: mimeType, fileName: fileName) {
+            startFFmpegVOD(file: file, startTimestamp: startTimestamp)
+            return
+        }
         usesVOD = true
+        usesFFmpegVOD = false
         retryMode = nil
         retryStatusText = nil
         renderStreamingStatus(.loading)
@@ -3053,6 +3441,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 }
                 self.task = nil
                 self.prepareSurfaceForNewItem()
+                self.bindLocalPlaybackPublishers()
                 self.player.load(
                     vodSession: session,
                     autoplay: self.isPlaybackVisible && !self.isUserPaused,
@@ -3063,6 +3452,60 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 self.player.setRate(self.playbackRate)
                 self.bindSurfaceToCurrentItem()
             }
+        }
+    }
+
+    private func startFFmpegVOD(file: File, startTimestamp: TimeInterval) {
+        usesVOD = true
+        usesFFmpegVOD = true
+        retryMode = nil
+        retryStatusText = nil
+        renderStreamingStatus(.loading)
+        let identifier = UUID()
+        loadIdentifier = identifier
+        let rangeCoordinator = vodRanges
+        task?.cancel()
+        task = Task { @MainActor [weak self] in
+            let lease = await rangeCoordinator.acquire(file: file)
+            guard !Task.isCancelled else {
+                await lease.invalidate()
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  loadIdentifier == identifier,
+                  fileID == file.id
+            else {
+                await lease.invalidate()
+                return
+            }
+            task = nil
+            prepareSurfaceForNewItem()
+            usesVOD = true
+            usesFFmpegVOD = true
+            let ffmpegPlayer = TDLibVODFFmpegSampleBufferPlayer(lease: lease)
+            self.ffmpegPlayer = ffmpegPlayer
+            let surfaceView = ffmpegPlayer.surfaceView
+            surfaceView.translatesAutoresizingMaskIntoConstraints = false
+            surfaceView.videoGravity = isInlinePresentation ? .resizeAspectFill : .resizeAspect
+            surfaceView.isHidden = true
+            insertSubview(surfaceView, aboveSubview: preview)
+            NSLayoutConstraint.activate([
+                surfaceView.topAnchor.constraint(equalTo: topAnchor),
+                surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+            bindFFmpegPlaybackPublishers(ffmpegPlayer)
+            ffmpegPlayer.setMuted(isMuted)
+            ffmpegPlayer.setRate(playbackRate)
+            ffmpegPlayer.setPlaybackVisible(isPlaybackVisible)
+            ffmpegPlayer.prepare(
+                autoplay: isPlaybackVisible && !isUserPaused,
+                initialTime: startTimestamp,
+            )
+            surfaceItemIdentifier = ffmpegPlayer.currentItemIdentifier
+            updatePictureInPictureEligibility()
         }
     }
 
@@ -3121,6 +3564,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     private func prepareSurfaceForNewItem() {
+        let replacedFFmpegPlayer = ffmpegPlayer != nil
+        stopFFmpegPlayback()
+        if replacedFFmpegPlayer {
+            cancelPlaybackPublishers()
+        }
+        usesFFmpegVOD = false
         surfaceItemIdentifier = nil
         isSurfaceReady = false
         videoSurface.playerLayer.player = nil
@@ -3141,17 +3590,23 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
               player.currentItemIdentifier == surfaceItemIdentifier
         else { return }
         isSurfaceReady = videoSurface.playerLayer.isReadyForDisplay
-        switch currentPlaybackState {
-        case .ended, .paused, .playing:
-            if isSurfaceReady {
-                spinner.stopAnimating()
-                videoSurface.isHidden = false
-            } else {
-                spinner.startAnimating()
-                videoSurface.isHidden = true
+        refreshPlaybackSurfaceVisibility()
+    }
+
+    private func refreshPlaybackSurfaceVisibility() {
+        let canShowSurface: Bool =
+            switch currentPlaybackState {
+            case .ended, .paused, .playing:
+                isSurfaceReady
+            case .buffering, .failed, .idle, .preparing:
+                false
             }
-        default:
-            videoSurface.isHidden = true
+        videoSurface.isHidden = usesFFmpegVOD || !canShowSurface
+        ffmpegPlayer?.surfaceView.isHidden = !usesFFmpegVOD || !canShowSurface
+        if canShowSurface {
+            spinner.stopAnimating()
+        } else if currentPlaybackState != .failed, currentPlaybackState != .idle {
+            spinner.startAnimating()
         }
         updatePictureInPictureEligibility()
     }
@@ -3161,8 +3616,19 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
               file.local.isDownloadingCompleted,
               loadedPath != file.local.path
         else { return }
+        sourceFile = file
         loadedPath = file.local.path
+        if let vodConfiguration, vodConfiguration.usesFFmpeg {
+            startVOD(
+                file: file,
+                mimeType: vodConfiguration.mimeType,
+                fileName: vodConfiguration.fileName,
+                startTimestamp: vodConfiguration.startTimestamp,
+            )
+            return
+        }
         prepareSurfaceForNewItem()
+        bindLocalPlaybackPublishers()
         player.load(
             url: URL(fileURLWithPath: file.local.path),
             autoplay: isPlaybackVisible && !isUserPaused,
@@ -3179,22 +3645,18 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         switch state {
         case .idle:
             spinner.stopAnimating()
-            videoSurface.isHidden = true
         case .buffering, .preparing:
             spinner.startAnimating()
         case .ended, .paused, .playing:
-            if isSurfaceReady {
-                spinner.stopAnimating()
-                videoSurface.isHidden = false
-            } else {
-                spinner.startAnimating()
-                videoSurface.isHidden = true
-            }
+            break
         case .failed:
             spinner.stopAnimating()
-            videoSurface.isHidden = true
             if usesVOD, let sourceFile {
-                if currentStreamingStatus == .offline || currentStreamingStatus == .retrying {
+                let failedWithFFmpeg = usesFFmpegVOD
+                if currentStreamingStatus == .offline
+                    || currentStreamingStatus == .retrying
+                    || failedWithFFmpeg && currentFFmpegFailureIsRetryable
+                {
                     vodConfiguration?.startTimestamp = currentPlaybackTime
                     usesVOD = false
                     prepareSurfaceForNewItem()
@@ -3207,13 +3669,18 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                     usesVOD = false
                     prepareSurfaceForNewItem()
                     player.stop()
-                    startLegacyDownload(file: sourceFile)
+                    if failedWithFFmpeg, sourceFile.local.isDownloadingCompleted {
+                        showRetryState(statusText: "Couldn't decode video", retryMode: .vod)
+                    } else {
+                        startLegacyDownload(file: sourceFile)
+                    }
                 }
             } else if usesLegacyDownload || sourceFile != nil {
                 usesLegacyDownload = false
                 showRetryState(statusText: "Couldn't load video", retryMode: .fullDownload)
             }
         }
+        refreshPlaybackSurfaceVisibility()
         updateControlIcons()
         onPlaybackIntentChanged?()
         updatePictureInPictureEligibility()
@@ -3243,17 +3710,17 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     @objc private func togglePlayback() {
         guard currentPlaybackState != .failed else { return }
         revealControlsAndReschedule()
-        let playbackWasRequested = isSeeking ? resumeAfterSeeking : player.isPlaybackRequested
+        let playbackWasRequested = isSeeking ? resumeAfterSeeking : playbackIsRequested
         if playbackWasRequested {
             isUserPaused = true
             resumeAfterSeeking = false
-            player.pause()
+            playbackPause()
         } else {
             isUserPaused = false
             if isSeeking {
                 resumeAfterSeeking = true
             } else if isPlaybackVisible {
-                player.play()
+                playbackPlay()
             }
         }
         updateControlIcons()
@@ -3272,16 +3739,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         setControlsVisible(true, animated: false)
         cancelControlsAutoHide()
         isSeeking = true
-        resumeAfterSeeking = !isUserPaused && player.isPlaybackRequested
-        player.pause()
+        resumeAfterSeeking = !isUserPaused && playbackIsRequested
+        playbackPause()
         updateControlIcons()
     }
 
     @objc private func seekValueChanged() {
         let time = TimeInterval(seekSlider.value)
         guard isSeeking else {
-            let shouldResume = !isUserPaused && player.isPlaybackRequested
-            player.pause()
+            let shouldResume = !isUserPaused && playbackIsRequested
+            playbackPause()
             commitSeek(to: time, shouldResume: shouldResume)
             return
         }
@@ -3301,7 +3768,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     @objc private func toggleMuted() {
         revealControlsAndReschedule()
         isMuted.toggle()
-        player.setMuted(isMuted)
+        playbackSetMuted(isMuted)
         updateControlIcons()
     }
 
@@ -3318,7 +3785,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             default:
                 0.5
             }
-        player.setRate(playbackRate)
+        playbackSetRate(playbackRate)
         updateControlIcons()
     }
 
@@ -3341,7 +3808,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     private func updateControlIcons() {
-        let playbackRequested = isSeeking ? resumeAfterSeeking : player.isPlaybackRequested
+        let playbackRequested = isSeeking ? resumeAfterSeeking : playbackIsRequested
         let showsPause = playbackRequested && currentPlaybackState != .ended && currentPlaybackState != .failed
         playButton.setImage(UIImage(systemName: showsPause ? "pause.fill" : "play.fill"), for: .normal)
         playButton.accessibilityLabel = showsPause ? "Pause" : "Play"
@@ -3464,10 +3931,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private func commitSeek(to target: TimeInterval, shouldResume: Bool) {
         currentPlaybackTime = target
         if shouldResume, isPlaybackVisible {
-            player.play(from: target)
+            playbackPlay(from: target)
         } else {
-            player.seek(to: target)
-            player.pause()
+            playbackSeek(to: target)
+            playbackPause()
         }
         updateTimeLabel(current: target)
         updateControlIcons()
@@ -3484,16 +3951,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         if resolution.shouldPauseAtStart {
             isUserPaused = true
             currentPlaybackTime = 0
-            player.seek(to: 0, tolerance: 0)
-            player.pause()
+            playbackSeek(to: 0, tolerance: 0)
+            playbackPause()
             seekSlider.value = 0
             updateTimeLabel(current: 0)
             updateControlIcons()
             onPlaybackIntentChanged?()
             return
         }
-        let shouldResume = !isUserPaused && player.isPlaybackRequested
-        player.pause()
+        let shouldResume = !isUserPaused && playbackIsRequested
+        playbackPause()
         commitSeek(to: resolution.time, shouldResume: shouldResume)
     }
 

@@ -296,6 +296,7 @@ import UIKit
         stateSubject.send(.idle)
         streamingStatusSubject.send(.idle)
         await decoder.close()
+        await lease.invalidate()
     }
 
     private func normalized(time: TimeInterval) -> TimeInterval {
