@@ -10,6 +10,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private struct MediaCandidate {
         let file: File
         let placeholder: Data?
+        let kind: String
     }
 
     private let account: TelegramAccount
@@ -169,24 +170,48 @@ final class NotificationTDLibSession: @unchecked Sendable {
         chatID: Int64,
         client: TDLibClient,
     ) async -> ResolvedTelegramNotification? {
-        let senderID: MessageSender
-        let senderName: String
-        let media: MediaCandidate?
+        var senderID: MessageSender
+        var senderName: String
+        var media: MediaCandidate?
+        var body: String?
+        var expectsMedia = false
 
         switch notification.type {
         case .notificationTypeNewPushMessage(let value):
             senderID = value.senderId
             senderName = value.senderName
             media = mediaCandidate(for: value.content)
+            body = notificationBody(for: value.content)
+            expectsMedia = isMediaContent(value.content)
+            if media == nil,
+               expectsMedia,
+               let message = await fetchMessage(
+                   chatID: chatID,
+                   suggestedMessageID: value.messageId,
+                   client: client,
+               )
+            {
+                senderID = message.senderId
+                senderName = await displayName(for: message.senderId, client: client)
+                    ?? senderName
+                media = mediaCandidate(for: message.content)
+                body = notificationBody(for: message.content) ?? body
+            }
         case .notificationTypeNewMessage(let value):
             senderID = value.message.senderId
             senderName = await displayName(for: value.message.senderId, client: client)
                 ?? metadata.senderName
                 ?? "Telegram"
             media = mediaCandidate(for: value.message.content)
+            body = notificationBody(for: value.message.content)
+            expectsMedia = isMediaContent(value.message.content)
         default:
             return nil
         }
+
+        logger.log(
+            "rich_notification.media_resolved available=\(media != nil, privacy: .public) expected=\(expectsMedia, privacy: .public)",
+        )
 
         let conversation = try? await client.getChat(chatId: chatID)
         async let senderAvatar = avatarData(for: senderID, client: client)
@@ -202,6 +227,11 @@ final class NotificationTDLibSession: @unchecked Sendable {
         let resolvedConversationAvatar = await conversationAvatar
             ?? RichNotificationCache.avatarData(for: metadata.peer)
         let resolvedMedia = await mediaData
+        if expectsMedia {
+            logger.log(
+                "rich_notification.media_downloaded success=\(resolvedMedia != nil, privacy: .public) kind=\(media?.kind ?? "none", privacy: .public)",
+            )
+        }
         let canQuickReply =
             if allowsQuickReply, let conversation {
                 await QuickReplyNotification.canSendText(to: conversation, using: client)
@@ -224,8 +254,48 @@ final class NotificationTDLibSession: @unchecked Sendable {
             senderAvatarData: resolvedSenderAvatar,
             conversationAvatarData: resolvedConversationAvatar,
             mediaData: resolvedMedia,
+            body: body,
             canQuickReply: canQuickReply,
         )
+    }
+
+    private func fetchMessage(
+        chatID: Int64,
+        suggestedMessageID: Int64,
+        client: TDLibClient,
+    ) async -> Message? {
+        var messageIDs = [Int64]()
+        if suggestedMessageID > 0 {
+            messageIDs.append(suggestedMessageID)
+        }
+        if let serverMessageID = metadata.serverMessageID,
+           serverMessageID > 0,
+           serverMessageID <= Int64.max >> 20
+        {
+            let tdlibMessageID = serverMessageID << 20
+            if !messageIDs.contains(tdlibMessageID) {
+                messageIDs.append(tdlibMessageID)
+            }
+        }
+
+        for messageID in messageIDs {
+            if let message = try? await client.getMessage(chatId: chatID, messageId: messageID) {
+                logger.log("rich_notification.message_fetched source=get_message")
+                return message
+            }
+            if let history = try? await client.getChatHistory(
+                chatId: chatID,
+                fromMessageId: messageID,
+                limit: 3,
+                offset: -1,
+                onlyLocal: false,
+            ), let message = history.messages?.first(where: { $0.id == messageID }) {
+                logger.log("rich_notification.message_fetched source=chat_history")
+                return message
+            }
+        }
+        logger.log("rich_notification.message_fetched source=network success=false")
+        return nil
     }
 
     private func avatarData(for sender: MessageSender, client: TDLibClient) async -> Data? {
@@ -280,51 +350,156 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func mediaCandidate(for content: PushMessageContent) -> MediaCandidate? {
         switch content {
         case .pushMessageContentPhoto(let value):
-            value.photo.flatMap(photoCandidate)
+            guard !value.isSecret else { return nil }
+            return value.photo.flatMap { photoCandidate($0, kind: "photo") }
         case .pushMessageContentVideo(let value):
-            value.video.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            guard !value.isSecret else { return nil }
+            return value.video.flatMap {
+                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "video")
+            }
         case .pushMessageContentAnimation(let value):
-            value.animation.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            return value.animation.flatMap {
+                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "animation")
+            }
         case .pushMessageContentDocument(let value):
-            value.document.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            return value.document.flatMap {
+                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "document")
+            }
         case .pushMessageContentSticker(let value):
-            value.sticker.flatMap { thumbnailCandidate($0.thumbnail, placeholder: nil) }
+            return value.sticker.flatMap {
+                thumbnailCandidate($0.thumbnail, placeholder: nil, kind: "sticker")
+            }
         case .pushMessageContentVideoNote(let value):
-            value.videoNote.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            return value.videoNote.flatMap {
+                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "video_note")
+            }
         default:
-            nil
+            return nil
         }
     }
 
     private func mediaCandidate(for content: MessageContent) -> MediaCandidate? {
         switch content {
         case .messagePhoto(let value):
-            photoCandidate(value.photo)
+            guard !value.isSecret, !value.hasSpoiler else { return nil }
+            return photoCandidate(value.photo, kind: "photo")
         case .messageVideo(let value):
-            thumbnailCandidate(value.video.thumbnail, placeholder: value.video.minithumbnail?.data)
+            guard !value.isSecret, !value.hasSpoiler else { return nil }
+            return thumbnailCandidate(
+                value.video.thumbnail,
+                placeholder: value.video.minithumbnail?.data,
+                kind: "video",
+            )
         case .messageAnimation(let value):
-            thumbnailCandidate(value.animation.thumbnail, placeholder: value.animation.minithumbnail?.data)
+            guard !value.isSecret, !value.hasSpoiler else { return nil }
+            return thumbnailCandidate(
+                value.animation.thumbnail,
+                placeholder: value.animation.minithumbnail?.data,
+                kind: "animation",
+            )
         case .messageDocument(let value):
-            thumbnailCandidate(value.document.thumbnail, placeholder: value.document.minithumbnail?.data)
+            return thumbnailCandidate(
+                value.document.thumbnail,
+                placeholder: value.document.minithumbnail?.data,
+                kind: "document",
+            )
         case .messageSticker(let value):
-            thumbnailCandidate(value.sticker.thumbnail, placeholder: nil)
+            return thumbnailCandidate(value.sticker.thumbnail, placeholder: nil, kind: "sticker")
         case .messageVideoNote(let value):
-            thumbnailCandidate(value.videoNote.thumbnail, placeholder: value.videoNote.minithumbnail?.data)
+            guard !value.isSecret else { return nil }
+            return thumbnailCandidate(
+                value.videoNote.thumbnail,
+                placeholder: value.videoNote.minithumbnail?.data,
+                kind: "video_note",
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func photoCandidate(_ photo: Photo, kind: String) -> MediaCandidate? {
+        guard let size = photo.sizes.min(by: { lhs, rhs in
+            abs(max(lhs.width, lhs.height) - 1280) < abs(max(rhs.width, rhs.height) - 1280)
+        }) else { return nil }
+        return MediaCandidate(file: size.photo, placeholder: photo.minithumbnail?.data, kind: kind)
+    }
+
+    private func thumbnailCandidate(
+        _ thumbnail: Thumbnail?,
+        placeholder: Data?,
+        kind: String,
+    ) -> MediaCandidate? {
+        guard let thumbnail else { return nil }
+        return MediaCandidate(file: thumbnail.file, placeholder: placeholder, kind: kind)
+    }
+
+    private func isMediaContent(_ content: PushMessageContent) -> Bool {
+        switch content {
+        case .pushMessageContentAnimation,
+             .pushMessageContentDocument,
+             .pushMessageContentPhoto,
+             .pushMessageContentSticker,
+             .pushMessageContentVideo,
+             .pushMessageContentVideoNote:
+            true
+        default:
+            false
+        }
+    }
+
+    private func isMediaContent(_ content: MessageContent) -> Bool {
+        switch content {
+        case .messageAnimation,
+             .messageDocument,
+             .messagePhoto,
+             .messageSticker,
+             .messageVideo,
+             .messageVideoNote:
+            true
+        default:
+            false
+        }
+    }
+
+    private func notificationBody(for content: PushMessageContent) -> String? {
+        switch content {
+        case .pushMessageContentPhoto(let value):
+            value.caption.isEmpty ? "📷 Photo" : value.caption
+        case .pushMessageContentVideo(let value):
+            value.caption.isEmpty ? "🎥 Video" : value.caption
+        case .pushMessageContentAnimation(let value):
+            value.caption.isEmpty ? "🎬 GIF" : value.caption
+        case .pushMessageContentDocument:
+            "📎 File"
+        case .pushMessageContentSticker(let value):
+            value.emoji.isEmpty ? "Sticker" : "\(value.emoji) Sticker"
+        case .pushMessageContentVideoNote:
+            "Video message"
         default:
             nil
         }
     }
 
-    private func photoCandidate(_ photo: Photo) -> MediaCandidate? {
-        guard let size = photo.sizes.min(by: { lhs, rhs in
-            abs(max(lhs.width, lhs.height) - 1280) < abs(max(rhs.width, rhs.height) - 1280)
-        }) else { return nil }
-        return MediaCandidate(file: size.photo, placeholder: photo.minithumbnail?.data)
-    }
-
-    private func thumbnailCandidate(_ thumbnail: Thumbnail?, placeholder: Data?) -> MediaCandidate? {
-        guard let thumbnail else { return nil }
-        return MediaCandidate(file: thumbnail.file, placeholder: placeholder)
+    private func notificationBody(for content: MessageContent) -> String? {
+        switch content {
+        case .messagePhoto(let value):
+            return value.caption.text.isEmpty ? "📷 Photo" : value.caption.text
+        case .messageVideo(let value):
+            return value.caption.text.isEmpty ? "🎥 Video" : value.caption.text
+        case .messageAnimation(let value):
+            return value.caption.text.isEmpty ? "🎬 GIF" : value.caption.text
+        case .messageDocument(let value):
+            if !value.caption.text.isEmpty {
+                return value.caption.text
+            }
+            return value.document.fileName.isEmpty ? "📎 File" : value.document.fileName
+        case .messageSticker(let value):
+            return value.sticker.emoji.isEmpty ? "Sticker" : "\(value.sticker.emoji) Sticker"
+        case .messageVideoNote:
+            return "Video message"
+        default:
+            return nil
+        }
     }
 
     private func finish(_ result: ResolvedTelegramNotification?, reason: String) {

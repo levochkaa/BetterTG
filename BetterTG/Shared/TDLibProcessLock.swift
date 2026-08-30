@@ -3,7 +3,7 @@
 import Darwin
 import Foundation
 
-final class TDLibProcessLock {
+final class TDLibProcessLock: @unchecked Sendable {
     // MARK: Internal
 
     enum LockError: LocalizedError {
@@ -55,6 +55,32 @@ final class TDLibProcessLock {
             throw LockError.acquireFailed(code)
         }
         return TDLibProcessLock(descriptor: descriptor)
+    }
+
+    static func acquire(waitingUpTo timeout: TimeInterval) throws -> TDLibProcessLock? {
+        guard let containerURL = BetterTGAppGroup.containerURL() else {
+            throw LockError.appGroupUnavailable
+        }
+        let lockURL = containerURL.appendingPathComponent("tdlib-owner.lock", isDirectory: false)
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw LockError.openFailed(errno) }
+
+        let deadline = Date().addingTimeInterval(max(0, timeout))
+        repeat {
+            if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+                return TDLibProcessLock(descriptor: descriptor)
+            }
+            let code = errno
+            guard code == EWOULDBLOCK else {
+                close(descriptor)
+                throw LockError.acquireFailed(code)
+            }
+            if Date() >= deadline {
+                close(descriptor)
+                return nil
+            }
+            usleep(50000)
+        } while true
     }
 
     func unlock() {

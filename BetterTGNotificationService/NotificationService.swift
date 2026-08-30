@@ -42,14 +42,17 @@ final class NotificationService: UNNotificationServiceExtension {
             var resolved = fallback
 
             do {
-                if let processLock = try TDLibProcessLock.acquire(wait: false) {
+                logger.log("rich_notification.tdlib_lock_wait_started")
+                if let processLock = try TDLibProcessLock.acquire(waitingUpTo: 6) {
                     defer { processLock.unlock() }
+                    logger.log("rich_notification.tdlib_lock_acquired")
                     if let token = metadata.notificationPayloadToken,
                        let state = try TelegramAccountRegistry().loadExisting(),
                        let account = state.accounts.first(where: { $0.userID == metadata.accountID })
                        ?? state.accounts.first(where: { $0.id == state.activeAccountID })
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
+                        logger.log("rich_notification.payload_fetched")
                         if let tdlibResolved = await NotificationTDLibSession(
                             account: account,
                             payload: payload,
@@ -66,7 +69,13 @@ final class NotificationService: UNNotificationServiceExtension {
                         logger.log("rich_notification.resolved source=cache_missing_session")
                     }
                 } else {
-                    logger.log("rich_notification.resolved source=cache_main_app_active")
+                    logger.log("rich_notification.tdlib_lock_timed_out")
+                    resolved = await waitForCachedMedia(
+                        metadata: metadata,
+                        fallback: fallback,
+                        timeout: 4,
+                    )
+                    logger.log("rich_notification.resolved source=cache_after_lock_timeout")
                 }
             } catch {
                 logger
@@ -79,6 +88,9 @@ final class NotificationService: UNNotificationServiceExtension {
                 from: request.content,
                 metadata: metadata,
                 resolved: resolved,
+            )
+            logger.log(
+                "rich_notification.attachment_added success=\(!content.attachments.isEmpty, privacy: .public)",
             )
             finish(with: content)
         }
@@ -97,6 +109,34 @@ final class NotificationService: UNNotificationServiceExtension {
               metadata.accountID == nil || metadata.accountID == activeAccount.userID
         else { return false }
         return true
+    }
+
+    private func waitForCachedMedia(
+        metadata: RelayNotificationMetadata,
+        fallback: ResolvedTelegramNotification,
+        timeout: TimeInterval,
+    ) async -> ResolvedTelegramNotification {
+        guard metadata.expectsMedia, let reference = metadata.messageReference else { return fallback }
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let url = RichNotificationCache.mediaURL(for: reference),
+               let data = try? Data(contentsOf: url)
+            {
+                logger.log("rich_notification.media_resolved source=shared_cache")
+                return ResolvedTelegramNotification(
+                    senderName: fallback.senderName,
+                    conversationTitle: fallback.conversationTitle,
+                    senderAvatarData: fallback.senderAvatarData,
+                    conversationAvatarData: fallback.conversationAvatarData,
+                    mediaData: data,
+                    body: fallback.body,
+                    canQuickReply: fallback.canQuickReply,
+                )
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        } while !Task.isCancelled && Date() < deadline
+        logger.log("rich_notification.media_resolved source=shared_cache success=false")
+        return fallback
     }
 
     private func finish(with content: UNNotificationContent?) {

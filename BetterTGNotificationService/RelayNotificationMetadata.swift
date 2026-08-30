@@ -24,6 +24,13 @@ struct RelayNotificationMetadata {
         return event.hasPrefix("MESSAGE_") || event.hasPrefix("CHAT_MESSAGE_")
     }
 
+    var expectsMedia: Bool {
+        guard let event else { return false }
+        return ["PHOTO", "VIDEO", "GIF", "STICKER", "ROUND", "DOC"].contains {
+            event.contains($0)
+        }
+    }
+
     init?(userInfo: [AnyHashable: Any]) {
         guard let data = userInfo["tg"] as? [String: Any],
               let peerKindValue = data["peer_type"] as? String,

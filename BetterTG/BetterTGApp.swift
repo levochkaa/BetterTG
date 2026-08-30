@@ -44,6 +44,14 @@ import UIKit
         }
     }
 
+    func applicationDidEnterBackground(_: UIApplication) {
+        TDLib.shared.releaseForNotificationService()
+    }
+
+    func applicationWillEnterForeground(_: UIApplication) {
+        TDLib.shared.resumeAfterNotificationService()
+    }
+
     func application(
         _: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,

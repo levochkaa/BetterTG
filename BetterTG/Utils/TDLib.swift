@@ -45,6 +45,11 @@ final class TDLib: @unchecked Sendable {
     private let manager = TDLibClientManager()
     private let registry = TelegramAccountRegistry()
     private var processLock: TDLibProcessLock?
+    private var ownershipReleaseTask: Task<Void, Never>?
+    private var ownershipResumeTask: Task<Void, Never>?
+    private var ownershipBackgroundTaskIdentifier = UIBackgroundTaskIdentifier.invalid
+    private var lifecycleSuspended = false
+    private var wantsForegroundOwnership = true
     private let clientLock = NSLock()
     private var storedActiveClient: TDLibClient?
     private var started = false
@@ -93,6 +98,58 @@ final class TDLib: @unchecked Sendable {
             manager.closeClients()
             processLock?.unlock()
             processLock = nil
+        }
+    }
+
+    @MainActor func releaseForNotificationService() {
+        wantsForegroundOwnership = false
+        guard started, !lifecycleSuspended else { return }
+        lifecycleSuspended = true
+        log("TDLib ownership handoff started")
+
+        beginOwnershipBackgroundTask()
+        let manager = manager
+        ownershipReleaseTask = Task { @MainActor [weak self] in
+            await Task.detached(priority: .userInitiated) {
+                manager.closeClients()
+            }.value
+            guard let self else { return }
+            processLock?.unlock()
+            processLock = nil
+            endOwnershipBackgroundTask()
+            log("TDLib ownership released for notification service")
+        }
+    }
+
+    @MainActor func resumeAfterNotificationService() {
+        wantsForegroundOwnership = true
+        guard started, lifecycleSuspended, ownershipResumeTask == nil else { return }
+        let releaseTask = ownershipReleaseTask
+        ownershipResumeTask = Task { @MainActor [weak self] in
+            await releaseTask?.value
+            guard let self else { return }
+            ownershipReleaseTask = nil
+
+            do {
+                let lock = try await Task.detached(priority: .userInitiated) {
+                    try TDLibProcessLock.acquire(wait: true)
+                }.value
+                guard wantsForegroundOwnership else {
+                    lock?.unlock()
+                    ownershipResumeTask = nil
+                    return
+                }
+                guard let lock, let account = activeAccount else {
+                    throw TelegramAccountError.unavailable
+                }
+                processLock = lock
+                lifecycleSuspended = false
+                activate(account: account, notify: false)
+                log("TDLib ownership restored to main application")
+            } catch {
+                log("TDLib ownership restore failed: \(error.localizedDescription)")
+            }
+            ownershipResumeTask = nil
         }
     }
 
@@ -271,6 +328,14 @@ final class TDLib: @unchecked Sendable {
             }
 
             guard isActive(client: client, accountID: accountID) else { return }
+            if lifecycleSuspended {
+                switch state {
+                case .authorizationStateClosed, .authorizationStateClosing:
+                    return
+                default:
+                    break
+                }
+            }
             update(incomingUpdate)
 
             switch state {
@@ -415,7 +480,11 @@ final class TDLib: @unchecked Sendable {
     }
 
     @MainActor private func recoverUnexpectedClose(accountID: UUID, clientID: Int32) {
-        guard activeAccountID == accountID, !recoveringClientIDs.contains(clientID), let account = activeAccount else {
+        guard !lifecycleSuspended,
+              activeAccountID == accountID,
+              !recoveringClientIDs.contains(clientID),
+              let account = activeAccount
+        else {
             return
         }
         recoveringClientIDs.insert(clientID)
@@ -487,6 +556,25 @@ final class TDLib: @unchecked Sendable {
             try? await Task.sleep(for: .milliseconds(100))
         }
         return manager.clients[client.id] == nil
+    }
+
+    @MainActor private func beginOwnershipBackgroundTask() {
+        guard ownershipBackgroundTaskIdentifier == .invalid else { return }
+        ownershipBackgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(
+            withName: "Release TDLib for notifications",
+        ) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                log("TDLib ownership handoff background time expired")
+                self.endOwnershipBackgroundTask()
+            }
+        }
+    }
+
+    @MainActor private func endOwnershipBackgroundTask() {
+        guard ownershipBackgroundTaskIdentifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(ownershipBackgroundTaskIdentifier)
+        ownershipBackgroundTaskIdentifier = .invalid
     }
 }
 

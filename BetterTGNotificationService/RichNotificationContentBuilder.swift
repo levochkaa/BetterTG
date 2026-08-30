@@ -14,6 +14,10 @@ enum RichNotificationContentBuilder {
     ) -> UNNotificationContent {
         guard let mutable = original.mutableCopy() as? UNMutableNotificationContent else { return original }
 
+        if let body = resolved.body, !body.isEmpty {
+            mutable.body = body
+        }
+
         if let mediaData = resolved.mediaData ?? metadata.messageReference
             .flatMap(RichNotificationCache.mediaURL)
             .flatMap({ try? Data(contentsOf: $0) }),
@@ -89,6 +93,7 @@ enum RichNotificationContentBuilder {
             senderAvatarData: RichNotificationCache.avatarData(for: metadata.sender),
             conversationAvatarData: RichNotificationCache.avatarData(for: metadata.peer),
             mediaData: mediaData,
+            body: nil,
             canQuickReply: canQuickReply,
         )
     }
