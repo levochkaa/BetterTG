@@ -9,7 +9,82 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
     UIGestureRecognizerDelegate
 {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    enum PresentationMode {
+        case full
+        case contextPreview
+    }
+
+    // MARK: Private
+
+    private enum Section {
+        case messages
+    }
+
+    private let presentationMode: PresentationMode
+    private let targetMessageID: Int64?
+    private let chatVM: ChatVM
+    private let historyContainerView = UIView()
+    private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
+    private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
+    private var cancellables = Set<AnyCancellable>()
+    private var messageCancellables = Set<AnyCancellable>()
+    private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private let customNavigationBar = TelegramChatNavigationBar()
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private lazy var composerView = ChatComposerView(chatVM: chatVM)
+    private let scrollToLatestButton = UIButton(type: .system)
+    private let unreadBadgeLabel = UILabel()
+    private var scrollToLatestButtonVisible = false
+    private var didPresentMicrophoneError = false
+    private var lastHighlightedMessageID: Int64?
+    private var didPerformInitialScroll = false
+    private var pendingScrollMessageID: Int64?
+    private var messageNavigationTask: Task<Void, Never>?
+    private var searchTask: Task<Void, Never>?
+    private var messageSearchActive = false
+    private var composerLeadingConstraint: NSLayoutConstraint?
+    private var composerTrailingConstraint: NSLayoutConstraint?
+    private var composerBottomConstraint: NSLayoutConstraint?
+    private var composerKeyboardAttached = false
+
+    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
+        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
+            guard let self, let gesture else { return }
+            if pressing {
+                let point = gesture.location(in: collectionView)
+                guard let indexPath = collectionView.indexPathForItem(at: point),
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+                else { return }
+                pressedMessageSourceView = cell.contextPreviewView
+                pressedMessageSourceTransform = cell.contextPreviewView.transform
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
+                UIView.animate(
+                    withDuration: 0.16,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
+                }
+            } else {
+                restorePressedMessageSource()
+            }
+        }
+        return gesture
+    }()
+
+    private weak var pressedMessageSourceView: UIView?
+    private var pressedMessageSourceTransform = CGAffineTransform.identity
+
+    private var showsComposer: Bool {
+        presentationMode == .full && chatVM.customChat.canPostMessages
+    }
+
+    private var isNearLatest: Bool {
+        collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
+    }
 
     init(
         customChat: CustomChat,
@@ -29,13 +104,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     deinit {
         prefetchTasks.values.forEach { $0.cancel() }
         messageNavigationTask?.cancel()
-    }
-
-    // MARK: Internal
-
-    enum PresentationMode {
-        case full
-        case contextPreview
     }
 
     override func viewDidLoad() {
@@ -171,76 +239,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         return true
-    }
-
-    // MARK: Private
-
-    private enum Section {
-        case messages
-    }
-
-    private let presentationMode: PresentationMode
-    private let targetMessageID: Int64?
-    private let chatVM: ChatVM
-    private let historyContainerView = UIView()
-    private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
-    private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
-    private var cancellables = Set<AnyCancellable>()
-    private var messageCancellables = Set<AnyCancellable>()
-    private var prefetchTasks = [Int64: Task<Void, Never>]()
-    private let customNavigationBar = TelegramChatNavigationBar()
-    private var navigationBarHeightConstraint: NSLayoutConstraint!
-    private lazy var composerView = ChatComposerView(chatVM: chatVM)
-    private let scrollToLatestButton = UIButton(type: .system)
-    private let unreadBadgeLabel = UILabel()
-    private var scrollToLatestButtonVisible = false
-    private var didPresentMicrophoneError = false
-    private var lastHighlightedMessageID: Int64?
-    private var didPerformInitialScroll = false
-    private var pendingScrollMessageID: Int64?
-    private var messageNavigationTask: Task<Void, Never>?
-    private var searchTask: Task<Void, Never>?
-    private var messageSearchActive = false
-    private var composerLeadingConstraint: NSLayoutConstraint?
-    private var composerTrailingConstraint: NSLayoutConstraint?
-    private var composerBottomConstraint: NSLayoutConstraint?
-    private var composerKeyboardAttached = false
-
-    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
-        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
-        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
-            guard let self, let gesture else { return }
-            if pressing {
-                let point = gesture.location(in: collectionView)
-                guard let indexPath = collectionView.indexPathForItem(at: point),
-                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
-                else { return }
-                pressedMessageSourceView = cell.contextPreviewView
-                pressedMessageSourceTransform = cell.contextPreviewView.transform
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
-                UIView.animate(
-                    withDuration: 0.16,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
-                }
-            } else {
-                restorePressedMessageSource()
-            }
-        }
-        return gesture
-    }()
-
-    private weak var pressedMessageSourceView: UIView?
-    private var pressedMessageSourceTransform = CGAffineTransform.identity
-
-    private var showsComposer: Bool {
-        presentationMode == .full && chatVM.customChat.canPostMessages
-    }
-
-    private var isNearLatest: Bool {
-        collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
     }
 
     private func makeLayout() -> UICollectionViewLayout {

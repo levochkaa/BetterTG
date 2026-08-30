@@ -7,7 +7,19 @@ import UIKit
 // MARK: - ChatFoldersViewController
 
 final class ChatFoldersViewController: UITableViewController {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let rootVM: RootVM
+    private var cancellables = Set<AnyCancellable>()
+
+    private var customFolders: [CustomFolder] {
+        rootVM.folders.filter {
+            if case .folder = $0.type {
+                return true
+            }
+            return false
+        }
+    }
 
     init(rootVM: RootVM) {
         self.rootVM = rootVM
@@ -85,20 +97,6 @@ final class ChatFoldersViewController: UITableViewController {
         return UISwipeActionsConfiguration(actions: [delete])
     }
 
-    // MARK: Private
-
-    private let rootVM: RootVM
-    private var cancellables = Set<AnyCancellable>()
-
-    private var customFolders: [CustomFolder] {
-        rootVM.folders.filter {
-            if case .folder = $0.type {
-                return true
-            }
-            return false
-        }
-    }
-
     @objc private func addFolder() {
         navigationController?.pushViewController(ChatFolderEditorViewController(rootVM: rootVM), animated: true)
     }
@@ -127,7 +125,9 @@ final class ChatFoldersViewController: UITableViewController {
 // MARK: - ChatFolderOrderViewController
 
 final class ChatFolderOrderViewController: UITableViewController {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private var folders: [CustomFolder]
 
     init(rootVM: RootVM) {
         self.folders = rootVM.folders
@@ -192,10 +192,6 @@ final class ChatFolderOrderViewController: UITableViewController {
         folders.insert(folder, at: destinationIndexPath.row)
     }
 
-    // MARK: Private
-
-    private var folders: [CustomFolder]
-
     @objc private func saveOrder() {
         navigationItem.rightBarButtonItem?.isEnabled = false
         let folderIDs = folders.compactMap { folder -> Int? in
@@ -224,7 +220,21 @@ final class ChatFolderOrderViewController: UITableViewController {
 // MARK: - ChatFolderEditorViewController
 
 final class ChatFolderEditorViewController: UITableViewController, UITextFieldDelegate {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let rootVM: RootVM
+    private let folderInfo: ChatFolderInfo?
+    private let originalName: ChatFolderName?
+    private var draft: ChatFolder
+    private lazy var nameField: UITextField = {
+        let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
+        field.placeholder = "Folder Name"
+        field.textAlignment = .right
+        field.returnKeyType = .done
+        field.clearButtonMode = .whileEditing
+        field.delegate = self
+        return field
+    }()
 
     init(rootVM: RootVM, folder: CustomFolder? = nil) {
         self.rootVM = rootVM
@@ -342,22 +352,6 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         return current.replacingCharacters(in: swiftRange, with: string).count <= 12
     }
 
-    // MARK: Private
-
-    private let rootVM: RootVM
-    private let folderInfo: ChatFolderInfo?
-    private let originalName: ChatFolderName?
-    private var draft: ChatFolder
-    private lazy var nameField: UITextField = {
-        let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
-        field.placeholder = "Folder Name"
-        field.textAlignment = .right
-        field.returnKeyType = .done
-        field.clearButtonMode = .whileEditing
-        field.delegate = self
-        return field
-    }()
-
     private func selectChats(excluded: Bool) {
         let selected = Set(excluded ? draft.excludedChatIds : draft.includedChatIds)
         let controller = ChatFolderChatSelectionViewController(
@@ -409,7 +403,15 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 // MARK: - ChatFolderChatSelectionViewController
 
 final class ChatFolderChatSelectionViewController: UITableViewController, UISearchResultsUpdating {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let rootVM: RootVM
+    private let onDone: (Set<Int64>) -> Void
+    private let searchController = UISearchController(searchResultsController: nil)
+    private var selectedChatIDs: Set<Int64>
+    private var chats = [CustomChat]()
+    private var visibleChats = [CustomChat]()
+    private var query = ""
 
     init(
         rootVM: RootVM,
@@ -483,16 +485,6 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         query = searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         applyFilter()
     }
-
-    // MARK: Private
-
-    private let rootVM: RootVM
-    private let onDone: (Set<Int64>) -> Void
-    private let searchController = UISearchController(searchResultsController: nil)
-    private var selectedChatIDs: Set<Int64>
-    private var chats = [CustomChat]()
-    private var visibleChats = [CustomChat]()
-    private var query = ""
 
     private func reloadCandidates() {
         var seen = Set<Int64>()

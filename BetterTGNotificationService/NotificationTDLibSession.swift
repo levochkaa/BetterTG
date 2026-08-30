@@ -5,7 +5,24 @@ import os.log
 import TDLibKitDynamic
 
 final class NotificationTDLibSession: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private struct MediaCandidate {
+        let file: File
+        let placeholder: Data?
+    }
+
+    private let account: TelegramAccount
+    private let payload: String
+    private let metadata: RelayNotificationMetadata
+    private let logger: os.Logger
+    private let manager = TDLibClientManager()
+    private let stateLock = NSLock()
+    private var client: TDLibClient?
+    private var resolutionContinuation: CheckedContinuation<ResolvedTelegramNotification?, Never>?
+    private var configured = false
+    private var processingStarted = false
+    private var finished = false
 
     init(
         account: TelegramAccount,
@@ -37,25 +54,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
         await close()
         return result
     }
-
-    // MARK: Private
-
-    private struct MediaCandidate {
-        let file: File
-        let placeholder: Data?
-    }
-
-    private let account: TelegramAccount
-    private let payload: String
-    private let metadata: RelayNotificationMetadata
-    private let logger: os.Logger
-    private let manager = TDLibClientManager()
-    private let stateLock = NSLock()
-    private var client: TDLibClient?
-    private var resolutionContinuation: CheckedContinuation<ResolvedTelegramNotification?, Never>?
-    private var configured = false
-    private var processingStarted = false
-    private var finished = false
 
     private func handle(data: Data, client: TDLibClient) {
         guard let update = try? client.decoder.decode(Update.self, from: data) else { return }

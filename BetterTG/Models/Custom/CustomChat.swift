@@ -4,24 +4,6 @@ import Combine
 import TDLibKitDynamic
 
 @MainActor final class CustomChat: ObservableObject {
-    // MARK: Lifecycle
-
-    init(
-        chat: Chat,
-        position: ChatPosition,
-        unreadCount: Int,
-        type: CustomChatType,
-        lastMessage: Message? = nil,
-        draftMessage: DraftMessage? = nil,
-    ) {
-        self.chat = chat
-        self.position = position
-        self.unreadCount = unreadCount
-        self.type = type
-        self.lastMessage = lastMessage
-        self.draftMessage = draftMessage
-    }
-
     // MARK: Internal
 
     enum CustomChatType: Equatable, Hashable {
@@ -94,5 +76,21 @@ import TDLibKitDynamic
             return false
         }
         return supergroup.status != .chatMemberStatusLeft
+    }
+
+    init(
+        chat: Chat,
+        position: ChatPosition,
+        unreadCount: Int,
+        type: CustomChatType,
+        lastMessage: Message? = nil,
+        draftMessage: DraftMessage? = nil,
+    ) {
+        self.chat = chat
+        self.position = position
+        self.unreadCount = unreadCount
+        self.type = type
+        self.lastMessage = lastMessage
+        self.draftMessage = draftMessage
     }
 }

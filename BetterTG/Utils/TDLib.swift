@@ -27,9 +27,12 @@ enum TelegramAccountError: LocalizedError {
 // MARK: - TDLib
 
 final class TDLib: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Private
 
-    private init() {}
+    private struct ClientSnapshot {
+        let client: TDLibClient
+        let accountID: UUID
+    }
 
     // MARK: Internal
 
@@ -38,6 +41,17 @@ final class TDLib: @unchecked Sendable {
     private(set) var accounts = [TelegramAccount]()
     private(set) var activeAccountID: UUID?
     private(set) var isActiveAccountReady = false
+
+    private let manager = TDLibClientManager()
+    private let registry = TelegramAccountRegistry()
+    private var processLock: TDLibProcessLock?
+    private let clientLock = NSLock()
+    private var storedActiveClient: TDLibClient?
+    private var started = false
+    private var configuredClientIDs = Set<Int32>()
+    private var retiringClientIDs = Set<Int32>()
+    private var recoveringClientIDs = Set<Int32>()
+    private var cancellables = Set<AnyCancellable>()
 
     var activeAccount: TelegramAccount? {
         accounts.first(where: { $0.id == activeAccountID })
@@ -55,6 +69,8 @@ final class TDLib: @unchecked Sendable {
         }
         return storedActiveClient
     }
+
+    private init() {}
 
     func startTdLibUpdateHandler() {
         guard !started else { return }
@@ -207,24 +223,6 @@ final class TDLib: @unchecked Sendable {
             nc.post(name: .authorizationStateWaitPremiumPurchase, object: value)
         }
     }
-
-    // MARK: Private
-
-    private struct ClientSnapshot {
-        let client: TDLibClient
-        let accountID: UUID
-    }
-
-    private let manager = TDLibClientManager()
-    private let registry = TelegramAccountRegistry()
-    private var processLock: TDLibProcessLock?
-    private let clientLock = NSLock()
-    private var storedActiveClient: TDLibClient?
-    private var started = false
-    private var configuredClientIDs = Set<Int32>()
-    private var retiringClientIDs = Set<Int32>()
-    private var recoveringClientIDs = Set<Int32>()
-    private var cancellables = Set<AnyCancellable>()
 
     private func activeClientSnapshot() -> ClientSnapshot? {
         clientLock.lock()

@@ -33,6 +33,16 @@ struct RichNotificationMessageReference: Hashable {
 // MARK: - RichNotificationCache
 
 enum RichNotificationCache {
+    // MARK: Private
+
+    private static var avatarDirectoryURL: URL? {
+        directoryURL(named: "avatars")
+    }
+
+    private static var mediaDirectoryURL: URL? {
+        directoryURL(named: "media")
+    }
+
     // MARK: Internal
 
     static func avatarData(for peer: RichNotificationPeerReference) -> Data? {
@@ -80,16 +90,6 @@ enum RichNotificationCache {
               ] as CFDictionary)
         else { return nil }
         return UIImage(cgImage: image).jpegData(compressionQuality: 0.86)
-    }
-
-    // MARK: Private
-
-    private static var avatarDirectoryURL: URL? {
-        directoryURL(named: "avatars")
-    }
-
-    private static var mediaDirectoryURL: URL? {
-        directoryURL(named: "media")
     }
 
     private static func avatarURL(for peer: RichNotificationPeerReference) -> URL {

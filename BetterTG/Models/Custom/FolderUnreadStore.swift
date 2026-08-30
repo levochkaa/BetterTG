@@ -15,13 +15,15 @@ struct FolderUnreadState: Equatable {
 // MARK: - FolderUnreadStore
 
 @MainActor final class FolderUnreadStore: ObservableObject {
-    // MARK: Lifecycle
-
-    private init() {}
-
     // MARK: Internal
 
     static let shared = FolderUnreadStore()
+
+    // MARK: Private
+
+    private var statesByClient = [Int32: [ChatList: FolderUnreadState]]()
+
+    private init() {}
 
     func states(for clientID: Int32) -> [ChatList: FolderUnreadState] {
         statesByClient[clientID] ?? [:]
@@ -36,8 +38,4 @@ struct FolderUnreadState: Equatable {
         objectWillChange.send()
         statesByClient[clientID, default: [:]][update.chatList] = state
     }
-
-    // MARK: Private
-
-    private var statesByClient = [Int32: [ChatList: FolderUnreadState]]()
 }

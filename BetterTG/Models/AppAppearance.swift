@@ -7,6 +7,10 @@ enum AppAppearance: String, CaseIterable {
     case light
     case dark
 
+    // MARK: Private
+
+    private static let defaultsKey = "appAppearance"
+
     // MARK: Internal
 
     static var current: AppAppearance {
@@ -43,8 +47,4 @@ enum AppAppearance: String, CaseIterable {
             .flatMap(\.windows)
             .forEach { $0.overrideUserInterfaceStyle = userInterfaceStyle }
     }
-
-    // MARK: Private
-
-    private static let defaultsKey = "appAppearance"
 }

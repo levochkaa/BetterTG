@@ -5,8 +5,6 @@ import UIKit
 // MARK: - AppearanceViewController
 
 final class AppearanceViewController: UITableViewController {
-    // MARK: Lifecycle
-
     init() {
         super.init(style: .insetGrouped)
     }

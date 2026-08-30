@@ -8,7 +8,9 @@ import UIKit
 // MARK: - MessageMediaView
 
 final class MessageMediaView: UIView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private var contentView: UIView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -94,10 +96,6 @@ final class MessageMediaView: UIView {
         contentView?.removeFromSuperview()
         contentView = nil
     }
-
-    // MARK: Private
-
-    private var contentView: UIView?
 }
 
 // MARK: - ReusableMediaView
@@ -109,7 +107,12 @@ protocol ReusableMediaView where Self: UIView {
 // MARK: - SinglePhotoView
 
 final class SinglePhotoView: UIControl, ReusableMediaView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
+    private var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -147,13 +150,6 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         onTap = nil
     }
 
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
-    private var onTap: (() -> Void)?
-
     @objc private func tapped() {
         onTap?()
     }
@@ -162,7 +158,14 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
 // MARK: - AlbumMediaView
 
 final class AlbumMediaView: UIView, ReusableMediaView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 240)
+    private var tiles = [AlbumMediaTileView]()
+    private var itemFrames = [CGRect]()
+    private var messages = [Message]()
+    private var onTap: (([Message], Int64) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -221,15 +224,6 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         onTap = nil
     }
 
-    // MARK: Private
-
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 240)
-    private var tiles = [AlbumMediaTileView]()
-    private var itemFrames = [CGRect]()
-    private var messages = [Message]()
-    private var onTap: (([Message], Int64) -> Void)?
-
     @objc private func tileTapped(_ sender: UIControl) {
         let index = sender.tag
         guard messages.indices.contains(index) else { return }
@@ -240,7 +234,10 @@ final class AlbumMediaView: UIView, ReusableMediaView {
 // MARK: - AlbumMediaTileView
 
 private final class AlbumMediaTileView: UIControl, ReusableMediaView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -314,17 +311,18 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
     func prepareForReuse() {
         imageView.cancel()
     }
-
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
 }
 
 // MARK: - FileMediaPreviewView
 
 final class FileMediaPreviewView: UIControl, ReusableMediaView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
+    private var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -381,14 +379,6 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         onTap = nil
     }
 
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
-    private var onTap: (() -> Void)?
-
     @objc private func tapped() {
         onTap?()
     }
@@ -397,9 +387,23 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
 // MARK: - TDImageLoadingView
 
 final class TDImageLoadingView: UIImageView {
+    // MARK: Private
+
+    private static let cache: NSCache<NSNumber, UIImage> = {
+        let cache = NSCache<NSNumber, UIImage>()
+        cache.countLimit = 200
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+
     // MARK: Internal
 
     private(set) var loadedPath: String?
+
+    private var representedFileID: Int?
+    private var downloadTask: Task<Void, Never>?
+    private var cancellable: AnyCancellable?
+    private var maximumPixelSize = 1280
 
     func load(photo: Photo, preferredSize: PhotoSizeType) {
         let placeholderData = photo.minithumbnail?.data
@@ -449,20 +453,6 @@ final class TDImageLoadingView: UIImageView {
             Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
         }
     }
-
-    // MARK: Private
-
-    private static let cache: NSCache<NSNumber, UIImage> = {
-        let cache = NSCache<NSNumber, UIImage>()
-        cache.countLimit = 200
-        cache.totalCostLimit = 96 * 1024 * 1024
-        return cache
-    }()
-
-    private var representedFileID: Int?
-    private var downloadTask: Task<Void, Never>?
-    private var cancellable: AnyCancellable?
-    private var maximumPixelSize = 1280
 
     private func update(file: File) {
         guard representedFileID == file.id, file.local.isDownloadingCompleted else { return }

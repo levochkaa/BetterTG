@@ -6,16 +6,19 @@ import UIKit
 // MARK: - TelegramSwipeToReplyRecognizer
 
 private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var shouldBegin: (() -> Bool)?
+
+    // MARK: Private
+
+    private var firstLocation = CGPoint.zero
+    private var validatedGesture = false
 
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
         maximumNumberOfTouches = 1
     }
-
-    // MARK: Internal
-
-    var shouldBegin: (() -> Bool)?
 
     override func reset() {
         super.reset()
@@ -52,17 +55,15 @@ private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {
             super.touchesMoved(touches, with: event)
         }
     }
-
-    // MARK: Private
-
-    private var firstLocation = CGPoint.zero
-    private var validatedGesture = false
 }
 
 // MARK: - SwipeToReplyIndicatorView
 
 private final class SwipeToReplyIndicatorView: UIView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let iconView = UIImageView()
+    private let progressLayer = CAShapeLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -121,17 +122,54 @@ private final class SwipeToReplyIndicatorView: UIView {
         progressLayer.strokeEnd = progress
         CATransaction.commit()
     }
-
-    // MARK: Private
-
-    private let iconView = UIImageView()
-    private let progressLayer = CAShapeLayer()
 }
 
 // MARK: - MessageCell
 
 final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let reuseIdentifier = "MessageCell"
+
+    // MARK: Private
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private let rowStack = UIStackView()
+    private let bubbleContainerView = TelegramContextMenuExtractableView()
+    private let bubbleStack = UIStackView()
+    private let avatarView = ProfileAvatarView()
+    private let forwardedLabel = UILabel()
+    private let replyView = ReplySnippetView()
+    private let mediaView = MessageMediaView()
+    private let textView = MessageTextContentView()
+    private let timestampLabel = UILabel()
+    private let mediaTimestampLabel = UILabel()
+    private let leadingSpacer = UIView()
+    private let trailingSpacer = UIView()
+    private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
+    private var bubbleWidthConstraint: NSLayoutConstraint!
+    private var bubbleContentNeedsMeasurement = true
+    private var measuredCellWidth = CGFloat.zero
+    private var onReplyTap: ((Int64) -> Void)?
+    private var onSwipeToReply: (() -> Void)?
+    private var onMediaTap: (([Message], Int64) -> Void)?
+    private var swipeReplyThreshold: CGFloat = 45
+    private var playedSwipeReplyHaptic = false
+    private var swipeReplyFeedback: UIImpactFeedbackGenerator?
+    private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
+    private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
+        target: self,
+        action: #selector(swipeToReply(_:)),
+    )
+
+    var contextPreviewView: UIView { bubbleContainerView }
+
+    private var bubbleView: UIView { bubbleContainerView.extractedContentView }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -144,12 +182,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    static let reuseIdentifier = "MessageCell"
-
-    var contextPreviewView: UIView { bubbleContainerView }
 
     override func prepareForReuse() {
         super.prepareForReuse()
@@ -283,44 +315,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         return gestureRecognizer.view is UIScrollView || otherGestureRecognizer.view is UIScrollView
     }
-
-    // MARK: Private
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-
-    private let rowStack = UIStackView()
-    private let bubbleContainerView = TelegramContextMenuExtractableView()
-    private let bubbleStack = UIStackView()
-    private let avatarView = ProfileAvatarView()
-    private let forwardedLabel = UILabel()
-    private let replyView = ReplySnippetView()
-    private let mediaView = MessageMediaView()
-    private let textView = MessageTextContentView()
-    private let timestampLabel = UILabel()
-    private let mediaTimestampLabel = UILabel()
-    private let leadingSpacer = UIView()
-    private let trailingSpacer = UIView()
-    private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
-    private var bubbleWidthConstraint: NSLayoutConstraint!
-    private var bubbleContentNeedsMeasurement = true
-    private var measuredCellWidth = CGFloat.zero
-    private var onReplyTap: ((Int64) -> Void)?
-    private var onSwipeToReply: (() -> Void)?
-    private var onMediaTap: (([Message], Int64) -> Void)?
-    private var swipeReplyThreshold: CGFloat = 45
-    private var playedSwipeReplyHaptic = false
-    private var swipeReplyFeedback: UIImpactFeedbackGenerator?
-    private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
-    private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
-        target: self,
-        action: #selector(swipeToReply(_:)),
-    )
-
-    private var bubbleView: UIView { bubbleContainerView.extractedContentView }
 
     private func configureViews() {
         rowStack.translatesAutoresizingMaskIntoConstraints = false
@@ -561,7 +555,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 // MARK: - ReplySnippetView
 
 final class ReplySnippetView: UIControl {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let accentView = UIView()
+    private let stack = UIStackView()
+    private let titleLabel = UILabel()
+    private let textLabel = UILabel()
+    private var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -614,14 +614,6 @@ final class ReplySnippetView: UIControl {
         textLabel.text = ChatSummary.summary(for: message)
         self.onTap = onTap
     }
-
-    // MARK: Private
-
-    private let accentView = UIView()
-    private let stack = UIStackView()
-    private let titleLabel = UILabel()
-    private let textLabel = UILabel()
-    private var onTap: (() -> Void)?
 
     @objc private func tapped() {
         onTap?()

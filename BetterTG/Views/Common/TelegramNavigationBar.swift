@@ -6,7 +6,30 @@ import UIKit
 // MARK: - TelegramListNavigationBar
 
 final class TelegramListNavigationBar: UIView {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let titleHeight: CGFloat = 44
+    static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.scrollHeight
+
+    var onSearchActiveChange: ((Bool) -> Void)?
+    var onVisibleHeightChange: ((CGFloat) -> Void)?
+
+    var onQueryChange: ((String) -> Void)? {
+        didSet { searchView.onQueryChange = onQueryChange }
+    }
+
+    // MARK: Private
+
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let titleLabel = UILabel()
+    private let leftButton = UIButton(type: .system)
+    private let rightButton = UIButton(type: .system)
+    private let searchView: ChatListNavigationSearchView
+    private let leftAction: (() -> Void)?
+    private let rightAction: (() -> Void)?
+    private var currentScrollOffset = CGFloat.zero
+
+    var isSearchActive: Bool { searchView.isActive }
 
     init(
         title: String,
@@ -30,20 +53,6 @@ final class TelegramListNavigationBar: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: Internal
-
-    static let titleHeight: CGFloat = 44
-    static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.scrollHeight
-
-    var onSearchActiveChange: ((Bool) -> Void)?
-    var onVisibleHeightChange: ((CGFloat) -> Void)?
-
-    var onQueryChange: ((String) -> Void)? {
-        didSet { searchView.onQueryChange = onQueryChange }
-    }
-
-    var isSearchActive: Bool { searchView.isActive }
-
     func applyScroll(offset: CGFloat, animated: Bool = false) {
         let clipped = min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
         currentScrollOffset = clipped
@@ -63,17 +72,6 @@ final class TelegramListNavigationBar: UIView {
     func setLeftButtonHidden(_ hidden: Bool) {
         leftButton.isHidden = hidden
     }
-
-    // MARK: Private
-
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let titleLabel = UILabel()
-    private let leftButton = UIButton(type: .system)
-    private let rightButton = UIButton(type: .system)
-    private let searchView: ChatListNavigationSearchView
-    private let leftAction: (() -> Void)?
-    private let rightAction: (() -> Void)?
-    private var currentScrollOffset = CGFloat.zero
 
     private func configureViews() {
         clipsToBounds = true
@@ -170,7 +168,26 @@ final class TelegramListNavigationBar: UIView {
 // MARK: - TelegramChatNavigationBar
 
 final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let contentHeight: CGFloat = 44
+
+    var onBack: (() -> Void)?
+    var onSearchQueryChange: ((String) -> Void)?
+    var onSearchActiveChange: ((Bool) -> Void)?
+
+    // MARK: Private
+
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let backButton = UIButton(type: .system)
+    private let titleControl = TelegramNavigationTitleControl()
+    private let titleStack = UIStackView()
+    private let titleLabel = UILabel()
+    private let statusLabel = UILabel()
+    private let avatarView = ProfileAvatarView()
+    private let searchField = UISearchTextField()
+    private let closeButton = UIButton(type: .system)
+    private var searchActive = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -180,14 +197,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    static let contentHeight: CGFloat = 44
-
-    var onBack: (() -> Void)?
-    var onSearchQueryChange: ((String) -> Void)?
-    var onSearchActiveChange: ((Bool) -> Void)?
 
     func configure(title: String, status: String, statusColor: UIColor) {
         titleLabel.text = title
@@ -230,19 +239,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             self.closeButton.alpha = 1
         }
     }
-
-    // MARK: Private
-
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let backButton = UIButton(type: .system)
-    private let titleControl = TelegramNavigationTitleControl()
-    private let titleStack = UIStackView()
-    private let titleLabel = UILabel()
-    private let statusLabel = UILabel()
-    private let avatarView = ProfileAvatarView()
-    private let searchField = UISearchTextField()
-    private let closeButton = UIButton(type: .system)
-    private var searchActive = false
 
     private func configureViews() {
         clipsToBounds = true

@@ -7,7 +7,29 @@ import UIKit
 import UserNotifications
 
 @MainActor final class PushRelayCoordinator: NSObject, UNUserNotificationCenterDelegate {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let shared = PushRelayCoordinator()
+
+    // MARK: Private
+
+    private let configuration: PushRelayConfiguration?
+    private let stateStore = PushRelayStateStore()
+    private let api: PushRelayAPIClient?
+    private let appAttest: AppAttestClient?
+    private var apnsToken: String?
+    private var telegramReady = false
+    private var authorizationEpoch = 0
+    private var registeredAuthorizationEpoch: Int?
+    private var started = false
+    private var synchronizationTask: Task<Void, Never>?
+    private var synchronizationRetryTask: Task<Void, Never>?
+    private var registrationRefreshTask: Task<Void, Never>?
+    private var revocationRetryTask: Task<Void, Never>?
+    private var synchronizationRequested = false
+    private var pendingRoute: PushNotificationRoute?
+    private var lastOpenedRoute: PushNotificationRoute?
+    private var cancellables = Set<AnyCancellable>()
 
     override private init() {
         self.configuration = .current
@@ -21,10 +43,6 @@ import UserNotifications
         }
         super.init()
     }
-
-    // MARK: Internal
-
-    static let shared = PushRelayCoordinator()
 
     func start() {
         guard !started else { return }
@@ -223,26 +241,6 @@ import UserNotifications
     ) async {
         await handleNotificationResponse(userInfo: response.notification.request.content.userInfo)
     }
-
-    // MARK: Private
-
-    private let configuration: PushRelayConfiguration?
-    private let stateStore = PushRelayStateStore()
-    private let api: PushRelayAPIClient?
-    private let appAttest: AppAttestClient?
-    private var apnsToken: String?
-    private var telegramReady = false
-    private var authorizationEpoch = 0
-    private var registeredAuthorizationEpoch: Int?
-    private var started = false
-    private var synchronizationTask: Task<Void, Never>?
-    private var synchronizationRetryTask: Task<Void, Never>?
-    private var registrationRefreshTask: Task<Void, Never>?
-    private var revocationRetryTask: Task<Void, Never>?
-    private var synchronizationRequested = false
-    private var pendingRoute: PushNotificationRoute?
-    private var lastOpenedRoute: PushNotificationRoute?
-    private var cancellables = Set<AnyCancellable>()
 
     private func scheduleSynchronization() {
         synchronizationRequested = true

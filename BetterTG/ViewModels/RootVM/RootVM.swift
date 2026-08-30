@@ -14,14 +14,6 @@ enum Route {
 // MARK: - RootVM
 
 @MainActor final class RootVM: ObservableObject {
-    // MARK: Lifecycle
-
-    private init() {
-        self.activeAccountID = TDLib.shared.activeAccountID
-        self.loggedIn = TDLib.shared.isActiveAccountReady
-        setPublishers()
-    }
-
     // MARK: Internal
 
     static let shared = RootVM()
@@ -45,6 +37,12 @@ enum Route {
 
     var allFolders: [CustomFolder] {
         folders + [archive].compactMap(\.self)
+    }
+
+    private init() {
+        self.activeAccountID = TDLib.shared.activeAccountID
+        self.loggedIn = TDLib.shared.isActiveAccountReady
+        setPublishers()
     }
 
     func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {

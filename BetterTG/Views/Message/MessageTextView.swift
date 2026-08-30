@@ -4,7 +4,25 @@ import TDLibKitDynamic
 import UIKit
 
 final class MessageTextContentView: UITextView, UITextViewDelegate {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    override var canBecomeFirstResponder: Bool { false }
+
+    override var intrinsicContentSize: CGSize {
+        guard attributedText.length > 0 else { return .zero }
+        let measurement = measureText(maximumWidth: maximumLayoutWidth)
+        return CGSize(
+            width: min(maximumLayoutWidth, measurement.width),
+            height: measurement.height,
+        )
+    }
+
+    // MARK: Private
+
+    private var formattedText: FormattedText?
+    private var lastLayoutWidth = CGFloat.zero
+    private var maximumLayoutWidth = Utils.maxMessageContentWidth
+    private let statusLabel = UILabel()
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -32,19 +50,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: Internal
-
-    override var canBecomeFirstResponder: Bool { false }
-
-    override var intrinsicContentSize: CGSize {
-        guard attributedText.length > 0 else { return .zero }
-        let measurement = measureText(maximumWidth: maximumLayoutWidth)
-        return CGSize(
-            width: min(maximumLayoutWidth, measurement.width),
-            height: measurement.height,
-        )
     }
 
     override func layoutSubviews() {
@@ -93,13 +98,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     func textViewDidChangeSelection(_ textView: UITextView) {
         textView.selectedTextRange = nil
     }
-
-    // MARK: Private
-
-    private var formattedText: FormattedText?
-    private var lastLayoutWidth = CGFloat.zero
-    private var maximumLayoutWidth = Utils.maxMessageContentWidth
-    private let statusLabel = UILabel()
 
     private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
         let storage = NSTextStorage(attributedString: attributedText)

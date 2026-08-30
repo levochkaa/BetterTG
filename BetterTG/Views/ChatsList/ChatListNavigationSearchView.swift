@@ -4,7 +4,25 @@ import UIKit
 
 /// Telegram-style search content embedded into the app's custom navigation chrome.
 final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let scrollHeight: CGFloat = 52
+
+    var onQueryChange: ((String) -> Void)?
+    var onActiveChange: ((Bool) -> Void)?
+
+    // MARK: Private
+
+    private let searchField = UISearchTextField()
+    private let closeButton = UIButton(type: .system)
+    private let placeholder: String
+    private var closeWidthConstraint: NSLayoutConstraint!
+    private var searchHeightConstraint: NSLayoutConstraint!
+    private var searchCenterYConstraint: NSLayoutConstraint!
+    private var requestedScrollOffset = CGFloat.zero
+    private var lastContentAlpha: CGFloat = 1
+
+    var isActive: Bool { searchField.isFirstResponder }
 
     init(placeholder: String = "Search chats…") {
         self.placeholder = placeholder
@@ -15,15 +33,6 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    static let scrollHeight: CGFloat = 52
-
-    var onQueryChange: ((String) -> Void)?
-    var onActiveChange: ((Bool) -> Void)?
-
-    var isActive: Bool { searchField.isFirstResponder }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -78,17 +87,6 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         textField.resignFirstResponder()
         return true
     }
-
-    // MARK: Private
-
-    private let searchField = UISearchTextField()
-    private let closeButton = UIButton(type: .system)
-    private let placeholder: String
-    private var closeWidthConstraint: NSLayoutConstraint!
-    private var searchHeightConstraint: NSLayoutConstraint!
-    private var searchCenterYConstraint: NSLayoutConstraint!
-    private var requestedScrollOffset = CGFloat.zero
-    private var lastContentAlpha: CGFloat = 1
 
     private func configureViews() {
         clipsToBounds = false

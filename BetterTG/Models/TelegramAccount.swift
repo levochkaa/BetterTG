@@ -4,7 +4,7 @@ import Foundation
 
 // MARK: - TelegramAccount
 
-struct TelegramAccount: Codable, Equatable, Identifiable, Sendable {
+struct TelegramAccount: Codable, Equatable, Identifiable {
     let id: UUID
     var displayName: String?
     var phoneNumber: String?
@@ -34,7 +34,31 @@ struct TelegramAccountRegistryState: Codable, Equatable {
 // MARK: - TelegramAccountRegistry
 
 struct TelegramAccountRegistry {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let fileManager: FileManager
+
+    private var baseDirectory: URL {
+        (BetterTGAppGroup.containerURL(fileManager: fileManager)
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+            .appendingPathComponent("tdlib", isDirectory: true)
+    }
+
+    private var previousApplicationSupportDirectory: URL {
+        fileManager
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("tdlib", isDirectory: true)
+    }
+
+    private var registryURL: URL {
+        baseDirectory.appendingPathComponent("accounts.json")
+    }
+
+    private var legacyDatabaseDirectory: URL {
+        fileManager
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("td", isDirectory: true)
+    }
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -84,32 +108,6 @@ struct TelegramAccountRegistry {
 
     func removeDatabaseDirectory(for accountID: UUID) {
         try? fileManager.removeItem(at: baseDirectory.appendingPathComponent(accountID.uuidString, isDirectory: true))
-    }
-
-    // MARK: Private
-
-    private let fileManager: FileManager
-
-    private var baseDirectory: URL {
-        (BetterTGAppGroup.containerURL(fileManager: fileManager)
-            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
-            .appendingPathComponent("tdlib", isDirectory: true)
-    }
-
-    private var previousApplicationSupportDirectory: URL {
-        fileManager
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("tdlib", isDirectory: true)
-    }
-
-    private var registryURL: URL {
-        baseDirectory.appendingPathComponent("accounts.json")
-    }
-
-    private var legacyDatabaseDirectory: URL {
-        fileManager
-            .urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("td", isDirectory: true)
     }
 
     private func migrateApplicationSupportDirectoryIfNeeded() throws {

@@ -6,13 +6,6 @@ import MediaPlayer
 import MobileVLCKit
 
 final class Media: ObservableObject {
-    // MARK: Lifecycle
-
-    private init() {
-        setPublishers()
-        setCommandCenterControls()
-    }
-
     // MARK: Internal
 
     static let shared = Media()
@@ -20,6 +13,22 @@ final class Media: ObservableObject {
     @Published var savedMediaPath = ""
     @Published var isPlaying = false
     @Published var currentTime: Int32 = 0
+
+    // MARK: Private
+
+    private var duration = 0
+    private var title = ""
+
+    private let player = VLCMediaPlayer()
+    private let audioSession = AVAudioSession.sharedInstance()
+    private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+    private let commandCenter = MPRemoteCommandCenter.shared()
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {
+        setPublishers()
+        setCommandCenterControls()
+    }
 
     func stop() {
         isPlaying = false
@@ -78,17 +87,6 @@ final class Media: ObservableObject {
             log("Error setting audioSessionRecord: \(error)")
         }
     }
-
-    // MARK: Private
-
-    private var duration = 0
-    private var title = ""
-
-    private let player = VLCMediaPlayer()
-    private let audioSession = AVAudioSession.sharedInstance()
-    private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
-    private let commandCenter = MPRemoteCommandCenter.shared()
-    private var cancellables = Set<AnyCancellable>()
 
     private func setPublishers() {
         player

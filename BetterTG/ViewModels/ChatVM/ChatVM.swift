@@ -7,51 +7,6 @@ import TDLibKitDynamic
 import UIKit
 
 @MainActor final class ChatVM: ObservableObject {
-    // MARK: Lifecycle
-
-    init(customChat: CustomChat, previewing: Bool = false) {
-        self.customChat = customChat
-        self.chatID = customChat.id
-        self.previewing = previewing
-        log("init \(customChat.chat.id)")
-        if let user = customChat.user {
-            self.onlineStatus = getOnlineStatus(from: user.status)
-        }
-        
-        try? td.openChat(chatId: customChat.chat.id) { _ in }
-        setPublishers()
-        loadMessages()
-        if !previewing {
-            Media.shared.onChatOpen(title: customChat.chat.title)
-        }
-        
-        if !previewing,
-           let draftMessage = customChat.draftMessage,
-           case .draftMessageContentText(let draftMessageContentText) = draftMessage.content
-        {
-            self.text = getAttributedString(from: draftMessageContentText.text)
-        }
-        
-        let draftMessage = previewing ? nil : customChat.draftMessage
-        Task { [weak self] in
-            guard let self, let draftMessage else { return }
-            let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
-            self.replyMessage = replyMessage
-        }
-    }
-
-    deinit {
-        log("deinit \(chatID)")
-        loadingMessagesTask?.cancel()
-        sendMessageTask?.cancel()
-        timer?.invalidate()
-        audioRecorder?.stop()
-        try? td.closeChat(chatId: chatID) { _ in }
-        if !previewing {
-            Media.shared.onChatDismiss()
-        }
-    }
-    
     // MARK: Internal
 
     struct PreparedMessageWindow {
@@ -87,6 +42,12 @@ import UIKit
         didSet { messagesDidChange.send() }
     }
 
+    // MARK: Private
+
+    private let previewing: Bool
+
+    private var hasMoreMessages = true
+
     var canEditMessage: Bool {
         guard let editCustomMessage else { return false }
         switch editCustomMessage.message.content {
@@ -98,7 +59,7 @@ import UIKit
             return false
         }
     }
-    
+
     var formattedTimerCount: String {
         let time = String(format: "%.2f", timerCount).split(separator: ".", maxSplits: 2)
         let seconds = Int(time[0]) ?? 0
@@ -116,6 +77,49 @@ import UIKit
         return resultString
     }
     
+    init(customChat: CustomChat, previewing: Bool = false) {
+        self.customChat = customChat
+        self.chatID = customChat.id
+        self.previewing = previewing
+        log("init \(customChat.chat.id)")
+        if let user = customChat.user {
+            self.onlineStatus = getOnlineStatus(from: user.status)
+        }
+
+        try? td.openChat(chatId: customChat.chat.id) { _ in }
+        setPublishers()
+        loadMessages()
+        if !previewing {
+            Media.shared.onChatOpen(title: customChat.chat.title)
+        }
+
+        if !previewing,
+           let draftMessage = customChat.draftMessage,
+           case .draftMessageContentText(let draftMessageContentText) = draftMessage.content
+        {
+            self.text = getAttributedString(from: draftMessageContentText.text)
+        }
+
+        let draftMessage = previewing ? nil : customChat.draftMessage
+        Task { [weak self] in
+            guard let self, let draftMessage else { return }
+            let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
+            self.replyMessage = replyMessage
+        }
+    }
+
+    deinit {
+        log("deinit \(chatID)")
+        loadingMessagesTask?.cancel()
+        sendMessageTask?.cancel()
+        timer?.invalidate()
+        audioRecorder?.stop()
+        try? td.closeChat(chatId: chatID) { _ in }
+        if !previewing {
+            Media.shared.onChatDismiss()
+        }
+    }
+
     func getLastSeenTime(_ time: Int) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(time))
         let dateFormatter = DateFormatter()
@@ -739,10 +743,4 @@ import UIKit
         recordingVoiceNote = false
         Task { try? await self.tdSendChatAction(.chatActionCancel) }
     }
-
-    // MARK: Private
-
-    private let previewing: Bool
-
-    private var hasMoreMessages = true
 }

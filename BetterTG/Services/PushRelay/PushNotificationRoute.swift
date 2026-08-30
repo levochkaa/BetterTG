@@ -3,28 +3,6 @@
 import Foundation
 
 struct PushNotificationRoute: Hashable {
-    // MARK: Lifecycle
-
-    init?(userInfo: [AnyHashable: Any]) {
-        guard let data = userInfo["tg"] as? [String: Any],
-              let peerTypeValue = data["peer_type"] as? String,
-              let peerType = PeerType(rawValue: peerTypeValue),
-              let peerId = Self.int64(data["peer_id"])
-        else { return nil }
-
-        self.peerType = peerType
-        self.peerId = peerId
-        self.accountId = Self.int64(data["account"])
-        self.serverMessageId = Self.int64(data["message_id"])
-        self.event = data["event"] as? String
-        self.maxId = Self.int64(data["max_id"])
-        self.deletedMessageIds = Set(
-            (data["messages"] as? String)?
-                .split(separator: ",")
-                .compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) } ?? [],
-        )
-    }
-
     // MARK: Internal
 
     enum PeerType: String, Hashable {
@@ -49,8 +27,24 @@ struct PushNotificationRoute: Hashable {
         return serverMessageId << 20
     }
 
-    func refersToSameConversation(as other: Self) -> Bool {
-        accountId == other.accountId && peerType == other.peerType && peerId == other.peerId
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let data = userInfo["tg"] as? [String: Any],
+              let peerTypeValue = data["peer_type"] as? String,
+              let peerType = PeerType(rawValue: peerTypeValue),
+              let peerId = Self.int64(data["peer_id"])
+        else { return nil }
+
+        self.peerType = peerType
+        self.peerId = peerId
+        self.accountId = Self.int64(data["account"])
+        self.serverMessageId = Self.int64(data["message_id"])
+        self.event = data["event"] as? String
+        self.maxId = Self.int64(data["max_id"])
+        self.deletedMessageIds = Set(
+            (data["messages"] as? String)?
+                .split(separator: ",")
+                .compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) } ?? [],
+        )
     }
 
     // MARK: Private
@@ -62,5 +56,9 @@ struct PushNotificationRoute: Hashable {
         case let integer as Int64: integer
         default: nil
         }
+    }
+
+    func refersToSameConversation(as other: Self) -> Bool {
+        accountId == other.accountId && peerType == other.peerType && peerId == other.peerId
     }
 }

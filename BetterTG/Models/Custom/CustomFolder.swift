@@ -4,13 +4,6 @@ import Combine
 import TDLibKitDynamic
 
 @MainActor final class CustomFolder: ObservableObject {
-    // MARK: Lifecycle
-
-    init(chats: [CustomChat], type: CustomFolderType) {
-        self.chats = chats
-        self.type = type
-    }
-
     // MARK: Internal
 
     enum CustomFolderType: Equatable, Hashable {
@@ -44,5 +37,10 @@ import TDLibKitDynamic
         case .archive: "Archive"
         case .folder(let info, _): info.name.text.text
         }
+    }
+
+    init(chats: [CustomChat], type: CustomFolderType) {
+        self.chats = chats
+        self.type = type
     }
 }

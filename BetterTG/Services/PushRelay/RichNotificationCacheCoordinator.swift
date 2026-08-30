@@ -5,13 +5,22 @@ import Foundation
 import TDLibKitDynamic
 
 @MainActor final class RichNotificationCacheCoordinator {
-    // MARK: Lifecycle
+    // MARK: Private
 
-    private init() {}
+    private struct MediaCandidate {
+        let file: File
+        let placeholder: Data?
+    }
 
     // MARK: Internal
 
     static let shared = RichNotificationCacheCoordinator()
+
+    private var started = false
+    private var cancellables = Set<AnyCancellable>()
+    private var avatarReferencesByFileID = [Int: Set<RichNotificationPeerReference>]()
+
+    private init() {}
 
     func start() {
         guard !started else { return }
@@ -36,17 +45,6 @@ import TDLibKitDynamic
             self?.avatarReferencesByFileID.removeAll()
         }
     }
-
-    // MARK: Private
-
-    private struct MediaCandidate {
-        let file: File
-        let placeholder: Data?
-    }
-
-    private var started = false
-    private var cancellables = Set<AnyCancellable>()
-    private var avatarReferencesByFileID = [Int: Set<RichNotificationPeerReference>]()
 
     private func cache(user: User) {
         let reference = RichNotificationPeerReference(kind: .privateChat, id: user.id)

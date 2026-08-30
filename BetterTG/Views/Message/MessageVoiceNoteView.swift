@@ -7,7 +7,21 @@ import UIKit
 // MARK: - VoiceNotePlaybackView
 
 final class VoiceNotePlaybackView: UIView, ReusableMediaView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let playButton = UIButton(type: .system)
+    private let waveformView = TelegramWaveformView()
+    private let durationLabel = UILabel()
+    private var voiceNote: VoiceNote?
+    private var localPath: String?
+    private var downloadTask: Task<Void, Never>?
+    private var fileCancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
+
+    private var isCurrentVoicePlaying: Bool {
+        guard let localPath else { return false }
+        return Media.shared.savedMediaPath == localPath && Media.shared.isPlaying
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -21,6 +35,24 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private static func decodeWaveform(_ data: Data) -> [CGFloat] {
+        guard !data.isEmpty else { return [] }
+        let sampleCount = data.count * 8 / 5
+        return data.withUnsafeBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            return (0..<sampleCount).map { index in
+                let bitOffset = index * 5
+                let byteIndex = bitOffset / 8
+                let shift = bitOffset % 8
+                var value = UInt16(bytes[byteIndex])
+                if byteIndex + 1 < bytes.count {
+                    value |= UInt16(bytes[byteIndex + 1]) << 8
+                }
+                return CGFloat((value >> shift) & 0x1F) / 31
+            }
+        }
     }
 
     // MARK: Internal
@@ -60,40 +92,6 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         waveformView.progress = 0
         if let fileID {
             Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
-    }
-
-    // MARK: Private
-
-    private let playButton = UIButton(type: .system)
-    private let waveformView = TelegramWaveformView()
-    private let durationLabel = UILabel()
-    private var voiceNote: VoiceNote?
-    private var localPath: String?
-    private var downloadTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
-    private var cancellables = Set<AnyCancellable>()
-
-    private var isCurrentVoicePlaying: Bool {
-        guard let localPath else { return false }
-        return Media.shared.savedMediaPath == localPath && Media.shared.isPlaying
-    }
-
-    private static func decodeWaveform(_ data: Data) -> [CGFloat] {
-        guard !data.isEmpty else { return [] }
-        let sampleCount = data.count * 8 / 5
-        return data.withUnsafeBytes { rawBuffer in
-            let bytes = rawBuffer.bindMemory(to: UInt8.self)
-            return (0..<sampleCount).map { index in
-                let bitOffset = index * 5
-                let byteIndex = bitOffset / 8
-                let shift = bitOffset % 8
-                var value = UInt16(bytes[byteIndex])
-                if byteIndex + 1 < bytes.count {
-                    value |= UInt16(bytes[byteIndex + 1]) << 8
-                }
-                return CGFloat((value >> shift) & 0x1F) / 31
-            }
         }
     }
 
@@ -185,21 +183,6 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 // MARK: - TelegramWaveformView
 
 private final class TelegramWaveformView: UIControl {
-    // MARK: Lifecycle
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        isOpaque = false
-        isAccessibilityElement = true
-        accessibilityLabel = "Voice message waveform"
-        accessibilityTraits = [.adjustable]
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
     // MARK: Internal
 
     var onSeek: ((CGFloat) -> Void)?
@@ -218,6 +201,19 @@ private final class TelegramWaveformView: UIControl {
 
     var unplayedColor = UIColor.secondaryLabel {
         didSet { setNeedsDisplay() }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isAccessibilityElement = true
+        accessibilityLabel = "Voice message waveform"
+        accessibilityTraits = [.adjustable]
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func draw(_: CGRect) {

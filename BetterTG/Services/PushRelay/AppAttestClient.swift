@@ -5,7 +5,10 @@ import DeviceCheck
 import Foundation
 
 actor AppAttestClient {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let stateStore: PushRelayStateStore
+    private let encoder = JSONEncoder()
 
     init(stateStore: PushRelayStateStore) {
         self.stateStore = stateStore
@@ -44,11 +47,6 @@ actor AppAttestClient {
     func resetKey() async throws {
         try await stateStore.update { $0.appAttestKeyId = nil }
     }
-
-    // MARK: Private
-
-    private let stateStore: PushRelayStateStore
-    private let encoder = JSONEncoder()
 
     private func attestedKeyId(
         api: PushRelayAPIClient,

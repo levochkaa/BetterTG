@@ -5,6 +5,17 @@ import os.log
 import UserNotifications
 
 final class NotificationService: UNNotificationServiceExtension {
+    // MARK: Private
+
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.levochkaaa.BetterTG.NotificationService",
+        category: "NotificationService",
+    )
+    private let completionLock = NSLock()
+    private var processingTask: Task<Void, Never>?
+    private var contentHandler: ((UNNotificationContent) -> Void)?
+    private var bestContent: UNNotificationContent?
+
     // MARK: Internal
 
     override func didReceive(
@@ -74,17 +85,6 @@ final class NotificationService: UNNotificationServiceExtension {
         processingTask?.cancel()
         finish(with: nil)
     }
-
-    // MARK: Private
-
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.levochkaaa.BetterTG.NotificationService",
-        category: "NotificationService",
-    )
-    private let completionLock = NSLock()
-    private var processingTask: Task<Void, Never>?
-    private var contentHandler: ((UNNotificationContent) -> Void)?
-    private var bestContent: UNNotificationContent?
 
     private func finish(with content: UNNotificationContent?) {
         completionLock.lock()

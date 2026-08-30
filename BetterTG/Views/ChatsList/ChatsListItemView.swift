@@ -6,7 +6,20 @@ import UIKit
 // MARK: - ChatListCell
 
 final class ChatListCell: UITableViewCell {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let reuseIdentifier = "ChatListCell"
+
+    // MARK: Private
+
+    private let cardView = UIView()
+    private let pinView = UIImageView(image: UIImage(systemName: "pin"))
+    private let avatarView = ProfileAvatarView()
+    private let titleLabel = UILabel()
+    private let messageLabel = UILabel()
+    private let unreadLabel = UILabel()
+
+    var contextPreviewView: UIView { cardView }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -19,12 +32,6 @@ final class ChatListCell: UITableViewCell {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    static let reuseIdentifier = "ChatListCell"
-
-    var contextPreviewView: UIView { cardView }
 
     override func prepareForReuse() {
         super.prepareForReuse()
@@ -54,15 +61,6 @@ final class ChatListCell: UITableViewCell {
             .joined(separator: ", ")
         accessibilityTraits = .button
     }
-
-    // MARK: Private
-
-    private let cardView = UIView()
-    private let pinView = UIImageView(image: UIImage(systemName: "pin"))
-    private let avatarView = ProfileAvatarView()
-    private let titleLabel = UILabel()
-    private let messageLabel = UILabel()
-    private let unreadLabel = UILabel()
 
     private func configureViews() {
         cardView.translatesAutoresizingMaskIntoConstraints = false
@@ -125,7 +123,12 @@ final class ChatListCell: UITableViewCell {
 // MARK: - ProfileAvatarView
 
 final class ProfileAvatarView: TelegramContextMenuExtractableView {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let label = UILabel()
+    private var representedFile: File?
+    private var representedMinithumbnailData: Data?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -188,13 +191,6 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         representedMinithumbnailData = nil
         imageView.image = nil
     }
-
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private let label = UILabel()
-    private var representedFile: File?
-    private var representedMinithumbnailData: Data?
 
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, let hostController = nearestViewController else { return }

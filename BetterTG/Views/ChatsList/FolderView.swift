@@ -7,7 +7,11 @@ import UIKit
 // MARK: - ArchiveViewController
 
 final class ArchiveViewController: UIViewController {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let folderController: FolderViewController
+    private let navigationBarView: TelegramListNavigationBar
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
 
     init(folder: CustomFolder, rootVM: RootVM) {
         self.folderController = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: true)
@@ -78,18 +82,53 @@ final class ArchiveViewController: UIViewController {
             + TelegramListNavigationBar.expandedContentHeight
             - folderController.searchScrollOffset
     }
-
-    // MARK: Private
-
-    private let folderController: FolderViewController
-    private let navigationBarView: TelegramListNavigationBar
-    private var navigationBarHeightConstraint: NSLayoutConstraint!
 }
 
 // MARK: - FolderViewController
 
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private enum Section {
+        case main
+    }
+
+    // MARK: Internal
+
+    let folder: CustomFolder
+    var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
+    var isSearchActive: (() -> Bool)?
+
+    private let showsStandaloneSearch: Bool
+    private let rootVM: RootVM
+    private var query = ""
+    private var searchActive = false
+    private var didSetInitialSearchOffset = false
+    private var cancellables = Set<AnyCancellable>()
+    private var chatCancellables = Set<AnyCancellable>()
+    private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private var pendingChangedChatIDs = Set<Int64>()
+    private var chatUpdateScheduled = false
+    private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
+
+    var searchScrollOffset: CGFloat {
+        guard isViewLoaded else { return 0 }
+        return min(
+            ChatListNavigationSearchView.scrollHeight,
+            max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
+        )
+    }
+
+    private var filteredChats: [CustomChat] {
+        folder.chats
+            .sorted { $0.position.order > $1.position.order }
+            .filter {
+                query.isEmpty
+                    || $0.chat.title.localizedCaseInsensitiveContains(query)
+                    || $0.user?.firstName.localizedCaseInsensitiveContains(query) == true
+                    || $0.user?.lastName.localizedCaseInsensitiveContains(query) == true
+            }
+    }
 
     init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
         self.folder = folder
@@ -104,20 +143,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     deinit {
         prefetchTasks.values.forEach { $0.cancel() }
-    }
-
-    // MARK: Internal
-
-    let folder: CustomFolder
-    var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
-    var isSearchActive: (() -> Bool)?
-
-    var searchScrollOffset: CGFloat {
-        guard isViewLoaded else { return 0 }
-        return min(
-            ChatListNavigationSearchView.scrollHeight,
-            max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
-        )
     }
 
     override func viewDidLoad() {
@@ -256,35 +281,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
             animations: changes,
         )
-    }
-
-    // MARK: Private
-
-    private enum Section {
-        case main
-    }
-
-    private let showsStandaloneSearch: Bool
-    private let rootVM: RootVM
-    private var query = ""
-    private var searchActive = false
-    private var didSetInitialSearchOffset = false
-    private var cancellables = Set<AnyCancellable>()
-    private var chatCancellables = Set<AnyCancellable>()
-    private var prefetchTasks = [Int64: Task<Void, Never>]()
-    private var pendingChangedChatIDs = Set<Int64>()
-    private var chatUpdateScheduled = false
-    private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
-
-    private var filteredChats: [CustomChat] {
-        folder.chats
-            .sorted { $0.position.order > $1.position.order }
-            .filter {
-                query.isEmpty
-                    || $0.chat.title.localizedCaseInsensitiveContains(query)
-                    || $0.user?.firstName.localizedCaseInsensitiveContains(query) == true
-                    || $0.user?.lastName.localizedCaseInsensitiveContains(query) == true
-            }
     }
 
     private func configureDataSource() {

@@ -38,7 +38,17 @@ struct RelayTelegramSubscription: Codable, Equatable {
 // MARK: - PushRelayPersistentState
 
 struct PushRelayPersistentState: Codable, Equatable {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var appAttestKeyId: String?
+    var installation: RelayInstallationCredentials?
+    var subscription: RelayTelegramSubscription?
+    var apnsToken: String?
+    var installationIdempotencyKey: String?
+    var lastTDLibRegistrationAt: Date?
+    var registeredTelegramUserId: Int64?
+    var pushReceiverId: Int64?
+    var pendingSubscriptionRevocation = false
 
     init() {}
 
@@ -60,18 +70,6 @@ struct PushRelayPersistentState: Codable, Equatable {
             forKey: .pendingSubscriptionRevocation,
         ) ?? false
     }
-
-    // MARK: Internal
-
-    var appAttestKeyId: String?
-    var installation: RelayInstallationCredentials?
-    var subscription: RelayTelegramSubscription?
-    var apnsToken: String?
-    var installationIdempotencyKey: String?
-    var lastTDLibRegistrationAt: Date?
-    var registeredTelegramUserId: Int64?
-    var pushReceiverId: Int64?
-    var pendingSubscriptionRevocation = false
 }
 
 // MARK: - RelayChallenge

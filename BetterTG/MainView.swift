@@ -7,7 +7,34 @@ import UIKit
 // MARK: - MainViewController
 
 final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let rootVM: RootVM
+    private let pageController = UIPageViewController(
+        transitionStyle: .scroll,
+        navigationOrientation: .horizontal,
+    )
+    private let folderPicker = FolderPickerView()
+    private lazy var customNavigationBar = TelegramListNavigationBar(
+        title: "BetterTG",
+        placeholder: "Search chats…",
+        leftImage: UIImage(systemName: "archivebox"),
+        rightImage: UIImage(systemName: "gearshape"),
+        leftAction: { [weak self] in self?.openArchive() },
+        rightAction: { [weak self] in self?.openSettings() },
+    )
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private var currentNavigationContentHeight = TelegramListNavigationBar.expandedContentHeight
+    private var folderControllers = [FolderViewController]()
+    private var cancellables = Set<AnyCancellable>()
+    private var searchQuery = ""
+    private var pageScrollObservation: NSKeyValueObservation?
+    private var interactiveFolderTransition: (fromID: Int, toID: Int)?
+    private var folderUnreadStates = [ChatList: FolderUnreadState]()
+
+    private var currentFolderController: FolderViewController? {
+        pageController.viewControllers?.first as? FolderViewController
+    }
 
     init(rootVM: RootVM) {
         self.rootVM = rootVM
@@ -99,35 +126,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if let currentFolderController {
             customNavigationBar.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
         }
-    }
-
-    // MARK: Private
-
-    private let rootVM: RootVM
-    private let pageController = UIPageViewController(
-        transitionStyle: .scroll,
-        navigationOrientation: .horizontal,
-    )
-    private let folderPicker = FolderPickerView()
-    private lazy var customNavigationBar = TelegramListNavigationBar(
-        title: "BetterTG",
-        placeholder: "Search chats…",
-        leftImage: UIImage(systemName: "archivebox"),
-        rightImage: UIImage(systemName: "gearshape"),
-        leftAction: { [weak self] in self?.openArchive() },
-        rightAction: { [weak self] in self?.openSettings() },
-    )
-    private var navigationBarHeightConstraint: NSLayoutConstraint!
-    private var currentNavigationContentHeight = TelegramListNavigationBar.expandedContentHeight
-    private var folderControllers = [FolderViewController]()
-    private var cancellables = Set<AnyCancellable>()
-    private var searchQuery = ""
-    private var pageScrollObservation: NSKeyValueObservation?
-    private var interactiveFolderTransition: (fromID: Int, toID: Int)?
-    private var folderUnreadStates = [ChatList: FolderUnreadState]()
-
-    private var currentFolderController: FolderViewController? {
-        pageController.viewControllers?.first as? FolderViewController
     }
 
     private func configureAutomatedSmokeRoute() {
@@ -443,7 +441,38 @@ enum FolderMenuAction {
 /// Telegram's iOS 26 folder strip: a clipped scrolling lens with a continuously
 /// moving selection capsule and content-sized (or evenly filled) tabs.
 final class FolderPickerView: UIView {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var onSelection: ((Int) -> Void)?
+    var onReselection: ((Int) -> Void)?
+    var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
+
+    // MARK: Private
+
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let controlEffectView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        return UIVisualEffectView(effect: effect)
+    }()
+
+    private let controlContainer = FolderPickerScrollView()
+    private let buttonStack = UIStackView()
+    private let selectionEffectView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        effect.tintColor = UIColor.label.withAlphaComponent(0.08)
+        return UIVisualEffectView(effect: effect)
+    }()
+
+    private var folders = [CustomFolder]()
+    private var selectedID: Int?
+    private var naturalSegmentWidths = [CGFloat]()
+    private var resolvedSegmentWidths = [CGFloat]()
+    private var segmentWidthConstraints = [NSLayoutConstraint]()
+    private var buttons = [FolderButton]()
+    private var unreadStates = [FolderUnreadState]()
+    private var interactiveSelection: (fromID: Int, toID: Int, fraction: CGFloat)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -453,12 +482,6 @@ final class FolderPickerView: UIView {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    var onSelection: ((Int) -> Void)?
-    var onReselection: ((Int) -> Void)?
-    var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -512,33 +535,6 @@ final class FolderPickerView: UIView {
         layoutSelection(animated: false)
         updateButtonAppearance()
     }
-
-    // MARK: Private
-
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let controlEffectView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        return UIVisualEffectView(effect: effect)
-    }()
-
-    private let controlContainer = FolderPickerScrollView()
-    private let buttonStack = UIStackView()
-    private let selectionEffectView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        effect.tintColor = UIColor.label.withAlphaComponent(0.08)
-        return UIVisualEffectView(effect: effect)
-    }()
-
-    private var folders = [CustomFolder]()
-    private var selectedID: Int?
-    private var naturalSegmentWidths = [CGFloat]()
-    private var resolvedSegmentWidths = [CGFloat]()
-    private var segmentWidthConstraints = [NSLayoutConstraint]()
-    private var buttons = [FolderButton]()
-    private var unreadStates = [FolderUnreadState]()
-    private var interactiveSelection: (fromID: Int, toID: Int, fraction: CGFloat)?
 
     private func configureViews() {
         blurView.translatesAutoresizingMaskIntoConstraints = false
@@ -701,28 +697,29 @@ final class FolderPickerView: UIView {
             selectionEffectView.alpha = 0
             return
         }
-        let frame: CGRect?
-        if let interactiveSelection,
-           let fromIndex = folders.firstIndex(where: { $0.id == interactiveSelection.fromID }),
-           let toIndex = folders.firstIndex(where: { $0.id == interactiveSelection.toID }),
-           buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
-        {
-            let fromFrame = buttons[fromIndex].convert(buttons[fromIndex].bounds, to: controlContainer)
-            let toFrame = buttons[toIndex].convert(buttons[toIndex].bounds, to: controlContainer)
-            let fraction = interactiveSelection.fraction
-            frame = CGRect(
-                x: fromFrame.minX + (toFrame.minX - fromFrame.minX) * fraction,
-                y: 0,
-                width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
-                height: controlContainer.bounds.height,
-            )
-        } else if let index = folders.firstIndex(where: { $0.id == selectedID }),
-                  buttons.indices.contains(index)
-        {
-            frame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
-        } else {
-            frame = nil
-        }
+        let frame: CGRect? = {
+            if let interactiveSelection,
+               let fromIndex = folders.firstIndex(where: { $0.id == interactiveSelection.fromID }),
+               let toIndex = folders.firstIndex(where: { $0.id == interactiveSelection.toID }),
+               buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
+            {
+                let fromFrame = buttons[fromIndex].convert(buttons[fromIndex].bounds, to: controlContainer)
+                let toFrame = buttons[toIndex].convert(buttons[toIndex].bounds, to: controlContainer)
+                let fraction = interactiveSelection.fraction
+                return CGRect(
+                    x: fromFrame.minX + (toFrame.minX - fromFrame.minX) * fraction,
+                    y: 0,
+                    width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
+                    height: controlContainer.bounds.height,
+                )
+            } else if let index = folders.firstIndex(where: { $0.id == selectedID }),
+                      buttons.indices.contains(index)
+            {
+                return buttons[index].convert(buttons[index].bounds, to: controlContainer)
+            } else {
+                return nil
+            }
+        }()
         guard let frame else {
             selectionEffectView.alpha = 0
             return
@@ -868,7 +865,25 @@ private final class FolderPickerScrollView: UIScrollView {
 // MARK: - FolderButton
 
 private final class FolderButton: UIButton {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let activeBadgeTextColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .black : .white
+    }
+
+    // MARK: Internal
+
+    override var isHighlighted: Bool {
+        didSet { contentStack.alpha = isHighlighted ? 0.55 : 1 }
+    }
+
+    private let contentStack = UIStackView()
+    private let folderTitleLabel = UILabel()
+    private let unreadBadgeLabel = FolderUnreadBadgeLabel()
+    private var unreadHasUnmuted = false
+    private var resolvedTitleColor = UIColor.label
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -877,12 +892,6 @@ private final class FolderButton: UIButton {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: Internal
-
-    override var isHighlighted: Bool {
-        didSet { contentStack.alpha = isHighlighted ? 0.55 : 1 }
     }
 
     static func contentWidth(title: String, unreadCount: Int) -> CGFloat {
@@ -943,20 +952,6 @@ private final class FolderButton: UIButton {
             unreadBadgeLabel.textColor = .secondaryLabel
         }
     }
-
-    // MARK: Private
-
-    private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
-    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
-    private static let activeBadgeTextColor = UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .black : .white
-    }
-
-    private let contentStack = UIStackView()
-    private let folderTitleLabel = UILabel()
-    private let unreadBadgeLabel = FolderUnreadBadgeLabel()
-    private var unreadHasUnmuted = false
-    private var resolvedTitleColor = UIColor.label
 
     private func configureViews() {
         contentStack.translatesAutoresizingMaskIntoConstraints = false

@@ -4,7 +4,45 @@ import TDLibKitDynamic
 import UIKit
 
 final class ChatComposerView: UIView {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var onPickPhotos: (() -> Void)?
+    var onTakePhoto: (() -> Void)?
+    var onScrollToMessage: ((Int64) -> Void)?
+
+    // MARK: Private
+
+    private let chatVM: ChatVM
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let rootStack = UIStackView()
+    private let replyContainer = UIView()
+    private let replyRow = UIStackView()
+    private let replySnippet = ReplySnippetView()
+    private let closeReplyButton = UIButton(type: .system)
+    private let photosScroll = UIScrollView()
+    private let photosStack = UIStackView()
+    private let inputRow = UIStackView()
+    private let attachmentButton = UIButton(type: .system)
+    private let textView = FormattedTextView(placeholder: "Message…")
+    private let actionButton = UIButton(type: .system)
+    private let recordingRow = UIStackView()
+    private let cancelRecordingButton = UIButton(type: .system)
+    private let recordingLabel = UILabel()
+    private let recordingSendButton = UIButton(type: .system)
+    private var displayedImageIDs = [UUID]()
+    private var draftTask: Task<Void, Never>?
+    private var typingTask: Task<Void, Never>?
+    private var isApplyingState = false
+    private var hiddenForSearch = false
+    private var keyboardAttached = false
+    private var lastReplyID: Int64?
+    private var lastEditID: Int64?
+    private var replyContainerHeightConstraint: NSLayoutConstraint!
+    private var replyPreviewVisible = false
+
+    var isInputFocused: Bool {
+        textView.isFirstResponder
+    }
 
     init(chatVM: ChatVM) {
         self.chatVM = chatVM
@@ -16,16 +54,6 @@ final class ChatComposerView: UIView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: Internal
-
-    var onPickPhotos: (() -> Void)?
-    var onTakePhoto: (() -> Void)?
-    var onScrollToMessage: ((Int64) -> Void)?
-
-    var isInputFocused: Bool {
-        textView.isFirstResponder
     }
 
     func focusInput() {
@@ -117,36 +145,6 @@ final class ChatComposerView: UIView {
             textView.becomeFirstResponder()
         }
     }
-
-    // MARK: Private
-
-    private let chatVM: ChatVM
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let rootStack = UIStackView()
-    private let replyContainer = UIView()
-    private let replyRow = UIStackView()
-    private let replySnippet = ReplySnippetView()
-    private let closeReplyButton = UIButton(type: .system)
-    private let photosScroll = UIScrollView()
-    private let photosStack = UIStackView()
-    private let inputRow = UIStackView()
-    private let attachmentButton = UIButton(type: .system)
-    private let textView = FormattedTextView(placeholder: "Message…")
-    private let actionButton = UIButton(type: .system)
-    private let recordingRow = UIStackView()
-    private let cancelRecordingButton = UIButton(type: .system)
-    private let recordingLabel = UILabel()
-    private let recordingSendButton = UIButton(type: .system)
-    private var displayedImageIDs = [UUID]()
-    private var draftTask: Task<Void, Never>?
-    private var typingTask: Task<Void, Never>?
-    private var isApplyingState = false
-    private var hiddenForSearch = false
-    private var keyboardAttached = false
-    private var lastReplyID: Int64?
-    private var lastEditID: Int64?
-    private var replyContainerHeightConstraint: NSLayoutConstraint!
-    private var replyPreviewVisible = false
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false

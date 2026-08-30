@@ -5,17 +5,6 @@ import TDLibKitDynamic
 import UIKit
 
 final class LoginViewController: UIViewController {
-    // MARK: Internal
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        configureViews()
-        configureConstraints()
-        configurePublishers()
-        refreshAuthorizationState()
-    }
-
     // MARK: Private
 
     private var loginState = LoginState.phoneNumber
@@ -29,6 +18,17 @@ final class LoginViewController: UIViewController {
     private let inputField = UITextField()
     private let continueButton = UIButton(type: .system)
     private let accountsButton = UIButton(type: .system)
+
+    // MARK: Internal
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        configureViews()
+        configureConstraints()
+        configurePublishers()
+        refreshAuthorizationState()
+    }
 
     private func configureViews() {
         contentStack.translatesAutoresizingMaskIntoConstraints = false

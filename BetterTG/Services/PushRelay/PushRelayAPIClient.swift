@@ -3,7 +3,12 @@
 import Foundation
 
 actor PushRelayAPIClient {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let baseURL: URL
+    private let session: URLSession
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
 
     init(baseURL: URL) {
         self.baseURL = baseURL
@@ -69,13 +74,6 @@ actor PushRelayAPIClient {
             headers: authorization(installation),
         )
     }
-
-    // MARK: Private
-
-    private let baseURL: URL
-    private let session: URLSession
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
 
     private func send<Response: Decodable>(
         path: String,

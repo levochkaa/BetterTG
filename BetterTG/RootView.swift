@@ -4,7 +4,13 @@ import Combine
 import UIKit
 
 final class RootViewController: UIViewController {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let rootVM: RootVM
+    private var displayedController: UIViewController?
+    private var displayedLoggedInState: Bool?
+    private var displayedAccountID: UUID?
+    private var cancellables = Set<AnyCancellable>()
 
     init(rootVM: RootVM) {
         self.rootVM = rootVM
@@ -28,14 +34,6 @@ final class RootViewController: UIViewController {
             .store(in: &cancellables)
         render(animated: false)
     }
-
-    // MARK: Private
-
-    private let rootVM: RootVM
-    private var displayedController: UIViewController?
-    private var displayedLoggedInState: Bool?
-    private var displayedAccountID: UUID?
-    private var cancellables = Set<AnyCancellable>()
 
     private func render(animated: Bool) {
         guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID else { return }

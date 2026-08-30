@@ -3,6 +3,10 @@
 import Foundation
 
 enum PushRelaySharedConfiguration {
+    // MARK: Private
+
+    private static let baseURLKey = "push-relay-base-url"
+
     // MARK: Internal
 
     static var baseURL: URL? {
@@ -13,8 +17,4 @@ enum PushRelaySharedConfiguration {
     static func store(baseURL: URL) {
         BetterTGAppGroup.defaults?.set(baseURL.absoluteString, forKey: baseURLKey)
     }
-
-    // MARK: Private
-
-    private static let baseURLKey = "push-relay-base-url"
 }

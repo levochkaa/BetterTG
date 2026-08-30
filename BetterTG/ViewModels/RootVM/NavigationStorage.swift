@@ -3,13 +3,6 @@
 import UIKit
 
 @MainActor final class NavigationStorage {
-    // MARK: Lifecycle
-
-    private init() {
-        navigationController.navigationBar.prefersLargeTitles = false
-        navigationController.navigationBar.isTranslucent = true
-    }
-
     // MARK: Internal
 
     static let shared = NavigationStorage()
@@ -18,6 +11,11 @@ import UIKit
 
     var viewControllers: [UIViewController] {
         navigationController.viewControllers
+    }
+
+    private init() {
+        navigationController.navigationBar.prefersLargeTitles = false
+        navigationController.navigationBar.isTranslucent = true
     }
 
     @discardableResult func setRoot(_ controller: UIViewController) -> UINavigationController {

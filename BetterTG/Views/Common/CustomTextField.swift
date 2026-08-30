@@ -6,7 +6,24 @@ import UniformTypeIdentifiers
 // MARK: - FormattedTextView
 
 final class FormattedTextView: UITextView, UITextViewDelegate {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    override var intrinsicContentSize: CGSize {
+        let width = bounds.width > 0 ? bounds.width : 220
+        let fitting = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: UIView.noIntrinsicMetric, height: min(max(fitting.height, 36), 240))
+    }
+
+    var onTextChange: ((AttributedString) -> Void)?
+    var onPasteImages: (([SelectedImage]) -> Void)?
+
+    // MARK: Private
+
+    private let placeholder: String
+    private let placeholderLabel = UILabel()
+    private var lastWidth = CGFloat.zero
+    private var isPastingText = false
+    private var isApplyingValue = false
 
     init(placeholder: String) {
         self.placeholder = placeholder
@@ -38,17 +55,6 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    override var intrinsicContentSize: CGSize {
-        let width = bounds.width > 0 ? bounds.width : 220
-        let fitting = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: UIView.noIntrinsicMetric, height: min(max(fitting.height, 36), 240))
-    }
-
-    var onTextChange: ((AttributedString) -> Void)?
-    var onPasteImages: (([SelectedImage]) -> Void)?
 
     override func layoutSubviews() {
         let previousWidth = lastWidth
@@ -140,14 +146,6 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         textViewDidChange(textView)
         return false
     }
-
-    // MARK: Private
-
-    private let placeholder: String
-    private let placeholderLabel = UILabel()
-    private var lastWidth = CGFloat.zero
-    private var isPastingText = false
-    private var isApplyingValue = false
 
     private func formattingAction(title: String, key: NSAttributedString.Key, value: Any) -> UIAction {
         UIAction(title: title) { [weak self] _ in

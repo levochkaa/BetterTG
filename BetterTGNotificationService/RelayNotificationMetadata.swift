@@ -3,7 +3,21 @@
 import Foundation
 
 struct RelayNotificationMetadata {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    let accountID: Int64?
+    let peer: RichNotificationPeerReference
+    let sender: RichNotificationPeerReference
+    let serverMessageID: Int64?
+    let event: String?
+    let senderName: String?
+    let conversationTitle: String?
+    let notificationPayloadToken: String?
+
+    var messageReference: RichNotificationMessageReference? {
+        guard let serverMessageID else { return nil }
+        return RichNotificationMessageReference(peer: peer, serverMessageID: serverMessageID)
+    }
 
     init?(userInfo: [AnyHashable: Any]) {
         guard let data = userInfo["tg"] as? [String: Any],
@@ -27,22 +41,6 @@ struct RelayNotificationMetadata {
         self.senderName = data["sender_name"] as? String
         self.conversationTitle = data["conversation_title"] as? String
         self.notificationPayloadToken = data["notification_payload_token"] as? String
-    }
-
-    // MARK: Internal
-
-    let accountID: Int64?
-    let peer: RichNotificationPeerReference
-    let sender: RichNotificationPeerReference
-    let serverMessageID: Int64?
-    let event: String?
-    let senderName: String?
-    let conversationTitle: String?
-    let notificationPayloadToken: String?
-
-    var messageReference: RichNotificationMessageReference? {
-        guard let serverMessageID else { return nil }
-        return RichNotificationMessageReference(peer: peer, serverMessageID: serverMessageID)
     }
 
     // MARK: Private

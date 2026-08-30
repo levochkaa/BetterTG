@@ -6,7 +6,9 @@ import UIKit
 // MARK: - SettingsViewController
 
 final class SettingsViewController: UITableViewController {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private var cancellables = Set<AnyCancellable>()
 
     init() {
         super.init(style: .insetGrouped)
@@ -107,10 +109,6 @@ final class SettingsViewController: UITableViewController {
             break
         }
     }
-
-    // MARK: Private
-
-    private var cancellables = Set<AnyCancellable>()
 
     private func rows(in sectionIndex: Int) -> [Row] {
         guard let section = Section(rawValue: sectionIndex) else { return [] }

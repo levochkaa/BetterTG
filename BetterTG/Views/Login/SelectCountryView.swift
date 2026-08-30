@@ -4,7 +4,13 @@ import TDLibKitDynamic
 import UIKit
 
 final class SelectCountryViewController: UITableViewController, UISearchResultsUpdating {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let selectedCountry: PhoneNumberInfo
+    private let onSelection: (PhoneNumberInfo) -> Void
+    private var countries = [PhoneNumberInfo]()
+    private var filteredCountries = [PhoneNumberInfo]()
+    private var query = ""
 
     init(selectedCountry: PhoneNumberInfo, onSelection: @escaping (PhoneNumberInfo) -> Void) {
         self.selectedCountry = selectedCountry
@@ -65,14 +71,6 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
         query = searchController.searchBar.text ?? ""
         filterCountries()
     }
-
-    // MARK: Private
-
-    private let selectedCountry: PhoneNumberInfo
-    private let onSelection: (PhoneNumberInfo) -> Void
-    private var countries = [PhoneNumberInfo]()
-    private var filteredCountries = [PhoneNumberInfo]()
-    private var query = ""
 
     @objc private func cancel() {
         dismiss(animated: true)
