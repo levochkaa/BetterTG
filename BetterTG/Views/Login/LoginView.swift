@@ -24,6 +24,7 @@ final class LoginViewController: UIViewController {
     private let prefixLabel = UILabel()
     private let inputField = UITextField()
     private let continueButton = UIButton(type: .system)
+    private let accountsButton = UIButton(type: .system)
 
     private func configureViews() {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
@@ -31,6 +32,15 @@ final class LoginViewController: UIViewController {
         contentStack.spacing = 16
         contentStack.alignment = .fill
         view.addSubview(contentStack)
+
+        var accountsConfiguration = UIButton.Configuration.plain()
+        accountsConfiguration.title = "Accounts"
+        accountsConfiguration.image = UIImage(systemName: "person.2.fill")
+        accountsConfiguration.imagePadding = 6
+        accountsButton.configuration = accountsConfiguration
+        accountsButton.translatesAutoresizingMaskIntoConstraints = false
+        accountsButton.addTarget(self, action: #selector(showAccounts), for: .touchUpInside)
+        view.addSubview(accountsButton)
 
         titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -89,6 +99,8 @@ final class LoginViewController: UIViewController {
             contentStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             contentStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
             contentStack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            accountsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            accountsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
         ])
     }
 
@@ -115,6 +127,11 @@ final class LoginViewController: UIViewController {
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in self?.setState(.phoneNumber) }
         .store(in: &cancellables)
+
+        nc.publisher(for: .telegramAccountsChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.render() }
+            .store(in: &cancellables)
     }
 
     private func refreshAuthorizationState() {
@@ -165,6 +182,31 @@ final class LoginViewController: UIViewController {
         case .code: "Code"
         case .twoFactor: inputField.placeholder ?? "2FA"
         }
+        accountsButton.isHidden = TDLib.shared.accounts.allSatisfy { $0.id == TDLib.shared.activeAccountID }
+    }
+
+    @objc private func showAccounts() {
+        let otherAccounts = TDLib.shared.sortedAccounts.filter { $0.id != TDLib.shared.activeAccountID }
+        guard !otherAccounts.isEmpty else { return }
+
+        let alert = UIAlertController(title: "Accounts", message: nil, preferredStyle: .actionSheet)
+        for account in otherAccounts {
+            alert.addAction(UIAlertAction(title: account.title, style: .default) { [weak self] _ in
+                Task { @MainActor in
+                    do {
+                        try TDLib.shared.switchToAccount(account.id)
+                    } catch {
+                        self?.showError(error.localizedDescription)
+                    }
+                }
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = accountsButton
+            popover.sourceRect = accountsButton.bounds
+        }
+        present(alert, animated: true)
     }
 
     @objc private func selectCountry() {

@@ -1,128 +1,482 @@
 // TDLib.swift
 
 import Combine
-import TDLibKit
+@preconcurrency import TDLibKit
 import UIKit
 
-var td: TDLibClient { TDLib.shared.td }
+var td: TDLibClient { TDLib.shared.activeClient }
 
-// MARK: - TDLib
+enum TelegramAccountError: LocalizedError {
+    case unavailable
+    case persistenceFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            "The selected account is no longer available."
+        case .persistenceFailed:
+            "BetterTG couldn't save the account list."
+        }
+    }
+}
 
 final class TDLib: @unchecked Sendable {
-    // MARK: Lifecycle
-
     private init() {}
-
-    // MARK: Internal
 
     static let shared = TDLib()
 
-    func startTdLibUpdateHandler() {
-        nc.publisher(&cancellables, for: .authorizationStateWaitTdlibParameters) { [weak self] _ in
-            guard let self else { return }
-            log("TDLib requested client parameters")
-            Task.background {
-                do {
-                    let state = try await self.configureTDLibParameters()
-                    log("TDLib client parameters configured; state=\(state.diagnosticName)")
-                    if case .authorizationStateWaitTdlibParameters = state {
-                        return
-                    }
-                    self.UpdateAuthorizationState(state)
-                } catch {
-                    log("TDLib client parameter configuration failed: \(error.localizedDescription)")
-                }
-            }
-        }
+    private(set) var accounts = [TelegramAccount]()
+    private(set) var activeAccountID: UUID?
+    private(set) var isActiveAccountReady = false
 
-        // Access the lazy client only after the initial authorization-state observer is installed.
-        // Otherwise TDLib can emit waitTdlibParameters while TDLib.shared is still initializing.
-        // Xcode 15+ is unable to handle so many logs.
-        try? td.setLogStream(logStream: .logStreamEmpty) { _ in }
+    var activeAccount: TelegramAccount? {
+        accounts.first(where: { $0.id == activeAccountID })
+    }
+
+    var sortedAccounts: [TelegramAccount] {
+        accounts.sorted(by: { $0.lastActiveAt > $1.lastActiveAt })
+    }
+
+    var activeClient: TDLibClient {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+        guard let storedActiveClient else {
+            preconditionFailure("TDLib was accessed before account bootstrap completed")
+        }
+        return storedActiveClient
+    }
+
+    func startTdLibUpdateHandler() {
+        guard !started else { return }
+        started = true
+
+        do {
+            let state = try registry.loadOrCreate()
+            accounts = state.accounts
+            activeAccountID = state.activeAccountID
+            guard let account = activeAccount else { throw TelegramAccountError.unavailable }
+            activate(account: account, notify: false)
+        } catch {
+            log("TDLib account bootstrap failed: \(error.localizedDescription)")
+        }
 
         nc.publisher(&cancellables, for: UIApplication.willTerminateNotification) { [weak self] _ in
             self?.manager.closeClients()
         }
     }
 
-    func UpdateAuthorizationState(_ updateAuthorizationState: AuthorizationState) {
-        log("TDLib authorization state received: \(updateAuthorizationState.diagnosticName)")
-        switch updateAuthorizationState {
+    @MainActor
+    func addAccount() throws {
+        let now = Date()
+        let account = TelegramAccount(
+            id: UUID(),
+            displayName: nil,
+            phoneNumber: nil,
+            userID: nil,
+            createdAt: now,
+            lastActiveAt: now,
+        )
+        _ = try registry.databaseDirectory(for: account.id)
+
+        var updatedAccounts = accounts
+        updatedAccounts.append(account)
+        try persist(accounts: updatedAccounts, activeAccountID: account.id)
+
+        let previous = activeClientSnapshot()
+        accounts = updatedAccounts
+        activeAccountID = account.id
+        activate(account: account, notify: true)
+        retire(previous, accountID: previous?.accountID, endingSession: false, removeDirectory: false)
+    }
+
+    @MainActor
+    func switchToAccount(_ accountID: UUID) throws {
+        guard accountID != activeAccountID else { return }
+        guard var account = accounts.first(where: { $0.id == accountID }) else {
+            throw TelegramAccountError.unavailable
+        }
+
+        let previous = activeClientSnapshot()
+        let discardedAccountID = !isActiveAccountReady && activeAccount?.userID == nil ? activeAccountID : nil
+        var updatedAccounts = accounts.filter { $0.id != discardedAccountID }
+        guard let index = updatedAccounts.firstIndex(where: { $0.id == accountID }) else {
+            throw TelegramAccountError.unavailable
+        }
+        account.lastActiveAt = Date()
+        updatedAccounts[index] = account
+        try persist(accounts: updatedAccounts, activeAccountID: accountID)
+
+        accounts = updatedAccounts
+        activeAccountID = accountID
+        activate(account: account, notify: true)
+        retire(
+            previous,
+            accountID: previous?.accountID,
+            endingSession: false,
+            removeDirectory: discardedAccountID != nil,
+        )
+    }
+
+    @MainActor
+    func logOutActiveAccount() throws {
+        guard let removedAccount = activeAccount else { throw TelegramAccountError.unavailable }
+        let previous = activeClientSnapshot()
+        let survivors = accounts.filter { $0.id != removedAccount.id }
+        var updatedAccounts = survivors
+        let replacement: TelegramAccount
+
+        if var existing = survivors.sorted(by: { $0.lastActiveAt > $1.lastActiveAt }).first {
+            existing.lastActiveAt = Date()
+            replacement = existing
+            if let index = updatedAccounts.firstIndex(where: { $0.id == existing.id }) {
+                updatedAccounts[index] = existing
+            }
+        } else {
+            let now = Date()
+            replacement = TelegramAccount(
+                id: UUID(),
+                displayName: nil,
+                phoneNumber: nil,
+                userID: nil,
+                createdAt: now,
+                lastActiveAt: now,
+            )
+            _ = try registry.databaseDirectory(for: replacement.id)
+            updatedAccounts.append(replacement)
+        }
+
+        try persist(accounts: updatedAccounts, activeAccountID: replacement.id)
+        accounts = updatedAccounts
+        activeAccountID = replacement.id
+        activate(account: replacement, notify: true)
+        retire(previous, accountID: removedAccount.id, endingSession: true, removeDirectory: true)
+    }
+
+    func UpdateAuthorizationState(_ authorizationState: AuthorizationState) {
+        log("TDLib authorization state received: \(authorizationState.diagnosticName)")
+        switch authorizationState {
         case .authorizationStateWaitTdlibParameters:
             nc.post(name: .authorizationStateWaitTdlibParameters)
         case .authorizationStateWaitPhoneNumber:
+            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitPhoneNumber)
-        case .authorizationStateWaitEmailAddress(let authorizationStateWaitEmailAddress):
-            nc.post(name: .authorizationStateWaitEmailAddress, object: authorizationStateWaitEmailAddress)
-        case .authorizationStateWaitEmailCode(let authorizationStateWaitEmailCode):
-            nc.post(name: .authorizationStateWaitEmailCode, object: authorizationStateWaitEmailCode)
-        case .authorizationStateWaitCode(let authorizationStateWaitCode):
-            nc.post(name: .authorizationStateWaitCode, object: authorizationStateWaitCode)
-        case .authorizationStateWaitOtherDeviceConfirmation(let authorizationStateWaitOtherDeviceConfirmation):
-            nc.post(
-                name: .authorizationStateWaitOtherDeviceConfirmation,
-                object: authorizationStateWaitOtherDeviceConfirmation,
-            )
-        case .authorizationStateWaitRegistration(let authorizationStateWaitRegistration):
-            nc.post(name: .authorizationStateWaitRegistration, object: authorizationStateWaitRegistration)
-        case .authorizationStateWaitPassword(let authorizationStateWaitPassword):
-            nc.post(name: .authorizationStateWaitPassword, object: authorizationStateWaitPassword)
+        case .authorizationStateWaitEmailAddress(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitEmailAddress, object: value)
+        case .authorizationStateWaitEmailCode(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitEmailCode, object: value)
+        case .authorizationStateWaitCode(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitCode, object: value)
+        case .authorizationStateWaitOtherDeviceConfirmation(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitOtherDeviceConfirmation, object: value)
+        case .authorizationStateWaitRegistration(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitRegistration, object: value)
+        case .authorizationStateWaitPassword(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitPassword, object: value)
         case .authorizationStateReady:
+            isActiveAccountReady = true
             nc.post(name: .authorizationStateReady)
         case .authorizationStateLoggingOut:
+            isActiveAccountReady = false
             nc.post(name: .authorizationStateLoggingOut)
         case .authorizationStateClosing:
+            isActiveAccountReady = false
             nc.post(name: .authorizationStateClosing)
         case .authorizationStateClosed:
+            isActiveAccountReady = false
             nc.post(name: .authorizationStateClosed)
-        case .authorizationStateWaitPremiumPurchase(let authorizationStateWaitPremiumPurchase):
-            nc.post(name: .authorizationStateWaitPremiumPurchase, object: authorizationStateWaitPremiumPurchase)
+        case .authorizationStateWaitPremiumPurchase(let value):
+            isActiveAccountReady = false
+            nc.post(name: .authorizationStateWaitPremiumPurchase, object: value)
         }
     }
 
-    // MARK: Fileprivate
-
-    fileprivate lazy var td = manager.createClient { data, client in
-        do {
-            try update(client.decoder.decode(Update.self, from: data))
-        } catch {
-            log("Error TdLibUpdateHandler: \(error)")
-        }
+    private struct ClientSnapshot {
+        let client: TDLibClient
+        let accountID: UUID
     }
 
-    // MARK: Private
-
-    private var cancellables = Set<AnyCancellable>()
     private let manager = TDLibClientManager()
+    private let registry = TelegramAccountRegistry()
+    private let clientLock = NSLock()
+    private var storedActiveClient: TDLibClient?
+    private var started = false
+    private var configuredClientIDs = Set<Int32>()
+    private var retiringClientIDs = Set<Int32>()
+    private var recoveringClientIDs = Set<Int32>()
+    private var cancellables = Set<AnyCancellable>()
 
-    private func configureTDLibParameters() async throws -> AuthorizationState {
-        let dir = try FileManager.default
-            .url(
-                for: .documentDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true,
+    private func activeClientSnapshot() -> ClientSnapshot? {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+        guard let client = storedActiveClient, let activeAccountID else { return nil }
+        return ClientSnapshot(client: client, accountID: activeAccountID)
+    }
+
+    private func setActiveClient(_ client: TDLibClient) {
+        clientLock.lock()
+        storedActiveClient = client
+        clientLock.unlock()
+    }
+
+    private func activate(account: TelegramAccount, notify: Bool) {
+        isActiveAccountReady = false
+        let accountID = account.id
+        let client = manager.createClient { [weak self] data, callbackClient in
+            do {
+                let decoded = try callbackClient.decoder.decode(Update.self, from: data)
+                DispatchQueue.main.async {
+                    self?.handle(decoded, from: callbackClient, accountID: accountID)
+                }
+            } catch {
+                log("Error TdLibUpdateHandler: \(error)")
+            }
+        }
+        setActiveClient(client)
+        try? client.setLogStream(logStream: .logStreamEmpty) { _ in }
+
+        if notify {
+            nc.post(name: .activeTelegramAccountChanged, object: account.id)
+            nc.post(name: .telegramAccountsChanged)
+        }
+    }
+
+    @MainActor
+    private func handle(_ incomingUpdate: Update, from client: TDLibClient, accountID: UUID) {
+        if case .updateAuthorizationState(let updateAuthorizationState) = incomingUpdate {
+            let state = updateAuthorizationState.authorizationState
+            if case .authorizationStateWaitTdlibParameters = state {
+                configureIfNeeded(client: client, accountID: accountID)
+            }
+            if case .authorizationStateClosed = state {
+                configuredClientIDs.remove(client.id)
+                retiringClientIDs.remove(client.id)
+            }
+
+            guard isActive(client: client, accountID: accountID) else { return }
+            update(incomingUpdate)
+
+            switch state {
+            case .authorizationStateReady:
+                fetchAccountMetadata(client: client, accountID: accountID)
+            case .authorizationStateLoggingOut:
+                recoverUnexpectedLogout(client: client, accountID: accountID)
+            case .authorizationStateClosed:
+                recoverUnexpectedClose(accountID: accountID, clientID: client.id)
+            default:
+                break
+            }
+            return
+        }
+
+        guard isActive(client: client, accountID: accountID) else { return }
+        update(incomingUpdate)
+    }
+
+    private func isActive(client: TDLibClient, accountID: UUID) -> Bool {
+        activeAccountID == accountID && activeClientSnapshot()?.client == client
+    }
+
+    private func configureIfNeeded(client: TDLibClient, accountID: UUID) {
+        guard configuredClientIDs.insert(client.id).inserted else { return }
+        log("TDLib requested client parameters for account \(accountID.uuidString)")
+        Task {
+            do {
+                let directory = try registry.databaseDirectory(for: accountID)
+                try await client.setTdlibParameters(
+                    apiHash: Secret.apiHash,
+                    apiId: Secret.apiId,
+                    applicationVersion: Utils.applicationVersion,
+                    databaseDirectory: directory.path,
+                    databaseEncryptionKey: Data(),
+                    deviceModel: Utils.modelName,
+                    filesDirectory: directory.path,
+                    systemLanguageCode: "en-US",
+                    systemVersion: UIDevice.current.systemVersion,
+                    useChatInfoDatabase: true,
+                    useFileDatabase: true,
+                    useMessageDatabase: true,
+                    useSecretChats: true,
+                    useTestDc: false,
+                )
+                let state = try await client.getAuthorizationState()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.isActive(client: client, accountID: accountID) else { return }
+                    if case .authorizationStateWaitTdlibParameters = state { return }
+                    self.UpdateAuthorizationState(state)
+                }
+            } catch {
+                configuredClientIDs.remove(client.id)
+                log("TDLib client parameter configuration failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func fetchAccountMetadata(client: TDLibClient, accountID: UUID) {
+        Task {
+            do {
+                let me = try await client.getMe()
+                DispatchQueue.main.async { [weak self] in
+                    self?.storeAccountMetadata(me, accountID: accountID)
+                }
+            } catch {
+                log("TDLib getMe failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func storeAccountMetadata(_ user: User, accountID: UUID) {
+        guard let index = accounts.firstIndex(where: { $0.id == accountID }) else { return }
+        let fullName = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        accounts[index].displayName = fullName.isEmpty ? nil : fullName
+        accounts[index].phoneNumber = user.phoneNumber.isEmpty ? nil : user.phoneNumber
+        accounts[index].userID = user.id
+        do {
+            try persist(accounts: accounts, activeAccountID: activeAccountID ?? accountID)
+            nc.post(name: .telegramAccountsChanged)
+        } catch {
+            log("Unable to persist Telegram account metadata: \(error.localizedDescription)")
+        }
+    }
+
+    private func persist(accounts: [TelegramAccount], activeAccountID: UUID) throws {
+        do {
+            try registry.save(
+                TelegramAccountRegistryState(version: 1, activeAccountID: activeAccountID, accounts: accounts),
             )
-            .appending(path: "td")
-            .path()
+        } catch {
+            log("Unable to persist Telegram accounts: \(error.localizedDescription)")
+            throw TelegramAccountError.persistenceFailed
+        }
+    }
 
-        try await td.setTdlibParameters(
-            apiHash: Secret.apiHash,
-            apiId: Secret.apiId,
-            applicationVersion: Utils.applicationVersion,
-            databaseDirectory: dir,
-            databaseEncryptionKey: Data(),
-            deviceModel: Utils.modelName,
-            filesDirectory: dir,
-            systemLanguageCode: "en-US",
-            systemVersion: UIDevice.current.systemVersion,
-            useChatInfoDatabase: true,
-            useFileDatabase: true,
-            useMessageDatabase: true,
-            useSecretChats: true,
-            useTestDc: false,
+    @MainActor
+    private func recoverUnexpectedLogout(client: TDLibClient, accountID: UUID) {
+        guard !retiringClientIDs.contains(client.id), activeAccountID == accountID else { return }
+        do {
+            try removeActiveAccountAfterExternalLogout(client: client, accountID: accountID)
+        } catch {
+            log("Unable to recover externally logged out account: \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    private func removeActiveAccountAfterExternalLogout(client: TDLibClient, accountID: UUID) throws {
+        let survivors = accounts.filter { $0.id != accountID }
+        var updatedAccounts = survivors
+        let replacement: TelegramAccount
+        if var existing = survivors.sorted(by: { $0.lastActiveAt > $1.lastActiveAt }).first {
+            existing.lastActiveAt = Date()
+            replacement = existing
+            if let index = updatedAccounts.firstIndex(where: { $0.id == existing.id }) {
+                updatedAccounts[index] = existing
+            }
+        } else {
+            let now = Date()
+            replacement = TelegramAccount(
+                id: UUID(),
+                displayName: nil,
+                phoneNumber: nil,
+                userID: nil,
+                createdAt: now,
+                lastActiveAt: now,
+            )
+            _ = try registry.databaseDirectory(for: replacement.id)
+            updatedAccounts.append(replacement)
+        }
+        try persist(accounts: updatedAccounts, activeAccountID: replacement.id)
+        accounts = updatedAccounts
+        activeAccountID = replacement.id
+        activate(account: replacement, notify: true)
+        retire(
+            ClientSnapshot(client: client, accountID: accountID),
+            accountID: accountID,
+            endingSession: true,
+            removeDirectory: true,
+            logoutAlreadyStarted: true,
         )
-        return try await td.getAuthorizationState()
+    }
+
+    @MainActor
+    private func recoverUnexpectedClose(accountID: UUID, clientID: Int32) {
+        guard activeAccountID == accountID, !recoveringClientIDs.contains(clientID), let account = activeAccount else {
+            return
+        }
+        recoveringClientIDs.insert(clientID)
+        activate(account: account, notify: true)
+        recoveringClientIDs.remove(clientID)
+    }
+
+    @MainActor
+    private func retire(
+        _ snapshot: ClientSnapshot?,
+        accountID: UUID?,
+        endingSession: Bool,
+        removeDirectory: Bool,
+        logoutAlreadyStarted: Bool = false,
+    ) {
+        guard let snapshot, snapshot.accountID == accountID else { return }
+        retiringClientIDs.insert(snapshot.client.id)
+        let client = snapshot.client
+        let id = snapshot.accountID
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var closed = false
+            if endingSession {
+                Task { await PushRelayCoordinator.shared.prepareForLogout(using: client) }
+                if !logoutAlreadyStarted {
+                    Task {
+                        do {
+                            _ = try await client.logOut()
+                        } catch {
+                            log("TDLib logout request failed: \(error.localizedDescription)")
+                        }
+                    }
+                }
+                closed = await waitUntilClosed(client, timeout: 15)
+                if !closed {
+                    log("TDLib logout stuck for 15s; destroying local account data")
+                    Task {
+                        do {
+                            _ = try await client.destroy()
+                        } catch {
+                            log("TDLib destroy request failed: \(error.localizedDescription)")
+                        }
+                    }
+                    closed = await waitUntilClosed(client, timeout: 5)
+                }
+            } else {
+                Task {
+                    do {
+                        _ = try await client.close()
+                    } catch {
+                        log("TDLib close request failed: \(error.localizedDescription)")
+                    }
+                }
+                closed = await waitUntilClosed(client, timeout: 5)
+            }
+
+            retiringClientIDs.remove(client.id)
+            if removeDirectory, closed {
+                registry.removeDatabaseDirectory(for: id)
+            } else if removeDirectory {
+                log("TDLib account directory kept because client \(client.id) did not close")
+            }
+        }
+    }
+
+    private func waitUntilClosed(_ client: TDLibClient, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while manager.clients[client.id] != nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return manager.clients[client.id] == nil
     }
 }
 

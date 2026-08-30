@@ -29,11 +29,13 @@ final class RootViewController: UIViewController {
     private let rootVM: RootVM
     private var displayedController: UIViewController?
     private var displayedLoggedInState: Bool?
+    private var displayedAccountID: UUID?
     private var cancellables = Set<AnyCancellable>()
 
     private func render(animated: Bool) {
-        guard displayedLoggedInState != rootVM.loggedIn else { return }
+        guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID else { return }
         displayedLoggedInState = rootVM.loggedIn
+        displayedAccountID = rootVM.activeAccountID
 
         let controller: UIViewController
         if rootVM.loggedIn {

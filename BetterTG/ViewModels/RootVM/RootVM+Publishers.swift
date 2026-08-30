@@ -5,6 +5,14 @@ import TDLibKit
 
 extension RootVM {
     func setPublishers() {
+        nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
+            guard let self else { return }
+            activeAccountID = TDLib.shared.activeAccountID
+            loggedIn = TDLib.shared.isActiveAccountReady
+            folders = []
+            archive = nil
+            currentFolder = nil
+        }
         nc.publisher(&cancellables, for: .updateChatFolders) { [weak self] update in
             self?.updateChatFolders(update)
         }
@@ -57,11 +65,13 @@ extension RootVM {
     }
 
     func updateChatFolders(_ update: UpdateChatFolders) {
+        let sourceAccountID = activeAccountID
         Task { [weak self] in
             guard let self else { return }
             var newFolders = await update.chatFolders.asyncCompactMap { await self.getCustomFolder(from: $0) }
             let mainChats = await getCustomChats(for: .chatListMain) ?? []
             let archiveChats = await getCustomChats(for: .chatListArchive) ?? []
+            guard sourceAccountID == activeAccountID else { return }
             let mainFolder = CustomFolder(chats: mainChats, type: .main)
             let archiveFolder = CustomFolder(chats: archiveChats, type: .archive)
             let insertionIndex = min(max(update.mainChatListPosition, 0), newFolders.count)

@@ -56,6 +56,19 @@ import UserNotifications
             .store(in: &cancellables)
 
         nc
+            .publisher(for: .activeTelegramAccountChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                telegramReady = false
+                registeredAuthorizationEpoch = nil
+                registrationRefreshTask?.cancel()
+                synchronizationRetryTask?.cancel()
+                synchronizationRetryTask = nil
+            }
+            .store(in: &cancellables)
+
+        nc
             .publisher(for: .authorizationStateLoggingOut)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -63,7 +76,6 @@ import UserNotifications
                 telegramReady = false
                 registeredAuthorizationEpoch = nil
                 registrationRefreshTask?.cancel()
-                Task { await self.prepareForLogout() }
             }
             .store(in: &cancellables)
 
@@ -147,7 +159,7 @@ import UserNotifications
         return true
     }
 
-    func prepareForLogout() async {
+    func prepareForLogout(using client: TDLibClient) async {
         log("Push relay logout cleanup started")
         telegramReady = false
         registeredAuthorizationEpoch = nil
@@ -171,7 +183,7 @@ import UserNotifications
             state.pendingSubscriptionRevocation = true
             try await stateStore.save(state)
             do {
-                try await deregisterFromTDLib(subscription)
+                try await deregisterFromTDLib(subscription, using: client)
             } catch {
                 log("TDLib Web Push logout deregistration failed: \(error.localizedDescription)")
             }
@@ -400,8 +412,11 @@ import UserNotifications
         scheduleRegistrationRefresh(after: 24 * 60 * 60)
     }
 
-    private func deregisterFromTDLib(_ subscription: RelayTelegramSubscription) async throws {
-        let receiver = try await td.registerDevice(
+    private func deregisterFromTDLib(
+        _ subscription: RelayTelegramSubscription,
+        using client: TDLibClient? = nil,
+    ) async throws {
+        let receiver = try await (client ?? td).registerDevice(
             deviceToken: .deviceTokenWebPush(
                 DeviceTokenWebPush(
                     authBase64url: subscription.authBase64url,
