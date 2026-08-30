@@ -48,6 +48,8 @@ final class LoginViewController: UIViewController {
 
         prefixLabel.textColor = .label
         prefixLabel.font = .preferredFont(forTextStyle: .body)
+        prefixLabel.setContentHuggingPriority(.required, for: .horizontal)
+        prefixLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         inputField.backgroundColor = .secondarySystemBackground
         inputField.textColor = .label
@@ -95,9 +97,7 @@ final class LoginViewController: UIViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
-                self?.loginState = .twoFactor
-                self?.inputField.placeholder = waitPassword.passwordHint.isEmpty ? "2FA" : waitPassword.passwordHint
-                self?.render()
+                self?.setTwoFactorState(waitPassword)
             }
             .store(in: &cancellables)
 
@@ -123,8 +123,8 @@ final class LoginViewController: UIViewController {
             await MainActor.run {
                 guard let self else { return }
                 switch state {
-                case .authorizationStateWaitPassword:
-                    self.setState(.twoFactor)
+                case .authorizationStateWaitPassword(let waitPassword):
+                    self.setTwoFactorState(waitPassword)
                 case .authorizationStateWaitCode:
                     self.setState(.code)
                 case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
@@ -143,6 +143,12 @@ final class LoginViewController: UIViewController {
         inputField.text = nil
         render()
         inputField.becomeFirstResponder()
+        inputField.reloadInputViews()
+    }
+
+    private func setTwoFactorState(_ waitPassword: AuthorizationStateWaitPassword) {
+        inputField.placeholder = waitPassword.passwordHint.isEmpty ? "2FA" : waitPassword.passwordHint
+        setState(.twoFactor)
     }
 
     private func render() {
