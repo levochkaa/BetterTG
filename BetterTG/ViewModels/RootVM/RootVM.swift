@@ -102,17 +102,24 @@ enum Route {
                     lastMessage: chat.lastMessage,
                     draftMessage: chat.draftMessage,
                 )
-            case .userTypeBot(let bot):
+            case .userTypeBot:
                 return CustomChat(
                     chat: chat,
                     position: position,
                     unreadCount: chat.unreadCount,
-                    type: .bot(bot),
+                    type: .bot(user),
                     lastMessage: chat.lastMessage,
                     draftMessage: chat.draftMessage,
                 )
             case .userTypeDeleted, .userTypeUnknown:
-                return nil
+                return CustomChat(
+                    chat: chat,
+                    position: position,
+                    unreadCount: chat.unreadCount,
+                    type: .user(user),
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage,
+                )
             }
         case .chatTypeSupergroup(let type):
             guard let group = try? await td.getSupergroup(supergroupId: type.supergroupId) else { return nil }

@@ -124,7 +124,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             .sorted { $0.position.order > $1.position.order }
             .filter {
                 query.isEmpty
-                    || $0.chat.title.localizedCaseInsensitiveContains(query)
+                    || $0.displayTitle.localizedCaseInsensitiveContains(query)
                     || $0.user?.firstName.localizedCaseInsensitiveContains(query) == true
                     || $0.user?.lastName.localizedCaseInsensitiveContains(query) == true
             }
@@ -319,6 +319,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 updateSnapshot(animated: false, changedIDs: Set(folder.chats.map(\.id)))
             }
             .store(in: &cancellables)
+        nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
+            guard let self else { return }
+            updateSnapshot(animated: false, changedIDs: Set(folder.chats.map(\.id)))
+        }
         subscribeToChats()
     }
 
@@ -535,7 +539,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private func confirmDelete(chat: CustomChat, forAll: Bool) {
         let alert = UIAlertController(
             title: "Delete chat?",
-            message: "Are you sure you want to delete chat with \(chat.chat.title)?",
+            message: "Are you sure you want to delete chat with \(chat.displayTitle)?",
             preferredStyle: .alert,
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))

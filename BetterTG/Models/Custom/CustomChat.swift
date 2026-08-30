@@ -10,11 +10,11 @@ import TDLibKitDynamic
         case user(User)
         case supergroup(Supergroup)
         case group(BasicGroup)
-        case bot(UserTypeBot)
+        case bot(User)
     }
 
     @Published var chat: Chat
-    let type: CustomChatType
+    @Published var type: CustomChatType
     @Published var position: ChatPosition
     @Published var unreadCount: Int
     @Published var lastMessage: Message?
@@ -22,18 +22,27 @@ import TDLibKitDynamic
 
     var id: Int64 { chat.id }
 
+    var displayTitle: String {
+        isSavedMessages ? "Saved Messages" : chat.title
+    }
+
+    var isSavedMessages: Bool {
+        guard let accountUserID = TDLib.shared.activeAccount?.userID else { return false }
+        return user?.id == accountUserID
+    }
+
     var bot: UserTypeBot? {
-        if case .bot(let bot) = type {
-            return bot
-        }
-        return nil
+        guard case .bot(let user) = type, case .userTypeBot(let bot) = user.type else { return nil }
+        return bot
     }
 
     var user: User? {
-        if case .user(let user) = type {
-            return user
+        switch type {
+        case .bot(let user), .user(let user):
+            user
+        case .group, .supergroup:
+            nil
         }
-        return nil
     }
 
     var supergroup: Supergroup? {
@@ -103,5 +112,15 @@ import TDLibKitDynamic
         self.type = type
         self.lastMessage = lastMessage
         self.draftMessage = draftMessage
+    }
+
+    func updatePrivateUser(_ user: User) {
+        guard self.user?.id == user.id else { return }
+        type =
+            if case .userTypeBot = user.type {
+                .bot(user)
+            } else {
+                .user(user)
+            }
     }
 }

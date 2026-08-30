@@ -206,8 +206,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         titleControl.accessibilityLabel = status.isEmpty ? title : "\(title), \(status)"
     }
 
-    func configureAvatar(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
-        avatarView.configure(file: file, minithumbnail: minithumbnail, title: title, id: id)
+    func configureAvatar(
+        file: File?,
+        minithumbnail: Minithumbnail?,
+        placeholder: TelegramAvatarPlaceholder,
+    ) {
+        avatarView.configure(file: file, minithumbnail: minithumbnail, placeholder: placeholder)
     }
 
     func setSearchResultFound(_ found: Bool?) {

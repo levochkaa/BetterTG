@@ -12,6 +12,7 @@ import UIKit
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
     ) -> Bool {
+        AvatarColorPalette.shared.start()
         PushRelayCoordinator.shared.start()
         RichNotificationCacheCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()

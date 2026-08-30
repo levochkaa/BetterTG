@@ -45,7 +45,7 @@ final class ChatListCell: UITableViewCell {
 
     func configure(chat: CustomChat, isMuted: Bool) {
         pinView.isHidden = !chat.position.isPinned
-        titleLabel.text = chat.chat.title
+        titleLabel.text = chat.displayTitle
         messageLabel.attributedText = ChatSummary.attributedText(for: chat)
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         unreadLabel.text = chat.unreadCount > 0 ? compactNumericCountString(chat.unreadCount) : nil
@@ -54,11 +54,10 @@ final class ChatListCell: UITableViewCell {
         avatarView.configure(
             file: chat.chat.photo?.big,
             minithumbnail: chat.chat.photo?.minithumbnail,
-            title: chat.chat.title,
-            id: chat.id,
+            placeholder: chat.telegramAvatarPlaceholder,
         )
         accessibilityLabel = [
-            chat.chat.title,
+            chat.displayTitle,
             messageLabel.text,
             hasUnread ? (chat.unreadCount > 0 ? "\(chat.unreadCount) unread" : "unread") : nil,
         ]
@@ -119,120 +118,5 @@ final class ChatListCell: UITableViewCell {
             messageRow.topAnchor.constraint(equalTo: cardView.centerYAnchor, constant: 2),
             unreadLabel.heightAnchor.constraint(equalToConstant: 20),
         ])
-    }
-}
-
-// MARK: - ProfileAvatarView
-
-final class ProfileAvatarView: TelegramContextMenuExtractableView {
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private let label = UILabel()
-    private var representedAccountID: UUID?
-    private var representedClientID: Int32?
-    private var representedPeerID: Int64?
-    private var representedFile: File?
-    private var representedMinithumbnailData: Data?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        extractedContentView.clipsToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFill
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.textAlignment = .center
-        label.textColor = .white
-        label.font = .preferredFont(forTextStyle: .title2)
-        extractedContentView.addSubview(label)
-        extractedContentView.addSubview(imageView)
-        isUserInteractionEnabled = true
-        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
-        longPressGesture.minimumPressDuration = 0.3
-        addGestureRecognizer(longPressGesture)
-        NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: extractedContentView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: extractedContentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: extractedContentView.trailingAnchor),
-            imageView.bottomAnchor.constraint(equalTo: extractedContentView.bottomAnchor),
-            label.topAnchor.constraint(equalTo: extractedContentView.topAnchor),
-            label.leadingAnchor.constraint(equalTo: extractedContentView.leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: extractedContentView.trailingAnchor),
-            label.bottomAnchor.constraint(equalTo: extractedContentView.bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: Internal
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard extractedContentView.superview === self else { return }
-        extractedContentView.layer.cornerRadius = bounds.width / 2
-    }
-
-    func configure(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
-        label.text = String(title.prefix(1)).uppercased()
-        extractedContentView.backgroundColor = UIColor(userID: id)
-        let accountID = TDLib.shared.activeAccountID
-        let clientID = td.id
-        let thumbnailData = minithumbnail?.data
-        guard representedAccountID != accountID
-            || representedClientID != clientID
-            || representedPeerID != id
-            || representedFile != file
-            || representedMinithumbnailData != thumbnailData
-        else { return }
-        imageView.cancel()
-        imageView.image = nil
-        representedAccountID = accountID
-        representedClientID = clientID
-        representedPeerID = id
-        representedFile = file
-        representedMinithumbnailData = thumbnailData
-        if let file {
-            imageView.load(file: file, placeholderData: thumbnailData, maximumPixelSize: 160)
-        } else {
-            imageView.image = thumbnailData.flatMap(UIImage.init(data:))
-        }
-    }
-
-    func prepareForReuse() {
-        imageView.cancel()
-        representedAccountID = nil
-        representedClientID = nil
-        representedPeerID = nil
-        representedFile = nil
-        representedMinithumbnailData = nil
-        imageView.image = nil
-        label.text = nil
-        extractedContentView.backgroundColor = .clear
-    }
-
-    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, let hostController = nearestViewController else { return }
-        let chatController = hostController as? ChatViewController
-        hostController.presentTelegramContextMenu(sourceView: self, actions: [
-            TelegramContextMenuAction(
-                title: "Open Profile",
-                image: UIImage(systemName: "person.crop.circle"),
-            ) {},
-            TelegramContextMenuAction(
-                title: "Search",
-                image: UIImage(systemName: "magnifyingglass"),
-            ) { [weak chatController] in
-                chatController?.beginMessageSearch()
-            },
-            TelegramContextMenuAction(
-                title: "Save Photo",
-                image: UIImage(systemName: "square.and.arrow.down"),
-            ) { [weak self] in
-                guard let image = self?.imageView.image else { return }
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            },
-        ], tracking: gesture, presentationStyle: .avatar)
     }
 }

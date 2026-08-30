@@ -90,7 +90,7 @@ import UIKit
         setPublishers()
         loadMessages()
         if !previewing {
-            Media.shared.onChatOpen(title: customChat.chat.title)
+            Media.shared.onChatOpen(title: customChat.displayTitle)
         }
 
         if !previewing,

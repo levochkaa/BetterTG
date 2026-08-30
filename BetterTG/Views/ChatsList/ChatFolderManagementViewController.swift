@@ -464,7 +464,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: identifier)
         let chat = visibleChats[indexPath.row]
-        cell.textLabel?.text = chat.chat.title
+        cell.textLabel?.text = chat.displayTitle
         cell.detailTextLabel?.text = chat.folderPickerSubtitle
         cell.accessoryType = selectedChatIDs.contains(chat.id) ? .checkmark : .none
         return cell
@@ -491,7 +491,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         chats = rootVM.allFolders
             .flatMap(\.chats)
             .filter { seen.insert($0.id).inserted }
-            .sorted { $0.chat.title.localizedCaseInsensitiveCompare($1.chat.title) == .orderedAscending }
+            .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
         applyFilter()
     }
 
@@ -499,7 +499,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         visibleChats = query.isEmpty
             ? chats
             : chats.filter {
-                $0.chat.title.localizedCaseInsensitiveContains(query)
+                $0.displayTitle.localizedCaseInsensitiveContains(query)
             }
         tableView.reloadData()
     }

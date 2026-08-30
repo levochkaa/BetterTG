@@ -37,6 +37,17 @@ extension ChatVM {
             guard let self, update.userId == customChat.user?.id else { return }
             onlineStatus = getOnlineStatus(from: update.status)
         }
+        nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
+            guard let self else { return }
+            for message in messages {
+                if message.senderUser?.id == update.user.id {
+                    message.senderUser = update.user
+                }
+                if message.replyUser?.id == update.user.id {
+                    message.replyUser = update.user
+                }
+            }
+        }
         nc.publisher(&cancellables, for: .updateChatAction) { [weak self] update in
             guard let self, update.chatId == customChat.id else { return }
             updateChatAction(update)

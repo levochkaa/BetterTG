@@ -477,6 +477,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateStatus() } }
             .store(in: &cancellables)
+        nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
+            self?.updateChatHeader()
+        }
         subscribeToMessages()
     }
 
@@ -484,12 +487,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let chat = chatVM.customChat.chat
         let status = chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
         let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
-        customNavigationBar.configure(title: chat.title, status: status, statusColor: statusColor)
+        customNavigationBar.configure(
+            title: chatVM.customChat.displayTitle,
+            status: status,
+            statusColor: statusColor,
+        )
         customNavigationBar.configureAvatar(
             file: chat.photo?.big,
             minithumbnail: chat.photo?.minithumbnail,
-            title: chat.title,
-            id: chat.id,
+            placeholder: chatVM.customChat.telegramAvatarPlaceholder,
         )
     }
 
@@ -509,7 +515,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let status = chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
         let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: chatVM.customChat.chat.title,
+            title: chatVM.customChat.displayTitle,
             status: status,
             statusColor: statusColor,
         )
