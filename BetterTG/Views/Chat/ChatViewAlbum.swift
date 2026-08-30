@@ -5,25 +5,30 @@ import MobileVLCKit
 import TDLibKitDynamic
 import UIKit
 
+// MARK: - MediaGalleryViewController
+
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate {
+    // MARK: Lifecycle
+
     init(messages: [Message], selection: Int64) {
         self.messages = messages.filter { message in
             switch message.content {
-            case .messagePhoto, .messageAnimation, .messageSticker, .messageVideo:
+            case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
                 true
             default:
                 false
             }
         }
-        selectedIndex = self.messages.firstIndex(where: { $0.id == selection }) ?? 0
+        self.selectedIndex = self.messages.firstIndex(where: { $0.id == selection }) ?? 0
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -49,6 +54,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         )
         updateCounter()
     }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        selectedIndex = Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))
+        updateCounter()
+    }
+
+    // MARK: Private
 
     private let messages: [Message]
     private var selectedIndex: Int
@@ -103,11 +115,6 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         ])
     }
 
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        selectedIndex = Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))
-        updateCounter()
-    }
-
     private func updateCounter() {
         counterLabel.text = messages.count > 1 ? "\(selectedIndex + 1) of \(messages.count)" : ""
     }
@@ -123,29 +130,35 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func localURL(for message: Message) -> URL? {
-        let path: String? = switch message.content {
-        case .messagePhoto(let photo):
-            photo.photo.sizes.getSize(.yBox)?.photo.local.path
-        case .messageAnimation(let animation):
-            animation.animation.animation.local.path
-        case .messageSticker(let sticker):
-            sticker.sticker.sticker.local.path
-        case .messageVideo(let video):
-            video.video.video.local.path
-        default:
-            nil
-        }
+        let path: String? =
+            switch message.content {
+            case .messagePhoto(let photo):
+                photo.photo.sizes.getSize(.yBox)?.photo.local.path
+            case .messageAnimation(let animation):
+                animation.animation.animation.local.path
+            case .messageSticker(let sticker):
+                sticker.sticker.sticker.local.path
+            case .messageVideo(let video):
+                video.video.video.local.path
+            default:
+                nil
+            }
         guard let path, !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return nil }
         return URL(filePath: path)
     }
 }
+
+// MARK: UICollectionViewDataSource
 
 extension MediaGalleryViewController: UICollectionViewDataSource {
     func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int {
         messages.count
     }
 
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath,
+    ) -> UICollectionViewCell {
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: MediaGalleryCell.reuseIdentifier,
             for: indexPath,
@@ -155,18 +168,23 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
     }
 }
 
+// MARK: - MediaGalleryCell
+
 final class MediaGalleryCell: UICollectionViewCell {
-    static let reuseIdentifier = "MediaGalleryCell"
+    // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
+
+    static let reuseIdentifier = "MediaGalleryCell"
 
     override func prepareForReuse() {
         super.prepareForReuse()
@@ -175,11 +193,9 @@ final class MediaGalleryCell: UICollectionViewCell {
         contentMediaView = nil
     }
 
-    private var contentMediaView: (UIView & GalleryMediaView)?
-
     func configure(message: Message) {
         prepareForReuse()
-        let view: (UIView & GalleryMediaView)
+        let view: UIView & GalleryMediaView
         switch message.content {
         case .messagePhoto(let photo):
             let imageView = ZoomableGalleryImageView()
@@ -225,13 +241,23 @@ final class MediaGalleryCell: UICollectionViewCell {
             view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
+
+    // MARK: Private
+
+    private var contentMediaView: (UIView & GalleryMediaView)?
 }
+
+// MARK: - GalleryMediaView
 
 protocol GalleryMediaView: AnyObject {
     func prepareForReuse()
 }
 
+// MARK: - ZoomableGalleryImageView
+
 final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, GalleryMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         delegate = self
@@ -256,12 +282,11 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
         addGestureRecognizer(doubleTap)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let imageView = TDImageLoadingView()
+    // MARK: Internal
 
     func configure(photo: Photo) {
         imageView.load(photo: photo, preferredSize: .yBox)
@@ -275,6 +300,10 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
     func viewForZooming(in _: UIScrollView) -> UIView? {
         imageView
     }
+
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
 
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
         if zoomScale > minimumZoomScale {
@@ -292,7 +321,11 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
     }
 }
 
+// MARK: - GalleryFilePlayerView
+
 final class GalleryFilePlayerView: UIView, GalleryMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         preview.translatesAutoresizingMaskIntoConstraints = false
@@ -317,18 +350,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         ])
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let preview = TDImageLoadingView()
-    private let videoSurface = UIView()
-    private let spinner = UIActivityIndicatorView(style: .large)
-    private let player = VLCMediaPlayer()
-    private var fileID: Int?
-    private var task: Task<Void, Never>?
-    private var cancellable: AnyCancellable?
+    // MARK: Internal
 
     func configure(file: File, thumbnail: Thumbnail?, minithumbnail: Minithumbnail?, canPlay: Bool) {
         prepareForReuse()
@@ -374,6 +400,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView {
         }
         fileID = nil
     }
+
+    // MARK: Private
+
+    private let preview = TDImageLoadingView()
+    private let videoSurface = UIView()
+    private let spinner = UIActivityIndicatorView(style: .large)
+    private let player = VLCMediaPlayer()
+    private var fileID: Int?
+    private var task: Task<Void, Never>?
+    private var cancellable: AnyCancellable?
 
     private func update(file: File) {
         guard file.id == fileID, file.local.isDownloadingCompleted else { return }

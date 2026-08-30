@@ -4,10 +4,7 @@ import UIKit
 
 /// Telegram-style search content embedded into the app's custom navigation chrome.
 final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
-    static let scrollHeight: CGFloat = 52
-
-    var onQueryChange: ((String) -> Void)?
-    var onActiveChange: ((Bool) -> Void)?
+    // MARK: Lifecycle
 
     init(placeholder: String = "Search chats…") {
         self.placeholder = placeholder
@@ -15,18 +12,24 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         configureViews()
     }
 
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    static let scrollHeight: CGFloat = 52
+
+    var onQueryChange: ((String) -> Void)?
+    var onActiveChange: ((Bool) -> Void)?
+
+    var isActive: Bool { searchField.isFirstResponder }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         searchField.layer.cornerRadius = searchField.bounds.height / 2
         updateSearchContentAlpha(lastContentAlpha)
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    var isActive: Bool { searchField.isFirstResponder }
 
     func applyScroll(offset: CGFloat, animated: Bool = false) {
         requestedScrollOffset = min(max(0, offset), Self.scrollHeight)
@@ -62,6 +65,21 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     func focus() {
         searchField.becomeFirstResponder()
     }
+
+    func textFieldDidBeginEditing(_: UITextField) {
+        setActive(true)
+    }
+
+    func textFieldDidEndEditing(_: UITextField) {
+        setActive(false)
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return true
+    }
+
+    // MARK: Private
 
     private let searchField = UISearchTextField()
     private let closeButton = UIButton(type: .system)
@@ -113,19 +131,6 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             searchCenterYConstraint,
             searchHeightConstraint,
         ])
-    }
-
-    func textFieldDidBeginEditing(_: UITextField) {
-        setActive(true)
-    }
-
-    func textFieldDidEndEditing(_: UITextField) {
-        setActive(false)
-    }
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        textField.resignFirstResponder()
-        return true
     }
 
     private func setActive(_ active: Bool) {

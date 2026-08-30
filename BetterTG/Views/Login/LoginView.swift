@@ -5,6 +5,8 @@ import TDLibKitDynamic
 import UIKit
 
 final class LoginViewController: UIViewController {
+    // MARK: Internal
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -13,6 +15,8 @@ final class LoginViewController: UIViewController {
         configurePublishers()
         refreshAuthorizationState()
     }
+
+    // MARK: Private
 
     private var loginState = LoginState.phoneNumber
     private var selectedCountry = PhoneNumberInfo(country: "RU", phoneNumberPrefix: "7", name: "Russian Federation")
@@ -177,11 +181,12 @@ final class LoginViewController: UIViewController {
         inputField.isSecureTextEntry = loginState == .twoFactor
         inputField.keyboardType = loginState == .twoFactor ? .default : .numberPad
         inputField.textContentType = loginState == .twoFactor ? .password : .oneTimeCode
-        inputField.placeholder = switch loginState {
-        case .phoneNumber: "Phone Number"
-        case .code: "Code"
-        case .twoFactor: inputField.placeholder ?? "2FA"
-        }
+        inputField.placeholder =
+            switch loginState {
+            case .phoneNumber: "Phone Number"
+            case .code: "Code"
+            case .twoFactor: inputField.placeholder ?? "2FA"
+            }
         accountsButton.isHidden = TDLib.shared.accounts.allSatisfy { $0.id == TDLib.shared.activeAccountID }
     }
 

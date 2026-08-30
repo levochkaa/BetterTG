@@ -4,16 +4,19 @@ import TDLibKitDynamic
 import UIKit
 
 final class SelectCountryViewController: UITableViewController, UISearchResultsUpdating {
+    // MARK: Lifecycle
+
     init(selectedCountry: PhoneNumberInfo, onSelection: @escaping (PhoneNumberInfo) -> Void) {
         self.selectedCountry = selectedCountry
         self.onSelection = onSelection
         super.init(style: .insetGrouped)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -62,6 +65,8 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
         query = searchController.searchBar.text ?? ""
         filterCountries()
     }
+
+    // MARK: Private
 
     private let selectedCountry: PhoneNumberInfo
     private let onSelection: (PhoneNumberInfo) -> Void

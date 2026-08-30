@@ -4,15 +4,18 @@ import Combine
 import UIKit
 
 final class RootViewController: UIViewController {
+    // MARK: Lifecycle
+
     init(rootVM: RootVM) {
         self.rootVM = rootVM
         super.init(nibName: nil, bundle: nil)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,6 +28,8 @@ final class RootViewController: UIViewController {
             .store(in: &cancellables)
         render(animated: false)
     }
+
+    // MARK: Private
 
     private let rootVM: RootVM
     private var displayedController: UIViewController?

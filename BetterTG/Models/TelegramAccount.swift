@@ -2,6 +2,8 @@
 
 import Foundation
 
+// MARK: - TelegramAccount
+
 struct TelegramAccount: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     var displayName: String?
@@ -21,16 +23,24 @@ struct TelegramAccount: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+// MARK: - TelegramAccountRegistryState
+
 struct TelegramAccountRegistryState: Codable, Equatable {
     var version: Int
     var activeAccountID: UUID
     var accounts: [TelegramAccount]
 }
 
+// MARK: - TelegramAccountRegistry
+
 struct TelegramAccountRegistry {
+    // MARK: Lifecycle
+
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
+
+    // MARK: Internal
 
     func loadOrCreate() throws -> TelegramAccountRegistryState {
         try migrateApplicationSupportDirectoryIfNeeded()
@@ -75,6 +85,8 @@ struct TelegramAccountRegistry {
     func removeDatabaseDirectory(for accountID: UUID) {
         try? fileManager.removeItem(at: baseDirectory.appendingPathComponent(accountID.uuidString, isDirectory: true))
     }
+
+    // MARK: Private
 
     private let fileManager: FileManager
 

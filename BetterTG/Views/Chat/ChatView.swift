@@ -9,11 +9,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
     UIGestureRecognizerDelegate
 {
-    enum PresentationMode {
-        case full
-        case contextPreview
-    }
-
     // MARK: Lifecycle
 
     init(
@@ -37,6 +32,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     // MARK: Internal
+
+    enum PresentationMode {
+        case full
+        case contextPreview
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -156,6 +156,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    func beginMessageSearch() {
+        guard presentationMode == .full else { return }
+        customNavigationBar.beginSearch()
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
+    ) -> Bool {
+        if gestureRecognizer === messageContextGesture || otherGestureRecognizer === messageContextGesture {
+            if gestureRecognizer is UIPanGestureRecognizer || otherGestureRecognizer is UIPanGestureRecognizer {
+                return false
+            }
+        }
+        return true
+    }
+
     // MARK: Private
 
     private enum Section {
@@ -189,8 +206,41 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var composerBottomConstraint: NSLayoutConstraint?
     private var composerKeyboardAttached = false
 
+    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
+        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
+            guard let self, let gesture else { return }
+            if pressing {
+                let point = gesture.location(in: collectionView)
+                guard let indexPath = collectionView.indexPathForItem(at: point),
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+                else { return }
+                pressedMessageSourceView = cell.contextPreviewView
+                pressedMessageSourceTransform = cell.contextPreviewView.transform
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
+                UIView.animate(
+                    withDuration: 0.16,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
+                }
+            } else {
+                restorePressedMessageSource()
+            }
+        }
+        return gesture
+    }()
+
+    private weak var pressedMessageSourceView: UIView?
+    private var pressedMessageSourceTransform = CGAffineTransform.identity
+
     private var showsComposer: Bool {
         presentationMode == .full && chatVM.customChat.canPostMessages
+    }
+
+    private var isNearLatest: Bool {
+        collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -522,22 +572,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return label
     }
 
-    private var isNearLatest: Bool {
-        collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
-    }
-
     private func updateHistoryInsets() {
-        let visualBottomInset: CGFloat
-        if messageSearchActive {
-            visualBottomInset = max(
-                view.safeAreaInsets.bottom,
-                view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
-            ) + 8
-        } else if showsComposer, composerView.frame.minY > 0 {
-            visualBottomInset = max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
-        } else {
-            visualBottomInset = view.safeAreaInsets.bottom + 8
-        }
+        let visualBottomInset: CGFloat =
+            if messageSearchActive {
+                max(
+                    view.safeAreaInsets.bottom,
+                    view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
+                ) + 8
+            } else if showsComposer, composerView.frame.minY > 0 {
+                max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
+            } else {
+                view.safeAreaInsets.bottom + 8
+            }
         let visualTopInset = customNavigationBar.frame.maxY + 8
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
         guard abs(collectionView.contentInset.top - updatedInsets.top) > 0.5
@@ -731,51 +777,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     @objc private func historyTapped() {
         view.endEditing(true)
     }
-
-    func beginMessageSearch() {
-        guard presentationMode == .full else { return }
-        customNavigationBar.beginSearch()
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
-    ) -> Bool {
-        if gestureRecognizer === messageContextGesture || otherGestureRecognizer === messageContextGesture {
-            if gestureRecognizer is UIPanGestureRecognizer || otherGestureRecognizer is UIPanGestureRecognizer {
-                return false
-            }
-        }
-        return true
-    }
-
-    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
-        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
-        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
-            guard let self, let gesture else { return }
-            if pressing {
-                let point = gesture.location(in: collectionView)
-                guard let indexPath = collectionView.indexPathForItem(at: point),
-                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
-                else { return }
-                pressedMessageSourceView = cell.contextPreviewView
-                pressedMessageSourceTransform = cell.contextPreviewView.transform
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
-                UIView.animate(
-                    withDuration: 0.16,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
-                }
-            } else {
-                restorePressedMessageSource()
-            }
-        }
-        return gesture
-    }()
-    private weak var pressedMessageSourceView: UIView?
-    private var pressedMessageSourceTransform = CGAffineTransform.identity
 
     private func cancelHistoryPanGesture() {
         let panGesture = collectionView.panGestureRecognizer

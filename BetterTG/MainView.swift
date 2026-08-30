@@ -4,16 +4,21 @@ import Combine
 import TDLibKitDynamic
 import UIKit
 
+// MARK: - MainViewController
+
 final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    // MARK: Lifecycle
+
     init(rootVM: RootVM) {
         self.rootVM = rootVM
         super.init(nibName: nil, bundle: nil)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -28,7 +33,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 DispatchQueue.main.async { self?.reloadFromState() }
             }
             .store(in: &cancellables)
-        FolderUnreadStore.shared.objectWillChange
+        FolderUnreadStore.shared
+            .objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 DispatchQueue.main.async { self?.reloadFolderUnreadStates() }
@@ -48,6 +54,54 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         super.viewSafeAreaInsetsDidChange()
         updateNavigationBarHeight(contentHeight: currentNavigationContentHeight)
     }
+
+    func pageViewController(
+        _: UIPageViewController,
+        viewControllerBefore viewController: UIViewController,
+    ) -> UIViewController? {
+        guard let index = folderControllers.firstIndex(where: { $0 === viewController }), index > 0 else { return nil }
+        return folderControllers[index - 1]
+    }
+
+    func pageViewController(
+        _: UIPageViewController,
+        viewControllerAfter viewController: UIViewController,
+    ) -> UIViewController? {
+        guard let index = folderControllers.firstIndex(where: { $0 === viewController }),
+              index + 1 < folderControllers.count else { return nil }
+        return folderControllers[index + 1]
+    }
+
+    func pageViewController(
+        _: UIPageViewController,
+        willTransitionTo pendingViewControllers: [UIViewController],
+    ) {
+        guard let fromID = currentFolderController?.folder.id,
+              let toID = (pendingViewControllers.first as? FolderViewController)?.folder.id
+        else { return }
+        interactiveFolderTransition = (fromID, toID)
+    }
+
+    func pageViewController(
+        _: UIPageViewController,
+        didFinishAnimating _: Bool,
+        previousViewControllers: [UIViewController],
+        transitionCompleted completed: Bool,
+    ) {
+        defer { interactiveFolderTransition = nil }
+        guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else {
+            let previousID = (previousViewControllers.first as? FolderViewController)?.folder.id
+            folderPicker.select(id: previousID, animated: true)
+            return
+        }
+        rootVM.currentFolder = folder.id
+        folderPicker.select(id: folder.id, animated: true)
+        if let currentFolderController {
+            customNavigationBar.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
+        }
+    }
+
+    // MARK: Private
 
     private let rootVM: RootVM
     private let pageController = UIPageViewController(
@@ -71,6 +125,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var pageScrollObservation: NSKeyValueObservation?
     private var interactiveFolderTransition: (fromID: Int, toID: Int)?
     private var folderUnreadStates = [ChatList: FolderUnreadState]()
+
+    private var currentFolderController: FolderViewController? {
+        pageController.viewControllers?.first as? FolderViewController
+    }
 
     private func configureAutomatedSmokeRoute() {
         #if DEBUG
@@ -182,7 +240,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             controller.updateQuery(searchQuery)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
-                guard let self, self.currentFolderController === controller else { return }
+                guard let self, currentFolderController === controller else { return }
                 customNavigationBar.applyScroll(offset: offset)
             }
             return controller
@@ -215,56 +273,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         folderPicker.select(id: id, animated: animated)
         customNavigationBar.applyScroll(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
-    }
-
-    private var currentFolderController: FolderViewController? {
-        pageController.viewControllers?.first as? FolderViewController
-    }
-
-    func pageViewController(
-        _: UIPageViewController,
-        viewControllerBefore viewController: UIViewController,
-    ) -> UIViewController? {
-        guard let index = folderControllers.firstIndex(where: { $0 === viewController }), index > 0 else { return nil }
-        return folderControllers[index - 1]
-    }
-
-    func pageViewController(
-        _: UIPageViewController,
-        viewControllerAfter viewController: UIViewController,
-    ) -> UIViewController? {
-        guard let index = folderControllers.firstIndex(where: { $0 === viewController }),
-              index + 1 < folderControllers.count else { return nil }
-        return folderControllers[index + 1]
-    }
-
-    func pageViewController(
-        _: UIPageViewController,
-        willTransitionTo pendingViewControllers: [UIViewController],
-    ) {
-        guard let fromID = currentFolderController?.folder.id,
-              let toID = (pendingViewControllers.first as? FolderViewController)?.folder.id
-        else { return }
-        interactiveFolderTransition = (fromID, toID)
-    }
-
-    func pageViewController(
-        _: UIPageViewController,
-        didFinishAnimating _: Bool,
-        previousViewControllers: [UIViewController],
-        transitionCompleted completed: Bool,
-    ) {
-        defer { interactiveFolderTransition = nil }
-        guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else {
-            let previousID = (previousViewControllers.first as? FolderViewController)?.folder.id
-            folderPicker.select(id: previousID, animated: true)
-            return
-        }
-        rootVM.currentFolder = folder.id
-        folderPicker.select(id: folder.id, animated: true)
-        if let currentFolderController {
-            customNavigationBar.applyScroll(offset: currentFolderController.searchScrollOffset, animated: true)
-        }
     }
 
     private func updateInteractiveFolderSelection(from scrollView: UIScrollView) {
@@ -322,7 +330,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let controller = ChatFolderChatSelectionViewController(
             rootVM: rootVM,
             title: "Add Chats",
-            selectedChatIDs: Set(definition.includedChatIds)
+            selectedChatIDs: Set(definition.includedChatIds),
         ) { [weak self] selectedChatIDs in
             guard let self else { return }
             let updated = definition.replacingIncludedChatIDs(selectedChatIDs)
@@ -355,7 +363,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 guard chatCount <= 200 else {
                     self?.presentFolderNotice(
                         title: "Too Many Chats",
-                        message: "Mute All is available for folders with up to 200 chats."
+                        message: "Mute All is available for folders with up to 200 chats.",
                     )
                     return
                 }
@@ -367,8 +375,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                         _ = try await td.setChatNotificationSettings(
                             chatId: chatID,
                             notificationSettings: chat.notificationSettings.replacingMuteFor(
-                                muted ? Int(Int32.max) : 0
-                            )
+                                muted ? Int(Int32.max) : 0,
+                            ),
                         )
                     } catch {
                         firstError = firstError ?? error
@@ -418,6 +426,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 }
 
+// MARK: - FolderMenuAction
+
 enum FolderMenuAction {
     case editFolders
     case reorderTabs
@@ -428,17 +438,27 @@ enum FolderMenuAction {
     case remove
 }
 
+// MARK: - FolderPickerView
+
 /// Telegram's iOS 26 folder strip: a clipped scrolling lens with a continuously
 /// moving selection capsule and content-sized (or evenly filled) tabs.
 final class FolderPickerView: UIView {
-    var onSelection: ((Int) -> Void)?
-    var onReselection: ((Int) -> Void)?
-    var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
+    // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
     }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    var onSelection: ((Int) -> Void)?
+    var onReselection: ((Int) -> Void)?
+    var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -446,10 +466,54 @@ final class FolderPickerView: UIView {
         layoutSelection(animated: false)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    func configure(
+        folders: [CustomFolder],
+        selectedID: Int?,
+        unreadStates: [ChatList: FolderUnreadState],
+    ) {
+        let displayedUnreadStates: [FolderUnreadState] = folders.map { folder in
+            if case .folder = folder.type {
+                unreadStates[folder.chatList] ?? FolderUnreadState.empty
+            } else {
+                FolderUnreadState.empty
+            }
+        }
+        let needsRebuild = self.folders.count != folders.count || zip(self.folders, folders).contains { pair in
+            pair.0.id != pair.1.id || pair.0.name != pair.1.name
+        }
+        let unreadStatesChanged = self.unreadStates != displayedUnreadStates
+        self.folders = folders
+        self.unreadStates = displayedUnreadStates
+        let resolvedSelectedID = selectedID ?? folders.first?.id
+        guard needsRebuild else {
+            if unreadStatesChanged {
+                updateButtonContents(animated: true)
+            }
+            select(id: resolvedSelectedID, animated: true)
+            return
+        }
+        self.selectedID = resolvedSelectedID
+        rebuildControl()
     }
+
+    func select(id: Int?, animated: Bool = true) {
+        let selectionChanged = selectedID != id
+        selectedID = id
+        interactiveSelection = nil
+        updateButtonAppearance()
+        layoutSelection(animated: animated && selectionChanged)
+        if selectionChanged {
+            scrollSelectedSegmentIntoView(animated: animated)
+        }
+    }
+
+    func updateSelectionTransition(fromID: Int, toID: Int, fraction: CGFloat) {
+        interactiveSelection = (fromID, toID, min(max(0, fraction), 1))
+        layoutSelection(animated: false)
+        updateButtonAppearance()
+    }
+
+    // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let controlEffectView: UIVisualEffectView = {
@@ -457,6 +521,7 @@ final class FolderPickerView: UIView {
         effect.isInteractive = false
         return UIVisualEffectView(effect: effect)
     }()
+
     private let controlContainer = FolderPickerScrollView()
     private let buttonStack = UIStackView()
     private let selectionEffectView: UIVisualEffectView = {
@@ -465,6 +530,7 @@ final class FolderPickerView: UIView {
         effect.tintColor = UIColor.label.withAlphaComponent(0.08)
         return UIVisualEffectView(effect: effect)
     }()
+
     private var folders = [CustomFolder]()
     private var selectedID: Int?
     private var naturalSegmentWidths = [CGFloat]()
@@ -521,8 +587,14 @@ final class FolderPickerView: UIView {
             controlEffectView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
             controlEffectView.heightAnchor.constraint(equalToConstant: 42),
             controlContainer.topAnchor.constraint(equalTo: controlEffectView.contentView.topAnchor, constant: 3),
-            controlContainer.leadingAnchor.constraint(equalTo: controlEffectView.contentView.leadingAnchor, constant: 3),
-            controlContainer.trailingAnchor.constraint(equalTo: controlEffectView.contentView.trailingAnchor, constant: -3),
+            controlContainer.leadingAnchor.constraint(
+                equalTo: controlEffectView.contentView.leadingAnchor,
+                constant: 3,
+            ),
+            controlContainer.trailingAnchor.constraint(
+                equalTo: controlEffectView.contentView.trailingAnchor,
+                constant: -3,
+            ),
             controlContainer.bottomAnchor.constraint(equalTo: controlEffectView.contentView.bottomAnchor, constant: -3),
             buttonStack.topAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.topAnchor),
             buttonStack.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor),
@@ -536,57 +608,10 @@ final class FolderPickerView: UIView {
         ])
     }
 
-    func configure(
-        folders: [CustomFolder],
-        selectedID: Int?,
-        unreadStates: [ChatList: FolderUnreadState],
-    ) {
-        let displayedUnreadStates: [FolderUnreadState] = folders.map { folder in
-            if case .folder = folder.type {
-                unreadStates[folder.chatList] ?? FolderUnreadState.empty
-            } else {
-                FolderUnreadState.empty
-            }
-        }
-        let needsRebuild = self.folders.count != folders.count || zip(self.folders, folders).contains { pair in
-            pair.0.id != pair.1.id || pair.0.name != pair.1.name
-        }
-        let unreadStatesChanged = self.unreadStates != displayedUnreadStates
-        self.folders = folders
-        self.unreadStates = displayedUnreadStates
-        let resolvedSelectedID = selectedID ?? folders.first?.id
-        guard needsRebuild else {
-            if unreadStatesChanged {
-                updateButtonContents(animated: true)
-            }
-            select(id: resolvedSelectedID, animated: true)
-            return
-        }
-        self.selectedID = resolvedSelectedID
-        rebuildControl()
-    }
-
-    func select(id: Int?, animated: Bool = true) {
-        let selectionChanged = selectedID != id
-        selectedID = id
-        interactiveSelection = nil
-        updateButtonAppearance()
-        layoutSelection(animated: animated && selectionChanged)
-        if selectionChanged {
-            scrollSelectedSegmentIntoView(animated: animated)
-        }
-    }
-
-    func updateSelectionTransition(fromID: Int, toID: Int, fraction: CGFloat) {
-        interactiveSelection = (fromID, toID, min(max(0, fraction), 1))
-        layoutSelection(animated: false)
-        updateButtonAppearance()
-    }
-
     private func rebuildControl() {
-        buttonStack.arrangedSubviews.forEach {
-            buttonStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
+        for arrangedSubview in buttonStack.arrangedSubviews {
+            buttonStack.removeArrangedSubview(arrangedSubview)
+            arrangedSubview.removeFromSuperview()
         }
         segmentWidthConstraints.removeAll()
         buttons.removeAll()
@@ -637,7 +662,8 @@ final class FolderPickerView: UIView {
     }
 
     private func scrollSelectedSegmentIntoView(animated: Bool) {
-        guard let index = folders.firstIndex(where: { $0.id == selectedID }), buttons.indices.contains(index) else { return }
+        guard let index = folders.firstIndex(where: { $0.id == selectedID }),
+              buttons.indices.contains(index) else { return }
         layoutIfNeeded()
         let selectedFrame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
         let maximumOffset = max(0, controlContainer.contentSize.width - controlContainer.bounds.width)
@@ -690,11 +716,13 @@ final class FolderPickerView: UIView {
                 width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
                 height: controlContainer.bounds.height,
             )
-        } else if let index = folders.firstIndex(where: { $0.id == selectedID }), buttons.indices.contains(index) {
-            frame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
-        } else {
-            frame = nil
-        }
+        } else frame =
+            if let index = folders.firstIndex(where: { $0.id == selectedID }),
+            buttons.indices.contains(index) {
+                buttons[index].convert(buttons[index].bounds, to: controlContainer)
+            } else {
+                nil
+            }
         guard let frame else {
             selectionEffectView.alpha = 0
             return
@@ -720,21 +748,23 @@ final class FolderPickerView: UIView {
 
     private func updateButtonAppearance() {
         for (index, button) in buttons.enumerated() {
-            let selectedAlpha: CGFloat
-            if let interactiveSelection,
-               let fromIndex = folders.firstIndex(where: { $0.id == interactiveSelection.fromID }),
-               let toIndex = folders.firstIndex(where: { $0.id == interactiveSelection.toID })
-            {
-                if index == fromIndex {
-                    selectedAlpha = 1 - interactiveSelection.fraction
-                } else if index == toIndex {
-                    selectedAlpha = interactiveSelection.fraction
+            let selectedAlpha: CGFloat =
+                if let interactiveSelection,
+                let fromIndex = folders
+                    .firstIndex(where: { $0.id == interactiveSelection.fromID }),
+                    let toIndex = folders
+                        .firstIndex(where: { $0.id == interactiveSelection.toID })
+                {
+                    if index == fromIndex {
+                        1 - interactiveSelection.fraction
+                    } else if index == toIndex {
+                        interactiveSelection.fraction
+                    } else {
+                        0
+                    }
                 } else {
-                    selectedAlpha = 0
+                    folders[index].id == selectedID ? 1 : 0
                 }
-            } else {
-                selectedAlpha = folders[index].id == selectedID ? 1 : 0
-            }
             button.updateAppearance(
                 titleColor: UIColor.label.withAlphaComponent(0.68 + selectedAlpha * 0.32),
             )
@@ -822,6 +852,8 @@ final class FolderPickerView: UIView {
     }
 }
 
+// MARK: - FolderPickerScrollView
+
 private final class FolderPickerScrollView: UIScrollView {
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -833,32 +865,25 @@ private final class FolderPickerScrollView: UIScrollView {
     }
 }
 
+// MARK: - FolderButton
+
 private final class FolderButton: UIButton {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override var isHighlighted: Bool {
         didSet { contentStack.alpha = isHighlighted ? 0.55 : 1 }
     }
-
-    private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
-    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
-    private static let activeBadgeTextColor = UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .black : .white
-    }
-
-    private let contentStack = UIStackView()
-    private let folderTitleLabel = UILabel()
-    private let unreadBadgeLabel = FolderUnreadBadgeLabel()
-    private var unreadHasUnmuted = false
-    private var resolvedTitleColor = UIColor.label
 
     static func contentWidth(title: String, unreadCount: Int) -> CGFloat {
         let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
@@ -919,6 +944,20 @@ private final class FolderButton: UIButton {
         }
     }
 
+    // MARK: Private
+
+    private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let activeBadgeTextColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .black : .white
+    }
+
+    private let contentStack = UIStackView()
+    private let folderTitleLabel = UILabel()
+    private let unreadBadgeLabel = FolderUnreadBadgeLabel()
+    private var unreadHasUnmuted = false
+    private var resolvedTitleColor = UIColor.label
+
     private func configureViews() {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .horizontal
@@ -947,6 +986,8 @@ private final class FolderButton: UIButton {
         ])
     }
 }
+
+// MARK: - FolderUnreadBadgeLabel
 
 private final class FolderUnreadBadgeLabel: UILabel {
     override var intrinsicContentSize: CGSize {

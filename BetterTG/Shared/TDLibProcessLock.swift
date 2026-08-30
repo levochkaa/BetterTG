@@ -4,10 +4,24 @@ import Darwin
 import Foundation
 
 final class TDLibProcessLock {
+    // MARK: Lifecycle
+
+    deinit {
+        unlock()
+    }
+
+    private init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    // MARK: Internal
+
     enum LockError: LocalizedError {
         case appGroupUnavailable
         case openFailed(Int32)
         case acquireFailed(Int32)
+
+        // MARK: Internal
 
         var errorDescription: String? {
             switch self {
@@ -19,10 +33,6 @@ final class TDLibProcessLock {
                 "Unable to acquire the TDLib process lock (errno \(code))."
             }
         }
-    }
-
-    deinit {
-        unlock()
     }
 
     static func acquire(wait: Bool) throws -> TDLibProcessLock? {
@@ -37,7 +47,9 @@ final class TDLibProcessLock {
         guard flock(descriptor, operation) == 0 else {
             let code = errno
             close(descriptor)
-            if !wait, code == EWOULDBLOCK { return nil }
+            if !wait, code == EWOULDBLOCK {
+                return nil
+            }
             throw LockError.acquireFailed(code)
         }
         return TDLibProcessLock(descriptor: descriptor)
@@ -50,9 +62,7 @@ final class TDLibProcessLock {
         descriptor = -1
     }
 
-    private init(descriptor: Int32) {
-        self.descriptor = descriptor
-    }
+    // MARK: Private
 
     private var descriptor: Int32
 }

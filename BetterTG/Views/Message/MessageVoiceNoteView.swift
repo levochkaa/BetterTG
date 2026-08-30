@@ -4,34 +4,26 @@ import Combine
 import TDLibKitDynamic
 import UIKit
 
+// MARK: - VoiceNotePlaybackView
+
 final class VoiceNotePlaybackView: UIView, ReusableMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
-        Media.shared.objectWillChange
+        Media.shared
+            .objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in DispatchQueue.main.async { self?.render() } }
             .store(in: &cancellables)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let playButton = UIButton(type: .system)
-    private let waveformView = TelegramWaveformView()
-    private let durationLabel = UILabel()
-    private var voiceNote: VoiceNote?
-    private var localPath: String?
-    private var downloadTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
-    private var cancellables = Set<AnyCancellable>()
-
-    private var isCurrentVoicePlaying: Bool {
-        guard let localPath else { return false }
-        return Media.shared.savedMediaPath == localPath && Media.shared.isPlaying
-    }
+    // MARK: Internal
 
     func configure(voiceNote: VoiceNote) {
         prepareForReuse()
@@ -68,6 +60,40 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         waveformView.progress = 0
         if let fileID {
             Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
+        }
+    }
+
+    // MARK: Private
+
+    private let playButton = UIButton(type: .system)
+    private let waveformView = TelegramWaveformView()
+    private let durationLabel = UILabel()
+    private var voiceNote: VoiceNote?
+    private var localPath: String?
+    private var downloadTask: Task<Void, Never>?
+    private var fileCancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
+
+    private var isCurrentVoicePlaying: Bool {
+        guard let localPath else { return false }
+        return Media.shared.savedMediaPath == localPath && Media.shared.isPlaying
+    }
+
+    private static func decodeWaveform(_ data: Data) -> [CGFloat] {
+        guard !data.isEmpty else { return [] }
+        let sampleCount = data.count * 8 / 5
+        return data.withUnsafeBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            return (0..<sampleCount).map { index in
+                let bitOffset = index * 5
+                let byteIndex = bitOffset / 8
+                let shift = bitOffset % 8
+                var value = UInt16(bytes[byteIndex])
+                if byteIndex + 1 < bytes.count {
+                    value |= UInt16(bytes[byteIndex + 1]) << 8
+                }
+                return CGFloat((value >> shift) & 0x1F) / 31
+            }
         }
     }
 
@@ -154,40 +180,12 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         guard let localPath, let voiceNote else { return }
         Media.shared.toggle(with: localPath, duration: voiceNote.duration)
     }
-
-    private static func decodeWaveform(_ data: Data) -> [CGFloat] {
-        guard !data.isEmpty else { return [] }
-        let sampleCount = data.count * 8 / 5
-        return data.withUnsafeBytes { rawBuffer in
-            let bytes = rawBuffer.bindMemory(to: UInt8.self)
-            return (0 ..< sampleCount).map { index in
-                let bitOffset = index * 5
-                let byteIndex = bitOffset / 8
-                let shift = bitOffset % 8
-                var value = UInt16(bytes[byteIndex])
-                if byteIndex + 1 < bytes.count {
-                    value |= UInt16(bytes[byteIndex + 1]) << 8
-                }
-                return CGFloat((value >> shift) & 0x1F) / 31
-            }
-        }
-    }
 }
 
+// MARK: - TelegramWaveformView
+
 private final class TelegramWaveformView: UIControl {
-    var samples = [CGFloat]() {
-        didSet { setNeedsDisplay() }
-    }
-    var progress = CGFloat.zero {
-        didSet { setNeedsDisplay() }
-    }
-    var playedColor = UIColor.systemBlue {
-        didSet { setNeedsDisplay() }
-    }
-    var unplayedColor = UIColor.secondaryLabel {
-        didSet { setNeedsDisplay() }
-    }
-    var onSeek: ((CGFloat) -> Void)?
+    // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -198,12 +196,31 @@ private final class TelegramWaveformView: UIControl {
         accessibilityTraits = [.adjustable]
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func draw(_ rect: CGRect) {
+    // MARK: Internal
+
+    var onSeek: ((CGFloat) -> Void)?
+
+    var samples = [CGFloat]() {
+        didSet { setNeedsDisplay() }
+    }
+
+    var progress = CGFloat.zero {
+        didSet { setNeedsDisplay() }
+    }
+
+    var playedColor = UIColor.systemBlue {
+        didSet { setNeedsDisplay() }
+    }
+
+    var unplayedColor = UIColor.secondaryLabel {
+        didSet { setNeedsDisplay() }
+    }
+
+    override func draw(_: CGRect) {
         guard let context = UIGraphicsGetCurrentContext(), bounds.width > 0, bounds.height > 0 else { return }
         let bars = resampledBars()
         draw(bars: bars, color: unplayedColor, context: context, clipWidth: bounds.width)
@@ -213,19 +230,21 @@ private final class TelegramWaveformView: UIControl {
         context.restoreGState()
     }
 
-    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+    override func beginTracking(_ touch: UITouch, with _: UIEvent?) -> Bool {
         guard isEnabled else { return false }
         updateProgress(for: touch)
         return true
     }
 
-    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+    override func continueTracking(_ touch: UITouch, with _: UIEvent?) -> Bool {
         updateProgress(for: touch)
         return true
     }
 
-    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        if let touch { updateProgress(for: touch) }
+    override func endTracking(_ touch: UITouch?, with _: UIEvent?) {
+        if let touch {
+            updateProgress(for: touch)
+        }
     }
 
     override func accessibilityIncrement() {
@@ -235,6 +254,8 @@ private final class TelegramWaveformView: UIControl {
     override func accessibilityDecrement() {
         applyAccessibleProgress(progress - 0.05)
     }
+
+    // MARK: Private
 
     private func updateProgress(for touch: UITouch) {
         guard bounds.width > 0 else { return }
@@ -254,14 +275,14 @@ private final class TelegramWaveformView: UIControl {
     private func resampledBars() -> [CGFloat] {
         let targetCount = max(1, Int(bounds.width / 3.5))
         guard !samples.isEmpty else {
-            return (0 ..< targetCount).map { index in
+            return (0..<targetCount).map { index in
                 0.2 + CGFloat((index * 17) % 13) / 40
             }
         }
-        return (0 ..< targetCount).map { targetIndex in
+        return (0..<targetCount).map { targetIndex in
             let lower = targetIndex * samples.count / targetCount
             let upper = max(lower + 1, (targetIndex + 1) * samples.count / targetCount)
-            return samples[lower ..< min(upper, samples.count)].max() ?? 0
+            return samples[lower..<min(upper, samples.count)].max() ?? 0
         }
     }
 

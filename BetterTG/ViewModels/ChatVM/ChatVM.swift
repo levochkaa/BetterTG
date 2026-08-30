@@ -54,17 +54,15 @@ import UIKit
     
     // MARK: Internal
 
-    let messagesDidChange = PassthroughSubject<Void, Never>()
-
     struct PreparedMessageWindow {
         let messages: [CustomMessage]
         let displayedMessageID: Int64
     }
 
+    let messagesDidChange = PassthroughSubject<Void, Never>()
+
     let customChat: CustomChat
     nonisolated let chatID: Int64
-    private let previewing: Bool
-
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
     @Published var editCustomMessage: CustomMessage?
@@ -213,13 +211,14 @@ import UIKit
 
     func prepareMessageWindow(around id: Int64) async -> PreparedMessageWindow? {
         let windowSize = 50
-        var history = (try? await td.getChatHistory(
+        var history = await (try? td.getChatHistory(
             chatId: chatID,
             fromMessageId: id,
             limit: windowSize,
             offset: -(windowSize / 2),
             onlyLocal: false,
-        ).messages) ?? []
+        )
+        .messages) ?? []
         guard !Task.isCancelled else { return nil }
         if !history.contains(where: { $0.id == id }),
            let target = try? await td.getMessage(chatId: chatID, messageId: id)
@@ -742,6 +741,8 @@ import UIKit
     }
 
     // MARK: Private
+
+    private let previewing: Bool
 
     private var hasMoreMessages = true
 }

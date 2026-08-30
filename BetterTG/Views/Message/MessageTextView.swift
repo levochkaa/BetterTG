@@ -4,7 +4,7 @@ import TDLibKitDynamic
 import UIKit
 
 final class MessageTextContentView: UITextView, UITextViewDelegate {
-    override var canBecomeFirstResponder: Bool { false }
+    // MARK: Lifecycle
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -30,10 +30,13 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleEntityTap(_:))))
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
+
+    override var canBecomeFirstResponder: Bool { false }
 
     override var intrinsicContentSize: CGSize {
         guard attributedText.length > 0 else { return .zero }
@@ -58,11 +61,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             invalidateIntrinsicContentSize()
         }
     }
-
-    private var formattedText: FormattedText?
-    private var lastLayoutWidth = CGFloat.zero
-    private var maximumLayoutWidth = Utils.maxMessageContentWidth
-    private let statusLabel = UILabel()
 
     func configure(
         formattedText: FormattedText,
@@ -92,6 +90,17 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         invalidateIntrinsicContentSize()
     }
 
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        textView.selectedTextRange = nil
+    }
+
+    // MARK: Private
+
+    private var formattedText: FormattedText?
+    private var lastLayoutWidth = CGFloat.zero
+    private var maximumLayoutWidth = Utils.maxMessageContentWidth
+    private let statusLabel = UILabel()
+
     private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
         let storage = NSTextStorage(attributedString: attributedText)
         let manager = NSLayoutManager()
@@ -109,9 +118,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private func statusSpacer(width: CGFloat) -> NSAttributedString {
         let spacerCharacter = "\u{00a0}"
         let spacerText = "\u{200b}" + spacerCharacter + spacerCharacter
-        let characterWidth = (spacerCharacter as NSString).size(
-            withAttributes: [.font: statusLabel.font as Any],
-        ).width
+        let characterWidth = (spacerCharacter as NSString)
+            .size(
+                withAttributes: [.font: statusLabel.font as Any],
+            )
+            .width
         let spacer = NSMutableAttributedString(
             string: spacerText,
             attributes: [
@@ -125,10 +136,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             range: NSRange(location: 1, length: 1),
         )
         return spacer
-    }
-
-    func textViewDidChangeSelection(_ textView: UITextView) {
-        textView.selectedTextRange = nil
     }
 
     @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {

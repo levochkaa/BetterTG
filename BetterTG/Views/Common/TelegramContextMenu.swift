@@ -3,19 +3,17 @@
 import ObjectiveC.runtime
 import UIKit
 
+// MARK: - TelegramContextMenuAction
+
 struct TelegramContextMenuAction {
-    let title: String
-    let image: UIImage?
-    let isDestructive: Bool
-    let startsNewSection: Bool
-    let handler: () -> Void
+    // MARK: Lifecycle
 
     init(
         title: String,
         image: UIImage? = nil,
         isDestructive: Bool = false,
         startsNewSection: Bool = false,
-        handler: @escaping () -> Void
+        handler: @escaping () -> Void,
     ) {
         self.title = title
         self.image = image
@@ -23,7 +21,17 @@ struct TelegramContextMenuAction {
         self.startsNewSection = startsNewSection
         self.handler = handler
     }
+
+    // MARK: Internal
+
+    let title: String
+    let image: UIImage?
+    let isDestructive: Bool
+    let startsNewSection: Bool
+    let handler: () -> Void
 }
+
+// MARK: - TelegramContextMenuPresentationStyle
 
 enum TelegramContextMenuPresentationStyle: Equatable {
     case message
@@ -32,7 +40,11 @@ enum TelegramContextMenuPresentationStyle: Equatable {
     case menuOnly
 }
 
+// MARK: - TelegramContextMenuKeyboardHost
+
 private enum TelegramContextMenuKeyboardHost {
+    // MARK: Internal
+
     static func visibleKeyboardWindow(for sourceWindow: UIWindow) -> UIWindow? {
         if #available(iOS 16.0, *),
            let screen = sourceWindow.windowScene?.screen,
@@ -42,7 +54,8 @@ private enum TelegramContextMenuKeyboardHost {
             return keyboardWindow
         }
 
-        return UIApplication.shared.connectedScenes
+        return UIApplication.shared
+            .connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .first { window in
@@ -52,12 +65,13 @@ private enum TelegramContextMenuKeyboardHost {
             }
     }
 
-    @available(iOS 16.0, *)
-    private static func remoteKeyboardWindow(on screen: UIScreen) -> UIWindow? {
+    // MARK: Private
+
+    @available(iOS 16.0, *) private static func remoteKeyboardWindow(on screen: UIScreen) -> UIWindow? {
         guard let keyboardClass = NSClassFromString("UIRemoteKeyboardWindow"),
               let method = class_getClassMethod(
                   keyboardClass,
-                  NSSelectorFromString("remoteKeyboardWindowForScreen:create:")
+                  NSSelectorFromString("remoteKeyboardWindowForScreen:create:"),
               )
         else { return nil }
 
@@ -65,7 +79,7 @@ private enum TelegramContextMenuKeyboardHost {
             AnyClass,
             Selector,
             UIScreen,
-            Bool
+            Bool,
         ) -> UIWindow?
         let implementation = method_getImplementation(method)
         let getKeyboardWindow = unsafeBitCast(implementation, to: GetKeyboardWindow.self)
@@ -73,16 +87,18 @@ private enum TelegramContextMenuKeyboardHost {
             keyboardClass,
             NSSelectorFromString("remoteKeyboardWindowForScreen:create:"),
             screen,
-            false
+            false,
         )
     }
 }
 
+// MARK: - TelegramContextMenuExtractableView
+
 /// Keeps an extracted view's layout slot occupied while the real content is
 /// temporarily hosted by the context-menu overlay, mirroring Telegram's
 /// takeView/putBack contract.
-class TelegramContextMenuExtractableView: UIView {
-    let extractedContentView = UIView()
+final class TelegramContextMenuExtractableView: UIView {
+    // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -91,10 +107,15 @@ class TelegramContextMenuExtractableView: UIView {
         installContentConstraints()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
+
+    let extractedContentView = UIView()
+
+    // MARK: Fileprivate
 
     fileprivate func takeContextMenuContent() -> UIView? {
         guard extractedContentView.superview === self else { return nil }
@@ -122,6 +143,8 @@ class TelegramContextMenuExtractableView: UIView {
         placeholderConstraints.removeAll()
     }
 
+    // MARK: Private
+
     private var contentConstraints = [NSLayoutConstraint]()
     private var placeholderConstraints = [NSLayoutConstraint]()
 
@@ -137,8 +160,7 @@ class TelegramContextMenuExtractableView: UIView {
 }
 
 extension UIViewController {
-    @discardableResult
-    func presentTelegramContextMenu(
+    @discardableResult func presentTelegramContextMenu(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
         tracking gesture: UIGestureRecognizer? = nil,
@@ -176,8 +198,10 @@ extension UIViewController {
     }
 }
 
+// MARK: - TelegramContextMenuController
+
 private final class TelegramContextMenuController: UIViewController {
-    fileprivate static var activeController: TelegramContextMenuController?
+    // MARK: Lifecycle
 
     init(
         sourceView: UIView,
@@ -197,14 +221,15 @@ private final class TelegramContextMenuController: UIViewController {
         trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     deinit {
         trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -216,6 +241,28 @@ private final class TelegramContextMenuController: UIViewController {
         guard !isDismissing else { return }
         layoutPreviewAndMenu()
     }
+
+    // MARK: Fileprivate
+
+    fileprivate static var activeController: TelegramContextMenuController?
+
+    fileprivate func show(in sourceWindow: UIWindow) {
+        let hostView = TelegramContextMenuKeyboardHost.visibleKeyboardWindow(for: sourceWindow) ?? sourceWindow
+        presentationHostView = hostView
+        Self.activeController = self
+        loadViewIfNeeded()
+        view.frame = hostView.bounds
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.layer.zPosition = 1000
+        hostView.addSubview(view)
+        beginAppearanceTransition(true, animated: false)
+        endAppearanceTransition()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        animateIn()
+    }
+
+    // MARK: Private
 
     private weak var sourceView: UIView?
     private let sourceTransform: CGAffineTransform
@@ -231,6 +278,7 @@ private final class TelegramContextMenuController: UIViewController {
         effect.isInteractive = false
         return UIVisualEffectView(effect: effect)
     }()
+
     private let menuStack = UIStackView()
     private let selectionHighlightView = UIView()
     private var previewView: UIView?
@@ -248,21 +296,10 @@ private final class TelegramContextMenuController: UIViewController {
     private var isDismissing = false
     private var isPerformingAction = false
 
-    fileprivate func show(in sourceWindow: UIWindow) {
-        let hostView = TelegramContextMenuKeyboardHost.visibleKeyboardWindow(for: sourceWindow) ?? sourceWindow
-        presentationHostView = hostView
-        Self.activeController = self
-        loadViewIfNeeded()
-        view.frame = hostView.bounds
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.layer.zPosition = 1000
-        hostView.addSubview(view)
-        beginAppearanceTransition(true, animated: false)
-        endAppearanceTransition()
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-        animateIn()
-    }
+    private lazy var menuSelectionGesture = UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(menuSelectionGestureChanged(_:)),
+    )
 
     private func configureViews() {
         view.backgroundColor = .clear
@@ -379,7 +416,7 @@ private final class TelegramContextMenuController: UIViewController {
             targetMessageScale = min(
                 1,
                 availableWidth / max(1, messageContentSize.width),
-                maximumPreviewHeight / max(1, messageContentSize.height)
+                maximumPreviewHeight / max(1, messageContentSize.height),
             )
             let previewHeight = messageContentSize.height * targetMessageScale
             let previewWidth = messageContentSize.width * targetMessageScale
@@ -397,61 +434,61 @@ private final class TelegramContextMenuController: UIViewController {
                 x: menuX,
                 y: targetPreviewFrame.maxY + spacing,
                 width: menuWidth,
-                height: menuHeight
+                height: menuHeight,
             )
         case .avatar:
             let spacing: CGFloat = 10
             let squareSize = min(
                 view.bounds.width - 32,
-                maximumBottom - verticalInset - menuHeight - spacing
+                maximumBottom - verticalInset - menuHeight - spacing,
             )
             let centeredY = view.bounds.midY - squareSize / 2
             let previewY = min(
                 max(verticalInset, centeredY),
-                maximumBottom - menuHeight - spacing - squareSize
+                maximumBottom - menuHeight - spacing - squareSize,
             )
             targetPreviewFrame = CGRect(
                 x: (view.bounds.width - squareSize) / 2,
                 y: previewY,
                 width: squareSize,
-                height: squareSize
+                height: squareSize,
             )
             targetMenuFrame = CGRect(
                 x: view.bounds.width - horizontalInset - menuWidth,
                 y: targetPreviewFrame.maxY + spacing,
                 width: menuWidth,
-                height: menuHeight
+                height: menuHeight,
             )
         case .chatPreview:
             let spacing: CGFloat = 10
             let preferredHeight = view.bounds.height * 0.48
             let previewHeight = min(
                 preferredHeight,
-                maximumBottom - verticalInset - menuHeight - spacing
+                maximumBottom - verticalInset - menuHeight - spacing,
             )
             targetPreviewFrame = CGRect(
                 x: horizontalInset,
                 y: verticalInset,
                 width: availableWidth,
-                height: max(220, previewHeight)
+                height: max(220, previewHeight),
             )
             targetMenuFrame = CGRect(
                 x: view.bounds.width - horizontalInset - menuWidth,
                 y: targetPreviewFrame.maxY + spacing,
                 width: menuWidth,
-                height: menuHeight
+                height: menuHeight,
             )
         case .menuOnly:
             targetPreviewFrame = .zero
             let menuX = min(
                 max(horizontalInset, sourceFrame.midX - menuWidth / 2),
-                view.bounds.width - horizontalInset - menuWidth
+                view.bounds.width - horizontalInset - menuWidth,
             )
             targetMenuFrame = CGRect(
                 x: menuX,
                 y: max(verticalInset, sourceFrame.minY - 4 - menuHeight),
                 width: menuWidth,
-                height: menuHeight
+                height: menuHeight,
             )
         }
 
@@ -461,13 +498,13 @@ private final class TelegramContextMenuController: UIViewController {
                 previewContainer.center = CGPoint(x: targetPreviewFrame.midX, y: targetPreviewFrame.midY)
                 previewContainer.transform = CGAffineTransform(
                     scaleX: targetMessageScale,
-                    y: targetMessageScale
+                    y: targetMessageScale,
                 )
             } else {
                 previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
                 previewContainer.transform = CGAffineTransform(
                     scaleX: sourceFrame.width / max(1, messageContentSize.width),
-                    y: sourceFrame.height / max(1, messageContentSize.height)
+                    y: sourceFrame.height / max(1, messageContentSize.height),
                 )
             }
         } else if presentationStyle == .avatar {
@@ -479,7 +516,7 @@ private final class TelegramContextMenuController: UIViewController {
                 previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
                 previewContainer.transform = CGAffineTransform(
                     scaleX: sourceFrame.width / max(1, targetPreviewFrame.width),
-                    y: sourceFrame.height / max(1, targetPreviewFrame.height)
+                    y: sourceFrame.height / max(1, targetPreviewFrame.height),
                 )
                 previewView?.layer.cornerRadius = targetPreviewFrame.width / 2
             }
@@ -492,14 +529,15 @@ private final class TelegramContextMenuController: UIViewController {
                 previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
                 previewContainer.transform = CGAffineTransform(
                     scaleX: sourceFrame.width / max(1, targetPreviewFrame.width),
-                    y: sourceFrame.height / max(1, targetPreviewFrame.height)
+                    y: sourceFrame.height / max(1, targetPreviewFrame.height),
                 )
             }
-        } else if hasAnimatedIn {
-            previewContainer.frame = targetPreviewFrame
-        } else {
-            previewContainer.frame = presentationStyle == .menuOnly ? .zero : sourceFrame
-        }
+        } else previewContainer.frame =
+            if hasAnimatedIn {
+                targetPreviewFrame
+            } else {
+                presentationStyle == .menuOnly ? .zero : sourceFrame
+            }
         menuEffectView.frame = targetMenuFrame
         previewView?.frame = previewContainer.bounds
         if presentationStyle == .avatar {
@@ -526,22 +564,22 @@ private final class TelegramContextMenuController: UIViewController {
                 if self.presentationStyle == .message {
                     self.previewContainer.center = CGPoint(
                         x: self.targetPreviewFrame.midX,
-                        y: self.targetPreviewFrame.midY
+                        y: self.targetPreviewFrame.midY,
                     )
                     self.previewContainer.transform = CGAffineTransform(
                         scaleX: self.targetMessageScale,
-                        y: self.targetMessageScale
+                        y: self.targetMessageScale,
                     )
                 } else if self.presentationStyle == .avatar {
                     self.previewContainer.center = CGPoint(
                         x: self.targetPreviewFrame.midX,
-                        y: self.targetPreviewFrame.midY
+                        y: self.targetPreviewFrame.midY,
                     )
                     self.previewContainer.transform = .identity
                 } else if self.presentationStyle == .chatPreview {
                     self.previewContainer.center = CGPoint(
                         x: self.targetPreviewFrame.midX,
-                        y: self.targetPreviewFrame.midY
+                        y: self.targetPreviewFrame.midY,
                     )
                     self.previewContainer.transform = .identity
                 } else {
@@ -573,19 +611,19 @@ private final class TelegramContextMenuController: UIViewController {
                     self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
                     self.previewContainer.transform = CGAffineTransform(
                         scaleX: returnFrame.width / max(1, self.messageContentSize.width),
-                        y: returnFrame.height / max(1, self.messageContentSize.height)
+                        y: returnFrame.height / max(1, self.messageContentSize.height),
                     )
                 } else if self.presentationStyle == .avatar {
                     self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
                     self.previewContainer.transform = CGAffineTransform(
                         scaleX: returnFrame.width / max(1, self.targetPreviewFrame.width),
-                        y: returnFrame.height / max(1, self.targetPreviewFrame.height)
+                        y: returnFrame.height / max(1, self.targetPreviewFrame.height),
                     )
                 } else if self.presentationStyle == .chatPreview {
                     self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
                     self.previewContainer.transform = CGAffineTransform(
                         scaleX: returnFrame.width / max(1, self.targetPreviewFrame.width),
-                        y: returnFrame.height / max(1, self.targetPreviewFrame.height)
+                        y: returnFrame.height / max(1, self.targetPreviewFrame.height),
                     )
                 } else {
                     self.previewContainer.frame = returnFrame
@@ -712,7 +750,7 @@ private final class TelegramContextMenuController: UIViewController {
             let lower = min(previousIndex, nextIndex)
             let upper = max(previousIndex, nextIndex)
             guard lower != upper else { return false }
-            return actions[(lower + 1) ... upper].contains(where: \.startsNewSection)
+            return actions[(lower + 1)...upper].contains(where: \.startsNewSection)
         }()
 
         if previousButton == nil || selectionHighlightView.alpha < 0.01 || crossesSectionDivider {
@@ -750,12 +788,9 @@ private final class TelegramContextMenuController: UIViewController {
             }
         }
     }
-
-    private lazy var menuSelectionGesture = UILongPressGestureRecognizer(
-        target: self,
-        action: #selector(menuSelectionGestureChanged(_:)),
-    )
 }
+
+// MARK: - TelegramContextMenuSectionDivider
 
 private final class TelegramContextMenuSectionDivider: UIView {
     override init(frame: CGRect) {
@@ -775,17 +810,18 @@ private final class TelegramContextMenuSectionDivider: UIView {
         ])
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 }
 
+// MARK: - TelegramContextMenuActionButton
+
 private final class TelegramContextMenuActionButton: UIControl {
-    let menuAction: TelegramContextMenuAction
+    // MARK: Lifecycle
 
     init(action: TelegramContextMenuAction) {
-        menuAction = action
+        self.menuAction = action
         super.init(frame: .zero)
 
         let color: UIColor = action.isDestructive ? .systemRed : .label
@@ -815,19 +851,28 @@ private final class TelegramContextMenuActionButton: UIControl {
         accessibilityTraits = .button
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
+
+    let menuAction: TelegramContextMenuAction
+
+    // MARK: Private
 
     private let titleLabel = UILabel()
     private let iconView = UIImageView()
 }
 
+// MARK: - TelegramContextGestureRecognizer
+
 /// Telegram's context gesture starts showing press progress before activation and
 /// yields immediately to a real drag. This keeps scrolling responsive while making
 /// a stationary hold feel immediate.
 final class TelegramContextGestureRecognizer: UIGestureRecognizer {
+    // MARK: Internal
+
     var onPressingChanged: ((Bool) -> Void)?
     var feedbackDelay: TimeInterval = 0.1
     var activationDelay: TimeInterval = 0.26
@@ -909,6 +954,8 @@ final class TelegramContextGestureRecognizer: UIGestureRecognizer {
         }
     }
 
+    // MARK: Private
+
     private var feedbackWorkItem: DispatchWorkItem?
     private var activationWorkItem: DispatchWorkItem?
     private var initialLocation: CGPoint?
@@ -920,7 +967,7 @@ final class TelegramContextGestureRecognizer: UIGestureRecognizer {
         while let currentView = ancestor {
             for gesture in currentView.gestureRecognizers ?? [] where gesture !== self {
                 switch gesture.state {
-                case .possible, .began, .changed:
+                case .began, .changed, .possible:
                     gesture.isEnabled = false
                     gesture.isEnabled = true
                 default:
@@ -946,7 +993,9 @@ extension UIView {
     var nearestViewController: UIViewController? {
         var responder: UIResponder? = self
         while let current = responder {
-            if let controller = current as? UIViewController { return controller }
+            if let controller = current as? UIViewController {
+                return controller
+            }
             responder = current.next
         }
         return nil

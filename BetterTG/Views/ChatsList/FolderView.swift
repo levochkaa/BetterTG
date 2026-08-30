@@ -4,10 +4,14 @@ import Combine
 import TDLibKitDynamic
 import UIKit
 
+// MARK: - ArchiveViewController
+
 final class ArchiveViewController: UIViewController {
+    // MARK: Lifecycle
+
     init(folder: CustomFolder, rootVM: RootVM) {
-        folderController = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: true)
-        navigationBarView = TelegramListNavigationBar(
+        self.folderController = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: true)
+        self.navigationBarView = TelegramListNavigationBar(
             title: folder.name,
             placeholder: "Search \(folder.name.lowercased())…",
             leftImage: UIImage(systemName: "chevron.left"),
@@ -18,10 +22,11 @@ final class ArchiveViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -74,10 +79,14 @@ final class ArchiveViewController: UIViewController {
             - folderController.searchScrollOffset
     }
 
+    // MARK: Private
+
     private let folderController: FolderViewController
     private let navigationBarView: TelegramListNavigationBar
     private var navigationBarHeightConstraint: NSLayoutConstraint!
 }
+
+// MARK: - FolderViewController
 
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
     // MARK: Lifecycle
@@ -370,12 +379,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
         let muted = chat.chat.notificationSettings.muteFor > 0
-        let isCustomFolder: Bool
-        if case .folder = folder.type {
-            isCustomFolder = true
-        } else {
-            isCustomFolder = false
-        }
+        let isCustomFolder =
+            if case .folder = folder.type {
+                true
+            } else {
+                false
+            }
 
         var actions = [
             TelegramContextMenuAction(
@@ -395,17 +404,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                                 chatId: chat.id,
                                 forceRead: true,
                                 messageIds: [messageID],
-                                source: nil
+                                source: nil,
                             )
                         }
                         _ = try? await td.toggleChatIsMarkedAsUnread(
                             chatId: chat.id,
-                            isMarkedAsUnread: false
+                            isMarkedAsUnread: false,
                         )
                     } else {
                         _ = try? await td.toggleChatIsMarkedAsUnread(
                             chatId: chat.id,
-                            isMarkedAsUnread: true
+                            isMarkedAsUnread: true,
                         )
                     }
                 }
@@ -417,7 +426,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 Task {
                     try? await td.addChatToList(
                         chatId: chat.id,
-                        chatList: archived ? .chatListMain : .chatListArchive
+                        chatList: archived ? .chatListMain : .chatListArchive,
                     )
                 }
             },
@@ -430,7 +439,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     try? await td.toggleChatIsPinned(
                         chatId: chat.id,
                         chatList: self.folder.chatList,
-                        isPinned: !pinned
+                        isPinned: !pinned,
                     )
                 }
             },
@@ -442,8 +451,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     try? await td.setChatNotificationSettings(
                         chatId: chat.id,
                         notificationSettings: chat.chat.notificationSettings.withMuteFor(
-                            muted ? 0 : Int(Int32.max)
-                        )
+                            muted ? 0 : Int(Int32.max),
+                        ),
                     )
                 }
             },
@@ -458,7 +467,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             ) { [weak self] in
                 self?.confirmDelete(
                     chat: chat,
-                    forAll: !chat.chat.canBeDeletedOnlyForSelf && chat.chat.canBeDeletedForAllUsers
+                    forAll: !chat.chat.canBeDeletedOnlyForSelf && chat.chat.canBeDeletedForAllUsers,
                 )
             })
         }
@@ -479,7 +488,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             actions: menu(for: chat),
             tracking: gesture,
             presentationStyle: .chatPreview,
-            previewController: previewController
+            previewController: previewController,
         )
     }
 
@@ -503,7 +512,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 Task {
                     try? await td.editChatFolder(
                         chatFolderId: target.0,
-                        folder: target.2.adding(chatID: chat.id)
+                        folder: target.2.adding(chatID: chat.id),
                     )
                 }
             })
@@ -514,7 +523,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             x: view.bounds.midX,
             y: view.bounds.maxY - view.safeAreaInsets.bottom,
             width: 1,
-            height: 1
+            height: 1,
         )
         present(picker, animated: true)
     }
@@ -544,7 +553,7 @@ private extension ChatFolder {
         copy(
             excludedChatIds: excludedChatIds.filter { $0 != chatID },
             includedChatIds: includedChatIds.contains(chatID) ? includedChatIds : includedChatIds + [chatID],
-            pinnedChatIds: pinnedChatIds
+            pinnedChatIds: pinnedChatIds,
         )
     }
 
@@ -552,14 +561,14 @@ private extension ChatFolder {
         copy(
             excludedChatIds: excludedChatIds.contains(chatID) ? excludedChatIds : excludedChatIds + [chatID],
             includedChatIds: includedChatIds.filter { $0 != chatID },
-            pinnedChatIds: pinnedChatIds.filter { $0 != chatID }
+            pinnedChatIds: pinnedChatIds.filter { $0 != chatID },
         )
     }
 
     private func copy(
         excludedChatIds: [Int64],
         includedChatIds: [Int64],
-        pinnedChatIds: [Int64]
+        pinnedChatIds: [Int64],
     ) -> ChatFolder {
         ChatFolder(
             colorId: colorId,
@@ -576,7 +585,7 @@ private extension ChatFolder {
             includedChatIds: includedChatIds,
             isShareable: isShareable,
             name: name,
-            pinnedChatIds: pinnedChatIds
+            pinnedChatIds: pinnedChatIds,
         )
     }
 }
@@ -599,7 +608,7 @@ private extension ChatNotificationSettings {
             useDefaultShowPreview: useDefaultShowPreview,
             useDefaultShowStoryPoster: useDefaultShowStoryPoster,
             useDefaultSound: useDefaultSound,
-            useDefaultStorySound: useDefaultStorySound
+            useDefaultStorySound: useDefaultStorySound,
         )
     }
 }

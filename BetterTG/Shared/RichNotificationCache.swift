@@ -4,11 +4,15 @@ import Foundation
 import ImageIO
 import UIKit
 
+// MARK: - RichNotificationPeerKind
+
 enum RichNotificationPeerKind: String, Codable, Hashable {
     case privateChat = "private"
     case basicGroup
     case supergroup
 }
+
+// MARK: - RichNotificationPeerReference
 
 struct RichNotificationPeerReference: Codable, Hashable {
     let kind: RichNotificationPeerKind
@@ -17,6 +21,8 @@ struct RichNotificationPeerReference: Codable, Hashable {
     var cacheKey: String { "\(kind.rawValue)-\(id)" }
 }
 
+// MARK: - RichNotificationMessageReference
+
 struct RichNotificationMessageReference: Hashable {
     let peer: RichNotificationPeerReference
     let serverMessageID: Int64
@@ -24,7 +30,11 @@ struct RichNotificationMessageReference: Hashable {
     var cacheKey: String { "\(peer.cacheKey)-\(serverMessageID)" }
 }
 
+// MARK: - RichNotificationCache
+
 enum RichNotificationCache {
+    // MARK: Internal
+
     static func avatarData(for peer: RichNotificationPeerReference) -> Data? {
         try? Data(contentsOf: avatarURL(for: peer))
     }
@@ -46,7 +56,8 @@ enum RichNotificationCache {
     }
 
     static func writeTemporaryAttachment(_ data: Data) -> URL? {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("RichNotificationAttachments", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -70,6 +81,8 @@ enum RichNotificationCache {
         else { return nil }
         return UIImage(cgImage: image).jpegData(compressionQuality: 0.86)
     }
+
+    // MARK: Private
 
     private static var avatarDirectoryURL: URL? {
         directoryURL(named: "avatars")

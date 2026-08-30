@@ -5,6 +5,8 @@ import UIKit
 import UserNotifications
 
 enum RichNotificationContentBuilder {
+    // MARK: Internal
+
     static func content(
         from original: UNNotificationContent,
         metadata: RelayNotificationMetadata,
@@ -15,8 +17,8 @@ enum RichNotificationContentBuilder {
         if let mediaData = resolved.mediaData ?? metadata.messageReference
             .flatMap(RichNotificationCache.mediaURL)
             .flatMap({ try? Data(contentsOf: $0) }),
-           let url = RichNotificationCache.writeTemporaryAttachment(mediaData),
-           let attachment = try? UNNotificationAttachment(identifier: "telegram-media", url: url)
+            let url = RichNotificationCache.writeTemporaryAttachment(mediaData),
+            let attachment = try? UNNotificationAttachment(identifier: "telegram-media", url: url)
         {
             mutable.attachments = [attachment]
         }
@@ -56,7 +58,7 @@ enum RichNotificationContentBuilder {
         }
         if groupName != nil,
            let groupAvatar = resolved.conversationAvatarData
-            ?? RichNotificationCache.avatarData(for: metadata.peer)
+           ?? RichNotificationCache.avatarData(for: metadata.peer)
         {
             intent.setImage(INImage(imageData: groupAvatar), forParameterNamed: \.speakableGroupName)
         }
@@ -79,6 +81,8 @@ enum RichNotificationContentBuilder {
             mediaData: mediaData,
         )
     }
+
+    // MARK: Private
 
     private static func generatedAvatar(name: String, id: Int64) -> Data? {
         let size = CGSize(width: 128, height: 128)

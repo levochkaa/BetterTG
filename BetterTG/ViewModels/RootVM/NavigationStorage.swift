@@ -2,12 +2,15 @@
 
 import UIKit
 
-@MainActor
-final class NavigationStorage {
+@MainActor final class NavigationStorage {
+    // MARK: Lifecycle
+
     private init() {
         navigationController.navigationBar.prefersLargeTitles = false
         navigationController.navigationBar.isTranslucent = true
     }
+
+    // MARK: Internal
 
     static let shared = NavigationStorage()
 
@@ -17,23 +20,22 @@ final class NavigationStorage {
         navigationController.viewControllers
     }
 
-    @discardableResult
-    func setRoot(_ controller: UIViewController) -> UINavigationController {
+    @discardableResult func setRoot(_ controller: UIViewController) -> UINavigationController {
         navigationController.setViewControllers([controller], animated: false)
         return navigationController
     }
 
     func push(_ route: Route, animated: Bool = true) {
-        let controller: UIViewController
-        switch route {
-        case .customChat(let customChat, let targetMessageID):
-            controller = ChatViewController(
-                customChat: customChat,
-                targetMessageID: targetMessageID,
-            )
-        case .archive(let customFolder):
-            controller = ArchiveViewController(folder: customFolder, rootVM: .shared)
-        }
+        let controller: UIViewController =
+            switch route {
+            case .customChat(let customChat, let targetMessageID):
+                ChatViewController(
+                    customChat: customChat,
+                    targetMessageID: targetMessageID,
+                )
+            case .archive(let customFolder):
+                ArchiveViewController(folder: customFolder, rootVM: .shared)
+            }
         navigationController.pushViewController(controller, animated: animated)
     }
 

@@ -4,6 +4,8 @@ import TDLibKitDynamic
 import UIKit
 
 final class ChatComposerView: UIView {
+    // MARK: Lifecycle
+
     init(chatVM: ChatVM) {
         self.chatVM = chatVM
         super.init(frame: .zero)
@@ -12,10 +14,11 @@ final class ChatComposerView: UIView {
         update(from: chatVM)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     var onPickPhotos: (() -> Void)?
     var onTakePhoto: (() -> Void)?
@@ -64,6 +67,58 @@ final class ChatComposerView: UIView {
             }
         }
     }
+
+    func update(from chatVM: ChatVM) {
+        isApplyingState = true
+        let shouldFocus = lastReplyID != chatVM.replyMessage?.id || lastEditID != chatVM.editCustomMessage?.id
+        lastReplyID = chatVM.replyMessage?.id
+        lastEditID = chatVM.editCustomMessage?.id
+        let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
+        textView.setAttributedText(targetText)
+
+        let showsReplyPreview: Bool
+        if let edited = chatVM.editCustomMessage {
+            showsReplyPreview = true
+            replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
+                self?.onScrollToMessage?(edited.id)
+            }
+        } else if let reply = chatVM.replyMessage {
+            showsReplyPreview = true
+            replySnippet
+                .configure(title: reply.senderUser?.firstName ?? "Reply", message: reply.message) { [weak self] in
+                    self?.onScrollToMessage?(reply.id)
+                }
+        } else {
+            showsReplyPreview = false
+        }
+        setReplyPreviewVisible(showsReplyPreview, animated: window != nil)
+
+        let imageIDs = chatVM.displayedImages.map(\.id)
+        if displayedImageIDs != imageIDs {
+            displayedImageIDs = imageIDs
+            rebuildPhotos()
+        }
+        photosScroll.isHidden = chatVM.displayedImages.isEmpty
+
+        inputRow.isHidden = chatVM.recordingVoiceNote
+        recordingRow.isHidden = !chatVM.recordingVoiceNote
+        if chatVM.recordingVoiceNote {
+            if chatVM.timer == nil {
+                chatVM.startTimer()
+            }
+            recordingLabel.text = "● \(chatVM.formattedTimerCount)"
+            recordingLabel.textColor = .systemRed
+        } else if chatVM.timer != nil {
+            chatVM.stopTimer()
+        }
+        updateActionButton()
+        isApplyingState = false
+        if shouldFocus, lastReplyID != nil || lastEditID != nil {
+            textView.becomeFirstResponder()
+        }
+    }
+
+    // MARK: Private
 
     private let chatVM: ChatVM
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -251,61 +306,15 @@ final class ChatComposerView: UIView {
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
         recordingSendButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        actionButton.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(actionLongPressed(_:))))
+        actionButton.addGestureRecognizer(UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(actionLongPressed(_:)),
+        ))
 
         textView.onTextChange = { [weak self] text in self?.textChanged(text) }
         textView.onPasteImages = { [weak self] images in
             guard let self else { return }
-            self.chatVM.displayedImages = Array(images.prefix(10))
-        }
-    }
-
-    func update(from chatVM: ChatVM) {
-        isApplyingState = true
-        let shouldFocus = lastReplyID != chatVM.replyMessage?.id || lastEditID != chatVM.editCustomMessage?.id
-        lastReplyID = chatVM.replyMessage?.id
-        lastEditID = chatVM.editCustomMessage?.id
-        let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
-        textView.setAttributedText(targetText)
-
-        let showsReplyPreview: Bool
-        if let edited = chatVM.editCustomMessage {
-            showsReplyPreview = true
-            replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
-                self?.onScrollToMessage?(edited.id)
-            }
-        } else if let reply = chatVM.replyMessage {
-            showsReplyPreview = true
-            replySnippet.configure(title: reply.senderUser?.firstName ?? "Reply", message: reply.message) { [weak self] in
-                self?.onScrollToMessage?(reply.id)
-            }
-        } else {
-            showsReplyPreview = false
-        }
-        setReplyPreviewVisible(showsReplyPreview, animated: window != nil)
-
-        let imageIDs = chatVM.displayedImages.map(\.id)
-        if displayedImageIDs != imageIDs {
-            displayedImageIDs = imageIDs
-            rebuildPhotos()
-        }
-        photosScroll.isHidden = chatVM.displayedImages.isEmpty
-
-        inputRow.isHidden = chatVM.recordingVoiceNote
-        recordingRow.isHidden = !chatVM.recordingVoiceNote
-        if chatVM.recordingVoiceNote {
-            if chatVM.timer == nil {
-                chatVM.startTimer()
-            }
-            recordingLabel.text = "● \(chatVM.formattedTimerCount)"
-            recordingLabel.textColor = .systemRed
-        } else if chatVM.timer != nil {
-            chatVM.stopTimer()
-        }
-        updateActionButton()
-        isApplyingState = false
-        if shouldFocus, lastReplyID != nil || lastEditID != nil {
-            textView.becomeFirstResponder()
+            chatVM.displayedImages = Array(images.prefix(10))
         }
     }
 
@@ -341,9 +350,9 @@ final class ChatComposerView: UIView {
     }
 
     private func rebuildPhotos() {
-        photosStack.arrangedSubviews.forEach {
-            photosStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
+        for arrangedSubview in photosStack.arrangedSubviews {
+            photosStack.removeArrangedSubview(arrangedSubview)
+            arrangedSubview.removeFromSuperview()
         }
         for selectedImage in chatVM.displayedImages {
             let container = UIView()

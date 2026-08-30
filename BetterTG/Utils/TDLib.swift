@@ -6,9 +6,13 @@ import UIKit
 
 var td: TDLibClient { TDLib.shared.activeClient }
 
+// MARK: - TelegramAccountError
+
 enum TelegramAccountError: LocalizedError {
     case unavailable
     case persistenceFailed
+
+    // MARK: Internal
 
     var errorDescription: String? {
         switch self {
@@ -20,8 +24,14 @@ enum TelegramAccountError: LocalizedError {
     }
 }
 
+// MARK: - TDLib
+
 final class TDLib: @unchecked Sendable {
+    // MARK: Lifecycle
+
     private init() {}
+
+    // MARK: Internal
 
     static let shared = TDLib()
 
@@ -70,8 +80,7 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
-    @MainActor
-    func addAccount() throws {
+    @MainActor func addAccount() throws {
         let now = Date()
         let account = TelegramAccount(
             id: UUID(),
@@ -94,8 +103,7 @@ final class TDLib: @unchecked Sendable {
         retire(previous, accountID: previous?.accountID, endingSession: false, removeDirectory: false)
     }
 
-    @MainActor
-    func switchToAccount(_ accountID: UUID) throws {
+    @MainActor func switchToAccount(_ accountID: UUID) throws {
         guard accountID != activeAccountID else { return }
         guard var account = accounts.first(where: { $0.id == accountID }) else {
             throw TelegramAccountError.unavailable
@@ -122,8 +130,7 @@ final class TDLib: @unchecked Sendable {
         )
     }
 
-    @MainActor
-    func logOutActiveAccount() throws {
+    @MainActor func logOutActiveAccount() throws {
         guard let removedAccount = activeAccount else { throw TelegramAccountError.unavailable }
         let previous = activeClientSnapshot()
         let survivors = accounts.filter { $0.id != removedAccount.id }
@@ -201,6 +208,8 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
+    // MARK: Private
+
     private struct ClientSnapshot {
         let client: TDLibClient
         let accountID: UUID
@@ -252,8 +261,7 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
-    @MainActor
-    private func handle(_ incomingUpdate: Update, from client: TDLibClient, accountID: UUID) {
+    @MainActor private func handle(_ incomingUpdate: Update, from client: TDLibClient, accountID: UUID) {
         if case .updateAuthorizationState(let updateAuthorizationState) = incomingUpdate {
             let state = updateAuthorizationState.authorizationState
             if case .authorizationStateWaitTdlibParameters = state {
@@ -312,9 +320,11 @@ final class TDLib: @unchecked Sendable {
                 )
                 let state = try await client.getAuthorizationState()
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.isActive(client: client, accountID: accountID) else { return }
-                    if case .authorizationStateWaitTdlibParameters = state { return }
-                    self.UpdateAuthorizationState(state)
+                    guard let self, isActive(client: client, accountID: accountID) else { return }
+                    if case .authorizationStateWaitTdlibParameters = state {
+                        return
+                    }
+                    UpdateAuthorizationState(state)
                 }
             } catch {
                 configuredClientIDs.remove(client.id)
@@ -361,8 +371,7 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
-    @MainActor
-    private func recoverUnexpectedLogout(client: TDLibClient, accountID: UUID) {
+    @MainActor private func recoverUnexpectedLogout(client: TDLibClient, accountID: UUID) {
         guard !retiringClientIDs.contains(client.id), activeAccountID == accountID else { return }
         do {
             try removeActiveAccountAfterExternalLogout(client: client, accountID: accountID)
@@ -371,8 +380,7 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
-    @MainActor
-    private func removeActiveAccountAfterExternalLogout(client: TDLibClient, accountID: UUID) throws {
+    @MainActor private func removeActiveAccountAfterExternalLogout(client: TDLibClient, accountID: UUID) throws {
         let survivors = accounts.filter { $0.id != accountID }
         var updatedAccounts = survivors
         let replacement: TelegramAccount
@@ -408,8 +416,7 @@ final class TDLib: @unchecked Sendable {
         )
     }
 
-    @MainActor
-    private func recoverUnexpectedClose(accountID: UUID, clientID: Int32) {
+    @MainActor private func recoverUnexpectedClose(accountID: UUID, clientID: Int32) {
         guard activeAccountID == accountID, !recoveringClientIDs.contains(clientID), let account = activeAccount else {
             return
         }
@@ -418,8 +425,7 @@ final class TDLib: @unchecked Sendable {
         recoveringClientIDs.remove(clientID)
     }
 
-    @MainActor
-    private func retire(
+    @MainActor private func retire(
         _ snapshot: ClientSnapshot?,
         accountID: UUID?,
         endingSession: Bool,

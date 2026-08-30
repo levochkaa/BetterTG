@@ -17,8 +17,8 @@ enum Route {
     // MARK: Lifecycle
 
     private init() {
-        activeAccountID = TDLib.shared.activeAccountID
-        loggedIn = TDLib.shared.isActiveAccountReady
+        self.activeAccountID = TDLib.shared.activeAccountID
+        self.loggedIn = TDLib.shared.isActiveAccountReady
         setPublishers()
     }
 
@@ -31,6 +31,8 @@ enum Route {
     @Published var activeAccountID: UUID?
     var cancellables = Set<AnyCancellable>()
 
+    @Published var loggedIn = false
+
     @Published var currentFolder = UserDefaults.standard.object(forKey: "currentFolder") as? Int {
         didSet {
             if let currentFolder {
@@ -40,8 +42,6 @@ enum Route {
             }
         }
     }
-
-    @Published var loggedIn = false
 
     var allFolders: [CustomFolder] {
         folders + [archive].compactMap(\.self)

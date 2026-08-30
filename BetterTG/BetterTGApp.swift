@@ -2,8 +2,11 @@
 
 import UIKit
 
-@main
-final class AppDelegate: UIResponder, UIApplicationDelegate {
+// MARK: - AppDelegate
+
+@main final class AppDelegate: UIResponder, UIApplicationDelegate {
+    // MARK: Internal
+
     func application(
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
@@ -45,10 +48,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         configurationForConnecting connectingSceneSession: UISceneSession,
         options _: UIScene.ConnectionOptions,
     ) -> UISceneConfiguration {
-        let configuration = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        let configuration = UISceneConfiguration(
+            name: "Default Configuration",
+            sessionRole: connectingSceneSession.role,
+        )
         configuration.delegateClass = SceneDelegate.self
         return configuration
     }
+
+    // MARK: Private
 
     private func configureAppearance() {
         let appearance = UINavigationBarAppearance()
@@ -64,6 +72,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         UINavigationBar.appearance().tintColor = .systemBlue
     }
 }
+
+// MARK: - SceneDelegate
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?

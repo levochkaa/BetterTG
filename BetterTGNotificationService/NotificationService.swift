@@ -4,6 +4,8 @@ import os.log
 import UserNotifications
 
 final class NotificationService: UNNotificationServiceExtension {
+    // MARK: Internal
+
     override func didReceive(
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void,
@@ -30,7 +32,7 @@ final class NotificationService: UNNotificationServiceExtension {
                     if let token = metadata.notificationPayloadToken,
                        let state = try TelegramAccountRegistry().loadExisting(),
                        let account = state.accounts.first(where: { $0.userID == metadata.accountID })
-                        ?? state.accounts.first(where: { $0.id == state.activeAccountID })
+                       ?? state.accounts.first(where: { $0.id == state.activeAccountID })
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
                         if let tdlibResolved = await NotificationTDLibSession(
@@ -51,7 +53,10 @@ final class NotificationService: UNNotificationServiceExtension {
                     logger.log("rich_notification.resolved source=cache_main_app_active")
                 }
             } catch {
-                logger.error("rich_notification.resolved source=cache error=\(error.localizedDescription, privacy: .public)")
+                logger
+                    .error(
+                        "rich_notification.resolved source=cache error=\(error.localizedDescription, privacy: .public)",
+                    )
             }
 
             let content = RichNotificationContentBuilder.content(
@@ -68,6 +73,8 @@ final class NotificationService: UNNotificationServiceExtension {
         processingTask?.cancel()
         finish(with: nil)
     }
+
+    // MARK: Private
 
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.levochkaaa.BetterTG.NotificationService",

@@ -237,7 +237,11 @@ final class AlbumMediaView: UIView, ReusableMediaView {
     }
 }
 
+// MARK: - AlbumMediaTileView
+
 private final class AlbumMediaTileView: UIControl, ReusableMediaView {
+    // MARK: Lifecycle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
@@ -260,8 +264,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
+    // MARK: Internal
 
     func configure(message: Message) {
         switch message.content {
@@ -280,7 +283,10 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
             if let thumbnail = animation.animation.thumbnail {
                 imageView.load(file: thumbnail.file, placeholderData: animation.animation.minithumbnail?.data)
             } else {
-                imageView.load(file: animation.animation.animation, placeholderData: animation.animation.minithumbnail?.data)
+                imageView.load(
+                    file: animation.animation.animation,
+                    placeholderData: animation.animation.minithumbnail?.data,
+                )
             }
         default:
             playIcon.isHidden = true
@@ -289,10 +295,18 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
 
     func apply(position: TelegramMosaicItemPosition) {
         var corners = CACornerMask()
-        if position.contains([.top, .left]) { corners.insert(.layerMinXMinYCorner) }
-        if position.contains([.top, .right]) { corners.insert(.layerMaxXMinYCorner) }
-        if position.contains([.bottom, .left]) { corners.insert(.layerMinXMaxYCorner) }
-        if position.contains([.bottom, .right]) { corners.insert(.layerMaxXMaxYCorner) }
+        if position.contains([.top, .left]) {
+            corners.insert(.layerMinXMinYCorner)
+        }
+        if position.contains([.top, .right]) {
+            corners.insert(.layerMaxXMinYCorner)
+        }
+        if position.contains([.bottom, .left]) {
+            corners.insert(.layerMinXMaxYCorner)
+        }
+        if position.contains([.bottom, .right]) {
+            corners.insert(.layerMaxXMaxYCorner)
+        }
         layer.cornerRadius = corners.isEmpty ? 0 : 13
         layer.maskedCorners = corners
     }
@@ -300,6 +314,11 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView {
     func prepareForReuse() {
         imageView.cancel()
     }
+
+    // MARK: Private
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
 }
 
 // MARK: - FileMediaPreviewView

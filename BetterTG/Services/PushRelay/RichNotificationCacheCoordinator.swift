@@ -5,6 +5,12 @@ import Foundation
 import TDLibKitDynamic
 
 @MainActor final class RichNotificationCacheCoordinator {
+    // MARK: Lifecycle
+
+    private init() {}
+
+    // MARK: Internal
+
     static let shared = RichNotificationCacheCoordinator()
 
     func start() {
@@ -31,7 +37,7 @@ import TDLibKitDynamic
         }
     }
 
-    private init() {}
+    // MARK: Private
 
     private struct MediaCandidate {
         let file: File
@@ -102,7 +108,7 @@ import TDLibKitDynamic
             if let placeholder = candidate.placeholder {
                 RichNotificationCache.cacheMedia(placeholder, for: reference)
             }
-            let file = (try? await td.downloadFile(
+            let file = await (try? td.downloadFile(
                 fileId: candidate.file.id,
                 limit: 0,
                 offset: 0,

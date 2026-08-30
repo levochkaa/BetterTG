@@ -2,15 +2,20 @@
 
 import UIKit
 
+// MARK: - AppearanceViewController
+
 final class AppearanceViewController: UITableViewController {
+    // MARK: Lifecycle
+
     init() {
         super.init(style: .insetGrouped)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()

@@ -9,13 +9,13 @@ let package = Package(
         .library(
             name: "TDLibKitDynamic",
             type: .dynamic,
-            targets: ["TDLibKitDynamic"]
+            targets: ["TDLibKitDynamic"],
         ),
     ],
     dependencies: [
         .package(
             url: "https://github.com/Swiftgram/TDLibKit",
-            exact: "1.5.2-tdlib-1.8.66-022d6020"
+            exact: "1.5.2-tdlib-1.8.66-022d6020",
         ),
     ],
     targets: [
@@ -23,7 +23,7 @@ let package = Package(
             name: "TDLibKitDynamic",
             dependencies: [
                 .product(name: "TDLibKit", package: "TDLibKit"),
-            ]
+            ],
         ),
-    ]
+    ],
 )

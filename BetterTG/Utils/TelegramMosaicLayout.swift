@@ -1,16 +1,22 @@
+// TelegramMosaicLayout.swift
+
 import UIKit
 
-// Port of Telegram-iOS' ChatMessageBubbleMosaicLayout. Keep the branch structure aligned with
-// submodules/MosaicLayout/Sources/ChatMessageBubbleMosaicLayout.swift when refreshing it.
-struct TelegramMosaicItemPosition: OptionSet {
-    let rawValue: Int
+// MARK: - TelegramMosaicItemPosition
 
+/// Port of Telegram-iOS' ChatMessageBubbleMosaicLayout. Keep the branch structure aligned with
+/// submodules/MosaicLayout/Sources/ChatMessageBubbleMosaicLayout.swift when refreshing it.
+struct TelegramMosaicItemPosition: OptionSet {
     static let top = Self(rawValue: 1 << 0)
     static let bottom = Self(rawValue: 1 << 1)
     static let left = Self(rawValue: 1 << 2)
     static let right = Self(rawValue: 1 << 3)
     static let inside = Self(rawValue: 1 << 4)
+
+    let rawValue: Int
 }
+
+// MARK: - TelegramMosaicAttempt
 
 private struct TelegramMosaicAttempt {
     let lineCounts: [Int]
@@ -28,8 +34,10 @@ func telegramMessageBubbleMosaicLayout(
         let ratio = max(itemSizes[0].width / max(itemSizes[0].height, 1), 0.01)
         let height = min(maxSize.height, maxSize.width / ratio)
         let width = min(maxSize.width, height * ratio)
-        return ([(CGRect(x: 0, y: 0, width: width, height: height), [.top, .bottom, .left, .right])],
-                CGSize(width: width, height: height))
+        return (
+            [(CGRect(x: 0, y: 0, width: width, height: height), [.top, .bottom, .left, .right])],
+            CGSize(width: width, height: height),
+        )
     }
 
     let ratios = itemSizes.map { max($0.width / max($0.height, 1), 0.01) }
@@ -87,9 +95,13 @@ func telegramMessageBubbleMosaicLayout(
                     (maxSize.width - spacing) * 0.5,
                     round(min(thirdHeight * ratios[2], secondHeight * ratios[1])),
                 ))
-                if fillWidth { rightWidth = floor(maxSize.width * 0.5) }
+                if fillWidth {
+                    rightWidth = floor(maxSize.width * 0.5)
+                }
                 var leftWidth = round(min(firstHeight * ratios[0], maxSize.width - spacing - rightWidth))
-                if fillWidth { leftWidth = maxSize.width - spacing - rightWidth }
+                if fillWidth {
+                    leftWidth = maxSize.width - spacing - rightWidth
+                }
                 frames[0] = CGRect(x: 0, y: 0, width: leftWidth, height: firstHeight)
                 frames[1] = CGRect(x: leftWidth + spacing, y: 0, width: rightWidth, height: secondHeight)
                 frames[2] = CGRect(
@@ -167,46 +179,46 @@ func telegramMessageBubbleMosaicLayout(
             (maxSize.width - CGFloat(values.count - 1) * spacing) / values.reduce(0, +)
         }
         var attempts = [TelegramMosaicAttempt]()
-        for first in 1 ..< croppedRatios.count {
+        for first in 1..<croppedRatios.count {
             let second = croppedRatios.count - first
             guard first <= 3, second <= 3 else { continue }
             attempts.append(.init(
                 lineCounts: [first, second],
                 heights: [
-                    multiHeight(croppedRatios[0 ..< first]),
-                    multiHeight(croppedRatios[first ..< croppedRatios.count]),
+                    multiHeight(croppedRatios[0..<first]),
+                    multiHeight(croppedRatios[first..<croppedRatios.count]),
                 ],
             ))
         }
         if croppedRatios.count >= 3 {
-            for first in 1 ..< croppedRatios.count - 1 {
-                for second in 1 ..< croppedRatios.count - first {
+            for first in 1..<croppedRatios.count - 1 {
+                for second in 1..<croppedRatios.count - first {
                     let third = croppedRatios.count - first - second
                     guard first <= 3, second <= (averageAspectRatio < 0.85 ? 4 : 3), third <= 3 else { continue }
                     attempts.append(.init(
                         lineCounts: [first, second, third],
                         heights: [
-                            multiHeight(croppedRatios[0 ..< first]),
-                            multiHeight(croppedRatios[first ..< croppedRatios.count - third]),
-                            multiHeight(croppedRatios[first + second ..< croppedRatios.count]),
+                            multiHeight(croppedRatios[0..<first]),
+                            multiHeight(croppedRatios[first..<croppedRatios.count - third]),
+                            multiHeight(croppedRatios[first + second..<croppedRatios.count]),
                         ],
                     ))
                 }
             }
         }
         if croppedRatios.count >= 4 {
-            for first in 1 ..< croppedRatios.count - 2 {
-                for second in 1 ..< croppedRatios.count - first - 1 {
-                    for third in 1 ..< croppedRatios.count - first - second {
+            for first in 1..<croppedRatios.count - 2 {
+                for second in 1..<croppedRatios.count - first - 1 {
+                    for third in 1..<croppedRatios.count - first - second {
                         let fourth = croppedRatios.count - first - second - third
                         guard first <= 3, second <= 3, third <= 3, fourth <= 3 else { continue }
                         attempts.append(.init(
                             lineCounts: [first, second, third, fourth],
                             heights: [
-                                multiHeight(croppedRatios[0 ..< first]),
-                                multiHeight(croppedRatios[first ..< croppedRatios.count - third - fourth]),
-                                multiHeight(croppedRatios[first + second ..< croppedRatios.count - fourth]),
-                                multiHeight(croppedRatios[first + second + third ..< croppedRatios.count]),
+                                multiHeight(croppedRatios[0..<first]),
+                                multiHeight(croppedRatios[first..<croppedRatios.count - third - fourth]),
+                                multiHeight(croppedRatios[first + second..<croppedRatios.count - fourth]),
+                                multiHeight(croppedRatios[first + second + third..<croppedRatios.count]),
                             ],
                         ))
                     }
@@ -225,7 +237,7 @@ func telegramMessageBubbleMosaicLayout(
             for (line, count) in optimal.lineCounts.enumerated() {
                 let lineHeight = ceil(optimal.heights[line])
                 var x: CGFloat = 0
-                for _ in 0 ..< count {
+                for _ in 0..<count {
                     let width = ceil(croppedRatios[index] * lineHeight)
                     frames[index] = CGRect(x: x, y: y, width: width, height: lineHeight)
                     x += width + spacing
@@ -249,11 +261,21 @@ func telegramMessageBubbleMosaicLayout(
     let epsilon: CGFloat = 0.5
     return (frames.map { frame in
         var position = TelegramMosaicItemPosition()
-        if frame.minY <= epsilon { position.insert(.top) }
-        if frame.maxY >= size.height - epsilon { position.insert(.bottom) }
-        if frame.minX <= epsilon { position.insert(.left) }
-        if frame.maxX >= size.width - epsilon { position.insert(.right) }
-        if position.isEmpty { position.insert(.inside) }
+        if frame.minY <= epsilon {
+            position.insert(.top)
+        }
+        if frame.maxY >= size.height - epsilon {
+            position.insert(.bottom)
+        }
+        if frame.minX <= epsilon {
+            position.insert(.left)
+        }
+        if frame.maxX >= size.width - epsilon {
+            position.insert(.right)
+        }
+        if position.isEmpty {
+            position.insert(.inside)
+        }
         return (frame, position)
     }, size)
 }

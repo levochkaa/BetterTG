@@ -3,6 +3,8 @@
 import Combine
 import TDLibKitDynamic
 
+// MARK: - FolderUnreadState
+
 struct FolderUnreadState: Equatable {
     static let empty = FolderUnreadState(count: 0, hasUnmuted: false)
 
@@ -10,12 +12,16 @@ struct FolderUnreadState: Equatable {
     let hasUnmuted: Bool
 }
 
+// MARK: - FolderUnreadStore
+
 @MainActor final class FolderUnreadStore: ObservableObject {
-    static let shared = FolderUnreadStore()
+    // MARK: Lifecycle
 
     private init() {}
 
-    private var statesByClient = [Int32: [ChatList: FolderUnreadState]]()
+    // MARK: Internal
+
+    static let shared = FolderUnreadStore()
 
     func states(for clientID: Int32) -> [ChatList: FolderUnreadState] {
         statesByClient[clientID] ?? [:]
@@ -30,4 +36,8 @@ struct FolderUnreadState: Equatable {
         objectWillChange.send()
         statesByClient[clientID, default: [:]][update.chatList] = state
     }
+
+    // MARK: Private
+
+    private var statesByClient = [Int32: [ChatList: FolderUnreadState]]()
 }

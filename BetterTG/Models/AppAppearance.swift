@@ -7,6 +7,8 @@ enum AppAppearance: String, CaseIterable {
     case light
     case dark
 
+    // MARK: Internal
+
     static var current: AppAppearance {
         get {
             guard let value = UserDefaults.standard.string(forKey: defaultsKey) else { return .system }
@@ -33,14 +35,16 @@ enum AppAppearance: String, CaseIterable {
         }
     }
 
-    @MainActor
-    func apply() {
+    @MainActor func apply() {
         Self.current = self
-        UIApplication.shared.connectedScenes
+        UIApplication.shared
+            .connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .forEach { $0.overrideUserInterfaceStyle = userInterfaceStyle }
     }
+
+    // MARK: Private
 
     private static let defaultsKey = "appAppearance"
 }

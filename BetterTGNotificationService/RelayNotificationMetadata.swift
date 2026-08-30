@@ -3,6 +3,8 @@
 import Foundation
 
 struct RelayNotificationMetadata {
+    // MARK: Lifecycle
+
     init?(userInfo: [AnyHashable: Any]) {
         guard let data = userInfo["tg"] as? [String: Any],
               let peerKindValue = data["peer_type"] as? String,
@@ -12,20 +14,22 @@ struct RelayNotificationMetadata {
 
         self.accountID = Self.int64(data["account"])
         self.peer = RichNotificationPeerReference(kind: peerKind, id: peerID)
-        if let senderKindValue = data["sender_type"] as? String,
-           let senderKind = RichNotificationPeerKind(rawValue: senderKindValue),
-           let senderID = Self.int64(data["sender_id"])
-        {
-            self.sender = RichNotificationPeerReference(kind: senderKind, id: senderID)
-        } else {
-            self.sender = peer
-        }
+        self.sender =
+            if let senderKindValue = data["sender_type"] as? String,
+            let senderKind = RichNotificationPeerKind(rawValue: senderKindValue),
+            let senderID = Self.int64(data["sender_id"]) {
+                RichNotificationPeerReference(kind: senderKind, id: senderID)
+            } else {
+                peer
+            }
         self.serverMessageID = Self.int64(data["message_id"])
         self.event = data["event"] as? String
         self.senderName = data["sender_name"] as? String
         self.conversationTitle = data["conversation_title"] as? String
         self.notificationPayloadToken = data["notification_payload_token"] as? String
     }
+
+    // MARK: Internal
 
     let accountID: Int64?
     let peer: RichNotificationPeerReference
@@ -40,6 +44,8 @@ struct RelayNotificationMetadata {
         guard let serverMessageID else { return nil }
         return RichNotificationMessageReference(peer: peer, serverMessageID: serverMessageID)
     }
+
+    // MARK: Private
 
     private static func int64(_ value: Any?) -> Int64? {
         switch value {

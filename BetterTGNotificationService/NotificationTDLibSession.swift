@@ -5,6 +5,8 @@ import os.log
 import TDLibKitDynamic
 
 final class NotificationTDLibSession: @unchecked Sendable {
+    // MARK: Lifecycle
+
     init(
         account: TelegramAccount,
         payload: String,
@@ -16,6 +18,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
         self.metadata = metadata
         self.logger = logger
     }
+
+    // MARK: Internal
 
     func resolve() async -> ResolvedTelegramNotification? {
         let result = await withCheckedContinuation { continuation in
@@ -33,6 +37,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
         await close()
         return result
     }
+
+    // MARK: Private
 
     private struct MediaCandidate {
         let file: File
@@ -102,12 +108,12 @@ final class NotificationTDLibSession: @unchecked Sendable {
             Task { [weak self] in
                 await self?.process(client: client)
             }
-        case .authorizationStateWaitPhoneNumber,
+        case .authorizationStateClosed,
+             .authorizationStateClosing,
+             .authorizationStateLoggingOut,
              .authorizationStateWaitCode,
              .authorizationStateWaitPassword,
-             .authorizationStateLoggingOut,
-             .authorizationStateClosing,
-             .authorizationStateClosed:
+             .authorizationStateWaitPhoneNumber:
             finish(nil, reason: "authorization")
         default:
             break
@@ -246,7 +252,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
 
     private func imageData(file: File?, placeholder: Data?, client: TDLibClient) async -> Data? {
         if let file {
-            let resolved = (try? await client.downloadFile(
+            let resolved = await (try? client.downloadFile(
                 fileId: file.id,
                 limit: 0,
                 offset: 0,
@@ -266,38 +272,38 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func mediaCandidate(for content: PushMessageContent) -> MediaCandidate? {
         switch content {
         case .pushMessageContentPhoto(let value):
-            return value.photo.flatMap(photoCandidate)
+            value.photo.flatMap(photoCandidate)
         case .pushMessageContentVideo(let value):
-            return value.video.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            value.video.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
         case .pushMessageContentAnimation(let value):
-            return value.animation.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            value.animation.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
         case .pushMessageContentDocument(let value):
-            return value.document.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            value.document.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
         case .pushMessageContentSticker(let value):
-            return value.sticker.flatMap { thumbnailCandidate($0.thumbnail, placeholder: nil) }
+            value.sticker.flatMap { thumbnailCandidate($0.thumbnail, placeholder: nil) }
         case .pushMessageContentVideoNote(let value):
-            return value.videoNote.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
+            value.videoNote.flatMap { thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data) }
         default:
-            return nil
+            nil
         }
     }
 
     private func mediaCandidate(for content: MessageContent) -> MediaCandidate? {
         switch content {
         case .messagePhoto(let value):
-            return photoCandidate(value.photo)
+            photoCandidate(value.photo)
         case .messageVideo(let value):
-            return thumbnailCandidate(value.video.thumbnail, placeholder: value.video.minithumbnail?.data)
+            thumbnailCandidate(value.video.thumbnail, placeholder: value.video.minithumbnail?.data)
         case .messageAnimation(let value):
-            return thumbnailCandidate(value.animation.thumbnail, placeholder: value.animation.minithumbnail?.data)
+            thumbnailCandidate(value.animation.thumbnail, placeholder: value.animation.minithumbnail?.data)
         case .messageDocument(let value):
-            return thumbnailCandidate(value.document.thumbnail, placeholder: value.document.minithumbnail?.data)
+            thumbnailCandidate(value.document.thumbnail, placeholder: value.document.minithumbnail?.data)
         case .messageSticker(let value):
-            return thumbnailCandidate(value.sticker.thumbnail, placeholder: nil)
+            thumbnailCandidate(value.sticker.thumbnail, placeholder: nil)
         case .messageVideoNote(let value):
-            return thumbnailCandidate(value.videoNote.thumbnail, placeholder: value.videoNote.minithumbnail?.data)
+            thumbnailCandidate(value.videoNote.thumbnail, placeholder: value.videoNote.minithumbnail?.data)
         default:
-            return nil
+            nil
         }
     }
 

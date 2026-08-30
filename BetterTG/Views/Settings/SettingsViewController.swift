@@ -3,15 +3,20 @@
 import Combine
 import UIKit
 
+// MARK: - SettingsViewController
+
 final class SettingsViewController: UITableViewController {
+    // MARK: Lifecycle
+
     init() {
         super.init(style: .insetGrouped)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -79,7 +84,7 @@ final class SettingsViewController: UITableViewController {
             toggle.isOn = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
             toggle.addTarget(self, action: #selector(animatedMediaChanged(_:)), for: .valueChanged)
             cell.accessoryView = toggle
-        case .version, .logOut:
+        case .logOut, .version:
             break
         }
         return cell
@@ -102,6 +107,8 @@ final class SettingsViewController: UITableViewController {
             break
         }
     }
+
+    // MARK: Private
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -169,6 +176,8 @@ private extension SettingsViewController {
         case about
         case accountActions
 
+        // MARK: Internal
+
         var title: String? {
             switch self {
             case .accounts: "Accounts"
@@ -187,6 +196,8 @@ private extension SettingsViewController {
         case animatedMedia
         case version
         case logOut
+
+        // MARK: Internal
 
         var account: TelegramAccount? {
             guard case .account(let id) = self else { return nil }

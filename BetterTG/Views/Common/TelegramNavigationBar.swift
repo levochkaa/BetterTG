@@ -3,15 +3,10 @@
 import TDLibKitDynamic
 import UIKit
 
-final class TelegramListNavigationBar: UIView {
-    static let titleHeight: CGFloat = 44
-    static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.scrollHeight
+// MARK: - TelegramListNavigationBar
 
-    var onQueryChange: ((String) -> Void)? {
-        didSet { searchView.onQueryChange = onQueryChange }
-    }
-    var onSearchActiveChange: ((Bool) -> Void)?
-    var onVisibleHeightChange: ((CGFloat) -> Void)?
+final class TelegramListNavigationBar: UIView {
+    // MARK: Lifecycle
 
     init(
         title: String,
@@ -19,9 +14,9 @@ final class TelegramListNavigationBar: UIView {
         leftImage: UIImage?,
         rightImage: UIImage?,
         leftAction: (() -> Void)?,
-        rightAction: (() -> Void)?
+        rightAction: (() -> Void)?,
     ) {
-        searchView = ChatListNavigationSearchView(placeholder: placeholder)
+        self.searchView = ChatListNavigationSearchView(placeholder: placeholder)
         self.leftAction = leftAction
         self.rightAction = rightAction
         super.init(frame: .zero)
@@ -31,9 +26,20 @@ final class TelegramListNavigationBar: UIView {
         configureViews()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    static let titleHeight: CGFloat = 44
+    static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.scrollHeight
+
+    var onSearchActiveChange: ((Bool) -> Void)?
+    var onVisibleHeightChange: ((CGFloat) -> Void)?
+
+    var onQueryChange: ((String) -> Void)? {
+        didSet { searchView.onQueryChange = onQueryChange }
     }
 
     var isSearchActive: Bool { searchView.isActive }
@@ -57,6 +63,8 @@ final class TelegramListNavigationBar: UIView {
     func setLeftButtonHidden(_ hidden: Bool) {
         leftButton.isHidden = hidden
     }
+
+    // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let titleLabel = UILabel()
@@ -159,22 +167,27 @@ final class TelegramListNavigationBar: UIView {
     }
 }
 
-final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
-    static let contentHeight: CGFloat = 44
+// MARK: - TelegramChatNavigationBar
 
-    var onBack: (() -> Void)?
-    var onSearchQueryChange: ((String) -> Void)?
-    var onSearchActiveChange: ((Bool) -> Void)?
+final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
+    // MARK: Lifecycle
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: Internal
+
+    static let contentHeight: CGFloat = 44
+
+    var onBack: (() -> Void)?
+    var onSearchQueryChange: ((String) -> Void)?
+    var onSearchActiveChange: ((Bool) -> Void)?
 
     func configure(title: String, status: String, statusColor: UIColor) {
         titleLabel.text = title
@@ -195,6 +208,30 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     func setBackButtonHidden(_ hidden: Bool) {
         backButton.isHidden = hidden
     }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return true
+    }
+
+    @objc func beginSearch() {
+        guard !searchActive else { return }
+        searchActive = true
+        searchField.isHidden = false
+        closeButton.isHidden = false
+        searchField.textColor = .label
+        onSearchActiveChange?(true)
+        searchField.becomeFirstResponder()
+        UIView.animate(withDuration: 0.2) {
+            self.titleControl.alpha = 0
+            self.avatarView.alpha = 0
+            self.backButton.alpha = 0
+            self.searchField.alpha = 1
+            self.closeButton.alpha = 1
+        }
+    }
+
+    // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let backButton = UIButton(type: .system)
@@ -316,33 +353,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         ])
     }
 
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        textField.resignFirstResponder()
-        return true
-    }
-
     @objc private func backPressed() { onBack?() }
 
     @objc private func titleLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         beginSearch()
-    }
-
-    @objc func beginSearch() {
-        guard !searchActive else { return }
-        searchActive = true
-        searchField.isHidden = false
-        closeButton.isHidden = false
-        searchField.textColor = .label
-        onSearchActiveChange?(true)
-        searchField.becomeFirstResponder()
-        UIView.animate(withDuration: 0.2) {
-            self.titleControl.alpha = 0
-            self.avatarView.alpha = 0
-            self.backButton.alpha = 0
-            self.searchField.alpha = 1
-            self.closeButton.alpha = 1
-        }
     }
 
     @objc private func endSearch() {
@@ -370,7 +385,21 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 }
 
+// MARK: - TelegramNavigationTitleControl
+
 private final class TelegramNavigationTitleControl: UIControl {
+    override var isHighlighted: Bool {
+        didSet {
+            UIView.animate(
+                withDuration: 0.16,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            ) {
+                self.highlightedContentView?.alpha = self.isHighlighted ? 0.2 : 1
+            }
+        }
+    }
+
     weak var highlightedContentView: UIView?
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
@@ -391,17 +420,5 @@ private final class TelegramNavigationTitleControl: UIControl {
     override func cancelTracking(with event: UIEvent?) {
         isHighlighted = false
         super.cancelTracking(with: event)
-    }
-
-    override var isHighlighted: Bool {
-        didSet {
-            UIView.animate(
-                withDuration: 0.16,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-            ) {
-                self.highlightedContentView?.alpha = self.isHighlighted ? 0.2 : 1
-            }
-        }
     }
 }
