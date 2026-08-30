@@ -124,6 +124,6 @@
 --xcode-indentation enabled
 --xctest-symbols 
 --yoda-swap always
---enable blockComments,isEmpty,markTypes,noExplicitOwnership,noGuardInTests,organizeDeclarations,preferFinalClasses,preferSwiftTesting,propertyTypes,sortSwitchCases,unusedPrivateDeclarations,urlMacro,validateTestCases,wrapEnumCases,wrapMultilineConditionalAssignment,wrapMultilineFunctionChains
---disable wrapPropertyBodies,wrapFunctionBodies
+--enable blockComments,isEmpty,markTypes,noExplicitOwnership,noGuardInTests,organizeDeclarations,preferSwiftTesting,propertyTypes,sortSwitchCases,unusedPrivateDeclarations,urlMacro,validateTestCases,wrapEnumCases,wrapMultilineConditionalAssignment,wrapMultilineFunctionChains
+--disable conditionalAssignment,preferFinalClasses,wrapPropertyBodies,wrapFunctionBodies
 --exclude BetterTG/Extensions/Td/Td+Generated.swift

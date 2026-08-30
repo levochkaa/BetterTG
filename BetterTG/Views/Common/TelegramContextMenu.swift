@@ -97,7 +97,7 @@ private enum TelegramContextMenuKeyboardHost {
 /// Keeps an extracted view's layout slot occupied while the real content is
 /// temporarily hosted by the context-menu overlay, mirroring Telegram's
 /// takeView/putBack contract.
-final class TelegramContextMenuExtractableView: UIView {
+class TelegramContextMenuExtractableView: UIView {
     // MARK: Lifecycle
 
     override init(frame: CGRect) {
@@ -532,12 +532,11 @@ private final class TelegramContextMenuController: UIViewController {
                     y: sourceFrame.height / max(1, targetPreviewFrame.height),
                 )
             }
-        } else previewContainer.frame =
-            if hasAnimatedIn {
-                targetPreviewFrame
-            } else {
-                presentationStyle == .menuOnly ? .zero : sourceFrame
-            }
+        } else if hasAnimatedIn {
+            previewContainer.frame = targetPreviewFrame
+        } else {
+            previewContainer.frame = presentationStyle == .menuOnly ? .zero : sourceFrame
+        }
         menuEffectView.frame = targetMenuFrame
         previewView?.frame = previewContainer.bounds
         if presentationStyle == .avatar {

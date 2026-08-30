@@ -716,13 +716,13 @@ final class FolderPickerView: UIView {
                 width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
                 height: controlContainer.bounds.height,
             )
-        } else frame =
-            if let index = folders.firstIndex(where: { $0.id == selectedID }),
-            buttons.indices.contains(index) {
-                buttons[index].convert(buttons[index].bounds, to: controlContainer)
-            } else {
-                nil
-            }
+        } else if let index = folders.firstIndex(where: { $0.id == selectedID }),
+                  buttons.indices.contains(index)
+        {
+            frame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
+        } else {
+            frame = nil
+        }
         guard let frame else {
             selectionEffectView.alpha = 0
             return
