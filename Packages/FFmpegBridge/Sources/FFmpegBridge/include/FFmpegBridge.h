@@ -153,6 +153,20 @@ int BetterTGFFmpegPlaybackJobRun(
     double seekTime,
     double decodeDuration
 );
+
+// Starts one persistent decode session. Later Continue calls extend its
+// internal absolute horizon without reopening or flushing decoder state.
+// Crossing frames are emitted whole. Run/Start/Continue/Destroy are serialized;
+// Cancel is terminal and may be called from another thread.
+int BetterTGFFmpegPlaybackJobStartPersistent(
+    BetterTGFFmpegPlaybackJob *job,
+    double seekTime,
+    double decodeDuration
+);
+int BetterTGFFmpegPlaybackJobContinue(
+    BetterTGFFmpegPlaybackJob *job,
+    double decodeDuration
+);
 void BetterTGFFmpegPlaybackJobDestroy(BetterTGFFmpegPlaybackJob *job);
 
 int BetterTGFFmpegPlaybackJobHasAudio(const BetterTGFFmpegPlaybackJob *job);
@@ -166,12 +180,18 @@ int BetterTGFFmpegPlaybackJobVideoFrameCount(const BetterTGFFmpegPlaybackJob *jo
 int BetterTGFFmpegPlaybackJobAudioFrameCount(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobVideoDecodedTo(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobAudioDecodedTo(const BetterTGFFmpegPlaybackJob *job);
+double BetterTGFFmpegPlaybackJobContinuationTime(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job);
 int64_t BetterTGFFmpegPlaybackJobBytesRead(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobReadCallCount(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobSeekCallCount(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobSizeCallCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobOpenCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobRunCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobExplicitSeekCount(const BetterTGFFmpegPlaybackJob *job);
+int BetterTGFFmpegPlaybackJobMaximumPendingPacketCount(const BetterTGFFmpegPlaybackJob *job);
+int64_t BetterTGFFmpegPlaybackJobMaximumPendingPacketBytes(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobErrorCode(const BetterTGFFmpegPlaybackJob *job);
 
 #endif

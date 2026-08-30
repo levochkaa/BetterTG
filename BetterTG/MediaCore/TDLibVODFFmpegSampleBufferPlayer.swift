@@ -48,6 +48,7 @@ import UIKit
     private(set) var isPlaybackVisible = false
 
     private let lease: TDLibVODRangeLease
+    private let decodeWindowDuration: TimeInterval
     private let decoder: TDLibVODFFmpegDecoder
     private let lookahead: TDLibVODFFmpegLookahead
     private let renderer: FFmpegSampleBufferRenderer
@@ -92,6 +93,9 @@ import UIKit
     private var muted = false
     private var latestSnapshot: FFmpegSampleBufferRenderer.Snapshot?
     private var pendingSeekCompletion: PendingSeekCompletion?
+    #if DEBUG
+        private var debugDecoderSummaries = [TDLibVODFFmpegDecoder.Summary]()
+    #endif
 
     var statePublisher: AnyPublisher<LocalMediaPlayer.State, Never> {
         stateSubject.removeDuplicates().eraseToAnyPublisher()
@@ -143,8 +147,21 @@ import UIKit
         renderer.pictureInPictureDisplayLayer
     }
 
-    init(lease: TDLibVODRangeLease) {
+    convenience init(lease: TDLibVODRangeLease) {
+        self.init(lease: lease, decodeWindowDuration: 60)
+    }
+
+    init(
+        lease: TDLibVODRangeLease,
+        decodeWindowDuration: TimeInterval,
+    ) {
+        precondition(
+            decodeWindowDuration.isFinite
+                && decodeWindowDuration > 0
+                && decodeWindowDuration <= Self.decodeWindow,
+        )
         self.lease = lease
+        self.decodeWindowDuration = decodeWindowDuration
         self.decoder = TDLibVODFFmpegDecoder(lease: lease)
         self.lookahead = TDLibVODFFmpegLookahead(
             lease: lease,
@@ -341,6 +358,9 @@ import UIKit
         sourceVideoReadableTo = nil
         sourceLookaheadEnded = false
         lookaheadScanInProgress = false
+        #if DEBUG
+            debugDecoderSummaries.removeAll()
+        #endif
         timeSubject.send(target)
         bufferedRangesSubject.send([])
         readyForDisplaySubject.send(false)
@@ -370,27 +390,35 @@ import UIKit
         let decoder = decoder
         let lookahead = lookahead
         let renderer = renderer
+        let decodeWindowDuration = decodeWindowDuration
         decodeTask = Task { @MainActor [weak self, decoder, lookahead, renderer] in
             var windowStart = start
+            var decodeMode = TDLibVODFFmpegDecoder.DecodeMode.startSession
+            var needsLookahead = true
             while !Task.isCancelled {
                 do {
                     let decodeStart = windowStart
                     let endTolerance = Self.endTolerance
-                    let sourceState = try await lookahead.scan(
-                        seekTime: decodeStart,
-                        currentPlaybackTime: decodeStart,
-                        lookaheadDuration: 2,
-                    )
-                    guard !Task.isCancelled,
-                          self?.consume(
-                              lookahead: sourceState,
-                              operation: operation,
-                              rendererGeneration: rendererGeneration,
-                          ) == true
-                    else { return }
+                    if needsLookahead {
+                        let sourceState = try await lookahead.scan(
+                            seekTime: decodeStart,
+                            currentPlaybackTime: decodeStart,
+                            lookaheadDuration: 2,
+                        )
+                        guard !Task.isCancelled,
+                              self?.consume(
+                                  lookahead: sourceState,
+                                  operation: operation,
+                                  rendererGeneration: rendererGeneration,
+                              ) == true
+                        else { return }
+                    } else {
+                        self?.lookaheadScanInProgress = false
+                    }
                     let summary = try await decoder.decode(
                         seekTime: decodeStart,
-                        duration: Self.decodeWindow,
+                        duration: decodeWindowDuration,
+                        mode: decodeMode,
                         onMetadata: { [weak self] metadata in
                             let accepted = renderer.setStreamTopology(
                                 hasAudio: metadata.hasAudio,
@@ -423,6 +451,8 @@ import UIKit
                     switch decision {
                     case .next(let nextWindowStart):
                         windowStart = nextWindowStart
+                        decodeMode = .continueSession
+                        needsLookahead = false
                     case .stop:
                         return
                     }
@@ -500,6 +530,9 @@ import UIKit
               rendererGeneration == self.rendererGeneration,
               !isClosed
         else { return .stop }
+        #if DEBUG
+            debugDecoderSummaries.append(summary)
+        #endif
         let decodedEnd = max(summary.videoDecodedTo, summary.audioDecodedTo)
         let decodedDuration = max(summary.duration, decodedEnd)
         if decodedDuration.isFinite, decodedDuration > 0 {
@@ -521,7 +554,11 @@ import UIKit
             transitionToFailure(.decoding("FFmpeg made no forward progress."), status: .failed)
             return .stop
         }
-        let next = windowStart + Self.decodeWindow
+        let next = summary.continuationTime
+        guard next.isFinite, next > windowStart + 0.001 else {
+            transitionToFailure(.decoding("FFmpeg session horizon made no forward progress."), status: .failed)
+            return .stop
+        }
         nextWindowStart = next
         consume(snapshot: renderer.snapshot())
         guard isPlaybackVisible else {
@@ -1074,6 +1111,7 @@ import UIKit
                 )
                 let probePlayer = await TDLibVODFFmpegSampleBufferPlayer(
                     lease: coordinator.acquire(file: backend.file(expectedSize: size * 2)),
+                    decodeWindowDuration: 1,
                 )
                 player = probePlayer
                 probePlayer.surfaceView.frame = CGRect(
@@ -1104,6 +1142,7 @@ import UIKit
                     && (10.9...11.3).contains(probePlayer.audioEndTime)
                     && normalizedSnapshot.videoFirstPresentationTime.map { $0 < 0.01 } == true
                     && normalizedSnapshot.audioFirstPresentationTime.map { $0 < 0.02 } == true
+                let unequalTrackEnds = abs(probePlayer.videoEndTime - probePlayer.audioEndTime) > 0.001
                 let initialGateWorked = recorder.firstPlayingBufferedAhead.map { $0 >= 0.95 } == true
 
                 probePlayer.pause()
@@ -1140,6 +1179,21 @@ import UIKit
                 try await Task<Never, Never>.sleep(for: .milliseconds(200))
                 let noLoop = probePlayer.state == .ended
                     && abs(probePlayer.currentTime - endedTime) < 0.05
+                let sessionSummaries = probePlayer.debugDecoderSummaries
+                let sessionIDs = Set(sessionSummaries.map(\.sessionID))
+                let maximumPendingPacketCount = sessionSummaries.map(\.maximumPendingPacketCount).max() ?? 0
+                let maximumPendingPacketBytes = sessionSummaries.map(\.maximumPendingPacketBytes).max() ?? 0
+                let pendingFIFOWithinBounds = maximumPendingPacketCount <= 4096
+                    && maximumPendingPacketBytes <= 32 * 1024 * 1024
+                let persistentSessionReused = sessionSummaries.count >= 3
+                    && sessionIDs.count == 1
+                    && sessionSummaries.allSatisfy { $0.openCount == 1 }
+                    && sessionSummaries.map(\.runCount) == Array(1...sessionSummaries.count)
+                    && sessionSummaries.allSatisfy { $0.explicitSeekCount == 1 }
+                    && zip(
+                        sessionSummaries.map(\.continuationTime),
+                        sessionSummaries.dropFirst().map(\.continuationTime),
+                    ).allSatisfy { $0.1 > $0.0 }
                 probePlayer.setPlaybackVisible(false)
                 await probePlayer.close()
                 probePlayer.surfaceView.removeFromSuperview()
@@ -1224,6 +1278,7 @@ import UIKit
 
                 guard deferredDownload,
                       originNormalized,
+                      unequalTrackEnds,
                       initialGateWorked,
                       pauseStable,
                       offscreenIntent,
@@ -1233,27 +1288,33 @@ import UIKit
                       outOfRangeClamped,
                       lastSeekWon,
                       noLoop,
-                      recorder.states.contains(.buffering),
+                      persistentSessionReused,
+                      pendingFIFOWithinBounds,
+                      recorder.states.contains(.preparing) || recorder.states.contains(.buffering),
                       recorder.states.contains(.playing),
                       recorder.states.contains(.ended),
                       allDownloads.allSatisfy({ !$0.isFullDownload })
                 else {
                     throw Failure.decoding(
-                        "deferred=\(deferredDownload), origin=\(originNormalized), gate=\(initialGateWorked), "
+                        "deferred=\(deferredDownload), origin=\(originNormalized), unequal-ends=\(unequalTrackEnds), gate=\(initialGateWorked), "
                             + "pause=\(pauseStable), offscreen-intent=\(offscreenIntent), "
                             + "offscreen-pause=\(offscreenPaused), seek=\(lastSeekWon), "
                             + "offscreen-cancel=\(offscreenRequestCancelled), "
                             + "offline-retry=\(offlineRetryWorked), "
                             + "seek-clamp=\(outOfRangeClamped), "
+                            + "persistent-session=\(persistentSessionReused)/windows=\(sessionSummaries.count), "
+                            + "pending-fifo=\(maximumPendingPacketCount)/\(maximumPendingPacketBytes), "
                             + "no-loop=\(noLoop), states=\(recorder.states), "
                             + "full-downloads=\(allDownloads.filter(\.isFullDownload).count)",
                     )
                 }
 
                 result = "VOD FFmpeg controller probe: fixture-sha256=\(fixtureSHA256), "
-                    + "origin=5->0, deferred-download=true, initial-gate>=1=true, "
-                    + "window<=60s, autoplay=true, buffering=true, pause-stable=true, rate=1.5, "
+                    + "origin=5->0, unequal-track-ends=true, deferred-download=true, initial-gate>=1=true, "
+                    + "window<=60s, autoplay=true, loading-visible=true, pause-stable=true, rate=1.5, "
                     + "offscreen-rate=0, offscreen-cancel=true, intent-preserved=true, last-seek-wins=true, "
+                    + "persistent-session=true, opens=1, windows=\(sessionSummaries.count), rollover-seeks=0, "
+                    + "pending-fifo=\(maximumPendingPacketCount)/\(maximumPendingPacketBytes), "
                     + "seek-first-pts>=1=true, eof-ended=true, no-loop=true, "
                     + "offline=true, retry=true, seek-clamp=true, renderer-errors=0, finite-downloads=true, "
                     + "full-downloads=0, cleanup=true"

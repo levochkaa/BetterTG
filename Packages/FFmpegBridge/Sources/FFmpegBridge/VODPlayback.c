@@ -7,6 +7,7 @@
 #include <libavutil/parseutils.h>
 
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdatomic.h>
@@ -22,6 +23,14 @@
 #define BETTERTG_PLAYBACK_MAXIMUM_DIMENSION 4096
 #define BETTERTG_PLAYBACK_MAXIMUM_PIXELS (16 * 1024 * 1024)
 #define BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE 48000
+#define BETTERTG_PLAYBACK_MAXIMUM_PENDING_PACKETS 4096
+#define BETTERTG_PLAYBACK_MAXIMUM_PENDING_BYTES (32LL * 1024 * 1024)
+
+typedef struct BetterTGFFmpegPendingPacket {
+    AVPacket *packet;
+    uint64_t sequence;
+    struct BetterTGFFmpegPendingPacket *next;
+} BetterTGFFmpegPendingPacket;
 
 struct BetterTGFFmpegPlaybackJob {
     void *context;
@@ -55,15 +64,38 @@ struct BetterTGFFmpegPlaybackJob {
     double audioEndTime;
     double videoDecodedTo;
     double audioDecodedTo;
+    double videoEmittedTo;
+    double audioEmittedTo;
     double nextAudioTime;
     int outputAudioChannels;
     int ended;
+    int videoHasExplicitEnd;
+    int audioHasExplicitEnd;
+    int videoExhausted;
+    int audioExhausted;
     int videoFrameCount;
     int audioFrameCount;
     int64_t bytesRead;
+    int64_t windowBytesRead;
     int readCallCount;
+    int windowReadCallCount;
     int seekCallCount;
     int sizeCallCount;
+    int openCount;
+    int runCount;
+    int explicitSeekCount;
+    double lastTargetTime;
+    int persistentSessionStarted;
+    int preservesWindowTail;
+    BetterTGFFmpegPendingPacket *videoPendingHead;
+    BetterTGFFmpegPendingPacket *videoPendingTail;
+    BetterTGFFmpegPendingPacket *audioPendingHead;
+    BetterTGFFmpegPendingPacket *audioPendingTail;
+    int pendingPacketCount;
+    int64_t pendingPacketBytes;
+    int maximumPendingPacketCount;
+    int64_t maximumPendingPacketBytes;
+    uint64_t nextPendingPacketSequence;
     int errorCode;
 };
 
@@ -93,8 +125,8 @@ static int BetterTGFFmpegPlaybackRead(
     if (job->readingOffset >= job->fileSize) {
         return AVERROR_EOF;
     }
-    if (job->readCallCount >= BETTERTG_PLAYBACK_MAXIMUM_READ_CALLS ||
-        job->bytesRead >= BETTERTG_PLAYBACK_MAXIMUM_READ_BUDGET) {
+    if (job->windowReadCallCount >= BETTERTG_PLAYBACK_MAXIMUM_READ_CALLS ||
+        job->windowBytesRead >= BETTERTG_PLAYBACK_MAXIMUM_READ_BUDGET) {
         return AVERROR(EFBIG);
     }
 
@@ -106,7 +138,8 @@ static int BetterTGFFmpegPlaybackRead(
     if ((int64_t)capacity > remaining) {
         capacity = (int)remaining;
     }
-    const int64_t budgetRemaining = BETTERTG_PLAYBACK_MAXIMUM_READ_BUDGET - job->bytesRead;
+    const int64_t budgetRemaining =
+        BETTERTG_PLAYBACK_MAXIMUM_READ_BUDGET - job->windowBytesRead;
     if ((int64_t)capacity > budgetRemaining) {
         capacity = (int)budgetRemaining;
     }
@@ -115,6 +148,7 @@ static int BetterTGFFmpegPlaybackRead(
     }
 
     job->readCallCount += 1;
+    job->windowReadCallCount += 1;
     const int result = job->readCallback(
         job->context,
         job->readingOffset,
@@ -127,6 +161,7 @@ static int BetterTGFFmpegPlaybackRead(
     if (result > 0) {
         job->readingOffset += result;
         job->bytesRead += result;
+        job->windowBytesRead += result;
         return result;
     }
     if (result == 0) {
@@ -190,10 +225,123 @@ static int64_t BetterTGFFmpegPlaybackSeek(
     return target;
 }
 
+static int64_t BetterTGFFmpegPlaybackPacketFootprint(const AVPacket *packet) {
+    if (packet == NULL) {
+        return 0;
+    }
+    int64_t footprint = (int64_t)sizeof(BetterTGFFmpegPendingPacket) +
+        (int64_t)sizeof(AVPacket) + 256;
+    if (packet->size > 0) {
+        if (footprint > INT64_MAX - packet->size) {
+            return INT64_MAX;
+        }
+        footprint += packet->size;
+    }
+    if (packet->side_data_elems > 0) {
+        const int64_t sideDataTableBytes =
+            (int64_t)packet->side_data_elems * (int64_t)sizeof(AVPacketSideData);
+        if (footprint > INT64_MAX - sideDataTableBytes) {
+            return INT64_MAX;
+        }
+        footprint += sideDataTableBytes;
+        for (int index = 0; index < packet->side_data_elems; index++) {
+            const size_t size = packet->side_data[index].size;
+            if (size > (size_t)INT64_MAX || footprint > INT64_MAX - (int64_t)size) {
+                return INT64_MAX;
+            }
+            footprint += (int64_t)size;
+        }
+    }
+    return footprint;
+}
+
+static void BetterTGFFmpegPlaybackClearPendingQueue(
+    BetterTGFFmpegPlaybackJob *job,
+    BetterTGFFmpegPendingPacket **head,
+    BetterTGFFmpegPendingPacket **tail
+) {
+    if (job == NULL || head == NULL || tail == NULL) {
+        return;
+    }
+    BetterTGFFmpegPendingPacket *node = *head;
+    while (node != NULL) {
+        BetterTGFFmpegPendingPacket *next = node->next;
+        if (node->packet != NULL) {
+            job->pendingPacketBytes -= BetterTGFFmpegPlaybackPacketFootprint(node->packet);
+            av_packet_free(&node->packet);
+        }
+        free(node);
+        job->pendingPacketCount -= 1;
+        node = next;
+    }
+    *head = NULL;
+    *tail = NULL;
+    if (job->pendingPacketCount < 0 || job->pendingPacketBytes < 0) {
+        job->pendingPacketCount = 0;
+        job->pendingPacketBytes = 0;
+    }
+}
+
+static int BetterTGFFmpegPlaybackEnqueuePacket(
+    BetterTGFFmpegPlaybackJob *job,
+    const AVPacket *packet,
+    BetterTGFFmpegPendingPacket **head,
+    BetterTGFFmpegPendingPacket **tail
+) {
+    if (job == NULL || packet == NULL || head == NULL || tail == NULL) {
+        return 0;
+    }
+    const int64_t packetBytes = BetterTGFFmpegPlaybackPacketFootprint(packet);
+    if (job->pendingPacketCount >= BETTERTG_PLAYBACK_MAXIMUM_PENDING_PACKETS ||
+        packetBytes > BETTERTG_PLAYBACK_MAXIMUM_PENDING_BYTES - job->pendingPacketBytes ||
+        job->nextPendingPacketSequence == UINT64_MAX) {
+        job->errorCode = AVERROR(EFBIG);
+        return 0;
+    }
+    BetterTGFFmpegPendingPacket *node = calloc(1, sizeof(BetterTGFFmpegPendingPacket));
+    if (node == NULL) {
+        job->errorCode = AVERROR(ENOMEM);
+        return 0;
+    }
+    node->packet = av_packet_clone(packet);
+    if (node->packet == NULL) {
+        free(node);
+        job->errorCode = AVERROR(ENOMEM);
+        return 0;
+    }
+    node->sequence = job->nextPendingPacketSequence;
+    job->nextPendingPacketSequence += 1;
+    if (*tail != NULL) {
+        (*tail)->next = node;
+    } else {
+        *head = node;
+    }
+    *tail = node;
+    job->pendingPacketCount += 1;
+    job->pendingPacketBytes += packetBytes;
+    if (job->pendingPacketCount > job->maximumPendingPacketCount) {
+        job->maximumPendingPacketCount = job->pendingPacketCount;
+    }
+    if (job->pendingPacketBytes > job->maximumPendingPacketBytes) {
+        job->maximumPendingPacketBytes = job->pendingPacketBytes;
+    }
+    return 1;
+}
+
 static void BetterTGFFmpegPlaybackClose(BetterTGFFmpegPlaybackJob *job) {
     if (job == NULL) {
         return;
     }
+    BetterTGFFmpegPlaybackClearPendingQueue(
+        job,
+        &job->videoPendingHead,
+        &job->videoPendingTail
+    );
+    BetterTGFFmpegPlaybackClearPendingQueue(
+        job,
+        &job->audioPendingHead,
+        &job->audioPendingTail
+    );
     swr_free(&job->resampleContext);
     sws_freeContext(job->scaleContext);
     av_packet_free(&job->packet);
@@ -483,6 +631,8 @@ static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
         BetterTGFFmpegPlaybackHasExplicitStreamEnd(
             job->formatContext->streams[job->audioStreamIndex]
         );
+    job->videoHasExplicitEnd = videoHasExplicitEnd;
+    job->audioHasExplicitEnd = audioHasExplicitEnd;
     if (videoHasExplicitEnd || audioHasExplicitEnd) {
         double explicitEnd = 0.0;
         if (videoHasExplicitEnd) {
@@ -496,7 +646,11 @@ static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
         job->duration = fmax(job->duration, fmax(job->videoEndTime, job->audioEndTime));
     }
     job->packet = av_packet_alloc();
-    return job->packet != NULL ? 0 : AVERROR(ENOMEM);
+    if (job->packet == NULL) {
+        return AVERROR(ENOMEM);
+    }
+    job->openCount += 1;
+    return 0;
 }
 
 static double BetterTGFFmpegPlaybackFrameTime(
@@ -602,8 +756,16 @@ static int BetterTGFFmpegPlaybackDrainVideo(
             : (job->videoFrameRate > 0.0 ? 1.0 / job->videoFrameRate : 1.0 / 30.0);
         const double frameEnd = presentationTime + fmax(0.0, frameDuration);
         job->videoDecodedTo = fmax(job->videoDecodedTo, frameEnd);
-        const double callbackTime = fmax(presentationTime, seekTime);
-        const double callbackEnd = fmin(frameEnd, targetTime);
+        const double callbackLowerBound = job->preservesWindowTail
+            ? job->videoEmittedTo
+            : seekTime;
+        const double callbackTime = fmax(presentationTime, callbackLowerBound);
+        const double persistentUpperBound = job->videoHasExplicitEnd
+            ? job->videoEndTime
+            : frameEnd;
+        const double callbackEnd = job->preservesWindowTail
+            ? fmin(frameEnd, persistentUpperBound)
+            : fmin(frameEnd, targetTime);
         if (callbackEnd > callbackTime) {
             job->videoFrameCount += 1;
             if (job->videoCallback != NULL &&
@@ -620,6 +782,9 @@ static int BetterTGFFmpegPlaybackDrainVideo(
                 av_free(output);
                 job->errorCode = AVERROR_EXIT;
                 return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
+            }
+            if (job->preservesWindowTail) {
+                job->videoEmittedTo = fmax(job->videoEmittedTo, callbackEnd);
             }
         }
         av_free(output);
@@ -639,14 +804,18 @@ static int BetterTGFFmpegPlaybackEmitAudio(
     }
     const double frameDuration = (double)outputFrames / BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE;
     const double frameEnd = presentationTime + frameDuration;
-    if (frameEnd <= seekTime || presentationTime >= targetTime) {
+    const double callbackLowerBound = job->preservesWindowTail
+        ? job->audioEmittedTo
+        : seekTime;
+    if (frameEnd <= callbackLowerBound ||
+        (!job->preservesWindowTail && presentationTime >= targetTime)) {
         return 1;
     }
 
     int startFrame = 0;
-    if (presentationTime < seekTime) {
+    if (presentationTime < callbackLowerBound) {
         const double skipped = ceil(
-            (seekTime - presentationTime) * BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
+            (callbackLowerBound - presentationTime) * BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
         );
         if (!isfinite(skipped) || skipped >= outputFrames) {
             return 1;
@@ -655,9 +824,13 @@ static int BetterTGFFmpegPlaybackEmitAudio(
     }
 
     int endFrame = outputFrames;
-    if (frameEnd > targetTime) {
+    const double callbackUpperBound = job->preservesWindowTail && job->audioHasExplicitEnd
+        ? job->audioEndTime
+        : targetTime;
+    if ((!job->preservesWindowTail || job->audioHasExplicitEnd) &&
+        frameEnd > callbackUpperBound) {
         const double retained = ceil(
-            (targetTime - presentationTime) * BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
+            (callbackUpperBound - presentationTime) * BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
         );
         if (!isfinite(retained) || retained <= 0.0) {
             return 1;
@@ -670,7 +843,7 @@ static int BetterTGFFmpegPlaybackEmitAudio(
 
     const int callbackFrameCount = endFrame - startFrame;
     const double callbackTime = fmax(
-        seekTime,
+        callbackLowerBound,
         presentationTime + (double)startFrame / BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
     );
     job->audioFrameCount += 1;
@@ -685,6 +858,12 @@ static int BetterTGFFmpegPlaybackEmitAudio(
         ) == 0) {
         job->errorCode = AVERROR_EXIT;
         return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
+    }
+    if (job->preservesWindowTail) {
+        job->audioEmittedTo = fmax(
+            job->audioEmittedTo,
+            callbackTime + (double)callbackFrameCount / BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
+        );
     }
     return 1;
 }
@@ -904,6 +1083,84 @@ static int BetterTGFFmpegPlaybackSendPacket(
         : BetterTGFFmpegPlaybackDrainAudio(job, seekTime, targetTime);
 }
 
+static int BetterTGFFmpegPlaybackDrainPendingPacketsInterleaved(
+    BetterTGFFmpegPlaybackJob *job,
+    double seekTime,
+    double videoCompletionTarget,
+    double audioCompletionTarget,
+    double videoCallbackTarget,
+    double audioCallbackTarget,
+    int drainAll
+) {
+    for (;;) {
+        const int videoEligible = job->videoPendingHead != NULL &&
+            (drainAll || job->videoDecodedTo < videoCompletionTarget);
+        const int audioEligible = job->audioPendingHead != NULL &&
+            (drainAll || job->audioDecodedTo < audioCompletionTarget);
+        if (!videoEligible && !audioEligible) {
+            return 1;
+        }
+        const int isVideo = videoEligible &&
+            (!audioEligible ||
+             job->videoPendingHead->sequence < job->audioPendingHead->sequence);
+        BetterTGFFmpegPendingPacket **head = isVideo
+            ? &job->videoPendingHead
+            : &job->audioPendingHead;
+        BetterTGFFmpegPendingPacket **tail = isVideo
+            ? &job->videoPendingTail
+            : &job->audioPendingTail;
+        BetterTGFFmpegPendingPacket *node = *head;
+        *head = node->next;
+        if (*head == NULL) {
+            *tail = NULL;
+        }
+        AVPacket *packet = node->packet;
+        const int64_t packetBytes = BetterTGFFmpegPlaybackPacketFootprint(packet);
+        job->pendingPacketCount -= 1;
+        job->pendingPacketBytes -= packetBytes;
+        free(node);
+        const int result = BetterTGFFmpegPlaybackSendPacket(
+            job,
+            isVideo ? job->videoCodecContext : job->audioCodecContext,
+            packet,
+            isVideo,
+            seekTime,
+            isVideo ? videoCallbackTarget : audioCallbackTarget
+        );
+        av_packet_free(&packet);
+        if (result <= 0) {
+            return result;
+        }
+    }
+}
+
+static int BetterTGFFmpegPlaybackFinishTrack(
+    BetterTGFFmpegPlaybackJob *job,
+    int isVideo,
+    double seekTime,
+    double targetTime
+) {
+    int *exhausted = isVideo ? &job->videoExhausted : &job->audioExhausted;
+    if (*exhausted) {
+        return 1;
+    }
+    int result = BetterTGFFmpegPlaybackSendPacket(
+        job,
+        isVideo ? job->videoCodecContext : job->audioCodecContext,
+        NULL,
+        isVideo,
+        seekTime,
+        targetTime
+    );
+    if (!isVideo && result > 0) {
+        result = BetterTGFFmpegPlaybackDrainResampler(job, seekTime, targetTime);
+    }
+    if (result > 0) {
+        *exhausted = 1;
+    }
+    return result;
+}
+
 BetterTGFFmpegPlaybackJob *BetterTGFFmpegPlaybackJobCreate(
     void *context,
     int64_t fileSize,
@@ -937,10 +1194,12 @@ void BetterTGFFmpegPlaybackJobCancel(BetterTGFFmpegPlaybackJob *job) {
     }
 }
 
-int BetterTGFFmpegPlaybackJobRun(
+static int BetterTGFFmpegPlaybackJobRunInternal(
     BetterTGFFmpegPlaybackJob *job,
     double seekTime,
-    double decodeDuration
+    double decodeDuration,
+    int isPersistent,
+    int isContinuation
 ) {
     const double maximumSeekTime = (double)(INT64_MAX - 61000000LL) / AV_TIME_BASE;
     if (job == NULL || !isfinite(seekTime) || seekTime < 0.0 ||
@@ -952,10 +1211,30 @@ int BetterTGFFmpegPlaybackJobRun(
     if (BetterTGFFmpegPlaybackIsCancelled(job)) {
         return -1;
     }
-    int result = BetterTGFFmpegPlaybackOpen(job);
-    if (result < 0) {
-        job->errorCode = result;
-        return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
+    if ((!isPersistent || !isContinuation) && job->formatContext != NULL) {
+        job->errorCode = AVERROR(EINVAL);
+        return 0;
+    }
+    if (isContinuation &&
+        (!isPersistent || !job->persistentSessionStarted || job->formatContext == NULL ||
+         seekTime != job->lastTargetTime || job->ended)) {
+        job->errorCode = AVERROR(EINVAL);
+        return 0;
+    }
+
+    job->windowBytesRead = 0;
+    job->windowReadCallCount = 0;
+    job->errorCode = 0;
+    job->preservesWindowTail = isPersistent ? 1 : 0;
+    job->runCount += 1;
+
+    int result = 0;
+    if (job->formatContext == NULL) {
+        result = BetterTGFFmpegPlaybackOpen(job);
+        if (result < 0) {
+            job->errorCode = result;
+            return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
+        }
     }
     if (job->metadataCallback != NULL &&
         job->metadataCallback(
@@ -978,11 +1257,22 @@ int BetterTGFFmpegPlaybackJobRun(
         seekTime = job->duration;
     }
     const double targetTime = seekTime + decodeDuration;
-    job->videoDecodedTo = seekTime;
-    job->audioDecodedTo = seekTime;
-    job->nextAudioTime = seekTime;
+    const double callbackSeekTime = isContinuation ? 0.0 : seekTime;
+    if (!isContinuation) {
+        job->videoDecodedTo = seekTime;
+        job->audioDecodedTo = seekTime;
+        job->videoEmittedTo = seekTime;
+        job->audioEmittedTo = seekTime;
+        job->nextAudioTime = seekTime;
+        job->ended = 0;
+        job->videoExhausted = 0;
+        job->audioExhausted = 0;
+        if (isPersistent) {
+            job->persistentSessionStarted = 1;
+        }
+    }
 
-    if (seekTime > 0.0) {
+    if (!isContinuation && seekTime > 0.0) {
         const double absoluteSeekTime = seekTime + job->timelineOrigin;
         if (!isfinite(absoluteSeekTime) ||
             absoluteSeekTime <= (double)INT64_MIN / AV_TIME_BASE ||
@@ -1003,47 +1293,161 @@ int BetterTGFFmpegPlaybackJobRun(
             job->errorCode = result;
             return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
         }
+        job->explicitSeekCount += 1;
         if (job->videoCodecContext != NULL) {
             avcodec_flush_buffers(job->videoCodecContext);
         }
         if (job->audioCodecContext != NULL) {
             avcodec_flush_buffers(job->audioCodecContext);
         }
+        if (job->resampleContext != NULL) {
+            swr_close(job->resampleContext);
+            result = swr_init(job->resampleContext);
+            if (result < 0) {
+                job->errorCode = result;
+                return 0;
+            }
+        }
+    }
+
+    const int audioRequired = job->audioStreamIndex >= 0 &&
+        targetTime > job->audioStartTime &&
+        (!job->audioHasExplicitEnd || seekTime < job->audioEndTime);
+    const int videoRequired = job->videoStreamIndex >= 0 &&
+        targetTime > job->videoStartTime &&
+        (!job->videoHasExplicitEnd || seekTime < job->videoEndTime);
+    const double audioTargetTime = job->audioHasExplicitEnd
+        ? fmin(targetTime, job->audioEndTime)
+        : targetTime;
+    const double videoTargetTime = job->videoHasExplicitEnd
+        ? fmin(targetTime, job->videoEndTime)
+        : targetTime;
+    const double videoEndTolerance = job->videoHasExplicitEnd &&
+        videoTargetTime >= job->videoEndTime - 0.001
+        ? fmax(0.001, job->videoFrameRate > 0.0 ? 1.0 / job->videoFrameRate : 0.05)
+        : 0.0;
+    const double audioEndTolerance = job->audioHasExplicitEnd &&
+        audioTargetTime >= job->audioEndTime - 0.001
+        ? 0.125
+        : 0.0;
+    const double videoCompletionTarget = fmax(
+        job->videoStartTime,
+        videoTargetTime - videoEndTolerance
+    );
+    const double audioCompletionTarget = fmax(
+        job->audioStartTime,
+        audioTargetTime - audioEndTolerance
+    );
+    const int allStreamsHaveExplicitEnd =
+        (job->videoStreamIndex < 0 || job->videoHasExplicitEnd) &&
+        (job->audioStreamIndex < 0 || job->audioHasExplicitEnd);
+    const double knownExplicitEnd = fmax(
+        job->videoHasExplicitEnd ? job->videoEndTime : 0.0,
+        job->audioHasExplicitEnd ? job->audioEndTime : 0.0
+    );
+    const int shouldDrainToEOF = allStreamsHaveExplicitEnd
+        ? knownExplicitEnd > 0.0 && targetTime >= knownExplicitEnd - 0.001
+        : job->duration > 0.0 && targetTime >= job->duration - 0.001;
+
+    if (!videoRequired && job->videoHasExplicitEnd && seekTime >= job->videoEndTime) {
+        job->videoExhausted = 1;
+        BetterTGFFmpegPlaybackClearPendingQueue(
+            job,
+            &job->videoPendingHead,
+            &job->videoPendingTail
+        );
+    }
+    if (!audioRequired && job->audioHasExplicitEnd && seekTime >= job->audioEndTime) {
+        job->audioExhausted = 1;
+        BetterTGFFmpegPlaybackClearPendingQueue(
+            job,
+            &job->audioPendingHead,
+            &job->audioPendingTail
+        );
+    }
+    result = BetterTGFFmpegPlaybackDrainPendingPacketsInterleaved(
+        job,
+        callbackSeekTime,
+        shouldDrainToEOF || videoEndTolerance > 0.0 ? DBL_MAX : videoCompletionTarget,
+        shouldDrainToEOF || audioEndTolerance > 0.0 ? DBL_MAX : audioCompletionTarget,
+        shouldDrainToEOF ? DBL_MAX : videoTargetTime,
+        shouldDrainToEOF ? DBL_MAX : audioTargetTime,
+        shouldDrainToEOF
+    );
+    if (result <= 0) {
+        return result;
     }
 
     int packetCount = 0;
     while (!BetterTGFFmpegPlaybackIsCancelled(job) &&
            packetCount < BETTERTG_PLAYBACK_MAXIMUM_PACKET_COUNT) {
-        const int videoDone = job->videoStreamIndex < 0 || job->videoDecodedTo >= targetTime;
-        const int audioDone = job->audioStreamIndex < 0 || job->audioDecodedTo >= targetTime;
-        if (videoDone && audioDone) {
+        const int videoDone = !videoRequired ||
+            job->videoExhausted || job->videoDecodedTo >= videoCompletionTarget;
+        const int audioDone = !audioRequired ||
+            job->audioExhausted || job->audioDecodedTo >= audioCompletionTarget;
+        if (videoDone && audioDone && !shouldDrainToEOF) {
+            if (audioRequired && job->audioHasExplicitEnd &&
+                targetTime >= job->audioEndTime - 0.001 && !job->audioExhausted) {
+                result = BetterTGFFmpegPlaybackFinishTrack(
+                    job,
+                    0,
+                    callbackSeekTime,
+                    audioTargetTime
+                );
+                if (result <= 0) {
+                    return result;
+                }
+            }
+            if (videoRequired && job->videoHasExplicitEnd &&
+                targetTime >= job->videoEndTime - 0.001 && !job->videoExhausted) {
+                result = BetterTGFFmpegPlaybackFinishTrack(
+                    job,
+                    1,
+                    callbackSeekTime,
+                    videoTargetTime
+                );
+                if (result <= 0) {
+                    return result;
+                }
+            }
             break;
         }
+        const int videoTerminalNeedsPackets = videoDone && videoEndTolerance > 0.0 &&
+            !audioDone && !job->videoExhausted;
+        const int audioTerminalNeedsPackets = audioDone && audioEndTolerance > 0.0 &&
+            !videoDone && !job->audioExhausted;
         av_packet_unref(job->packet);
         result = av_read_frame(job->formatContext, job->packet);
         if (result < 0) {
             if (result == AVERROR_EOF) {
                 job->ended = 1;
-                result = BetterTGFFmpegPlaybackSendPacket(
+                if (isPersistent) {
+                    result = BetterTGFFmpegPlaybackDrainPendingPacketsInterleaved(
+                        job,
+                        callbackSeekTime,
+                        DBL_MAX,
+                        DBL_MAX,
+                        DBL_MAX,
+                        DBL_MAX,
+                        1
+                    );
+                    if (result <= 0) {
+                        return result;
+                    }
+                }
+                result = BetterTGFFmpegPlaybackFinishTrack(
                     job,
-                    job->videoCodecContext,
-                    NULL,
                     1,
-                    seekTime,
-                    targetTime
+                    callbackSeekTime,
+                    videoTargetTime
                 );
                 if (result > 0) {
-                    result = BetterTGFFmpegPlaybackSendPacket(
+                    result = BetterTGFFmpegPlaybackFinishTrack(
                         job,
-                        job->audioCodecContext,
-                        NULL,
                         0,
-                        seekTime,
-                        targetTime
+                        callbackSeekTime,
+                        audioTargetTime
                     );
-                }
-                if (result > 0) {
-                    result = BetterTGFFmpegPlaybackDrainResampler(job, seekTime, targetTime);
                 }
                 if (result <= 0) {
                     return result;
@@ -1055,27 +1459,67 @@ int BetterTGFFmpegPlaybackJobRun(
         }
         packetCount += 1;
         if (job->packet->stream_index == job->videoStreamIndex) {
-            result = job->videoDecodedTo >= targetTime
-                ? 1
-                : BetterTGFFmpegPlaybackSendPacket(
+            const int videoHasFuture = !job->videoHasExplicitEnd ||
+                targetTime < job->videoEndTime;
+            if (shouldDrainToEOF || videoTerminalNeedsPackets) {
+                result = BetterTGFFmpegPlaybackSendPacket(
                     job,
                     job->videoCodecContext,
                     job->packet,
                     1,
-                    seekTime,
-                    targetTime
+                    callbackSeekTime,
+                    videoTargetTime
                 );
+            } else if (isPersistent && videoDone && videoHasFuture) {
+                result = BetterTGFFmpegPlaybackEnqueuePacket(
+                    job,
+                    job->packet,
+                    &job->videoPendingHead,
+                    &job->videoPendingTail
+                );
+            } else if (videoDone) {
+                result = 1;
+            } else {
+                result = BetterTGFFmpegPlaybackSendPacket(
+                    job,
+                    job->videoCodecContext,
+                    job->packet,
+                    1,
+                    callbackSeekTime,
+                    videoTargetTime
+                );
+            }
         } else if (job->packet->stream_index == job->audioStreamIndex) {
-            result = job->audioDecodedTo >= targetTime
-                ? 1
-                : BetterTGFFmpegPlaybackSendPacket(
+            const int audioHasFuture = !job->audioHasExplicitEnd ||
+                targetTime < job->audioEndTime;
+            if (shouldDrainToEOF || audioTerminalNeedsPackets) {
+                result = BetterTGFFmpegPlaybackSendPacket(
                     job,
                     job->audioCodecContext,
                     job->packet,
                     0,
-                    seekTime,
-                    targetTime
+                    callbackSeekTime,
+                    audioTargetTime
                 );
+            } else if (isPersistent && audioDone && audioHasFuture) {
+                result = BetterTGFFmpegPlaybackEnqueuePacket(
+                    job,
+                    job->packet,
+                    &job->audioPendingHead,
+                    &job->audioPendingTail
+                );
+            } else if (audioDone) {
+                result = 1;
+            } else {
+                result = BetterTGFFmpegPlaybackSendPacket(
+                    job,
+                    job->audioCodecContext,
+                    job->packet,
+                    0,
+                    callbackSeekTime,
+                    audioTargetTime
+                );
+            }
         } else {
             result = 1;
         }
@@ -1092,7 +1536,48 @@ int BetterTGFFmpegPlaybackJobRun(
         job->errorCode = AVERROR(EFBIG);
         return 0;
     }
+    if (isPersistent) {
+        job->lastTargetTime = targetTime;
+    }
     return 1;
+}
+
+int BetterTGFFmpegPlaybackJobRun(
+    BetterTGFFmpegPlaybackJob *job,
+    double seekTime,
+    double decodeDuration
+) {
+    return BetterTGFFmpegPlaybackJobRunInternal(job, seekTime, decodeDuration, 0, 0);
+}
+
+int BetterTGFFmpegPlaybackJobStartPersistent(
+    BetterTGFFmpegPlaybackJob *job,
+    double seekTime,
+    double decodeDuration
+) {
+    return BetterTGFFmpegPlaybackJobRunInternal(
+        job,
+        seekTime,
+        decodeDuration,
+        1,
+        0
+    );
+}
+
+int BetterTGFFmpegPlaybackJobContinue(
+    BetterTGFFmpegPlaybackJob *job,
+    double decodeDuration
+) {
+    if (job == NULL) {
+        return 0;
+    }
+    return BetterTGFFmpegPlaybackJobRunInternal(
+        job,
+        job->lastTargetTime,
+        decodeDuration,
+        1,
+        1
+    );
 }
 
 void BetterTGFFmpegPlaybackJobDestroy(BetterTGFFmpegPlaybackJob *job) {
@@ -1150,6 +1635,10 @@ double BetterTGFFmpegPlaybackJobAudioDecodedTo(const BetterTGFFmpegPlaybackJob *
     return job != NULL ? job->audioDecodedTo : 0.0;
 }
 
+double BetterTGFFmpegPlaybackJobContinuationTime(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL ? job->lastTargetTime : 0.0;
+}
+
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job) {
     return job != NULL ? job->duration : 0.0;
 }
@@ -1172,6 +1661,30 @@ int BetterTGFFmpegPlaybackJobSeekCallCount(const BetterTGFFmpegPlaybackJob *job)
 
 int BetterTGFFmpegPlaybackJobSizeCallCount(const BetterTGFFmpegPlaybackJob *job) {
     return job != NULL ? job->sizeCallCount : 0;
+}
+
+int BetterTGFFmpegPlaybackJobOpenCount(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL ? job->openCount : 0;
+}
+
+int BetterTGFFmpegPlaybackJobRunCount(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL ? job->runCount : 0;
+}
+
+int BetterTGFFmpegPlaybackJobExplicitSeekCount(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL ? job->explicitSeekCount : 0;
+}
+
+int BetterTGFFmpegPlaybackJobMaximumPendingPacketCount(
+    const BetterTGFFmpegPlaybackJob *job
+) {
+    return job != NULL ? job->maximumPendingPacketCount : 0;
+}
+
+int64_t BetterTGFFmpegPlaybackJobMaximumPendingPacketBytes(
+    const BetterTGFFmpegPlaybackJob *job
+) {
+    return job != NULL ? job->maximumPendingPacketBytes : 0;
 }
 
 int BetterTGFFmpegPlaybackJobErrorCode(const BetterTGFFmpegPlaybackJob *job) {

@@ -48,10 +48,17 @@ actor TDLibVODFFmpegDecoder {
         let audioFrameCount: Int
         let audioIsOpus: Bool
         let bytesRead: Int64
+        let continuationTime: TimeInterval
         let duration: TimeInterval
+        let explicitSeekCount: Int
         let isEnded: Bool
+        let maximumPendingPacketBytes: Int64
+        let maximumPendingPacketCount: Int
+        let openCount: Int
         let readCallCount: Int
+        let runCount: Int
         let seekCallCount: Int
+        let sessionID: UUID
         let sizeCallCount: Int
         let timelineOrigin: TimeInterval
         let videoCodecID: Int32
@@ -70,9 +77,15 @@ actor TDLibVODFFmpegDecoder {
         case superseded
     }
 
+    enum DecodeMode: Equatable {
+        case continueSession
+        case oneShot
+        case startSession
+    }
+
     // MARK: Private
 
-    private enum DecodeDisposition {
+    private enum DecodeDisposition: Equatable {
         case cancelled
         case running
         case superseded
@@ -83,21 +96,26 @@ actor TDLibVODFFmpegDecoder {
         let continuation: CheckedContinuation<Summary, Swift.Error>
         var disposition: DecodeDisposition
         let id: UUID
+        let retainsSessionOnSuccess: Bool
+        let session: TDLibVODFFmpegDecodeSession
     }
 
     private let lease: TDLibVODRangeLease
     private var activeDecodes = [UUID: ActiveDecode]()
     private var currentDecodeID: UUID?
+    private var closeWaiters = [CheckedContinuation<Void, Never>]()
     private var decodeGeneration = UInt64.zero
     private var isClosed = false
     private var leaseReleased = false
+    private var persistentSession: TDLibVODFFmpegDecodeSession?
 
     init(lease: TDLibVODRangeLease) {
         self.lease = lease
     }
 
     deinit {
-        activeDecodes.values.forEach { $0.box.cancel() }
+        activeDecodes.values.forEach { $0.session.invalidate() }
+        persistentSession?.invalidate()
     }
 
     #if DEBUG
@@ -110,6 +128,7 @@ actor TDLibVODFFmpegDecoder {
     func decode(
         seekTime: TimeInterval,
         duration: TimeInterval,
+        mode: DecodeMode = .oneShot,
         onMetadata: @escaping @Sendable (Metadata) -> Bool = { _ in true },
         onVideoFrame: @escaping @Sendable (VideoFrame) -> Bool,
         onAudioFrame: @escaping @Sendable (AudioFrame) -> Bool,
@@ -128,17 +147,52 @@ actor TDLibVODFFmpegDecoder {
         decodeGeneration &+= 1
         let generation = decodeGeneration
         supersedeActiveDecode()
-        let fileSize = try await resolvedFileSizeRetryingStale()
-        try Task.checkCancellation()
+        if mode != .continueSession {
+            invalidatePersistentSession()
+        }
+        let fileSize: Int64
+        do {
+            fileSize = try await resolvedFileSizeRetryingStale()
+            try Task.checkCancellation()
+        } catch {
+            if Task.isCancelled {
+                invalidatePersistentSession()
+                throw DecodeError.cancelled
+            }
+            throw error
+        }
         guard generation == decodeGeneration else { throw DecodeError.superseded }
 
         let requestID = UUID()
-        let box = TDLibVODFFmpegDecodeBox(
-            source: lease.source,
-            onMetadata: onMetadata,
-            onVideoFrame: onVideoFrame,
-            onAudioFrame: onAudioFrame,
-        )
+        let retainsSessionOnSuccess = mode != .oneShot
+        let session: TDLibVODFFmpegDecodeSession
+        let continuesSession: Bool
+        if mode == .continueSession,
+           let persistentSession,
+           persistentSession.updateCallbacks(
+               onMetadata: onMetadata,
+               onVideoFrame: onVideoFrame,
+               onAudioFrame: onAudioFrame,
+           )
+        {
+            session = persistentSession
+            continuesSession = true
+        } else {
+            if mode == .continueSession {
+                invalidatePersistentSession()
+            }
+            session = TDLibVODFFmpegDecodeSession(
+                source: lease.source,
+                onMetadata: onMetadata,
+                onVideoFrame: onVideoFrame,
+                onAudioFrame: onAudioFrame,
+            )
+            continuesSession = false
+            if retainsSessionOnSuccess {
+                persistentSession = session
+            }
+        }
+        let box = session.box
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 activeDecodes[requestID] = ActiveDecode(
@@ -146,15 +200,19 @@ actor TDLibVODFFmpegDecoder {
                     continuation: continuation,
                     disposition: .running,
                     id: requestID,
+                    retainsSessionOnSuccess: retainsSessionOnSuccess,
+                    session: session,
                 )
                 currentDecodeID = requestID
                 startWorker(
                     requestID: requestID,
                     generation: generation,
-                    box: box,
+                    session: session,
                     fileSize: fileSize,
                     seekTime: seekTime,
                     duration: duration,
+                    isPersistent: retainsSessionOnSuccess,
+                    isContinuation: continuesSession,
                 )
             }
         } onCancel: {
@@ -164,16 +222,23 @@ actor TDLibVODFFmpegDecoder {
     }
 
     func close() async {
-        guard !isClosed else { return }
-        isClosed = true
-        decodeGeneration &+= 1
-        for id in Array(activeDecodes.keys) {
-            guard var activeDecode = activeDecodes[id] else { continue }
-            activeDecode.disposition = .cancelled
-            activeDecodes[id] = activeDecode
-            activeDecode.box.cancel()
+        if !isClosed {
+            isClosed = true
+            decodeGeneration &+= 1
+            for id in Array(activeDecodes.keys) {
+                guard var activeDecode = activeDecodes[id] else { continue }
+                activeDecode.disposition = .cancelled
+                activeDecodes[id] = activeDecode
+                activeDecode.session.invalidate()
+            }
+            currentDecodeID = nil
+            invalidatePersistentSession()
         }
-        currentDecodeID = nil
+        if !activeDecodes.isEmpty {
+            await withCheckedContinuation { continuation in
+                closeWaiters.append(continuation)
+            }
+        }
         await releaseLeaseIfNeeded()
     }
 
@@ -181,7 +246,10 @@ actor TDLibVODFFmpegDecoder {
         guard let currentDecodeID, var activeDecode = activeDecodes[currentDecodeID] else { return }
         activeDecode.disposition = .superseded
         activeDecodes[currentDecodeID] = activeDecode
-        activeDecode.box.cancel()
+        activeDecode.session.invalidate()
+        if persistentSession === activeDecode.session {
+            persistentSession = nil
+        }
         self.currentDecodeID = nil
     }
 
@@ -194,39 +262,48 @@ actor TDLibVODFFmpegDecoder {
         if currentDecodeID == requestID {
             currentDecodeID = nil
         }
-        activeDecode.box.cancel()
+        activeDecode.session.invalidate()
+        if persistentSession === activeDecode.session {
+            persistentSession = nil
+        }
+    }
+
+    private func invalidatePersistentSession() {
+        persistentSession?.invalidate()
+        persistentSession = nil
     }
 
     private func startWorker(
         requestID: UUID,
         generation: UInt64,
-        box: TDLibVODFFmpegDecodeBox,
+        session: TDLibVODFFmpegDecodeSession,
         fileSize: Int64,
         seekTime: TimeInterval,
         duration: TimeInterval,
+        isPersistent: Bool,
+        isContinuation: Bool,
     ) {
         let thread = Thread { [self] in
-            let context = Unmanaged.passRetained(box).toOpaque()
-            guard let job = BetterTGFFmpegPlaybackJobCreate(
-                context,
-                fileSize,
-                tdLibVODFFmpegDecodeReadCallback,
-                tdLibVODFFmpegDecodeMetadataCallback,
-                tdLibVODFFmpegDecodeVideoCallback,
-                tdLibVODFFmpegDecodeAudioCallback,
-            ) else {
-                Unmanaged<TDLibVODFFmpegDecodeBox>.fromOpaque(context).release()
+            let box = session.box
+            guard let job = session.beginRun(fileSize: fileSize) else {
+                let error: DecodeError = box.isCancelled ? .cancelled : .couldNotCreateJob
                 Task {
                     await finish(
                         requestID: requestID,
                         generation: generation,
-                        result: .failure(.couldNotCreateJob),
+                        result: .failure(error),
                     )
                 }
                 return
             }
-            box.install(job: job)
-            let runResult = BetterTGFFmpegPlaybackJobRun(job, seekTime, duration)
+            let runResult =
+                if isContinuation {
+                    BetterTGFFmpegPlaybackJobContinue(job, duration)
+                } else if isPersistent {
+                    BetterTGFFmpegPlaybackJobStartPersistent(job, seekTime, duration)
+                } else {
+                    BetterTGFFmpegPlaybackJobRun(job, seekTime, duration)
+                }
             let result: Result<Summary, DecodeError> =
                 if runResult == 1 {
                     .success(Summary(
@@ -235,10 +312,17 @@ actor TDLibVODFFmpegDecoder {
                         audioFrameCount: Int(BetterTGFFmpegPlaybackJobAudioFrameCount(job)),
                         audioIsOpus: BetterTGFFmpegPlaybackJobAudioIsOpus(job) != 0,
                         bytesRead: BetterTGFFmpegPlaybackJobBytesRead(job),
+                        continuationTime: BetterTGFFmpegPlaybackJobContinuationTime(job),
                         duration: BetterTGFFmpegPlaybackJobDuration(job),
+                        explicitSeekCount: Int(BetterTGFFmpegPlaybackJobExplicitSeekCount(job)),
                         isEnded: BetterTGFFmpegPlaybackJobIsEnded(job) != 0,
+                        maximumPendingPacketBytes: BetterTGFFmpegPlaybackJobMaximumPendingPacketBytes(job),
+                        maximumPendingPacketCount: Int(BetterTGFFmpegPlaybackJobMaximumPendingPacketCount(job)),
+                        openCount: Int(BetterTGFFmpegPlaybackJobOpenCount(job)),
                         readCallCount: Int(BetterTGFFmpegPlaybackJobReadCallCount(job)),
+                        runCount: Int(BetterTGFFmpegPlaybackJobRunCount(job)),
                         seekCallCount: Int(BetterTGFFmpegPlaybackJobSeekCallCount(job)),
+                        sessionID: session.id,
                         sizeCallCount: Int(BetterTGFFmpegPlaybackJobSizeCallCount(job)),
                         timelineOrigin: BetterTGFFmpegPlaybackJobTimelineOrigin(job),
                         videoCodecID: BetterTGFFmpegPlaybackJobVideoCodecID(job),
@@ -255,9 +339,7 @@ actor TDLibVODFFmpegDecoder {
                 } else {
                     .failure(.ffmpeg(BetterTGFFmpegPlaybackJobErrorCode(job)))
                 }
-            box.clear(job: job)
-            BetterTGFFmpegPlaybackJobDestroy(job)
-            Unmanaged<TDLibVODFFmpegDecodeBox>.fromOpaque(context).release()
+            session.finishRun(job: job)
             Task { await finish(requestID: requestID, generation: generation, result: result) }
         }
         thread.name = "BetterTG VOD FFmpeg Decode"
@@ -274,17 +356,46 @@ actor TDLibVODFFmpegDecoder {
         if currentDecodeID == requestID {
             currentDecodeID = nil
         }
+        let resultFailed =
+            if case .failure = result {
+                true
+            } else {
+                false
+            }
+        let resultEnded: Bool =
+            if case .success(let summary) = result {
+                summary.isEnded
+            } else {
+                false
+            }
+        let boxWasCancelled = activeDecode.box.isCancelled
+        let shouldInvalidateSession = activeDecode.disposition != .running
+            || boxWasCancelled
+            || resultFailed
+            || resultEnded
+            || !activeDecode.retainsSessionOnSuccess
+        if shouldInvalidateSession {
+            activeDecode.session.invalidate()
+            if persistentSession === activeDecode.session {
+                persistentSession = nil
+            }
+        }
         switch activeDecode.disposition {
         case .cancelled:
             activeDecode.continuation.resume(throwing: DecodeError.cancelled)
         case .superseded:
             activeDecode.continuation.resume(throwing: DecodeError.superseded)
         case .running:
-            if activeDecode.box.isCancelled {
+            if boxWasCancelled {
                 activeDecode.continuation.resume(throwing: DecodeError.cancelled)
             } else {
                 activeDecode.continuation.resume(with: result.mapError { $0 })
             }
+        }
+        if activeDecodes.isEmpty, !closeWaiters.isEmpty {
+            let waiters = closeWaiters
+            closeWaiters.removeAll()
+            waiters.forEach { $0.resume() }
         }
     }
 
@@ -316,15 +427,135 @@ actor TDLibVODFFmpegDecoder {
     }
 }
 
+// MARK: - TDLibVODFFmpegDecodeSession
+
+private final class TDLibVODFFmpegDecodeSession: @unchecked Sendable {
+    // MARK: Internal
+
+    let box: TDLibVODFFmpegDecodeBox
+    let id = UUID()
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var invalidated = false
+    private var isRunning = false
+    private var job: OpaquePointer?
+    private var retainedContext: UnsafeMutableRawPointer?
+
+    init(
+        source: TDLibVODRangeSource,
+        onMetadata: @escaping @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool,
+        onVideoFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool,
+        onAudioFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool,
+    ) {
+        self.box = TDLibVODFFmpegDecodeBox(
+            source: source,
+            onMetadata: onMetadata,
+            onVideoFrame: onVideoFrame,
+            onAudioFrame: onAudioFrame,
+        )
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func updateCallbacks(
+        onMetadata: @escaping @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool,
+        onVideoFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool,
+        onAudioFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool,
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !invalidated, !isRunning else { return false }
+        return box.updateCallbacks(
+            onMetadata: onMetadata,
+            onVideoFrame: onVideoFrame,
+            onAudioFrame: onAudioFrame,
+        )
+    }
+
+    func beginRun(fileSize: Int64) -> OpaquePointer? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !invalidated, !isRunning else { return nil }
+        if job == nil {
+            let context = Unmanaged.passRetained(box).toOpaque()
+            guard let createdJob = BetterTGFFmpegPlaybackJobCreate(
+                context,
+                fileSize,
+                tdLibVODFFmpegDecodeReadCallback,
+                tdLibVODFFmpegDecodeMetadataCallback,
+                tdLibVODFFmpegDecodeVideoCallback,
+                tdLibVODFFmpegDecodeAudioCallback,
+            ) else {
+                Unmanaged<TDLibVODFFmpegDecodeBox>.fromOpaque(context).release()
+                return nil
+            }
+            retainedContext = context
+            job = createdJob
+            box.install(job: createdJob)
+        }
+        isRunning = true
+        return job
+    }
+
+    func finishRun(job: OpaquePointer) {
+        var destroyedJob: OpaquePointer?
+        var destroyedContext: UnsafeMutableRawPointer?
+        lock.lock()
+        if self.job == job {
+            isRunning = false
+            if invalidated {
+                destroyedJob = self.job
+                destroyedContext = retainedContext
+                self.job = nil
+                retainedContext = nil
+            }
+        }
+        lock.unlock()
+        destroy(job: destroyedJob, context: destroyedContext)
+    }
+
+    func invalidate() {
+        var destroyedJob: OpaquePointer?
+        var destroyedContext: UnsafeMutableRawPointer?
+        lock.lock()
+        if !invalidated {
+            invalidated = true
+            if !isRunning {
+                destroyedJob = job
+                destroyedContext = retainedContext
+                job = nil
+                retainedContext = nil
+            }
+        }
+        lock.unlock()
+        box.cancel()
+        destroy(job: destroyedJob, context: destroyedContext)
+    }
+
+    private func destroy(
+        job: OpaquePointer?,
+        context: UnsafeMutableRawPointer?,
+    ) {
+        guard let job, let context else { return }
+        box.clear(job: job)
+        BetterTGFFmpegPlaybackJobDestroy(job)
+        Unmanaged<TDLibVODFFmpegDecodeBox>.fromOpaque(context).release()
+    }
+}
+
 // MARK: - TDLibVODFFmpegDecodeBox
 
 private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
     // MARK: Private
 
     private let source: TDLibVODRangeSource
-    private let onMetadata: @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool
-    private let onVideoFrame: @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool
-    private let onAudioFrame: @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool
+    private var onMetadata: @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool
+    private var onVideoFrame: @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool
+    private var onAudioFrame: @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool
     private let lock = NSLock()
     private var activeOperation: TDLibVODFFmpegDecodeReadOperation?
     private var cancelled = false
@@ -355,6 +586,21 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         self.onMetadata = onMetadata
         self.onVideoFrame = onVideoFrame
         self.onAudioFrame = onAudioFrame
+    }
+
+    func updateCallbacks(
+        onMetadata: @escaping @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool,
+        onVideoFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool,
+        onAudioFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool,
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled, activeOperation == nil else { return false }
+        self.onMetadata = onMetadata
+        self.onVideoFrame = onVideoFrame
+        self.onAudioFrame = onAudioFrame
+        storedRangeError = nil
+        return true
     }
 
     func install(job: OpaquePointer) {
@@ -464,7 +710,11 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         duration: TimeInterval,
         isKeyFrame: Bool,
     ) -> Int32 {
-        guard !isCancelled,
+        lock.lock()
+        let callback: (@Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool)? =
+            cancelled ? nil : onVideoFrame
+        lock.unlock()
+        guard let callback,
               width > 0,
               height > 0,
               bytesPerRow >= width * 4,
@@ -479,7 +729,7 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
             presentationTime: presentationTime,
             width: width,
         )
-        return onVideoFrame(frame) ? 1 : 0
+        return callback(frame) ? 1 : 0
     }
 
     func acceptMetadata(
@@ -494,7 +744,11 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         audioStartTime: TimeInterval,
         audioEndTime: TimeInterval,
     ) -> Int32 {
-        guard !isCancelled,
+        lock.lock()
+        let callback: (@Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool)? =
+            cancelled ? nil : onMetadata
+        lock.unlock()
+        guard let callback,
               duration.isFinite,
               duration >= 0,
               timelineOrigin.isFinite,
@@ -503,7 +757,7 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
               audioStartTime.isFinite,
               audioEndTime.isFinite
         else { return 0 }
-        return onMetadata(.init(
+        return callback(.init(
             audioCodecID: audioCodecID,
             audioEndTime: audioEndTime,
             audioStartTime: audioStartTime,
@@ -524,7 +778,11 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         sampleRate: Int,
         presentationTime: TimeInterval,
     ) -> Int32 {
-        guard !isCancelled,
+        lock.lock()
+        let callback: (@Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool)? =
+            cancelled ? nil : onAudioFrame
+        lock.unlock()
+        guard let callback,
               frameCount > 0,
               (1...2).contains(channelCount),
               sampleRate > 0,
@@ -538,7 +796,7 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
             sampleRate: sampleRate,
             samples: Data(bytes: samples, count: byteCount),
         )
-        return onAudioFrame(frame) ? 1 : 0
+        return callback(frame) ? 1 : 0
     }
 }
 
@@ -690,6 +948,8 @@ private func tdLibVODFFmpegDecodeAudioCallback(
             private var audioSampleCount = 0
             private var videoTimes = [TimeInterval]()
             private var audioTimes = [TimeInterval]()
+            private var videoEnds = [TimeInterval]()
+            private var audioEnds = [TimeInterval]()
             private var videoBytesAreValid = true
             private var audioBytesAreValid = true
 
@@ -700,6 +960,7 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                 defer { lock.unlock() }
                 videoFrameCount += 1
                 videoTimes.append(frame.presentationTime)
+                videoEnds.append(frame.presentationTime + frame.duration)
                 videoBytesAreValid = videoBytesAreValid
                     && frame.bytes.count == frame.bytesPerRow * frame.height
                     && frame.bytesPerRow >= frame.width * 4
@@ -712,6 +973,9 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                 audioFrameCount += 1
                 audioSampleCount += frame.frameCount
                 audioTimes.append(frame.presentationTime)
+                audioEnds.append(
+                    frame.presentationTime + TimeInterval(frame.frameCount) / TimeInterval(frame.sampleRate),
+                )
                 audioBytesAreValid = audioBytesAreValid
                     && frame.sampleRate == 48000
                     && (1...2).contains(frame.channelCount)
@@ -742,14 +1006,45 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     videoBytesAreValid && audioBytesAreValid,
                 )
             }
+
+            func continuity() -> (
+                videoStrictlyMonotonic: Bool,
+                audioStrictlyMonotonic: Bool,
+                maximumVideoGap: TimeInterval,
+                maximumAudioGap: TimeInterval,
+                maximumVideoBoundaryError: TimeInterval,
+                maximumAudioBoundaryError: TimeInterval,
+            ) {
+                lock.lock()
+                defer { lock.unlock() }
+                let videoGaps = zip(videoTimes, videoTimes.dropFirst()).map { $1 - $0 }
+                let audioGaps = zip(audioTimes, audioTimes.dropFirst()).map { $1 - $0 }
+                let videoBoundaryErrors = zip(videoEnds, videoTimes.dropFirst()).map { abs($1 - $0) }
+                let audioBoundaryErrors = zip(audioEnds, audioTimes.dropFirst()).map { abs($1 - $0) }
+                return (
+                    videoGaps.allSatisfy { $0 > 0 },
+                    audioGaps.allSatisfy { $0 > 0 },
+                    videoGaps.max() ?? 0,
+                    audioGaps.max() ?? 0,
+                    videoBoundaryErrors.max() ?? 0,
+                    audioBoundaryErrors.max() ?? 0,
+                )
+            }
         }
 
         static func runDebugProbe() async {
             let url = FileManager.default
 .temporaryDirectory
                 .appendingPathComponent("bettertg-vod-ffmpeg-decode-probe.webm")
+            let unequalTracksURL = FileManager.default
+                .temporaryDirectory
+                .appendingPathComponent("bettertg-vod-ffmpeg-unequal-tracks-probe.webm")
             try? FileManager.default.removeItem(at: url)
-            defer { try? FileManager.default.removeItem(at: url) }
+            try? FileManager.default.removeItem(at: unequalTracksURL)
+            defer {
+                try? FileManager.default.removeItem(at: url)
+                try? FileManager.default.removeItem(at: unequalTracksURL)
+            }
             let result: String
             var failure: Swift.Error?
             var stage = "fixture"
@@ -785,6 +1080,29 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     onVideoFrame: { initialRecorder.record(video: $0) },
                     onAudioFrame: { initialRecorder.record(audio: $0) },
                 )
+                stage = "persistent soft-horizon decode"
+                let persistentRecorder = ProbeRecorder()
+                let persistentFirst = try await decoder.decode(
+                    seekTime: 0,
+                    duration: 0.731,
+                    mode: .startSession,
+                    onVideoFrame: { persistentRecorder.record(video: $0) },
+                    onAudioFrame: { persistentRecorder.record(audio: $0) },
+                )
+                let persistentSecond = try await decoder.decode(
+                    seekTime: persistentFirst.continuationTime,
+                    duration: 0.618,
+                    mode: .continueSession,
+                    onVideoFrame: { persistentRecorder.record(video: $0) },
+                    onAudioFrame: { persistentRecorder.record(audio: $0) },
+                )
+                let persistentFinal = try await decoder.decode(
+                    seekTime: persistentSecond.continuationTime,
+                    duration: 1,
+                    mode: .continueSession,
+                    onVideoFrame: { persistentRecorder.record(video: $0) },
+                    onAudioFrame: { persistentRecorder.record(audio: $0) },
+                )
                 stage = "WebM seek decode"
                 let seekRecorder = ProbeRecorder()
                 let seek = try await decoder.decode(
@@ -794,6 +1112,9 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     onAudioFrame: { seekRecorder.record(audio: $0) },
                 )
                 let initialRecorded = initialRecorder.snapshot()
+                let initialContinuity = initialRecorder.continuity()
+                let persistentRecorded = persistentRecorder.snapshot()
+                let persistentContinuity = persistentRecorder.continuity()
                 let seekRecorded = seekRecorder.snapshot()
                 let downloads = await backend.downloadCalls
                 guard initial.videoIsVP9,
@@ -815,6 +1136,33 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                       initialRecorded.videoMonotonic,
                       initialRecorded.audioMonotonic,
                       initialRecorded.bytesValid,
+                      persistentFirst.sessionID == persistentSecond.sessionID,
+                      persistentSecond.sessionID == persistentFinal.sessionID,
+                      persistentFirst.openCount == 1,
+                      persistentSecond.openCount == 1,
+                      persistentFinal.openCount == 1,
+                      persistentFirst.runCount == 1,
+                      persistentSecond.runCount == 2,
+                      persistentFinal.runCount == 3,
+                      persistentFinal.explicitSeekCount == 0,
+                      persistentFinal.maximumPendingPacketCount <= 4096,
+                      persistentFinal.maximumPendingPacketBytes <= 32 * 1024 * 1024,
+                      !persistentFirst.isEnded,
+                      !persistentSecond.isEnded,
+                      persistentFinal.isEnded,
+                      persistentRecorded.videoFrames == 24,
+                      (90000...100_000).contains(persistentRecorded.audioSamples),
+                      abs(persistentRecorded.audioSamples - initialRecorded.audioSamples) <= 48,
+                      persistentRecorded.videoFrames == persistentFinal.videoFrameCount,
+                      persistentRecorded.audioFrames == persistentFinal.audioFrameCount,
+                      persistentContinuity.videoStrictlyMonotonic,
+                      persistentContinuity.audioStrictlyMonotonic,
+                      persistentContinuity.maximumVideoGap < 0.1,
+                      persistentContinuity.maximumAudioGap < 0.1,
+                      persistentContinuity.maximumVideoBoundaryError
+                      <= initialContinuity.maximumVideoBoundaryError + 0.000001,
+                      persistentContinuity.maximumAudioBoundaryError
+                      <= initialContinuity.maximumAudioBoundaryError + 1.0 / 48000.0 + 0.000001,
                       seekRecorded.videoFrames == seek.videoFrameCount,
                       seekRecorded.audioFrames == seek.audioFrameCount,
                       seekRecorded.videoMonotonic,
@@ -826,11 +1174,111 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                         "initial=\(initial)",
                         "seek=\(seek)",
                         "initial-recorded=\(initialRecorded)",
+                        "initial-continuity=\(initialContinuity)",
+                        "persistent-first=\(persistentFirst)",
+                        "persistent-second=\(persistentSecond)",
+                        "persistent-final=\(persistentFinal)",
+                        "persistent-recorded=\(persistentRecorded)",
+                        "persistent-continuity=\(persistentContinuity)",
                         "seek-recorded=\(seekRecorded)",
                         "downloads=\(downloads)",
                     ].joined(separator: "; "))
                 }
                 await decoder.close()
+
+                stage = "unequal track horizons"
+                try FFmpegVODUnequalTracksProbeFixture.write(to: unequalTracksURL)
+                let unequalData = try Data(contentsOf: unequalTracksURL)
+                let unequalSHA256 = SHA256.hash(data: unequalData)
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+                guard unequalSHA256 == FFmpegVODUnequalTracksProbeFixture.sha256 else {
+                    throw DecodeError.ffmpeg(-9903)
+                }
+                let unequalAttributes = try FileManager.default.attributesOfItem(
+                    atPath: unequalTracksURL.path,
+                )
+                guard let unequalSize = (unequalAttributes[.size] as? NSNumber)?.int64Value,
+                      unequalSize > 65536
+                else { throw DecodeError.invalidRange }
+                let unequalBackend = TDLibVODProbeBackend(
+                    fileURL: unequalTracksURL,
+                    fileSize: unequalSize,
+                    network: network,
+                )
+                await unequalBackend.setAutoFulfill(true)
+                let unequalCoordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-ffmpeg-decode-unequal-tracks",
+                    client: unequalBackend.client,
+                    requestTimeout: .seconds(2),
+                )
+                let unequalDecoder = await TDLibVODFFmpegDecoder(
+                    lease: unequalCoordinator.acquire(
+                        file: unequalBackend.file(expectedSize: unequalSize * 2),
+                    ),
+                )
+                let unequalRecorder = ProbeRecorder()
+                let unequalFirst = try await unequalDecoder.decode(
+                    seekTime: 0,
+                    duration: 6,
+                    mode: .startSession,
+                    onVideoFrame: { unequalRecorder.record(video: $0) },
+                    onAudioFrame: { unequalRecorder.record(audio: $0) },
+                )
+                let unequalTerminal = try await unequalDecoder.decode(
+                    seekTime: unequalFirst.continuationTime,
+                    duration: 4.2,
+                    mode: .continueSession,
+                    onVideoFrame: { unequalRecorder.record(video: $0) },
+                    onAudioFrame: { unequalRecorder.record(audio: $0) },
+                )
+                let unequalTerminalRecorded = unequalRecorder.snapshot()
+                let unequalFinal = try await unequalDecoder.decode(
+                    seekTime: unequalTerminal.continuationTime,
+                    duration: 2.5,
+                    mode: .continueSession,
+                    onVideoFrame: { unequalRecorder.record(video: $0) },
+                    onAudioFrame: { unequalRecorder.record(audio: $0) },
+                )
+                let unequalRecorded = unequalRecorder.snapshot()
+                let unequalContinuity = unequalRecorder.continuity()
+                let unequalDownloads = await unequalBackend.downloadCalls
+                guard !unequalFirst.isEnded,
+                      unequalFirst.videoDecodedTo >= 5.9,
+                      (8.0...8.2).contains(unequalFirst.audioDecodedTo),
+                      !unequalTerminal.isEnded,
+                      unequalTerminal.videoDecodedTo >= 10.1,
+                      (9.9...10.1).contains(unequalTerminal.audioDecodedTo),
+                      (185_000...195_000).contains(unequalTerminalRecorded.audioSamples),
+                      unequalFinal.isEnded,
+                      unequalFirst.sessionID == unequalTerminal.sessionID,
+                      unequalTerminal.sessionID == unequalFinal.sessionID,
+                      unequalFirst.openCount == 1,
+                      unequalFinal.openCount == 1,
+                      unequalFinal.runCount == 3,
+                      unequalFinal.explicitSeekCount == 0,
+                      unequalRecorded.videoFrames == 144,
+                      (185_000...195_000).contains(unequalRecorded.audioSamples),
+                      unequalRecorded.audioSamples == unequalTerminalRecorded.audioSamples,
+                      unequalContinuity.videoStrictlyMonotonic,
+                      unequalContinuity.audioStrictlyMonotonic,
+                      unequalFinal.maximumPendingPacketCount > 0,
+                      unequalFinal.maximumPendingPacketCount <= 4096,
+                      unequalFinal.maximumPendingPacketBytes > 0,
+                      unequalFinal.maximumPendingPacketBytes <= 32 * 1024 * 1024,
+                      unequalDownloads.allSatisfy({ !$0.isFullDownload })
+                else {
+                    throw ProbeValidationError(details: [
+                        "unequal-first=\(unequalFirst)",
+                        "unequal-terminal=\(unequalTerminal)",
+                        "unequal-final=\(unequalFinal)",
+                        "unequal-terminal-recorded=\(unequalTerminalRecorded)",
+                        "unequal-recorded=\(unequalRecorded)",
+                        "unequal-continuity=\(unequalContinuity)",
+                        "unequal-downloads=\(unequalDownloads)",
+                    ].joined(separator: "; "))
+                }
+                await unequalDecoder.close()
 
                 stage = "overlapping supersession"
                 let supersedeBackend = TDLibVODProbeBackend(fileURL: url, fileSize: size, network: network)
@@ -850,6 +1298,7 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     try await supersedeDecoder.decode(
                         seekTime: 0,
                         duration: 2,
+                        mode: .startSession,
                         onVideoFrame: { _ in true },
                         onAudioFrame: { _ in true },
                     )
@@ -859,6 +1308,7 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     try await supersedeDecoder.decode(
                         seekTime: 1,
                         duration: 0.8,
+                        mode: .startSession,
                         onVideoFrame: { _ in true },
                         onAudioFrame: { _ in true },
                     )
@@ -894,6 +1344,7 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     try await cancelDecoder.decode(
                         seekTime: 0,
                         duration: 2,
+                        mode: .startSession,
                         onVideoFrame: { _ in true },
                         onAudioFrame: { _ in true },
                     )
@@ -913,13 +1364,56 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                 try await waitUntil { await cancelBackend.completedCancelCount == 1 }
                 guard cancellationWorked else { throw DecodeError.cancelled }
 
+                stage = "close cancellation barrier"
+                let closeBackend = TDLibVODProbeBackend(fileURL: url, fileSize: size, network: network)
+                await closeBackend.setAutoFulfill(false)
+                let closeCoordinator = TDLibVODRangeCoordinator(
+                    accountID: "probe-ffmpeg-decode-close",
+                    client: closeBackend.client,
+                    requestTimeout: .seconds(3),
+                )
+                let closeDecoder = await TDLibVODFFmpegDecoder(
+                    lease: closeCoordinator.acquire(file: closeBackend.file(expectedSize: size)),
+                )
+                let blockedDecode = Task {
+                    try await closeDecoder.decode(
+                        seekTime: 0,
+                        duration: 2,
+                        mode: .startSession,
+                        onVideoFrame: { _ in true },
+                        onAudioFrame: { _ in true },
+                    )
+                }
+                try await waitUntil { await !closeBackend.downloadCalls.isEmpty }
+                await closeDecoder.close()
+                let closeCancelledDecode: Bool
+                do {
+                    _ = try await blockedDecode.value
+                    closeCancelledDecode = false
+                } catch DecodeError.cancelled {
+                    closeCancelledDecode = true
+                } catch {
+                    closeCancelledDecode = false
+                }
+                let closeActiveDownloads = await closeBackend.activeDownloadCount
+                let closeCancelCount = await closeBackend.completedCancelCount
+                guard closeCancelledDecode,
+                      closeActiveDownloads == 0,
+                      closeCancelCount == 1
+                else { throw DecodeError.cancelled }
+
                 result = "VOD FFmpeg decode probe: fixture-sha256=\(fixtureSHA256), "
+                    + "unequal-sha256=\(unequalSHA256), "
                     + "video=vp9/96x54@12, audio=opus/48000x2, "
                     + "video-frames=\(initialRecorded.videoFrames), "
                     + "audio-frames=\(initialRecorded.audioFrames), "
                     + "audio-samples=\(initialRecorded.audioSamples), pts-monotonic=true, "
+                    + "persistent-session=true, opens=1, pumps=3, rollover-seeks=0, boundary-gaps=0, "
+                    + "pending-fifo=\(persistentFinal.maximumPendingPacketCount)/\(persistentFinal.maximumPendingPacketBytes), "
+                    + "unequal-tracks=video12s/audio10s+sparse2-8s, short-track-exhaustion=true, "
+                    + "sparse-fifo=\(unequalFinal.maximumPendingPacketCount)/\(unequalFinal.maximumPendingPacketBytes), "
                     + "seek=true, supersede=true, swr-tail=true, bgra/float-valid=true, "
-                    + "finite-downloads=true, full-downloads=0, cancel=true"
+                    + "finite-downloads=true, full-downloads=0, cancel=true, close-waits=true"
             } catch {
                 failure = error
                 result = "VOD FFmpeg decode probe failed at \(stage): \(error)"
