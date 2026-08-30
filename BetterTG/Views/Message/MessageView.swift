@@ -3,7 +3,114 @@
 import TDLibKit
 import UIKit
 
-final class MessageCell: UICollectionViewCell {
+private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {
+    var shouldBegin: (() -> Bool)?
+
+    private var firstLocation = CGPoint.zero
+    private var validatedGesture = false
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        maximumNumberOfTouches = 1
+    }
+
+    override func reset() {
+        super.reset()
+        validatedGesture = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard shouldBegin?() != false, let touch = touches.first else {
+            state = .failed
+            return
+        }
+        firstLocation = touch.location(in: view)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: view)
+        let translation = CGPoint(x: location.x - firstLocation.x, y: location.y - firstLocation.y)
+        let horizontalDistance = abs(translation.x)
+        let verticalDistance = abs(translation.y)
+
+        if !validatedGesture {
+            if translation.x > 0 {
+                state = .failed
+            } else if verticalDistance > 2, verticalDistance > horizontalDistance * 2 {
+                state = .failed
+            } else if horizontalDistance > 2, verticalDistance * 2 < horizontalDistance {
+                validatedGesture = true
+            }
+        }
+
+        if validatedGesture {
+            super.touchesMoved(touches, with: event)
+        }
+    }
+}
+
+private final class SwipeToReplyIndicatorView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .secondarySystemBackground
+        layer.cornerRadius = 16.5
+        layer.cornerCurve = .continuous
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 5
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.image = UIImage(systemName: "arrowshape.turn.up.left.fill")
+        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        iconView.tintColor = .systemBlue
+        addSubview(iconView)
+        NSLayoutConstraint.activate([
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        progressLayer.fillColor = UIColor.clear.cgColor
+        progressLayer.strokeColor = UIColor.systemBlue.cgColor
+        progressLayer.lineWidth = 2
+        progressLayer.lineCap = .round
+        progressLayer.strokeEnd = 0
+        layer.addSublayer(progressLayer)
+        update(progress: 0)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        progressLayer.frame = bounds
+        progressLayer.path = UIBezierPath(
+            ovalIn: bounds.insetBy(dx: progressLayer.lineWidth / 2, dy: progressLayer.lineWidth / 2),
+        ).cgPath
+    }
+
+    private let iconView = UIImageView()
+    private let progressLayer = CAShapeLayer()
+
+    func update(progress: CGFloat) {
+        let progress = min(max(progress, 0), 1)
+        let foregroundProgress = min(1, progress * 1.2)
+        alpha = foregroundProgress
+        transform = CGAffineTransform(scaleX: 0.65 + foregroundProgress * 0.35, y: 0.65 + foregroundProgress * 0.35)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        progressLayer.strokeEnd = progress
+        CATransaction.commit()
+    }
+}
+
+final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     static let reuseIdentifier = "MessageCell"
 
     var contextPreviewView: UIView { bubbleContainerView }
@@ -13,6 +120,7 @@ final class MessageCell: UICollectionViewCell {
         contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
         configureViews()
         configureConstraints()
+        configureSwipeToReply()
     }
 
     @available(*, unavailable)
@@ -31,7 +139,10 @@ final class MessageCell: UICollectionViewCell {
         timestampLabel.isHidden = true
         mediaTimestampLabel.isHidden = true
         onReplyTap = nil
+        onSwipeToReply = nil
         onMediaTap = nil
+        swipeToReplyRecognizer.isEnabled = false
+        resetSwipeToReply(animated: false)
         bubbleContentNeedsMeasurement = true
     }
 
@@ -53,21 +164,34 @@ final class MessageCell: UICollectionViewCell {
     private let mediaTimestampLabel = UILabel()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
+    private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
     private var bubbleWidthConstraint: NSLayoutConstraint!
     private var bubbleContentNeedsMeasurement = true
     private var measuredCellWidth = CGFloat.zero
     private var onReplyTap: ((Int64) -> Void)?
+    private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
+    private var swipeReplyThreshold: CGFloat = 45
+    private var playedSwipeReplyHaptic = false
+    private var swipeReplyFeedback: UIImpactFeedbackGenerator?
+    private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
+        target: self,
+        action: #selector(swipeToReply(_:)),
+    )
 
     func configure(
         message: CustomMessage,
         chat: CustomChat,
         highlighted: Bool,
         onReplyTap: @escaping (Int64) -> Void,
+        onSwipeToReply: (() -> Void)?,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
         self.onReplyTap = onReplyTap
+        self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
+        swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
+        swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil
         configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
 
         bubbleView.backgroundColor = highlighted ? .messageHighlight : .secondarySystemBackground
@@ -201,6 +325,91 @@ final class MessageCell: UICollectionViewCell {
         bubbleStack.setCustomSpacing(6, after: replyView)
     }
 
+    private func configureSwipeToReply() {
+        swipeToReplyIndicator.translatesAutoresizingMaskIntoConstraints = false
+        contentView.insertSubview(swipeToReplyIndicator, belowSubview: rowStack)
+        NSLayoutConstraint.activate([
+            swipeToReplyIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -2),
+            swipeToReplyIndicator.centerYAnchor.constraint(equalTo: bubbleContainerView.centerYAnchor),
+            swipeToReplyIndicator.widthAnchor.constraint(equalToConstant: 33),
+            swipeToReplyIndicator.heightAnchor.constraint(equalToConstant: 33),
+        ])
+
+        swipeToReplyRecognizer.shouldBegin = { [weak self] in
+            self?.onSwipeToReply != nil
+        }
+        swipeToReplyRecognizer.delegate = self
+        swipeToReplyRecognizer.isEnabled = false
+        contentView.addGestureRecognizer(swipeToReplyRecognizer)
+    }
+
+    @objc private func swipeToReply(_ recognizer: TelegramSwipeToReplyRecognizer) {
+        switch recognizer.state {
+        case .began:
+            playedSwipeReplyHaptic = false
+            let feedback = UIImpactFeedbackGenerator(style: .heavy)
+            feedback.prepare()
+            swipeReplyFeedback = feedback
+        case .changed:
+            let rawTranslation = recognizer.translation(in: contentView).x
+            let distance = rubberBandedSwipeDistance(max(0, -rawTranslation), threshold: swipeReplyThreshold)
+            rowStack.transform = CGAffineTransform(translationX: -distance, y: 0)
+            let progress = distance / swipeReplyThreshold
+            swipeToReplyIndicator.update(progress: progress)
+            if progress >= 1, !playedSwipeReplyHaptic {
+                playedSwipeReplyHaptic = true
+                swipeReplyFeedback?.impactOccurred(intensity: 0.8)
+            }
+        case .ended, .cancelled, .failed:
+            let shouldReply = recognizer.state == .ended
+                && recognizer.translation(in: contentView).x < -swipeReplyThreshold
+            swipeReplyFeedback = nil
+            resetSwipeToReply(animated: true)
+            if shouldReply {
+                onSwipeToReply?()
+            }
+        default:
+            break
+        }
+    }
+
+    private func rubberBandedSwipeDistance(_ distance: CGFloat, threshold: CGFloat) -> CGFloat {
+        guard distance > threshold else { return distance }
+        let excess = distance - threshold
+        let range: CGFloat = 100
+        let coefficient: CGFloat = 0.4
+        return min(180, threshold + (1 - 1 / (excess * coefficient / range + 1)) * range)
+    }
+
+    private func resetSwipeToReply(animated: Bool) {
+        let changes = {
+            self.rowStack.transform = .identity
+            self.swipeToReplyIndicator.update(progress: 0)
+        }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.3,
+            delay: 0,
+            usingSpringWithDamping: 0.8,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: changes,
+        )
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
+    ) -> Bool {
+        guard gestureRecognizer === swipeToReplyRecognizer || otherGestureRecognizer === swipeToReplyRecognizer else {
+            return false
+        }
+        return gestureRecognizer.view is UIScrollView || otherGestureRecognizer.view is UIScrollView
+    }
+
     private func configureConstraints() {
         let maxBubbleWidth = bubbleContainerView.widthAnchor.constraint(
             lessThanOrEqualTo: contentView.widthAnchor,
@@ -283,15 +492,24 @@ final class ReplySnippetView: UIControl {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
         accentView.translatesAutoresizingMaskIntoConstraints = false
-        accentView.backgroundColor = .label
-        accentView.layer.cornerRadius = 1
+        accentView.backgroundColor = .systemBlue
+        accentView.layer.cornerRadius = 1.5
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
-        stack.spacing = 0
-        titleLabel.font = .preferredFont(forTextStyle: .caption1)
-        titleLabel.textColor = .label
-        textLabel.font = .preferredFont(forTextStyle: .caption1)
+        stack.spacing = 1
+        titleLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: .systemFont(ofSize: 15, weight: .semibold),
+        )
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .systemBlue
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        textLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: .systemFont(ofSize: 15, weight: .regular),
+        )
+        textLabel.adjustsFontForContentSizeCategory = true
         textLabel.textColor = .secondaryLabel
+        textLabel.numberOfLines = 1
         textLabel.lineBreakMode = .byTruncatingTail
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(textLabel)
@@ -301,7 +519,7 @@ final class ReplySnippetView: UIControl {
             accentView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             accentView.leadingAnchor.constraint(equalTo: leadingAnchor),
             accentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-            accentView.widthAnchor.constraint(equalToConstant: 2),
+            accentView.widthAnchor.constraint(equalToConstant: 3),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             stack.leadingAnchor.constraint(equalTo: accentView.trailingAnchor, constant: 6),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),

@@ -68,6 +68,7 @@ final class ChatComposerView: UIView {
     private let chatVM: ChatVM
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let rootStack = UIStackView()
+    private let replyContainer = UIView()
     private let replyRow = UIStackView()
     private let replySnippet = ReplySnippetView()
     private let closeReplyButton = UIButton(type: .system)
@@ -89,6 +90,8 @@ final class ChatComposerView: UIView {
     private var keyboardAttached = false
     private var lastReplyID: Int64?
     private var lastEditID: Int64?
+    private var replyContainerHeightConstraint: NSLayoutConstraint!
+    private var replyPreviewVisible = false
 
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
@@ -103,7 +106,7 @@ final class ChatComposerView: UIView {
 
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         rootStack.axis = .vertical
-        rootStack.spacing = 6
+        rootStack.spacing = 0
         addSubview(rootStack)
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
@@ -112,18 +115,45 @@ final class ChatComposerView: UIView {
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             rootStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -7),
         ])
 
+        replyContainer.translatesAutoresizingMaskIntoConstraints = false
+        replyContainer.clipsToBounds = true
+        replyRow.translatesAutoresizingMaskIntoConstraints = false
         replyRow.axis = .horizontal
         replyRow.alignment = .center
-        replyRow.spacing = 6
-        closeReplyButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        replyRow.spacing = 8
+        var closeReplyConfiguration = UIButton.Configuration.plain()
+        closeReplyConfiguration.image = UIImage(systemName: "xmark")
+        closeReplyConfiguration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: 11,
+            weight: .semibold,
+        )
+        closeReplyConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
+        closeReplyButton.configuration = closeReplyConfiguration
+        closeReplyButton.contentHorizontalAlignment = .right
+        closeReplyButton.tintColor = .secondaryLabel
         closeReplyButton.accessibilityLabel = "Cancel reply or edit"
         replyRow.addArrangedSubview(replySnippet)
         replyRow.addArrangedSubview(closeReplyButton)
         replySnippet.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        replySnippet.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        closeReplyButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        closeReplyButton.heightAnchor.constraint(equalToConstant: 45).isActive = true
+        replyContainer.addSubview(replyRow)
+        replyContainerHeightConstraint = replyContainer.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            replyContainerHeightConstraint,
+            replyRow.topAnchor.constraint(equalTo: replyContainer.topAnchor),
+            replyRow.leadingAnchor.constraint(equalTo: replyContainer.leadingAnchor),
+            replyRow.trailingAnchor.constraint(equalTo: replyContainer.trailingAnchor),
+            replyRow.heightAnchor.constraint(equalToConstant: 45),
+        ])
+        replyRow.alpha = 0
+        replyRow.transform = CGAffineTransform(translationX: 0, y: 45)
+        replyRow.isUserInteractionEnabled = false
 
         photosScroll.translatesAutoresizingMaskIntoConstraints = false
         photosScroll.showsHorizontalScrollIndicator = false
@@ -143,6 +173,8 @@ final class ChatComposerView: UIView {
         inputRow.axis = .horizontal
         inputRow.alignment = .bottom
         inputRow.spacing = 8
+        inputRow.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 10)
+        inputRow.isLayoutMarginsRelativeArrangement = true
         attachmentButton.setImage(UIImage(systemName: "plus"), for: .normal)
         attachmentButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 24, weight: .regular),
@@ -164,6 +196,13 @@ final class ChatComposerView: UIView {
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
         recordingRow.spacing = 10
+        recordingRow.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 0,
+            leading: 0,
+            bottom: 0,
+            trailing: 10,
+        )
+        recordingRow.isLayoutMarginsRelativeArrangement = true
         cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
         recordingLabel.textColor = .label
@@ -190,10 +229,11 @@ final class ChatComposerView: UIView {
         recordingSendButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
         recordingSendButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
 
-        rootStack.addArrangedSubview(replyRow)
+        rootStack.addArrangedSubview(replyContainer)
         rootStack.addArrangedSubview(photosScroll)
         rootStack.addArrangedSubview(inputRow)
         rootStack.addArrangedSubview(recordingRow)
+        rootStack.setCustomSpacing(6, after: photosScroll)
     }
 
     private func configureActions() {
@@ -226,19 +266,21 @@ final class ChatComposerView: UIView {
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
         textView.setAttributedText(targetText)
 
+        let showsReplyPreview: Bool
         if let edited = chatVM.editCustomMessage {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
                 self?.onScrollToMessage?(edited.id)
             }
         } else if let reply = chatVM.replyMessage {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             replySnippet.configure(title: reply.senderUser?.firstName ?? "Reply", message: reply.message) { [weak self] in
                 self?.onScrollToMessage?(reply.id)
             }
         } else {
-            replyRow.isHidden = true
+            showsReplyPreview = false
         }
+        setReplyPreviewVisible(showsReplyPreview, animated: window != nil)
 
         let imageIDs = chatVM.displayedImages.map(\.id)
         if displayedImageIDs != imageIDs {
@@ -263,6 +305,37 @@ final class ChatComposerView: UIView {
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
         }
+    }
+
+    private func setReplyPreviewVisible(_ visible: Bool, animated: Bool) {
+        guard replyPreviewVisible != visible else { return }
+        replyPreviewVisible = visible
+
+        superview?.layoutIfNeeded()
+        layoutIfNeeded()
+        replyContainerHeightConstraint.constant = visible ? 45 : 0
+        replyRow.isUserInteractionEnabled = visible
+
+        let changes = {
+            self.replyRow.alpha = visible ? 1 : 0
+            self.replyRow.transform = visible
+                ? .identity
+                : CGAffineTransform(translationX: 0, y: 45)
+            self.superview?.layoutIfNeeded()
+            self.layoutIfNeeded()
+        }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.32,
+            delay: 0,
+            usingSpringWithDamping: 0.86,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+            animations: changes,
+        )
     }
 
     private func rebuildPhotos() {

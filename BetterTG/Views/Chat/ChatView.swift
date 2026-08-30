@@ -386,6 +386,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     guard self?.presentationMode == .full else { return }
                     self?.scrollToMessage(id: id)
                 },
+                onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
+                    ? { [weak self] in self?.chatVM.replyMessage = message }
+                    : nil,
                 onMediaTap: { [weak self] messages, selection in
                     guard self?.presentationMode == .full else { return }
                     self?.showMedia(messages, selection: selection)
