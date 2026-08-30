@@ -15,6 +15,7 @@ import UIKit
         PushRelayCoordinator.shared.start()
         RichNotificationCacheCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
+        logPendingRichNotificationDiagnostics()
         configureAppearance()
         return true
     }
@@ -49,6 +50,7 @@ import UIKit
     }
 
     func applicationWillEnterForeground(_: UIApplication) {
+        logPendingRichNotificationDiagnostics()
         TDLib.shared.resumeAfterNotificationService()
     }
 
@@ -79,6 +81,16 @@ import UIKit
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
         UINavigationBar.appearance().tintColor = .systemBlue
+    }
+
+    private func logPendingRichNotificationDiagnostics() {
+        for entry in RichNotificationDiagnostics.drain() {
+            let fields = entry.fields
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ",")
+            log("NSE diagnostic: event=\(entry.event)\(fields.isEmpty ? "" : ",\(fields)")")
+        }
     }
 }
 

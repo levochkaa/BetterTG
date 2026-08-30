@@ -212,6 +212,10 @@ final class NotificationTDLibSession: @unchecked Sendable {
         logger.log(
             "rich_notification.media_resolved available=\(media != nil, privacy: .public) expected=\(expectsMedia, privacy: .public)",
         )
+        RichNotificationDiagnostics.record(
+            "media_resolved",
+            fields: ["available": String(media != nil), "expected": String(expectsMedia)],
+        )
 
         let resolvedSenderID = senderID
         let resolvedMediaCandidate = media
@@ -236,6 +240,13 @@ final class NotificationTDLibSession: @unchecked Sendable {
         if expectsMedia {
             logger.log(
                 "rich_notification.media_downloaded success=\(resolvedMedia != nil, privacy: .public) kind=\(resolvedMediaCandidate?.kind ?? "none", privacy: .public)",
+            )
+            RichNotificationDiagnostics.record(
+                "media_downloaded",
+                fields: [
+                    "kind": resolvedMediaCandidate?.kind ?? "none",
+                    "success": String(resolvedMedia != nil),
+                ],
             )
         }
         let canQuickReply =
@@ -287,6 +298,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
         for messageID in messageIDs {
             if let message = try? await client.getMessage(chatId: chatID, messageId: messageID) {
                 logger.log("rich_notification.message_fetched source=get_message")
+                RichNotificationDiagnostics.record("message_fetched", fields: ["source": "get_message"])
                 return message
             }
             if let history = try? await client.getChatHistory(
@@ -297,11 +309,50 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 onlyLocal: false,
             ), let message = history.messages?.first(where: { $0.id == messageID }) {
                 logger.log("rich_notification.message_fetched source=chat_history")
+                RichNotificationDiagnostics.record("message_fetched", fields: ["source": "chat_history"])
                 return message
             }
         }
+
+        for _ in 0..<3 {
+            if let history = try? await client.getChatHistory(
+                chatId: chatID,
+                fromMessageId: 0,
+                limit: 10,
+                offset: 0,
+                onlyLocal: false,
+            ), let messages = history.messages {
+                if let message = messages.first(where: matchesExpectedMessage) {
+                    logger.log("rich_notification.message_fetched source=latest_history")
+                    RichNotificationDiagnostics.record("message_fetched", fields: ["source": "latest_history"])
+                    return message
+                }
+            }
+            for messageID in messageIDs {
+                if let message = try? await client.getMessage(chatId: chatID, messageId: messageID) {
+                    logger.log("rich_notification.message_fetched source=get_message_after_history")
+                    RichNotificationDiagnostics.record(
+                        "message_fetched",
+                        fields: ["source": "get_message_after_history"],
+                    )
+                    return message
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
         logger.log("rich_notification.message_fetched source=network success=false")
+        RichNotificationDiagnostics.record(
+            "message_fetched",
+            fields: ["source": "network", "success": "false"],
+        )
         return nil
+    }
+
+    private func matchesExpectedMessage(_ message: Message) -> Bool {
+        if let serverMessageID = metadata.serverMessageID {
+            return message.id >> 20 == serverMessageID
+        }
+        return false
     }
 
     private func avatarData(for sender: MessageSender, client: TDLibClient) async -> Data? {
@@ -519,6 +570,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
         resolutionContinuation = nil
         stateLock.unlock()
         logger.log("rich_notification.tdlib_finished reason=\(reason, privacy: .public)")
+        RichNotificationDiagnostics.record("tdlib_finished", fields: ["reason": reason])
         continuation?.resume(returning: result)
     }
 

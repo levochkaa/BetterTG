@@ -32,6 +32,7 @@ final class NotificationService: UNNotificationServiceExtension {
             return
         }
         logger.log("rich_notification.received event=\(metadata.event ?? "unknown", privacy: .public)")
+        RichNotificationDiagnostics.record("received", fields: ["event": metadata.event ?? "unknown"])
 
         processingTask = Task { [weak self] in
             guard let self else { return }
@@ -43,9 +44,11 @@ final class NotificationService: UNNotificationServiceExtension {
 
             do {
                 logger.log("rich_notification.tdlib_lock_wait_started")
+                RichNotificationDiagnostics.record("tdlib_lock_wait_started")
                 if let processLock = try TDLibProcessLock.acquire(waitingUpTo: 6) {
                     defer { processLock.unlock() }
                     logger.log("rich_notification.tdlib_lock_acquired")
+                    RichNotificationDiagnostics.record("tdlib_lock_acquired")
                     if let token = metadata.notificationPayloadToken,
                        let state = try TelegramAccountRegistry().loadExisting(),
                        let account = state.accounts.first(where: { $0.userID == metadata.accountID })
@@ -53,6 +56,7 @@ final class NotificationService: UNNotificationServiceExtension {
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
                         logger.log("rich_notification.payload_fetched")
+                        RichNotificationDiagnostics.record("payload_fetched")
                         if let tdlibResolved = await NotificationTDLibSession(
                             account: account,
                             payload: payload,
@@ -70,18 +74,21 @@ final class NotificationService: UNNotificationServiceExtension {
                     }
                 } else {
                     logger.log("rich_notification.tdlib_lock_timed_out")
+                    RichNotificationDiagnostics.record("tdlib_lock_timed_out")
                     resolved = await waitForCachedMedia(
                         metadata: metadata,
                         fallback: fallback,
                         timeout: 4,
                     )
                     logger.log("rich_notification.resolved source=cache_after_lock_timeout")
+                    RichNotificationDiagnostics.record("resolved", fields: ["source": "cache_after_lock_timeout"])
                 }
             } catch {
                 logger
                     .error(
                         "rich_notification.resolved source=cache error=\(error.localizedDescription, privacy: .public)",
                     )
+                RichNotificationDiagnostics.record("resolved_error")
             }
 
             let content = RichNotificationContentBuilder.content(
@@ -92,12 +99,17 @@ final class NotificationService: UNNotificationServiceExtension {
             logger.log(
                 "rich_notification.attachment_added success=\(!content.attachments.isEmpty, privacy: .public)",
             )
+            RichNotificationDiagnostics.record(
+                "attachment_added",
+                fields: ["success": String(!content.attachments.isEmpty)],
+            )
             finish(with: content)
         }
     }
 
     override func serviceExtensionTimeWillExpire() {
         logger.error("rich_notification.expired")
+        RichNotificationDiagnostics.record("expired")
         processingTask?.cancel()
         finish(with: nil)
     }
@@ -123,6 +135,7 @@ final class NotificationService: UNNotificationServiceExtension {
                let data = try? Data(contentsOf: url)
             {
                 logger.log("rich_notification.media_resolved source=shared_cache")
+                RichNotificationDiagnostics.record("media_resolved", fields: ["source": "shared_cache"])
                 return ResolvedTelegramNotification(
                     senderName: fallback.senderName,
                     conversationTitle: fallback.conversationTitle,
@@ -136,6 +149,10 @@ final class NotificationService: UNNotificationServiceExtension {
             try? await Task.sleep(for: .milliseconds(100))
         } while !Task.isCancelled && Date() < deadline
         logger.log("rich_notification.media_resolved source=shared_cache success=false")
+        RichNotificationDiagnostics.record(
+            "media_resolved",
+            fields: ["source": "shared_cache", "success": "false"],
+        )
         return fallback
     }
 
