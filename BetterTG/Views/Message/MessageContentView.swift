@@ -222,10 +222,6 @@ final class MessageMediaView: UIView {
         else { return [] }
         return [(messageID, convert(bounds, to: coordinateSpace))]
     }
-
-    // MARK: Private
-
-    private var contentView: UIView?
 }
 
 // MARK: - ReusableMediaView
@@ -239,8 +235,16 @@ extension ReusableMediaView {
     func setPlaybackVisible(_: Bool) {}
 }
 
+// MARK: - TGSStickerView + ReusableMediaView
+
 extension TGSStickerView: ReusableMediaView {}
+
+// MARK: - AnimatedWebPView + ReusableMediaView
+
 extension AnimatedWebPView: ReusableMediaView {}
+
+// MARK: - FFmpegAnimatedVideoView + ReusableMediaView
+
 extension FFmpegAnimatedVideoView: ReusableMediaView {}
 
 // MARK: - SinglePhotoView
@@ -292,13 +296,6 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     func makeTransitionSnapshot() -> UIView? {
         imageView.makeImageSnapshot(contentMode: imageView.contentMode)
     }
-
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
-    private var onTap: (() -> Void)?
 
     @objc private func tapped() {
         onTap?()
@@ -430,19 +427,36 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         guard !isVisible else { return }
         tiles.forEach { $0.setPlaybackVisible(false) }
     }
-
-    // MARK: Private
-
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 240)
-    private var tiles = [AlbumMediaTileView]()
-    private var itemFrames = [CGRect]()
-    private var messages = [Message]()
-    private var onTap: (([Message], Int64) -> Void)?
-
 }
 
+// MARK: - AlbumMediaTileView
+
 private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureRecognizerDelegate {
+    private(set) var messageID: Int64?
+
+    private let imageView = TDImageLoadingView()
+    private let playIcon = UIImageView()
+    private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
+    private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
+    private var onTap: (() -> Void)?
+
+    #if DEBUG
+        private var debugHasVideoPlaybackOwner = false
+
+        func configureDebug(messageID: Int64, hasVideoPlaybackOwner: Bool) {
+            self.messageID = messageID
+            debugHasVideoPlaybackOwner = hasVideoPlaybackOwner
+        }
+    #endif
+
+    var hasVideoPlaybackOwner: Bool {
+        #if DEBUG
+            videoPlaybackOwner != nil || debugHasVideoPlaybackOwner
+        #else
+            videoPlaybackOwner != nil
+        #endif
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
@@ -469,19 +483,10 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         fatalError("init(coder:) has not been implemented")
     }
 
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
-    private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
-    private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
-    private var onTap: (() -> Void)?
-    private(set) var messageID: Int64?
-
-    var hasVideoPlaybackOwner: Bool {
-        #if DEBUG
-            videoPlaybackOwner != nil || debugHasVideoPlaybackOwner
-        #else
-            videoPlaybackOwner != nil
-        #endif
+    override func accessibilityActivate() -> Bool {
+        guard let onTap else { return false }
+        onTap()
+        return true
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -585,12 +590,6 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             ?? imageView.makeImageSnapshot(contentMode: .scaleAspectFill)
     }
 
-    override func accessibilityActivate() -> Bool {
-        guard let onTap else { return false }
-        onTap()
-        return true
-    }
-
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var touchedView = touch.view
         while let view = touchedView, view !== self {
@@ -605,21 +604,20 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
     @objc private func tapped() {
         onTap?()
     }
-
-    #if DEBUG
-        private var debugHasVideoPlaybackOwner = false
-
-        func configureDebug(messageID: Int64, hasVideoPlaybackOwner: Bool) {
-            self.messageID = messageID
-            debugHasVideoPlaybackOwner = hasVideoPlaybackOwner
-        }
-    #endif
 }
 
 // MARK: - InlineVideoMediaView
 
 private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestureRecognizerDelegate {
-    // MARK: Lifecycle
+    private(set) var messageID: Int64?
+
+    // MARK: Private
+
+    private weak var owner: GalleryVideoPlaybackOwner?
+    private var attachmentToken: VideoPlaybackAttachmentToken?
+    private var onTap: (() -> Void)?
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -635,6 +633,12 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard let onTap else { return false }
+        onTap()
+        return true
     }
 
     // MARK: Internal
@@ -669,12 +673,6 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         owner.setPlaybackVisible(isVisible, attachment: attachmentToken)
     }
 
-    override func accessibilityActivate() -> Bool {
-        guard let onTap else { return false }
-        onTap()
-        return true
-    }
-
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var touchedView = touch.view
         while let view = touchedView, view !== self {
@@ -697,15 +695,6 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         owner?.makeTransitionSnapshot(contentMode: .scaleAspectFill)
             ?? snapshotView(afterScreenUpdates: false)
     }
-
-    // MARK: Private
-
-    private weak var owner: GalleryVideoPlaybackOwner?
-    private var attachmentToken: VideoPlaybackAttachmentToken?
-    private(set) var messageID: Int64?
-    private var onTap: (() -> Void)?
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
 
     @objc private func tapped() {
         onTap?()
@@ -784,14 +773,6 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
     func makeTransitionSnapshot() -> UIView? {
         imageView.makeImageSnapshot(contentMode: imageView.contentMode)
     }
-
-    // MARK: Private
-
-    private let imageView = TDImageLoadingView()
-    private let playIcon = UIImageView()
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
-    private var onTap: (() -> Void)?
 
     @objc private func tapped() {
         onTap?()

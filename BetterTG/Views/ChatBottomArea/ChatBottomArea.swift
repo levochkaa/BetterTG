@@ -3,24 +3,22 @@
 import TDLibKitDynamic
 import UIKit
 
+// MARK: - ChatMediaRecordingMode
+
 enum ChatMediaRecordingMode: Equatable {
     case video
     case voice
 }
 
+// MARK: - ChatComposerView
+
 final class ChatComposerView: UIView {
-    // MARK: Lifecycle
+    // MARK: Private
 
-    init(chatVM: ChatVM) {
-        self.chatVM = chatVM
-        super.init(frame: .zero)
-        configureViews()
-        configureActions()
-        update(from: chatVM)
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    private enum VoiceGestureOutcome {
+        case cancel
+        case lock
+        case send
     }
 
     // MARK: Internal
@@ -39,8 +37,98 @@ final class ChatComposerView: UIView {
     var onToggleVideoNotePreview: (() -> Void)?
     var onUpdateVideoNoteTrim: ((Double, Double, Bool, Bool) -> Void)?
 
+    private let chatVM: ChatVM
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let rootStack = UIStackView()
+    private let replyContainer = UIView()
+    private let replyRow = UIStackView()
+    private let replySnippet = ReplySnippetView()
+    private let closeReplyButton = UIButton(type: .system)
+    private let photosScroll = UIScrollView()
+    private let photosStack = UIStackView()
+    private let inputRow = UIStackView()
+    private let attachmentButton = UIButton(type: .system)
+    private let textView = FormattedTextView(placeholder: "Message…")
+    private let actionButton = UIButton(type: .system)
+    private let recordingRow = UIStackView()
+    private let cancelRecordingButton = UIButton(type: .system)
+    private let recordingPauseResumeButton = UIButton(type: .system)
+    private let recordingPreviewPlayButton = UIButton(type: .system)
+    private let recordingPreviewContainer = UIView()
+    private let recordingPreviewWaveform = TelegramWaveformView()
+    private let recordingTrimView = VoiceRecordingTrimView()
+    private let videoNoteThumbnailStrip = VideoNoteThumbnailStripView()
+    private let recordingLabel = UILabel()
+    private let recordingSendButton = UIButton(type: .system)
+    private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
+        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(actionLongPressed(_:)))
+        recognizer.minimumPressDuration = 0
+        recognizer.allowableMovement = 1000
+        recognizer.cancelsTouchesInView = false
+        return recognizer
+    }()
+
+    private var displayedImageIDs = [UUID]()
+    private var draftTask: Task<Void, Never>?
+    private var typingTask: Task<Void, Never>?
+    private var isApplyingState = false
+    private var hiddenForSearch = false
+    private var keyboardAttached = false
+    private var lastReplyID: Int64?
+    private var lastEditID: Int64?
+    private var replyContainerHeightConstraint: NSLayoutConstraint!
+    private var replyPreviewVisible = false
+    private var voiceGestureStartPoint = CGPoint.zero
+    private var voiceGestureLastPoint = CGPoint.zero
+    private var voiceGestureLastTimestamp = TimeInterval.zero
+    private var voiceGestureTranslation = CGPoint.zero
+    private var voiceGestureVelocity = CGPoint.zero
+    private var pendingVoiceGestureOutcome: VoiceGestureOutcome?
+    private var voiceGestureFinished = false
+    private var voiceGestureIsArmed = false
+    private var voiceGestureIsTracking = false
+    private var voiceGestureGeneration = 0
+    private var voiceGestureArmTask: Task<Void, Never>?
+    private var voiceGestureSuppressesButtonAction = false
+    private var voiceGestureDeferralActive = false
+    private var voiceGestureContactEnded = false
+    private var voiceGestureAwaitingPrearmLock = false
+    private var voiceGestureIgnoresRecognizerSequence = false
+    private var activeMediaRecordingMode = ChatMediaRecordingMode.voice
+    private var selectedMediaRecordingMode = ChatMediaRecordingMode.voice
+    private var videoNoteState = VideoNoteComposerState.idle
+    private var videoNoteReplyMessage: CustomMessage?
+    private var videoNoteTrimEditing = false
+    private var videoNoteTrimSaving = false
+
     var isInputFocused: Bool {
         textView.isFirstResponder
+    }
+
+    private var isHoldingVideoNote: Bool {
+        if case .holding = videoNoteState { return true }
+        return false
+    }
+
+    private var isVideoNoteBusy: Bool {
+        switch videoNoteState {
+        case .preparing, .sending, .stopping:
+            true
+        case .failed, .holding, .idle, .locked, .preview:
+            false
+        }
+    }
+
+    init(chatVM: ChatVM) {
+        self.chatVM = chatVM
+        super.init(frame: .zero)
+        configureViews()
+        configureActions()
+        update(from: chatVM)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     func focusInput() {
@@ -70,7 +158,7 @@ final class ChatComposerView: UIView {
 
     func updateVideoNotePreview(
         draft: VideoNoteRecordingDraft,
-        thumbnails: [VideoNoteThumbnailSample]
+        thumbnails: [VideoNoteThumbnailSample],
     ) {
         videoNoteTrimEditing = false
         videoNoteTrimSaving = false
@@ -143,14 +231,15 @@ final class ChatComposerView: UIView {
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
         textView.setAttributedText(targetText)
 
+        let showsReplyPreview: Bool
         if let edited = chatVM.editCustomMessage {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             closeReplyButton.isHidden = false
             replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
                 self?.onScrollToMessage?(edited.id)
             }
         } else if videoNoteState.isActive, let videoNoteReplyMessage {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             closeReplyButton.isHidden = true
             replySnippet.configure(
                 title: "Video reply · \(videoNoteReplyMessage.senderUser?.firstName ?? "Message")",
@@ -162,7 +251,7 @@ final class ChatComposerView: UIView {
                   let pendingReplyID = chatVM.pendingVideoReplyMessageID,
                   chatVM.hasPendingVideoNote
         {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             closeReplyButton.isHidden = true
             if let pendingReply = chatVM.pendingVideoReplyMessage {
                 replySnippet.configure(
@@ -180,7 +269,7 @@ final class ChatComposerView: UIView {
                   let pendingReplyID = chatVM.pendingVoiceReplyMessageID,
                   chatVM.hasPendingVoiceNote || chatVM.finalizingVoiceNote || chatVM.recordingVoiceNote
         {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             closeReplyButton.isHidden = true
             if let pendingReply = chatVM.pendingVoiceReplyMessage {
                 replySnippet.configure(
@@ -195,16 +284,17 @@ final class ChatComposerView: UIView {
                 }
             }
         } else if let reply = chatVM.replyMessage {
-            replyRow.isHidden = false
+            showsReplyPreview = true
             closeReplyButton.isHidden = false
             replySnippet
                 .configure(title: reply.senderUser?.firstName ?? "Reply", message: reply.message) { [weak self] in
                     self?.onScrollToMessage?(reply.id)
                 }
         } else {
-            replyRow.isHidden = true
+            showsReplyPreview = false
             closeReplyButton.isHidden = false
         }
+        setReplyPreviewVisible(showsReplyPreview, animated: window != nil)
 
         let imageIDs = chatVM.displayedImages.map(\.id)
         if displayedImageIDs != imageIDs {
@@ -233,8 +323,8 @@ final class ChatComposerView: UIView {
                     && voiceGestureIsTracking
                     && !voiceGestureContactEnded,
             )
-            if (chatVM.voiceRecordingInteractionState == .holding
-                || chatVM.voiceRecordingInteractionState == .locked), chatVM.timer == nil
+            if chatVM.voiceRecordingInteractionState == .holding
+                || chatVM.voiceRecordingInteractionState == .locked, chatVM.timer == nil
             {
                 chatVM.startTimer()
             }
@@ -254,279 +344,6 @@ final class ChatComposerView: UIView {
         isApplyingState = false
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
-        }
-    }
-
-    private var isHoldingVideoNote: Bool {
-        if case .holding = videoNoteState { return true }
-        return false
-    }
-
-    // MARK: Private
-
-    private enum VoiceGestureOutcome {
-        case cancel
-        case lock
-        case send
-    }
-
-    private let chatVM: ChatVM
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let rootStack = UIStackView()
-    private let replyRow = UIStackView()
-    private let replySnippet = ReplySnippetView()
-    private let closeReplyButton = UIButton(type: .system)
-    private let photosScroll = UIScrollView()
-    private let photosStack = UIStackView()
-    private let inputRow = UIStackView()
-    private let attachmentButton = UIButton(type: .system)
-    private let textView = FormattedTextView(placeholder: "Message…")
-    private let actionButton = UIButton(type: .system)
-    private let recordingRow = UIStackView()
-    private let cancelRecordingButton = UIButton(type: .system)
-    private let recordingPauseResumeButton = UIButton(type: .system)
-    private let recordingPreviewPlayButton = UIButton(type: .system)
-    private let recordingPreviewContainer = UIView()
-    private let recordingPreviewWaveform = TelegramWaveformView()
-    private let recordingTrimView = VoiceRecordingTrimView()
-    private let videoNoteThumbnailStrip = VideoNoteThumbnailStripView()
-    private let recordingLabel = UILabel()
-    private let recordingSendButton = UIButton(type: .system)
-    private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
-        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(actionLongPressed(_:)))
-        recognizer.minimumPressDuration = 0
-        recognizer.allowableMovement = 1000
-        recognizer.cancelsTouchesInView = false
-        return recognizer
-    }()
-
-    private var displayedImageIDs = [UUID]()
-    private var draftTask: Task<Void, Never>?
-    private var typingTask: Task<Void, Never>?
-    private var isApplyingState = false
-    private var hiddenForSearch = false
-    private var keyboardAttached = false
-    private var lastReplyID: Int64?
-    private var lastEditID: Int64?
-    private var voiceGestureStartPoint = CGPoint.zero
-    private var voiceGestureLastPoint = CGPoint.zero
-    private var voiceGestureLastTimestamp = TimeInterval.zero
-    private var voiceGestureTranslation = CGPoint.zero
-    private var voiceGestureVelocity = CGPoint.zero
-    private var pendingVoiceGestureOutcome: VoiceGestureOutcome?
-    private var voiceGestureFinished = false
-    private var voiceGestureIsArmed = false
-    private var voiceGestureIsTracking = false
-    private var voiceGestureGeneration = 0
-    private var voiceGestureArmTask: Task<Void, Never>?
-    private var voiceGestureSuppressesButtonAction = false
-    private var voiceGestureDeferralActive = false
-    private var voiceGestureContactEnded = false
-    private var voiceGestureAwaitingPrearmLock = false
-    private var voiceGestureIgnoresRecognizerSequence = false
-    private var activeMediaRecordingMode = ChatMediaRecordingMode.voice
-    private var selectedMediaRecordingMode = ChatMediaRecordingMode.voice
-    private var videoNoteState = VideoNoteComposerState.idle
-    private var videoNoteReplyMessage: CustomMessage?
-    private var videoNoteTrimEditing = false
-    private var videoNoteTrimSaving = false
-
-    private func configureViews() {
-        translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = .clear
-        layer.cornerRadius = 22
-        layer.cornerCurve = .continuous
-        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        clipsToBounds = true
-
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(blurView)
-
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.axis = .vertical
-        rootStack.spacing = 6
-        addSubview(rootStack)
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            rootStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -7),
-        ])
-
-        replyRow.axis = .horizontal
-        replyRow.alignment = .center
-        replyRow.spacing = 6
-        closeReplyButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeReplyButton.accessibilityLabel = "Cancel reply or edit"
-        replyRow.addArrangedSubview(replySnippet)
-        replyRow.addArrangedSubview(closeReplyButton)
-        replySnippet.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        photosScroll.translatesAutoresizingMaskIntoConstraints = false
-        photosScroll.showsHorizontalScrollIndicator = false
-        photosStack.translatesAutoresizingMaskIntoConstraints = false
-        photosStack.axis = .horizontal
-        photosStack.spacing = 6
-        photosScroll.addSubview(photosStack)
-        NSLayoutConstraint.activate([
-            photosScroll.heightAnchor.constraint(equalToConstant: 104),
-            photosStack.topAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.topAnchor),
-            photosStack.leadingAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.leadingAnchor),
-            photosStack.trailingAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.trailingAnchor),
-            photosStack.bottomAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.bottomAnchor),
-            photosStack.heightAnchor.constraint(equalTo: photosScroll.frameLayoutGuide.heightAnchor),
-        ])
-
-        inputRow.axis = .horizontal
-        inputRow.alignment = .bottom
-        inputRow.spacing = 8
-        attachmentButton.setImage(UIImage(systemName: "plus"), for: .normal)
-        attachmentButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 24, weight: .regular),
-            forImageIn: .normal,
-        )
-        attachmentButton.showsMenuAsPrimaryAction = true
-        attachmentButton.accessibilityLabel = "Attach"
-        textView.backgroundColor = .clear
-        inputRow.addArrangedSubview(attachmentButton)
-        inputRow.addArrangedSubview(textView)
-        inputRow.addArrangedSubview(actionButton)
-        NSLayoutConstraint.activate([
-            attachmentButton.widthAnchor.constraint(equalToConstant: 34),
-            attachmentButton.heightAnchor.constraint(equalToConstant: 36),
-            actionButton.widthAnchor.constraint(equalToConstant: 34),
-            actionButton.heightAnchor.constraint(equalToConstant: 36),
-        ])
-
-        recordingRow.axis = .horizontal
-        recordingRow.alignment = .center
-        recordingRow.spacing = 8
-        cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
-        recordingPauseResumeButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
-            forImageIn: .normal,
-        )
-        recordingPreviewPlayButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
-            forImageIn: .normal,
-        )
-        recordingPreviewWaveform.playedColor = .systemBlue
-        recordingPreviewWaveform.unplayedColor = UIColor.secondaryLabel.withAlphaComponent(0.55)
-        recordingPreviewWaveform.accessibilityLabel = "Voice recording preview waveform"
-        recordingPreviewWaveform.onSeek = { [weak self] progress in
-            self?.seekRecordingPreview(to: progress)
-        }
-        recordingPreviewContainer.translatesAutoresizingMaskIntoConstraints = false
-        recordingPreviewWaveform.translatesAutoresizingMaskIntoConstraints = false
-        recordingTrimView.translatesAutoresizingMaskIntoConstraints = false
-        recordingPreviewContainer.addSubview(recordingPreviewWaveform)
-        recordingPreviewContainer.addSubview(recordingTrimView)
-        videoNoteThumbnailStrip.translatesAutoresizingMaskIntoConstraints = false
-        videoNoteThumbnailStrip.isHidden = true
-        recordingPreviewContainer.addSubview(videoNoteThumbnailStrip)
-        NSLayoutConstraint.activate([
-            recordingPreviewWaveform.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
-            recordingPreviewWaveform.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
-            recordingPreviewWaveform.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
-            recordingPreviewWaveform.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
-            recordingTrimView.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
-            recordingTrimView.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
-            recordingTrimView.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
-            recordingTrimView.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
-            videoNoteThumbnailStrip.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
-            videoNoteThumbnailStrip.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
-            videoNoteThumbnailStrip.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
-            videoNoteThumbnailStrip.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
-        ])
-        recordingTrimView.onRangeChange = { [weak self] start, end, updatedEnd, finished in
-            guard let self else { return }
-            if !finished {
-                let selectedDuration = max(0, end - start)
-                recordingLabel.text = String(format: "%.2f", selectedDuration)
-                recordingPauseResumeButton.isEnabled = false
-                recordingPauseResumeButton.alpha = 0.45
-                recordingPreviewPlayButton.isEnabled = false
-                recordingPreviewPlayButton.alpha = 0.45
-                recordingSendButton.isEnabled = false
-                recordingSendButton.alpha = 0.45
-            }
-            chatVM.updateVoiceRecordingTrim(
-                start: start,
-                end: end,
-                updatedEnd: updatedEnd,
-                finished: finished,
-            )
-        }
-        videoNoteThumbnailStrip.onRangeChange = { [weak self] start, end, updatedEnd, finished in
-            guard let self else { return }
-            videoNoteTrimEditing = !finished
-            videoNoteTrimSaving = finished
-            videoNoteThumbnailStrip.setEditingEnabled(!finished)
-            recordingPauseResumeButton.isEnabled = false
-            recordingPauseResumeButton.alpha = 0.45
-            recordingPreviewPlayButton.isEnabled = false
-            recordingPreviewPlayButton.alpha = 0.45
-            recordingSendButton.isEnabled = false
-            recordingSendButton.alpha = 0.45
-            onUpdateVideoNoteTrim?(start, end, updatedEnd, finished)
-        }
-        recordingLabel.textColor = .label
-        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
-        recordingLabel.textAlignment = .center
-        recordingLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingPreviewContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingSendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
-        recordingSendButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 28),
-            forImageIn: .normal,
-        )
-        recordingSendButton.accessibilityLabel = "Send voice message"
-        recordingRow.addArrangedSubview(cancelRecordingButton)
-        recordingRow.addArrangedSubview(recordingPauseResumeButton)
-        recordingRow.addArrangedSubview(recordingPreviewPlayButton)
-        recordingRow.addArrangedSubview(recordingPreviewContainer)
-        recordingRow.addArrangedSubview(recordingLabel)
-        recordingRow.addArrangedSubview(recordingSendButton)
-        for button in [cancelRecordingButton, recordingPauseResumeButton, recordingPreviewPlayButton, recordingSendButton] {
-            button.widthAnchor.constraint(equalToConstant: 34).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        }
-        recordingPreviewContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        recordingPreviewContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
-
-        rootStack.addArrangedSubview(replyRow)
-        rootStack.addArrangedSubview(photosScroll)
-        rootStack.addArrangedSubview(inputRow)
-        rootStack.addArrangedSubview(recordingRow)
-    }
-
-    private func configureActions() {
-        attachmentButton.menu = UIMenu(children: [
-            UIAction(title: "Attach Photos", image: UIImage(systemName: "photo")) { [weak self] _ in
-                self?.onPickPhotos?()
-            },
-            UIAction(title: "Take Photo", image: UIImage(systemName: "camera.fill")) { [weak self] _ in
-                self?.onTakePhoto?()
-            },
-        ])
-        closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
-        cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
-        recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
-        recordingPreviewPlayButton.addTarget(self, action: #selector(toggleRecordingPreview), for: .touchUpInside)
-        actionButton.addTarget(self, action: #selector(actionTouchDown(_:)), for: .touchDown)
-        actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
-        recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
-        actionButton.addGestureRecognizer(recordingGestureRecognizer)
-
-        textView.onTextChange = { [weak self] text in self?.textChanged(text) }
-        textView.onPasteImages = { [weak self] images in
-            guard let self else { return }
-            chatVM.displayedImages = Array(images.prefix(10))
         }
     }
 
@@ -634,7 +451,7 @@ final class ChatComposerView: UIView {
 
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
-        recordingRow.spacing = 10
+        recordingRow.spacing = 8
         recordingRow.directionalLayoutMargins = NSDirectionalEdgeInsets(
             top: 0,
             leading: 0,
@@ -644,9 +461,79 @@ final class ChatComposerView: UIView {
         recordingRow.isLayoutMarginsRelativeArrangement = true
         cancelRecordingButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         cancelRecordingButton.accessibilityLabel = "Cancel voice recording"
+        recordingPauseResumeButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
+            forImageIn: .normal,
+        )
+        recordingPreviewPlayButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
+            forImageIn: .normal,
+        )
+        recordingPreviewWaveform.playedColor = .systemBlue
+        recordingPreviewWaveform.unplayedColor = UIColor.secondaryLabel.withAlphaComponent(0.55)
+        recordingPreviewWaveform.accessibilityLabel = "Voice recording preview waveform"
+        recordingPreviewWaveform.onSeek = { [weak self] progress in
+            self?.seekRecordingPreview(to: progress)
+        }
+        recordingPreviewContainer.translatesAutoresizingMaskIntoConstraints = false
+        recordingPreviewWaveform.translatesAutoresizingMaskIntoConstraints = false
+        recordingTrimView.translatesAutoresizingMaskIntoConstraints = false
+        recordingPreviewContainer.addSubview(recordingPreviewWaveform)
+        recordingPreviewContainer.addSubview(recordingTrimView)
+        videoNoteThumbnailStrip.translatesAutoresizingMaskIntoConstraints = false
+        videoNoteThumbnailStrip.isHidden = true
+        recordingPreviewContainer.addSubview(videoNoteThumbnailStrip)
+        NSLayoutConstraint.activate([
+            recordingPreviewWaveform.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
+            recordingPreviewWaveform.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
+            recordingPreviewWaveform.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
+            recordingPreviewWaveform.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
+            recordingTrimView.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
+            recordingTrimView.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
+            recordingTrimView.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
+            recordingTrimView.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
+            videoNoteThumbnailStrip.topAnchor.constraint(equalTo: recordingPreviewContainer.topAnchor),
+            videoNoteThumbnailStrip.leadingAnchor.constraint(equalTo: recordingPreviewContainer.leadingAnchor),
+            videoNoteThumbnailStrip.trailingAnchor.constraint(equalTo: recordingPreviewContainer.trailingAnchor),
+            videoNoteThumbnailStrip.bottomAnchor.constraint(equalTo: recordingPreviewContainer.bottomAnchor),
+        ])
+        recordingTrimView.onRangeChange = { [weak self] start, end, updatedEnd, finished in
+            guard let self else { return }
+            if !finished {
+                let selectedDuration = max(0, end - start)
+                recordingLabel.text = String(format: "%.2f", selectedDuration)
+                recordingPauseResumeButton.isEnabled = false
+                recordingPauseResumeButton.alpha = 0.45
+                recordingPreviewPlayButton.isEnabled = false
+                recordingPreviewPlayButton.alpha = 0.45
+                recordingSendButton.isEnabled = false
+                recordingSendButton.alpha = 0.45
+            }
+            chatVM.updateVoiceRecordingTrim(
+                start: start,
+                end: end,
+                updatedEnd: updatedEnd,
+                finished: finished,
+            )
+        }
+        videoNoteThumbnailStrip.onRangeChange = { [weak self] start, end, updatedEnd, finished in
+            guard let self else { return }
+            videoNoteTrimEditing = !finished
+            videoNoteTrimSaving = finished
+            videoNoteThumbnailStrip.setEditingEnabled(!finished)
+            recordingPauseResumeButton.isEnabled = false
+            recordingPauseResumeButton.alpha = 0.45
+            recordingPreviewPlayButton.isEnabled = false
+            recordingPreviewPlayButton.alpha = 0.45
+            recordingSendButton.isEnabled = false
+            recordingSendButton.alpha = 0.45
+            onUpdateVideoNoteTrim?(start, end, updatedEnd, finished)
+        }
         recordingLabel.textColor = .label
-        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
         recordingLabel.textAlignment = .center
+        recordingLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        recordingPreviewContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         recordingSendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
         recordingSendButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 28),
@@ -654,19 +541,22 @@ final class ChatComposerView: UIView {
         )
         recordingSendButton.accessibilityLabel = "Send voice message"
         recordingRow.addArrangedSubview(cancelRecordingButton)
-        let leadingRecordingSpacer = UIView()
-        leadingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingRow.addArrangedSubview(leadingRecordingSpacer)
+        recordingRow.addArrangedSubview(recordingPauseResumeButton)
+        recordingRow.addArrangedSubview(recordingPreviewPlayButton)
+        recordingRow.addArrangedSubview(recordingPreviewContainer)
         recordingRow.addArrangedSubview(recordingLabel)
-        let trailingRecordingSpacer = UIView()
-        trailingRecordingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        recordingRow.addArrangedSubview(trailingRecordingSpacer)
         recordingRow.addArrangedSubview(recordingSendButton)
-        cancelRecordingButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
-        cancelRecordingButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        leadingRecordingSpacer.widthAnchor.constraint(equalTo: trailingRecordingSpacer.widthAnchor).isActive = true
-        recordingSendButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
-        recordingSendButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        for button in [
+            cancelRecordingButton,
+            recordingPauseResumeButton,
+            recordingPreviewPlayButton,
+            recordingSendButton,
+        ] {
+            button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        }
+        recordingPreviewContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        recordingPreviewContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
 
         rootStack.addArrangedSubview(replyContainer)
         rootStack.addArrangedSubview(photosScroll)
@@ -686,12 +576,12 @@ final class ChatComposerView: UIView {
         ])
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
-        actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        recordingSendButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        actionButton.addGestureRecognizer(UILongPressGestureRecognizer(
-            target: self,
-            action: #selector(actionLongPressed(_:)),
-        ))
+        recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
+        recordingPreviewPlayButton.addTarget(self, action: #selector(toggleRecordingPreview), for: .touchUpInside)
+        actionButton.addTarget(self, action: #selector(actionTouchDown(_:)), for: .touchDown)
+        actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+        recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+        actionButton.addGestureRecognizer(recordingGestureRecognizer)
 
         textView.onTextChange = { [weak self] text in self?.textChanged(text) }
         textView.onPasteImages = { [weak self] images in
@@ -905,15 +795,6 @@ final class ChatComposerView: UIView {
             }
     }
 
-    private var isVideoNoteBusy: Bool {
-        switch videoNoteState {
-        case .preparing, .sending, .stopping:
-            true
-        case .failed, .holding, .idle, .locked, .preview:
-            false
-        }
-    }
-
     private func updateRecordingStatus() {
         if videoNoteState.isActive {
             updateVideoRecordingStatus()
@@ -1031,7 +912,7 @@ final class ChatComposerView: UIView {
             recordingPauseResumeButton.accessibilityLabel = "Stop video recording for preview"
             recordingSendButton.isHidden = false
             recordingSendButton.accessibilityLabel = "Send video message"
-        case let .preview(duration, isPlaying, canRecordMore):
+        case .preview(let duration, let isPlaying, let canRecordMore):
             let trimControlsBlocked = videoNoteTrimEditing || videoNoteTrimSaving
             recordingLabel.textColor = .label
             recordingLabel.text = formatVideoDuration(duration)
@@ -1139,13 +1020,13 @@ final class ChatComposerView: UIView {
         let mode = selectedMediaRecordingMode
         Task { [weak self, weak chatVM] in
             guard let self, let chatVM else { return }
-            let started: Bool
-            switch mode {
-            case .voice:
-                started = await chatVM.mediaStartRecordingVoice()
-            case .video:
-                started = await onStartVideoNoteRecording?() ?? false
-            }
+            let started: Bool =
+                switch mode {
+                case .voice:
+                    await chatVM.mediaStartRecordingVoice()
+                case .video:
+                    await onStartVideoNoteRecording?() ?? false
+                }
             guard started else { return }
             switch mode {
             case .voice:
@@ -1371,9 +1252,9 @@ final class ChatComposerView: UIView {
     private func beginRecording(mode: ChatMediaRecordingMode) async -> Bool {
         switch mode {
         case .voice:
-            return await chatVM.mediaStartRecordingVoice()
+            await chatVM.mediaStartRecordingVoice()
         case .video:
-            return await onStartVideoNoteRecording?() ?? false
+            await onStartVideoNoteRecording?() ?? false
         }
     }
 
@@ -1441,7 +1322,8 @@ final class ChatComposerView: UIView {
             if activeMediaRecordingMode == .voice,
                ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-gestures")
             {
-                let name = switch outcome {
+                let name =
+ switch outcome {
                 case .cancel: "cancel"
                 case .lock: "lock"
                 case .send: "release"
@@ -1491,13 +1373,13 @@ final class ChatComposerView: UIView {
     private func isRecordingReady(mode: ChatMediaRecordingMode) -> Bool {
         switch mode {
         case .voice:
-            return chatVM.recordingVoiceNote
+            chatVM.recordingVoiceNote
         case .video:
             switch videoNoteState {
             case .holding, .locked:
-                return true
+                true
             case .failed, .idle, .preparing, .preview, .sending, .stopping:
-                return false
+                false
             }
         }
     }

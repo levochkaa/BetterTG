@@ -8,7 +8,9 @@ import Foundation
 // MARK: - FFmpegAudioDecodeJobHandle
 
 private final class FFmpegAudioDecodeJobHandle: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    let pointer: OpaquePointer
 
     init(pointer: OpaquePointer) {
         self.pointer = pointer
@@ -17,10 +19,6 @@ private final class FFmpegAudioDecodeJobHandle: @unchecked Sendable {
     deinit {
         BetterTGFFmpegAudioDecodeJobDestroy(pointer)
     }
-
-    // MARK: Internal
-
-    let pointer: OpaquePointer
 
     func run() -> Int32 {
         BetterTGFFmpegAudioDecodeJobRun(pointer)
@@ -77,6 +75,15 @@ actor FFmpegAudioPlaybackCache {
     // MARK: Internal
 
     static let shared = FFmpegAudioPlaybackCache()
+
+    // MARK: Private
+
+    private let fileManager = FileManager.default
+    private let maximumDecodedFileBytes: Int64 = 64 * 1024 * 1024
+    private let maximumCacheBytes: Int64 = 128 * 1024 * 1024
+    private var activePartialURLs = Set<URL>()
+    private lazy var directoryURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("FFmpegAudioPlayback", isDirectory: true)
 
     func playableURL(for sourceURL: URL) async -> URL {
         guard sourceURL.isFileURL else { return sourceURL }
@@ -138,15 +145,6 @@ actor FFmpegAudioPlaybackCache {
             return sourceURL
         }
     }
-
-    // MARK: Private
-
-    private let fileManager = FileManager.default
-    private let maximumDecodedFileBytes: Int64 = 64 * 1024 * 1024
-    private let maximumCacheBytes: Int64 = 128 * 1024 * 1024
-    private var activePartialURLs = Set<URL>()
-    private lazy var directoryURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("FFmpegAudioPlayback", isDirectory: true)
 
     private func cacheKey(for sourceURL: URL) -> String {
         let attributes = try? fileManager.attributesOfItem(atPath: sourceURL.path)

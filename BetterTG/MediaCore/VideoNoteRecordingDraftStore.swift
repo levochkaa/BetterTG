@@ -4,7 +4,9 @@ import AVFoundation
 import Foundation
 @preconcurrency import TDLibKit
 
-struct VideoNoteRecordingSegment: Equatable, Sendable {
+// MARK: - VideoNoteRecordingSegment
+
+struct VideoNoteRecordingSegment: Equatable {
     let id: UUID
     let duration: Double
     let fileURL: URL
@@ -15,7 +17,9 @@ struct VideoNoteRecordingSegment: Equatable, Sendable {
     }
 }
 
-struct VideoNoteRecordingDraft: Equatable, Sendable {
+// MARK: - VideoNoteRecordingDraft
+
+struct VideoNoteRecordingDraft: Equatable {
     let id: UUID
     let chatID: Int64
     let createdAt: Foundation.Date
@@ -34,7 +38,7 @@ struct VideoNoteRecordingDraft: Equatable, Sendable {
         let duration = totalDuration
         let lowerBound = min(duration, max(0, trimStart ?? 0))
         let upperBound = min(duration, max(lowerBound, trimEnd ?? duration))
-        return lowerBound ..< upperBound
+        return lowerBound..<upperBound
     }
 
     var canRecordMore: Bool {
@@ -46,6 +50,8 @@ struct VideoNoteRecordingDraft: Equatable, Sendable {
     }
 }
 
+// MARK: - VideoNoteRecordingSegmentManifest
+
 private struct VideoNoteRecordingSegmentManifest: Codable {
     let id: UUID
     let duration: Double
@@ -53,10 +59,10 @@ private struct VideoNoteRecordingSegmentManifest: Codable {
     let length: Int
 
     init(_ segment: VideoNoteRecordingSegment) {
-        id = segment.id
-        duration = segment.duration
-        fileName = segment.fileURL.lastPathComponent
-        length = segment.length
+        self.id = segment.id
+        self.duration = segment.duration
+        self.fileName = segment.fileURL.lastPathComponent
+        self.length = segment.length
     }
 
     func makeSegment(directoryURL: URL) -> VideoNoteRecordingSegment? {
@@ -75,6 +81,8 @@ private struct VideoNoteRecordingSegmentManifest: Codable {
     }
 }
 
+// MARK: - VideoNoteRecordingDraftManifest
+
 private struct VideoNoteRecordingDraftManifest: Codable {
     let id: UUID
     let chatID: Int64
@@ -87,15 +95,15 @@ private struct VideoNoteRecordingDraftManifest: Codable {
     let trimStart: Double?
 
     init(_ draft: VideoNoteRecordingDraft) {
-        id = draft.id
-        chatID = draft.chatID
-        createdAt = draft.createdAt
-        replyMessageID = draft.replyMessageID
-        replyTo = draft.replyTo
-        revision = draft.revision
-        segments = draft.segments.map(VideoNoteRecordingSegmentManifest.init)
-        trimEnd = draft.trimEnd
-        trimStart = draft.trimStart
+        self.id = draft.id
+        self.chatID = draft.chatID
+        self.createdAt = draft.createdAt
+        self.replyMessageID = draft.replyMessageID
+        self.replyTo = draft.replyTo
+        self.revision = draft.revision
+        self.segments = draft.segments.map(VideoNoteRecordingSegmentManifest.init)
+        self.trimEnd = draft.trimEnd
+        self.trimStart = draft.trimStart
     }
 
     func makeDraft(directoryURL: URL) -> VideoNoteRecordingDraft? {
@@ -121,11 +129,13 @@ private struct VideoNoteRecordingDraftManifest: Codable {
               draft.totalDuration <= 60.01,
               range.lowerBound >= 0,
               range.upperBound <= draft.totalDuration,
-              (!hasExplicitTrim || range.upperBound - range.lowerBound >= 1 - 0.000_001)
+              !hasExplicitTrim || range.upperBound - range.lowerBound >= 1 - 0.000_001
         else { return nil }
         return draft
     }
 }
+
+// MARK: - VideoNoteRecordingDraftStoreError
 
 enum VideoNoteRecordingDraftStoreError: Swift.Error {
     case cancelled
@@ -134,13 +144,22 @@ enum VideoNoteRecordingDraftStoreError: Swift.Error {
     case staleRevision
 }
 
+// MARK: - VideoNoteRecordingDraftStore
+
 actor VideoNoteRecordingDraftStore {
     static let shared = VideoNoteRecordingDraftStore()
+
+    private let fileManager = FileManager.default
+    private var activeOperationCounts = [UUID: Int]()
+    private var cancelledDraftIDs = Set<UUID>()
+    private var deferredDiscardURLs = [UUID: [URL]]()
+    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("VideoNoteRecordingDrafts", isDirectory: true)
 
     #if DEBUG
         nonisolated static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains(
-                "-media-probe-video-note-recording-drafts"
+                "-media-probe-video-note-recording-drafts",
             ) else { return }
             Task { await shared.runDebugProbe() }
         }
@@ -284,7 +303,7 @@ actor VideoNoteRecordingDraftStore {
               normalizedUpperBound - normalizedLowerBound >= 1 - 0.000_001,
               normalizedUpperBound - normalizedLowerBound <= 60
         else { throw VideoNoteRecordingDraftStoreError.staleRevision }
-        let normalizedRange = normalizedLowerBound ..< normalizedUpperBound
+        let normalizedRange = normalizedLowerBound..<normalizedUpperBound
         var updated = canonical
         updated.revision += 1
         if normalizedRange.lowerBound <= 0.000_001,
@@ -390,13 +409,6 @@ actor VideoNoteRecordingDraftStore {
         segmentURLs.forEach { try? fileManager.removeItem(at: $0) }
         return true
     }
-
-    private let fileManager = FileManager.default
-    private var activeOperationCounts = [UUID: Int]()
-    private var cancelledDraftIDs = Set<UUID>()
-    private var deferredDiscardURLs = [UUID: [URL]]()
-    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("VideoNoteRecordingDrafts", isDirectory: true)
 
     private func beginOperation(_ draft: VideoNoteRecordingDraft) throws -> VideoNoteRecordingDraft {
         guard !cancelledDraftIDs.contains(draft.id) else {
@@ -519,7 +531,7 @@ actor VideoNoteRecordingDraftStore {
 
     #if DEBUG
         private func runDebugProbe() async {
-            let chatID = Int64.min + 4_005
+            let chatID = Int64.min + 4005
             let firstURL = fileManager.temporaryDirectory
                 .appendingPathComponent("video-note-recording-a-\(UUID().uuidString).mp4")
             let secondURL = fileManager.temporaryDirectory
@@ -535,8 +547,8 @@ actor VideoNoteRecordingDraftStore {
                 if let sendDraft {
                     Task { await VideoNoteFileStore.shared.remove(sendDraft) }
                 }
-                [firstURL, secondURL, outputURL, redundantURL].forEach {
-                    try? fileManager.removeItem(at: $0)
+                for item in [firstURL, secondURL, outputURL, redundantURL] {
+                    try? fileManager.removeItem(at: item)
                 }
             }
             var stage = "segments"
@@ -582,7 +594,7 @@ actor VideoNoteRecordingDraftStore {
                       abs(draft.totalDuration - 1.7) < 0.04
                 else { throw VideoNoteRecordingDraftStoreError.invalidAsset }
                 stage = "trim"
-                draft = try updateTrim(in: draft, range: 0.2 ..< 1.4)
+                draft = try updateTrim(in: draft, range: 0.2..<1.4)
                 guard draft.revision == 2,
                       abs(draft.effectiveRange.lowerBound - 0.2) < 0.001,
                       abs(draft.effectiveRange.upperBound - 1.4) < 0.001
@@ -660,7 +672,8 @@ actor VideoNoteRecordingDraftStore {
             guard let documentsURL = fileManager.urls(
                 for: .documentDirectory,
                 in: .userDomainMask,
-            ).first else { return }
+            )
+.first else { return }
             try? Data(result.utf8).write(
                 to: documentsURL.appendingPathComponent("video-note-recording-draft-probe.txt"),
                 options: .atomic,

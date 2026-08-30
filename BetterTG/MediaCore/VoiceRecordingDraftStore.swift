@@ -1,7 +1,9 @@
 // VoiceRecordingDraftStore.swift
 
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
+
+// MARK: - VoiceRecordingDraft
 
 struct VoiceRecordingDraft: Equatable {
     let id: UUID
@@ -21,9 +23,11 @@ struct VoiceRecordingDraft: Equatable {
     var effectiveRange: Range<Double> {
         let lowerBound = max(0, min(trimStart ?? 0, exactDuration))
         let upperBound = max(lowerBound, min(trimEnd ?? exactDuration, exactDuration))
-        return lowerBound ..< upperBound
+        return lowerBound..<upperBound
     }
 }
+
+// MARK: - VoiceRecordingDraftManifest
 
 private struct VoiceRecordingDraftManifest: Codable {
     let id: UUID
@@ -41,19 +45,19 @@ private struct VoiceRecordingDraftManifest: Codable {
     let waveform: Data
 
     init(_ draft: VoiceRecordingDraft) {
-        id = draft.id
-        chatID = draft.chatID
-        caption = draft.caption
-        createdAt = draft.createdAt
-        editRevision = draft.editRevision
-        exactDuration = draft.exactDuration
-        mediaFileName = draft.fileURL.lastPathComponent
-        replyMessageID = draft.replyMessageID
-        replyTo = draft.replyTo
-        revision = draft.revision
-        trimEnd = draft.trimEnd
-        trimStart = draft.trimStart
-        waveform = draft.waveform
+        self.id = draft.id
+        self.chatID = draft.chatID
+        self.caption = draft.caption
+        self.createdAt = draft.createdAt
+        self.editRevision = draft.editRevision
+        self.exactDuration = draft.exactDuration
+        self.mediaFileName = draft.fileURL.lastPathComponent
+        self.replyMessageID = draft.replyMessageID
+        self.replyTo = draft.replyTo
+        self.revision = draft.revision
+        self.trimEnd = draft.trimEnd
+        self.trimStart = draft.trimStart
+        self.waveform = draft.waveform
     }
 
     func makeDraft(directoryURL: URL) -> VoiceRecordingDraft? {
@@ -79,14 +83,23 @@ private struct VoiceRecordingDraftManifest: Codable {
     }
 }
 
+// MARK: - VoiceRecordingDraftStoreError
+
 enum VoiceRecordingDraftStoreError: Swift.Error {
     case cancelled
     case missingDraft
     case staleRevision
 }
 
+// MARK: - VoiceRecordingDraftStore
+
 actor VoiceRecordingDraftStore {
     static let shared = VoiceRecordingDraftStore()
+
+    private let fileManager = FileManager.default
+    private var cancelledDraftIDs = Set<UUID>()
+    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("VoiceRecordingDrafts", isDirectory: true)
 
     func adopt(_ draft: VoiceRecordingDraft) throws -> VoiceRecordingDraft {
         try Task.checkCancellation()
@@ -213,11 +226,6 @@ actor VoiceRecordingDraftStore {
         }
         try? fileManager.removeItem(at: manifestURL(for: id))
     }
-
-    private let fileManager = FileManager.default
-    private var cancelledDraftIDs = Set<UUID>()
-    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("VoiceRecordingDrafts", isDirectory: true)
 
     private func ensureDirectory() throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)

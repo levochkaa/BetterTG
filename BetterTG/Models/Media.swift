@@ -18,7 +18,7 @@ final class Media: ObservableObject {
     private var duration = 0
     private var title = ""
 
-    private let player = VLCMediaPlayer()
+    private let player = LocalMediaPlayer()
     private let audioSession = AVAudioSession.sharedInstance()
     private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
     private let commandCenter = MPRemoteCommandCenter.shared()
@@ -101,17 +101,6 @@ final class Media: ObservableObject {
             log("Error ending audioSessionRecord: \(error)")
         }
     }
-
-    // MARK: Private
-
-    private var duration = 0
-    private var title = ""
-
-    private let player = LocalMediaPlayer()
-    private let audioSession = AVAudioSession.sharedInstance()
-    private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
-    private let commandCenter = MPRemoteCommandCenter.shared()
-    private var cancellables = Set<AnyCancellable>()
 
     private func setPublishers() {
         player.timePublisher

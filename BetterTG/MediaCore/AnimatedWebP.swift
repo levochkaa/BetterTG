@@ -4,28 +4,12 @@ import Combine
 import Foundation
 import libwebp
 import QuartzCore
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 // MARK: - AnimatedWebPAsset
 
 final class AnimatedWebPAsset {
-    // MARK: Lifecycle
-
-    init(
-        data: NSData,
-        size: CGSize,
-        frameEndTimes: [TimeInterval],
-        loopCount: Int,
-        firstFrame: UIImage?,
-    ) {
-        self.data = data
-        self.size = size
-        self.frameEndTimes = frameEndTimes
-        self.loopCount = loopCount
-        self.firstFrame = firstFrame
-    }
-
     // MARK: Internal
 
     let data: NSData
@@ -44,6 +28,20 @@ final class AnimatedWebPAsset {
 
     var estimatedMemoryCost: Int {
         data.length + max(1, Int(size.width * size.height * 4))
+    }
+
+    init(
+        data: NSData,
+        size: CGSize,
+        frameEndTimes: [TimeInterval],
+        loopCount: Int,
+        firstFrame: UIImage?,
+    ) {
+        self.data = data
+        self.size = size
+        self.frameEndTimes = frameEndTimes
+        self.loopCount = loopCount
+        self.firstFrame = firstFrame
     }
 
     func frameIndex(at timestamp: TimeInterval) -> Int {
@@ -66,6 +64,24 @@ final class AnimatedWebPAsset {
 // MARK: - AnimatedWebPRepository
 
 enum AnimatedWebPRepository {
+    // MARK: Private
+
+    private static let maximumInputSize = 32 * 1024 * 1024
+
+    private static let assetCache: NSCache<NSString, AnimatedWebPAsset> = {
+        let cache = NSCache<NSString, AnimatedWebPAsset>()
+        cache.countLimit = 48
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+
+    private static let frameCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 180
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+
     // MARK: Internal
 
     static func asset(at path: String) async -> AnimatedWebPAsset? {
@@ -108,24 +124,6 @@ enum AnimatedWebPRepository {
         )
     }
 
-    // MARK: Private
-
-    private static let maximumInputSize = 32 * 1024 * 1024
-
-    private static let assetCache: NSCache<NSString, AnimatedWebPAsset> = {
-        let cache = NSCache<NSString, AnimatedWebPAsset>()
-        cache.countLimit = 48
-        cache.totalCostLimit = 64 * 1024 * 1024
-        return cache
-    }()
-
-    private static let frameCache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 180
-        cache.totalCostLimit = 64 * 1024 * 1024
-        return cache
-    }()
-
     private static func decodeAsset(data: NSData) -> AnimatedWebPAsset? {
         guard let metadata = decodeAnimatedWebPMetadata(data: data),
               let decoder = makeAnimatedWebPDecoder(data: data)
@@ -155,7 +153,12 @@ enum AnimatedWebPRepository {
 // MARK: - AnimatedWebPFrameDecoder
 
 actor AnimatedWebPFrameDecoder {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let data: NSData
+    private let size: CGSize
+    private let decoder: OpaquePointer
+    private var decodedIndex = -1
 
     init?(asset: AnimatedWebPAsset) {
         self.data = asset.data
@@ -196,19 +199,37 @@ actor AnimatedWebPFrameDecoder {
         }
         return image
     }
-
-    // MARK: Private
-
-    private let data: NSData
-    private let size: CGSize
-    private let decoder: OpaquePointer
-    private var decodedIndex = -1
 }
 
 // MARK: - AnimatedWebPView
 
 final class AnimatedWebPView: UIControl, AnimatedFileView {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var onFirstFrameReady: (() -> Void)?
+
+    // MARK: Private
+
+    private let thumbnailView = TDImageLoadingView()
+    private let frameView = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
+    private var representedFileID: Int?
+    private var loadedPath: String?
+    private var asset: AnimatedWebPAsset?
+    private var decoder: AnimatedWebPFrameDecoder?
+    private var playbackVisible = false
+    private var onTap: (() -> Void)?
+    private var displayLink: CADisplayLink?
+    private var requestedFrameIndex: Int?
+    private var downloadTask: Task<Void, Never>?
+    private var assetTask: Task<Void, Never>?
+    private var decodeTask: Task<Void, Never>?
+    private var fileCancellable: AnyCancellable?
+
+    private var playbackEnabled: Bool {
+        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -248,10 +269,6 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
     deinit {
         displayLink?.invalidate()
     }
-
-    // MARK: Internal
-
-    var onFirstFrameReady: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -332,29 +349,6 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
     func setPlaybackVisible(_ isVisible: Bool) {
         playbackVisible = isVisible
         updatePlayback()
-    }
-
-    // MARK: Private
-
-    private let thumbnailView = TDImageLoadingView()
-    private let frameView = UIImageView()
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
-    private var representedFileID: Int?
-    private var loadedPath: String?
-    private var asset: AnimatedWebPAsset?
-    private var decoder: AnimatedWebPFrameDecoder?
-    private var playbackVisible = false
-    private var onTap: (() -> Void)?
-    private var displayLink: CADisplayLink?
-    private var requestedFrameIndex: Int?
-    private var downloadTask: Task<Void, Never>?
-    private var assetTask: Task<Void, Never>?
-    private var decodeTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
-
-    private var playbackEnabled: Bool {
-        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
     }
 
     private func apply(displaySize: CGSize?) {

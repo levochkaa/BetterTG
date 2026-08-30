@@ -10,41 +10,6 @@ import UIKit
 // MARK: - TDLibVODFFmpegSampleBufferPlayer
 
 @MainActor final class TDLibVODFFmpegSampleBufferPlayer {
-    // MARK: Lifecycle
-
-    init(lease: TDLibVODRangeLease) {
-        self.lease = lease
-        self.decoder = TDLibVODFFmpegDecoder(lease: lease)
-        self.lookahead = TDLibVODFFmpegLookahead(
-            lease: lease,
-            releasesLeaseOnCancellation: false,
-        )
-        self.surfaceView = FFmpegSampleBufferSurfaceView()
-        self.renderer = FFmpegSampleBufferRenderer(displayLayer: surfaceView.displayLayer)
-        surfaceView.videoGravity = .resizeAspect
-        renderer.setMuted(false)
-        self.rendererCancellable = renderer.snapshotPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshot in self?.consume(snapshot: snapshot) }
-        startTimeTimer()
-    }
-
-    deinit {
-        decodeTask?.cancel()
-        bufferingTask?.cancel()
-        videoWatchdogTask?.cancel()
-        audioWatchdogTask?.cancel()
-        demandSuspendTask?.cancel()
-        timeTimer?.invalidate()
-        rendererCancellable?.cancel()
-        let renderer = renderer
-        let decoder = decoder
-        Task { @MainActor in
-            renderer.invalidate()
-            await decoder.close()
-        }
-    }
-
     // MARK: Internal
 
     enum Failure: Swift.Error, Equatable {
@@ -55,10 +20,78 @@ import UIKit
         case terminal(String)
     }
 
+    // MARK: Private
+
+    private struct PendingSeekCompletion {
+        let operationGeneration: UInt64
+        let target: TimeInterval
+        let value: () -> Void
+    }
+
+    private enum DecodeLoopDecision {
+        case next(TimeInterval)
+        case stop
+    }
+
+    // Keep one FFmpeg job alive for the bridge's full bounded window. Renderer
+    // backpressure limits decoded lookahead while avoiding per-chunk reopen gaps.
+    private static let decodeWindow = TimeInterval(60)
+    private static let lowWaterDuration = TimeInterval(1)
+    private static let resumeBufferDuration = TimeInterval(1)
+    private static let endTolerance = TimeInterval(0.05)
+    private static let maximumAudioGap = TimeInterval(3)
+    private static let audioGapTimeout = TimeInterval(3)
+
     let surfaceView: FFmpegSampleBufferSurfaceView
 
     private(set) var isPlaybackRequested = false
     private(set) var isPlaybackVisible = false
+
+    private let lease: TDLibVODRangeLease
+    private let decoder: TDLibVODFFmpegDecoder
+    private let lookahead: TDLibVODFFmpegLookahead
+    private let renderer: FFmpegSampleBufferRenderer
+    private let itemIdentity = NSObject()
+    private let stateSubject = CurrentValueSubject<LocalMediaPlayer.State, Never>(.idle)
+    private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let bufferedRangesSubject = CurrentValueSubject<[LocalMediaPlayer.BufferedRange], Never>([])
+    private let streamingStatusSubject = CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>(.idle)
+    private let failureSubject = CurrentValueSubject<Failure?, Never>(nil)
+    private let readyForDisplaySubject = CurrentValueSubject<Bool, Never>(false)
+    private var rendererCancellable: AnyCancellable?
+    private var decodeTask: Task<Void, Never>?
+    private var bufferingTask: Task<Void, Never>?
+    private var videoWatchdogTask: Task<Void, Never>?
+    private var audioWatchdogTask: Task<Void, Never>?
+    private var demandSuspendTask: Task<Void, Never>?
+    private var timeTimer: Timer?
+    private var operationGeneration = UInt64.zero
+    private var rendererGeneration = UInt64.zero
+    private var metadataOperationGeneration: UInt64?
+    private var nextWindowStart = TimeInterval.zero
+    private var bufferStart = TimeInterval.zero
+    private var terminalEnd = TimeInterval.zero
+    private var timelineOrigin = TimeInterval.zero
+    private var audioStartTime = TimeInterval.zero
+    private var audioEndTime = TimeInterval.zero
+    private var videoStartTime = TimeInterval.zero
+    private var videoEndTime = TimeInterval.zero
+    private var inputEnded = false
+    private var isStalledForBuffering = false
+    private var hasStartedPlayback = false
+    private var audioGapBeganAt: TimeInterval?
+    private var audioDegradedToSilence = false
+    private var sourceAudioReadableTo: TimeInterval?
+    private var sourceVideoReadableTo: TimeInterval?
+    private var sourceLookaheadEnded = false
+    private var lookaheadScanInProgress = false
+    private var isPrepared = false
+    private var isClosed = false
+    private var playbackRate = Float(1)
+    private var muted = false
+    private var latestSnapshot: FFmpegSampleBufferRenderer.Snapshot?
+    private var pendingSeekCompletion: PendingSeekCompletion?
 
     var statePublisher: AnyPublisher<LocalMediaPlayer.State, Never> {
         stateSubject.removeDuplicates().eraseToAnyPublisher()
@@ -108,6 +141,39 @@ import UIKit
 
     var pictureInPictureDisplayLayer: AVSampleBufferDisplayLayer? {
         renderer.pictureInPictureDisplayLayer
+    }
+
+    init(lease: TDLibVODRangeLease) {
+        self.lease = lease
+        self.decoder = TDLibVODFFmpegDecoder(lease: lease)
+        self.lookahead = TDLibVODFFmpegLookahead(
+            lease: lease,
+            releasesLeaseOnCancellation: false,
+        )
+        self.surfaceView = FFmpegSampleBufferSurfaceView()
+        self.renderer = FFmpegSampleBufferRenderer(displayLayer: surfaceView.displayLayer)
+        surfaceView.videoGravity = .resizeAspect
+        renderer.setMuted(false)
+        self.rendererCancellable = renderer.snapshotPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshot in self?.consume(snapshot: snapshot) }
+        startTimeTimer()
+    }
+
+    deinit {
+        decodeTask?.cancel()
+        bufferingTask?.cancel()
+        videoWatchdogTask?.cancel()
+        audioWatchdogTask?.cancel()
+        demandSuspendTask?.cancel()
+        timeTimer?.invalidate()
+        rendererCancellable?.cancel()
+        let renderer = renderer
+        let decoder = decoder
+        Task { @MainActor in
+            renderer.invalidate()
+            await decoder.close()
+        }
     }
 
     #if DEBUG
@@ -231,74 +297,6 @@ import UIKit
         streamingStatusSubject.send(.idle)
         await decoder.close()
     }
-
-    // MARK: Private
-
-    private struct PendingSeekCompletion {
-        let operationGeneration: UInt64
-        let target: TimeInterval
-        let value: () -> Void
-    }
-
-    private enum DecodeLoopDecision {
-        case next(TimeInterval)
-        case stop
-    }
-
-    // Keep one FFmpeg job alive for the bridge's full bounded window. Renderer
-    // backpressure limits decoded lookahead while avoiding per-chunk reopen gaps.
-    private static let decodeWindow = TimeInterval(60)
-    private static let lowWaterDuration = TimeInterval(1)
-    private static let resumeBufferDuration = TimeInterval(1)
-    private static let endTolerance = TimeInterval(0.05)
-    private static let maximumAudioGap = TimeInterval(3)
-    private static let audioGapTimeout = TimeInterval(3)
-
-    private let lease: TDLibVODRangeLease
-    private let decoder: TDLibVODFFmpegDecoder
-    private let lookahead: TDLibVODFFmpegLookahead
-    private let renderer: FFmpegSampleBufferRenderer
-    private let itemIdentity = NSObject()
-    private let stateSubject = CurrentValueSubject<LocalMediaPlayer.State, Never>(.idle)
-    private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
-    private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
-    private let bufferedRangesSubject = CurrentValueSubject<[LocalMediaPlayer.BufferedRange], Never>([])
-    private let streamingStatusSubject = CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>(.idle)
-    private let failureSubject = CurrentValueSubject<Failure?, Never>(nil)
-    private let readyForDisplaySubject = CurrentValueSubject<Bool, Never>(false)
-    private var rendererCancellable: AnyCancellable?
-    private var decodeTask: Task<Void, Never>?
-    private var bufferingTask: Task<Void, Never>?
-    private var videoWatchdogTask: Task<Void, Never>?
-    private var audioWatchdogTask: Task<Void, Never>?
-    private var demandSuspendTask: Task<Void, Never>?
-    private var timeTimer: Timer?
-    private var operationGeneration = UInt64.zero
-    private var rendererGeneration = UInt64.zero
-    private var metadataOperationGeneration: UInt64?
-    private var nextWindowStart = TimeInterval.zero
-    private var bufferStart = TimeInterval.zero
-    private var terminalEnd = TimeInterval.zero
-    private var timelineOrigin = TimeInterval.zero
-    private var audioStartTime = TimeInterval.zero
-    private var audioEndTime = TimeInterval.zero
-    private var videoStartTime = TimeInterval.zero
-    private var videoEndTime = TimeInterval.zero
-    private var inputEnded = false
-    private var isStalledForBuffering = false
-    private var hasStartedPlayback = false
-    private var audioGapBeganAt: TimeInterval?
-    private var audioDegradedToSilence = false
-    private var sourceAudioReadableTo: TimeInterval?
-    private var sourceVideoReadableTo: TimeInterval?
-    private var sourceLookaheadEnded = false
-    private var lookaheadScanInProgress = false
-    private var isPrepared = false
-    private var isClosed = false
-    private var playbackRate = Float(1)
-    private var muted = false
-    private var latestSnapshot: FFmpegSampleBufferRenderer.Snapshot?
-    private var pendingSeekCompletion: PendingSeekCompletion?
 
     private func normalized(time: TimeInterval) -> TimeInterval {
         let nonnegative = time.isFinite ? max(0, time) : 0
@@ -1009,7 +1007,17 @@ import UIKit
 
     private extension TDLibVODFFmpegSampleBufferPlayer {
         @MainActor final class ProbeRecorder {
-            // MARK: Lifecycle
+            // MARK: Internal
+
+            private(set) var maximumBufferedAhead = TimeInterval.zero
+            private(set) var firstPlayingBufferedAhead: TimeInterval?
+            private(set) var states = [LocalMediaPlayer.State]()
+
+            // MARK: Private
+
+            private var stateCancellable: AnyCancellable?
+            private var rangeCancellable: AnyCancellable?
+            private var lastBufferedEnd = TimeInterval.zero
 
             init(player: TDLibVODFFmpegSampleBufferPlayer) {
                 self.stateCancellable = player.statePublisher.sink { [weak self] state in
@@ -1025,18 +1033,6 @@ import UIKit
                     self.maximumBufferedAhead = max(maximumBufferedAhead, range.end - player.currentTime)
                 }
             }
-
-            // MARK: Internal
-
-            private(set) var maximumBufferedAhead = TimeInterval.zero
-            private(set) var firstPlayingBufferedAhead: TimeInterval?
-            private(set) var states = [LocalMediaPlayer.State]()
-
-            // MARK: Private
-
-            private var stateCancellable: AnyCancellable?
-            private var rangeCancellable: AnyCancellable?
-            private var lastBufferedEnd = TimeInterval.zero
         }
 
         @MainActor static func runDebugProbe(in window: UIWindow) async {

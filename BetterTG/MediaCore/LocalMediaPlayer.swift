@@ -7,43 +7,6 @@ import UIKit
 // MARK: - LocalMediaPlayer
 
 final class LocalMediaPlayer {
-    // MARK: Lifecycle
-
-    init() {
-        player.automaticallyWaitsToMinimizeStalling = true
-        self.timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
-            queue: .main,
-        ) { [weak self] time in
-            guard time.seconds.isFinite else { return }
-            self?.timeSubject.send(max(0, time.seconds))
-            self?.updateVODBufferingState()
-        }
-        player.publisher(for: \.timeControlStatus, options: [.initial, .new])
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in self?.update(timeControlStatus: status) }
-            .store(in: &cancellables)
-        player.publisher(for: \.rate, options: [.initial, .new])
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] rate in self?.update(externalRate: rate) }
-            .store(in: &cancellables)
-        player.publisher(for: \.defaultRate, options: [.initial, .new])
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] rate in self?.update(externalPreferredRate: rate) }
-            .store(in: &cancellables)
-    }
-
-    deinit {
-        if let timeObserver {
-            player.removeTimeObserver(timeObserver)
-        }
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        compositionLease = nil
-        vodSession?.invalidate()
-        vodSession = nil
-    }
-
     // MARK: Internal
 
     enum State: Equatable {
@@ -60,6 +23,41 @@ final class LocalMediaPlayer {
         let end: TimeInterval
         let start: TimeInterval
     }
+
+    // MARK: Private
+
+    private let player = AVPlayer()
+    private let stateSubject = CurrentValueSubject<State, Never>(.idle)
+    private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let bufferedRangesSubject = CurrentValueSubject<[BufferedRange], Never>([])
+    private let streamingStatusSubject = CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>(.idle)
+    private let loopSubject = PassthroughSubject<Void, Never>()
+    private var shouldAutoplay = false
+    private var shouldLoop = false
+    private var shouldApplyReadyStateAfterSeek = false
+    private var playbackRange: Range<TimeInterval>?
+    private var timeObserver: Any?
+    private var preparationTask: Task<Void, Never>?
+    private var currentRequestIdentifier: UUID?
+    private var compositionLease: VideoNoteCompositionResult?
+    private var vodSession: TDLibVODResourceLoaderSession?
+    private var vodStatusCancellable: AnyCancellable?
+    private var usesExplicitVODBuffering = false
+    private var isExternalPlaybackControlActive = false
+    private var isRestartingAfterExternalEnd = false
+    private var externalReplayGeneration = UInt64.zero
+    private var vodPrerollIdentifier: UUID?
+    private var playbackRate: Float = 1
+    private var pendingSeek: (
+        time: TimeInterval,
+        tolerance: TimeInterval,
+        constrainedToPlaybackRange: Bool,
+        completion: (() -> Void)?,
+    )?
+    private var currentSeekIdentifier: UUID?
+    private var itemCancellables = Set<AnyCancellable>()
+    private var cancellables = Set<AnyCancellable>()
 
     var statePublisher: AnyPublisher<State, Never> {
         stateSubject.removeDuplicates().eraseToAnyPublisher()
@@ -117,6 +115,100 @@ final class LocalMediaPlayer {
     var currentTime: TimeInterval {
         let seconds = player.currentTime().seconds
         return seconds.isFinite ? max(0, seconds) : 0
+    }
+
+    #if DEBUG
+        var debugPlaybackSnapshot: String {
+            "state=\(stateSubject.value), requested=\(shouldAutoplay), "
+                + "preferred=\(playbackRate), raw=\(player.rate), default=\(player.defaultRate), "
+                + "time=\(currentTime)"
+        }
+
+        func debugExternalPauseSettled(preferredRate: Float) -> Bool {
+            let isPausedState = stateSubject.value == .paused || stateSubject.value == .ended
+            return !shouldAutoplay
+                && isPausedState
+                && player.rate == 0
+                && playbackRate == preferredRate
+                && player.defaultRate == preferredRate
+        }
+
+        var debugExternalReplayGeneration: UInt64 {
+            externalReplayGeneration
+        }
+
+        func simulateExternalPauseForProbe() {
+            player.pause()
+        }
+
+        func simulateExternalPlayForProbe(atRate rate: Float? = nil) {
+            let rate = rate ?? playbackRate
+            player.defaultRate = rate
+            player.playImmediately(atRate: rate)
+        }
+
+        func simulateExternalEndForProbe() {
+            player.pause()
+            guard let item = player.currentItem else { return }
+            NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+        }
+    #endif
+
+    private var hasSufficientVODBuffer: Bool {
+        guard let item = player.currentItem else { return false }
+        let current = player.currentTime().seconds
+        guard current.isFinite else { return false }
+        var bufferedEnd = current
+        for value in item.loadedTimeRanges {
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let end = range.end.seconds
+            guard start.isFinite, end.isFinite,
+                  start <= current + 0.05,
+                  end >= current - 0.05
+            else { continue }
+            bufferedEnd = max(bufferedEnd, end)
+        }
+        let duration = item.duration.seconds
+        let bufferedUntilEnd = duration.isFinite
+            && duration > 0
+            && bufferedEnd >= duration - 0.05
+        return bufferedUntilEnd || max(0, bufferedEnd - current) >= 1
+    }
+
+    init() {
+        player.automaticallyWaitsToMinimizeStalling = true
+        self.timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
+            queue: .main,
+        ) { [weak self] time in
+            guard time.seconds.isFinite else { return }
+            self?.timeSubject.send(max(0, time.seconds))
+            self?.updateVODBufferingState()
+        }
+        player.publisher(for: \.timeControlStatus, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in self?.update(timeControlStatus: status) }
+            .store(in: &cancellables)
+        player.publisher(for: \.rate, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] rate in self?.update(externalRate: rate) }
+            .store(in: &cancellables)
+        player.publisher(for: \.defaultRate, options: [.initial, .new])
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] rate in self?.update(externalPreferredRate: rate) }
+            .store(in: &cancellables)
+    }
+
+    deinit {
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+        }
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        compositionLease = nil
+        vodSession?.invalidate()
+        vodSession = nil
     }
 
     func attach(to layer: AVPlayerLayer) {
@@ -278,43 +370,6 @@ final class LocalMediaPlayer {
         }
     }
 
-    #if DEBUG
-        var debugPlaybackSnapshot: String {
-            "state=\(stateSubject.value), requested=\(shouldAutoplay), "
-                + "preferred=\(playbackRate), raw=\(player.rate), default=\(player.defaultRate), "
-                + "time=\(currentTime)"
-        }
-
-        func debugExternalPauseSettled(preferredRate: Float) -> Bool {
-            let isPausedState = stateSubject.value == .paused || stateSubject.value == .ended
-            return !shouldAutoplay
-                && isPausedState
-                && player.rate == 0
-                && playbackRate == preferredRate
-                && player.defaultRate == preferredRate
-        }
-
-        var debugExternalReplayGeneration: UInt64 {
-            externalReplayGeneration
-        }
-
-        func simulateExternalPauseForProbe() {
-            player.pause()
-        }
-
-        func simulateExternalPlayForProbe(atRate rate: Float? = nil) {
-            let rate = rate ?? playbackRate
-            player.defaultRate = rate
-            player.playImmediately(atRate: rate)
-        }
-
-        func simulateExternalEndForProbe() {
-            player.pause()
-            guard let item = player.currentItem else { return }
-            NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
-        }
-    #endif
-
     func stop() {
         preparationTask?.cancel()
         preparationTask = nil
@@ -413,63 +468,6 @@ final class LocalMediaPlayer {
     func jump(by interval: TimeInterval) {
         let current = player.currentTime().seconds
         seek(to: (current.isFinite ? current : 0) + interval)
-    }
-
-    // MARK: Private
-
-    private let player = AVPlayer()
-    private let stateSubject = CurrentValueSubject<State, Never>(.idle)
-    private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
-    private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
-    private let bufferedRangesSubject = CurrentValueSubject<[BufferedRange], Never>([])
-    private let streamingStatusSubject = CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>(.idle)
-    private let loopSubject = PassthroughSubject<Void, Never>()
-    private var shouldAutoplay = false
-    private var shouldLoop = false
-    private var shouldApplyReadyStateAfterSeek = false
-    private var playbackRange: Range<TimeInterval>?
-    private var timeObserver: Any?
-    private var preparationTask: Task<Void, Never>?
-    private var currentRequestIdentifier: UUID?
-    private var compositionLease: VideoNoteCompositionResult?
-    private var vodSession: TDLibVODResourceLoaderSession?
-    private var vodStatusCancellable: AnyCancellable?
-    private var usesExplicitVODBuffering = false
-    private var isExternalPlaybackControlActive = false
-    private var isRestartingAfterExternalEnd = false
-    private var externalReplayGeneration = UInt64.zero
-    private var vodPrerollIdentifier: UUID?
-    private var playbackRate: Float = 1
-    private var pendingSeek: (
-        time: TimeInterval,
-        tolerance: TimeInterval,
-        constrainedToPlaybackRange: Bool,
-        completion: (() -> Void)?,
-    )?
-    private var currentSeekIdentifier: UUID?
-    private var itemCancellables = Set<AnyCancellable>()
-    private var cancellables = Set<AnyCancellable>()
-
-    private var hasSufficientVODBuffer: Bool {
-        guard let item = player.currentItem else { return false }
-        let current = player.currentTime().seconds
-        guard current.isFinite else { return false }
-        var bufferedEnd = current
-        for value in item.loadedTimeRanges {
-            let range = value.timeRangeValue
-            let start = range.start.seconds
-            let end = range.end.seconds
-            guard start.isFinite, end.isFinite,
-                  start <= current + 0.05,
-                  end >= current - 0.05
-            else { continue }
-            bufferedEnd = max(bufferedEnd, end)
-        }
-        let duration = item.duration.seconds
-        let bufferedUntilEnd = duration.isFinite
-            && duration > 0
-            && bufferedEnd >= duration - 0.05
-        return bufferedUntilEnd || max(0, bufferedEnd - current) >= 1
     }
 
     private func observe(item: AVPlayerItem) {
@@ -655,14 +653,15 @@ final class LocalMediaPlayer {
     }
 
     private func publishBufferedRanges(for item: AVPlayerItem) {
-        let ranges = item.loadedTimeRanges.compactMap { value -> BufferedRange? in
-            let range = value.timeRangeValue
-            let start = range.start.seconds
-            let end = CMTimeRangeGetEnd(range).seconds
-            guard start.isFinite, end.isFinite, start >= 0, end > start else { return nil }
-            return BufferedRange(end: end, start: start)
-        }
-        .sorted { lhs, rhs in lhs.start < rhs.start }
+        let ranges = item.loadedTimeRanges
+            .compactMap { value -> BufferedRange? in
+                let range = value.timeRangeValue
+                let start = range.start.seconds
+                let end = CMTimeRangeGetEnd(range).seconds
+                guard start.isFinite, end.isFinite, start >= 0, end > start else { return nil }
+                return BufferedRange(end: end, start: start)
+            }
+            .sorted { lhs, rhs in lhs.start < rhs.start }
 
         var merged = [BufferedRange]()
         for range in ranges {
@@ -767,8 +766,7 @@ final class LocalMediaPlayer {
         }
     }
 
-    @discardableResult
-    private func restartExternalPlaybackAfterEndIfNeeded() -> Bool {
+    @discardableResult private func restartExternalPlaybackAfterEndIfNeeded() -> Bool {
         guard stateSubject.value == .ended, !isRestartingAfterExternalEnd else {
             return isRestartingAfterExternalEnd
         }
@@ -834,17 +832,6 @@ final class LocalMediaPlayer {
 // MARK: - LocalVideoSurfaceView
 
 final class LocalVideoSurfaceView: UIView {
-    // MARK: Lifecycle
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        playerLayer.videoGravity = .resizeAspect
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
     // MARK: Internal
 
     override class var layerClass: AnyClass {
@@ -856,5 +843,14 @@ final class LocalVideoSurfaceView: UIView {
             preconditionFailure("LocalVideoSurfaceView must be backed by AVPlayerLayer")
         }
         return layer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        playerLayer.videoGravity = .resizeAspect
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

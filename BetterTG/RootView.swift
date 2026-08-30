@@ -4,6 +4,10 @@ import Combine
 import UIKit
 
 final class RootViewController: UIViewController {
+    override var childForScreenEdgesDeferringSystemGestures: UIViewController? {
+        displayedController
+    }
+
     // MARK: Private
 
     private let rootVM: RootVM
@@ -34,15 +38,6 @@ final class RootViewController: UIViewController {
             .store(in: &cancellables)
         render(animated: false)
     }
-
-    override var childForScreenEdgesDeferringSystemGestures: UIViewController? {
-        displayedController
-    }
-
-    private let rootVM: RootVM
-    private var displayedController: UIViewController?
-    private var displayedLoggedInState: Bool?
-    private var cancellables = Set<AnyCancellable>()
 
     private func render(animated: Bool) {
         guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID else { return }

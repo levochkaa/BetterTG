@@ -2,10 +2,36 @@
 
 import AVFoundation
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class VideoNotePlaybackView: UIControl, ReusableMediaView {
+    private weak static var activePlaybackView: VideoNotePlaybackView?
+
+    private let player = LocalMediaPlayer()
+    private let thumbnailView = TDImageLoadingView()
+    private let playerSurface = LocalVideoSurfaceView()
+    private let playIcon = UIImageView()
+    private let durationLabel = UILabel()
+    private let secretBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    private let progressLayer = CAShapeLayer()
+    private lazy var sideConstraint = widthAnchor.constraint(equalToConstant: 220)
+    private var videoNote: VideoNote?
+    private var representedPath: String?
+    private var isSecret = false
+    private var isSecretTouchActive = false
+    private var hasOpenedSecret = false
+    private var chatID: Int64?
+    private var messageID: Int64?
+    private var playbackVisible = false
+    private var downloadTask: Task<Void, Never>?
+    private var downloadRequestID: UUID?
+    private var fileCancellable: AnyCancellable?
+    private var secretOpenTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
+
+    private var currentPlayerState = LocalMediaPlayer.State.idle
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
@@ -20,6 +46,38 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         downloadTask?.cancel()
         secretOpenTask?.cancel()
         player.stop()
+    }
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        guard isSecret else { return super.beginTracking(touch, with: event) }
+        revealSecretAndPlay()
+        return true
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        if isSecret {
+            concealSecret()
+        } else {
+            super.endTracking(touch, with: event)
+        }
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        if isSecret {
+            concealSecret()
+        }
+        super.cancelTracking(with: event)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.width / 2
+        thumbnailView.layer.cornerRadius = bounds.width / 2
+        playerSurface.layer.cornerRadius = bounds.width / 2
+        secretBlurView.layer.cornerRadius = bounds.width / 2
+        progressLayer.frame = bounds
+        progressLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
+        progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
     }
 
     func configure(
@@ -107,61 +165,6 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         }
     }
 
-    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        guard isSecret else { return super.beginTracking(touch, with: event) }
-        revealSecretAndPlay()
-        return true
-    }
-
-    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        if isSecret {
-            concealSecret()
-        } else {
-            super.endTracking(touch, with: event)
-        }
-    }
-
-    override func cancelTracking(with event: UIEvent?) {
-        if isSecret {
-            concealSecret()
-        }
-        super.cancelTracking(with: event)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.cornerRadius = bounds.width / 2
-        thumbnailView.layer.cornerRadius = bounds.width / 2
-        playerSurface.layer.cornerRadius = bounds.width / 2
-        secretBlurView.layer.cornerRadius = bounds.width / 2
-        progressLayer.frame = bounds
-        progressLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
-        progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
-    }
-
-    private let player = LocalMediaPlayer()
-    private static weak var activePlaybackView: VideoNotePlaybackView?
-    private let thumbnailView = TDImageLoadingView()
-    private let playerSurface = LocalVideoSurfaceView()
-    private let playIcon = UIImageView()
-    private let durationLabel = UILabel()
-    private let secretBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
-    private let progressLayer = CAShapeLayer()
-    private lazy var sideConstraint = widthAnchor.constraint(equalToConstant: 220)
-    private var videoNote: VideoNote?
-    private var representedPath: String?
-    private var isSecret = false
-    private var isSecretTouchActive = false
-    private var hasOpenedSecret = false
-    private var chatID: Int64?
-    private var messageID: Int64?
-    private var playbackVisible = false
-    private var downloadTask: Task<Void, Never>?
-    private var downloadRequestID: UUID?
-    private var fileCancellable: AnyCancellable?
-    private var secretOpenTask: Task<Void, Never>?
-    private var cancellables = Set<AnyCancellable>()
-
     private func configureViews() {
         clipsToBounds = true
         backgroundColor = .black
@@ -180,7 +183,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         player.attach(to: playerSurface.playerLayer)
         player.setMuted(false)
         addSubview(playerSurface)
-        playerSurface.playerLayer.publisher(for: \.isReadyForDisplay, options: [.initial, .new])
+        playerSurface.playerLayer
+            .publisher(for: \.isReadyForDisplay, options: [.initial, .new])
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isReady in
                 self?.setPlayerSurfaceReady(isReady)
@@ -252,7 +256,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 durationLabel.text = "\(format(Int(time))) / \(format(videoNote.duration))"
             }
             .store(in: &cancellables)
-        Media.shared.$isPlaying
+        Media.shared
+            .$isPlaying
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isPlaying in
@@ -260,11 +265,13 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 self?.pauseForCompetingPlayback()
             }
             .store(in: &cancellables)
-        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+        NotificationCenter.default
+            .publisher(for: UIApplication.didEnterBackgroundNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.setPlaybackVisible(false) }
             .store(in: &cancellables)
-        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+        NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, window != nil else { return }
@@ -421,6 +428,4 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         player.pause()
         Self.activePlaybackView = nil
     }
-
-    private var currentPlayerState: LocalMediaPlayer.State = .idle
 }

@@ -6,19 +6,9 @@ import Foundation
 // MARK: - TDLibVODFFmpegLookahead
 
 actor TDLibVODFFmpegLookahead {
-    // MARK: Lifecycle
-
-    init(
-        lease: TDLibVODRangeLease,
-        releasesLeaseOnCancellation: Bool = true,
-    ) {
-        self.lease = lease
-        self.releasesLeaseOnCancellation = releasesLeaseOnCancellation
-    }
-
     // MARK: Internal
 
-    struct State: Equatable, Sendable {
+    struct State: Equatable {
         let audioReadableTo: TimeInterval?
         let bytesRead: Int64
         let duration: TimeInterval
@@ -52,6 +42,37 @@ actor TDLibVODFFmpegLookahead {
         case invalidRange
         case range(TDLibVODRangeError)
         case superseded
+    }
+
+    // MARK: Private
+
+    private enum ScanDisposition {
+        case cancelled
+        case running
+        case superseded
+    }
+
+    private struct ActiveScan {
+        let box: TDLibVODFFmpegReadBox
+        let continuation: CheckedContinuation<State, Swift.Error>
+        var disposition: ScanDisposition
+    }
+
+    private let lease: TDLibVODRangeLease
+    private let releasesLeaseOnCancellation: Bool
+    private var activeScans = [UUID: ActiveScan]()
+    private var currentScanID: UUID?
+    private var isClosed = false
+    private var leaseReleaseTask: Task<Void, Never>?
+    private var leaseReleased = false
+    private var scanGeneration = UInt64.zero
+
+    init(
+        lease: TDLibVODRangeLease,
+        releasesLeaseOnCancellation: Bool = true,
+    ) {
+        self.lease = lease
+        self.releasesLeaseOnCancellation = releasesLeaseOnCancellation
     }
 
     #if DEBUG
@@ -124,29 +145,6 @@ actor TDLibVODFFmpegLookahead {
             Task { await self.cancel(requestID: requestID, generation: generation) }
         }
     }
-
-    // MARK: Private
-
-    private enum ScanDisposition {
-        case cancelled
-        case running
-        case superseded
-    }
-
-    private struct ActiveScan {
-        let box: TDLibVODFFmpegReadBox
-        let continuation: CheckedContinuation<State, Swift.Error>
-        var disposition: ScanDisposition
-    }
-
-    private let lease: TDLibVODRangeLease
-    private let releasesLeaseOnCancellation: Bool
-    private var activeScans = [UUID: ActiveScan]()
-    private var currentScanID: UUID?
-    private var isClosed = false
-    private var leaseReleaseTask: Task<Void, Never>?
-    private var leaseReleased = false
-    private var scanGeneration = UInt64.zero
 
     private func supersedeCurrentScan() {
         guard let currentScanID, var active = activeScans[currentScanID] else { return }
@@ -288,11 +286,14 @@ actor TDLibVODFFmpegLookahead {
 // MARK: - TDLibVODFFmpegReadBox
 
 private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Private
 
-    init(source: TDLibVODRangeSource) {
-        self.source = source
-    }
+    private let source: TDLibVODRangeSource
+    private let lock = NSLock()
+    private var activeOperation: TDLibVODBlockingReadOperation?
+    private var cancelled = false
+    private var job: OpaquePointer?
+    private var storedRangeError: TDLibVODRangeError?
 
     // MARK: Internal
 
@@ -306,6 +307,10 @@ private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedRangeError
+    }
+
+    init(source: TDLibVODRangeSource) {
+        self.source = source
     }
 
     func install(job: OpaquePointer) {
@@ -407,20 +412,19 @@ private final class TDLibVODFFmpegReadBox: @unchecked Sendable {
             return -2
         }
     }
-
-    // MARK: Private
-
-    private let source: TDLibVODRangeSource
-    private let lock = NSLock()
-    private var activeOperation: TDLibVODBlockingReadOperation?
-    private var cancelled = false
-    private var job: OpaquePointer?
-    private var storedRangeError: TDLibVODRangeError?
 }
 
 // MARK: - TDLibVODBlockingReadOperation
 
 private final class TDLibVODBlockingReadOperation: @unchecked Sendable {
+    // MARK: Private
+
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var cancelled = false
+    private var result: Result<Data, Swift.Error>?
+    private var task: Task<Void, Never>?
+
     // MARK: Internal
 
     func install(task: Task<Void, Never>) {
@@ -459,14 +463,6 @@ private final class TDLibVODBlockingReadOperation: @unchecked Sendable {
         defer { lock.unlock() }
         return result ?? .failure(TDLibVODRangeError.readFailed)
     }
-
-    // MARK: Private
-
-    private let lock = NSLock()
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var cancelled = false
-    private var result: Result<Data, Swift.Error>?
-    private var task: Task<Void, Never>?
 }
 
 private func tdLibVODFFmpegReadCallback(

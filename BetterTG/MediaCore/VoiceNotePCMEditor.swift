@@ -3,11 +3,15 @@
 import AVFoundation
 import Foundation
 
-struct VoiceNotePCMInspection: Sendable {
+// MARK: - VoiceNotePCMInspection
+
+struct VoiceNotePCMInspection {
     let duration: Double
     let frameCount: AVAudioFramePosition
     let waveform: Data
 }
+
+// MARK: - VoiceNotePCMEditor
 
 enum VoiceNotePCMEditor {
     enum EditorError: Swift.Error {
@@ -16,6 +20,19 @@ enum VoiceNotePCMEditor {
         case invalidRange
         case unsupportedPCMFormat
     }
+
+    static let recordingSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: sampleRate,
+        AVNumberOfChannelsKey: 1,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsNonInterleaved: false,
+    ]
+
+    private static let sampleRate = 48000.0
+    private static let bufferFrames: AVAudioFrameCount = 8192
 
     static func inspect(_ url: URL) async throws -> VoiceNotePCMInspection {
         let task = Task.detached(priority: .userInitiated) {
@@ -69,19 +86,6 @@ enum VoiceNotePCMEditor {
             task.cancel()
         }
     }
-
-    private static let sampleRate = 48_000.0
-    private static let bufferFrames: AVAudioFrameCount = 8_192
-
-    static let recordingSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: sampleRate,
-        AVNumberOfChannelsKey: 1,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsNonInterleaved: false,
-    ]
 
     private static func inspectSynchronously(_ url: URL) throws -> VoiceNotePCMInspection {
         let file = try AVAudioFile(forReading: url)
@@ -265,10 +269,10 @@ enum VoiceNotePCMEditor {
         default:
             throw EditorError.unsupportedPCMFormat
         }
-        for index in 0 ..< frameLength {
+        for index in 0..<frameLength {
             let absoluteFrame = frameOffset + AVAudioFramePosition(index)
             let bucket = min(peaks.count - 1, Int(absoluteFrame * AVAudioFramePosition(peaks.count) / totalFrames))
-            peaks[bucket] = max(peaks[bucket], min(1, try sample(index)))
+            peaks[bucket] = try max(peaks[bucket], min(1, sample(index)))
         }
     }
 }

@@ -5,7 +5,15 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
+// MARK: - VideoNoteCompositionResult
+
 final class VideoNoteCompositionResult: @unchecked Sendable {
+    let asset: AVComposition
+    let duration: Double
+    let segmentRanges: [Range<Double>]
+
+    private let snapshotDirectory: URL
+
     init(
         asset: AVComposition,
         duration: Double,
@@ -21,24 +29,25 @@ final class VideoNoteCompositionResult: @unchecked Sendable {
     deinit {
         try? FileManager.default.removeItem(at: snapshotDirectory)
     }
-
-    let asset: AVComposition
-    let duration: Double
-    let segmentRanges: [Range<Double>]
-    private let snapshotDirectory: URL
 }
 
-struct VideoNoteThumbnailSample: Sendable {
+// MARK: - VideoNoteThumbnailSample
+
+struct VideoNoteThumbnailSample {
     let height: Int
     let jpegData: Data
     let time: Double
     let width: Int
 }
 
-struct VideoNoteRecordingPreview: Sendable {
+// MARK: - VideoNoteRecordingPreview
+
+struct VideoNoteRecordingPreview {
     let composition: VideoNoteCompositionResult
     let thumbnails: [VideoNoteThumbnailSample]
 }
+
+// MARK: - VideoNoteSegmentComposerError
 
 enum VideoNoteSegmentComposerError: Swift.Error {
     case exportFailed
@@ -46,7 +55,26 @@ enum VideoNoteSegmentComposerError: Swift.Error {
     case invalidSegment
 }
 
+// MARK: - VideoNoteSegmentComposer
+
 enum VideoNoteSegmentComposer {
+    private struct SegmentSnapshot {
+        let directory: URL
+        let segments: [VideoNoteAsset]
+    }
+
+    private final class ExportSessionBox: @unchecked Sendable {
+        let value: AVAssetExportSession
+
+        init(_ value: AVAssetExportSession) { self.value = value }
+    }
+
+    private struct SendableCGImage: @unchecked Sendable {
+        let image: CGImage
+
+        init(_ image: CGImage) { self.image = image }
+    }
+
     #if DEBUG
         static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-segments") else { return }
@@ -114,7 +142,7 @@ enum VideoNoteSegmentComposer {
             try Task.checkCancellation()
             let start = cursor.seconds
             cursor = cursor + timeRange.duration
-            ranges.append(start ..< cursor.seconds)
+            ranges.append(start..<cursor.seconds)
         }
         guard cursor.seconds.isFinite,
               cursor.seconds >= 0.5,
@@ -149,7 +177,7 @@ enum VideoNoteSegmentComposer {
         maximumPixelSize: Int = 160,
         onFirst: (@Sendable (VideoNoteThumbnailSample) -> Void)? = nil,
     ) async throws -> [VideoNoteThumbnailSample] {
-        let range = 0 ..< result.duration
+        let range = 0..<result.duration
         let sampleCount = max(1, count)
         let generator = AVAssetImageGenerator(asset: result.asset)
         generator.appliesPreferredTrackTransform = true
@@ -159,13 +187,14 @@ enum VideoNoteSegmentComposer {
         return try await withTaskCancellationHandler {
             var samples = [VideoNoteThumbnailSample]()
             samples.reserveCapacity(sampleCount)
-            for index in 0 ..< sampleCount {
+            for index in 0..<sampleCount {
                 try Task.checkCancellation()
                 let fraction = Double(index) / Double(sampleCount)
                 let time = range.lowerBound + (range.upperBound - range.lowerBound) * fraction
                 let image = try await generator.image(
                     at: CMTime(seconds: time, preferredTimescale: 600),
-                ).image
+                )
+                .image
                 let width = image.width
                 let height = image.height
                 let jpegData = try await Task.detached(priority: .utility) {
@@ -203,7 +232,8 @@ enum VideoNoteSegmentComposer {
             try Task.checkCancellation()
             let image = try await generator.image(
                 at: CMTime(seconds: max(0, time), preferredTimescale: 600),
-            ).image
+            )
+            .image
             let width = image.width
             let height = image.height
             let jpegData = try await Task.detached(priority: .utility) {
@@ -278,7 +308,8 @@ enum VideoNoteSegmentComposer {
             let temporaryDirectory = FileManager.default.temporaryDirectory
             let firstURL = temporaryDirectory.appendingPathComponent("video-note-segment-a-\(UUID().uuidString).mp4")
             let secondURL = temporaryDirectory.appendingPathComponent("video-note-segment-b-\(UUID().uuidString).mp4")
-            let outputURL = temporaryDirectory.appendingPathComponent("video-note-segments-output-\(UUID().uuidString).mp4")
+            let outputURL = temporaryDirectory
+                .appendingPathComponent("video-note-segments-output-\(UUID().uuidString).mp4")
             let cleanupURLs = [firstURL, secondURL, outputURL]
             defer { cleanupURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
             var stage = "segments"
@@ -362,7 +393,7 @@ enum VideoNoteSegmentComposer {
                 stage = "materialization"
                 let materialized = try await materialize(
                     segments: segments,
-                    trimRange: 0.2 ..< 1.3,
+                    trimRange: 0.2..<1.3,
                     outputURL: outputURL,
                 )
                 guard abs(materialized.duration - 1.1) < 0.05,
@@ -384,12 +415,12 @@ enum VideoNoteSegmentComposer {
                       abs(Int(outputLastGreen) - Int(sourceLastGreen)) < 12,
                       let outputVideoTrack,
                       let outputAudioTrack,
-                      abs(try await outputVideoTrack.load(.timeRange).start.seconds) < 0.05,
-                      abs(try await outputAudioTrack.load(.timeRange).start.seconds) < 0.05
+                      try await abs(outputVideoTrack.load(.timeRange).start.seconds) < 0.05,
+                      try await abs(outputAudioTrack.load(.timeRange).start.seconds) < 0.05
                 else { throw VideoNoteSegmentComposerError.invalidSegment }
                 stage = "decoded audio"
-                let firstRMS = try await audioRMS(asset: outputAsset, range: 0.2 ..< 0.4)
-                let secondRMS = try await audioRMS(asset: outputAsset, range: 0.65 ..< 0.85)
+                let firstRMS = try await audioRMS(asset: outputAsset, range: 0.2..<0.4)
+                let secondRMS = try await audioRMS(asset: outputAsset, range: 0.65..<0.85)
                 guard firstRMS > 100,
                       secondRMS > firstRMS * 1.12
                 else { throw VideoNoteSegmentComposerError.invalidSegment }
@@ -411,7 +442,8 @@ enum VideoNoteSegmentComposer {
             generator.requestedTimeToleranceAfter = .zero
             let image = try await generator.image(
                 at: CMTime(seconds: time, preferredTimescale: 600),
-            ).image
+            )
+.image
             let ciImage = CIImage(cgImage: image)
             let context = CIContext(options: [.cacheIntermediates: false])
             var pixel = [UInt8](repeating: 0, count: 4)
@@ -432,17 +464,17 @@ enum VideoNoteSegmentComposer {
             }
             let reader = try AVAssetReader(asset: asset)
             reader.timeRange = CMTimeRange(
-                start: CMTime(seconds: range.lowerBound, preferredTimescale: 48_000),
+                start: CMTime(seconds: range.lowerBound, preferredTimescale: 48000),
                 duration: CMTime(
                     seconds: range.upperBound - range.lowerBound,
-                    preferredTimescale: 48_000,
+                    preferredTimescale: 48000,
                 ),
             )
             let output = AVAssetReaderTrackOutput(
                 track: track,
                 outputSettings: [
                     AVFormatIDKey: kAudioFormatLinearPCM,
-                    AVSampleRateKey: 48_000,
+                    AVSampleRateKey: 48000,
                     AVNumberOfChannelsKey: 1,
                     AVLinearPCMBitDepthKey: 16,
                     AVLinearPCMIsFloatKey: false,
@@ -479,28 +511,25 @@ enum VideoNoteSegmentComposer {
                     }
                 }
             }
-            guard reader.status == .completed, count > 1_000 else {
+            guard reader.status == .completed, count > 1000 else {
                 throw reader.error ?? VideoNoteSegmentComposerError.invalidSegment
             }
             return sqrt(squaredSum / Double(count))
         }
 
         private static func writeDebugProbeResult(_ result: String) {
-            guard let documentsURL = FileManager.default.urls(
-                for: .documentDirectory,
-                in: .userDomainMask,
-            ).first else { return }
+            guard let documentsURL = FileManager.default
+.urls(
+    for: .documentDirectory,
+    in: .userDomainMask,
+)
+.first else { return }
             try? Data(result.utf8).write(
                 to: documentsURL.appendingPathComponent("video-note-segment-probe.txt"),
                 options: .atomic,
             )
         }
     #endif
-
-    private struct SegmentSnapshot: Sendable {
-        let directory: URL
-        let segments: [VideoNoteAsset]
-    }
 
     private static func snapshotSegments(_ segments: [VideoNoteAsset]) async throws -> SegmentSnapshot {
         let task = Task.detached(priority: .userInitiated) {
@@ -553,7 +582,7 @@ enum VideoNoteSegmentComposer {
         guard upperBound - lowerBound >= minimumDuration - 0.000_001,
               upperBound - lowerBound <= 60
         else { throw VideoNoteSegmentComposerError.invalidDuration }
-        return lowerBound ..< upperBound
+        return lowerBound..<upperBound
     }
 
     private static func export(
@@ -573,16 +602,6 @@ enum VideoNoteSegmentComposer {
         } onCancel: {
             exporterBox.value.cancelExport()
         }
-    }
-
-    private final class ExportSessionBox: @unchecked Sendable {
-        init(_ value: AVAssetExportSession) { self.value = value }
-        let value: AVAssetExportSession
-    }
-
-    private struct SendableCGImage: @unchecked Sendable {
-        init(_ image: CGImage) { self.image = image }
-        let image: CGImage
     }
 
     private static func encodeJPEG(_ image: SendableCGImage, quality: Double) throws -> Data {

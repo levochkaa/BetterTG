@@ -29,41 +29,68 @@ enum TelegramAccountError: LocalizedError {
 final class TDLib: @unchecked Sendable {
     // MARK: Private
 
-    private init() {
-        let accountID = "primary"
-        let fileUpdates = PassthroughSubject<UpdateFile, Never>()
-        let deleteMessageUpdates = PassthroughSubject<UpdateDeleteMessages, Never>()
-        let client = manager.createClient { data, client in
-            do {
-                let decoded = try client.decoder.decode(Update.self, from: data)
-                if case .updateFile(let fileUpdate) = decoded {
-                    fileUpdates.send(fileUpdate)
-                }
-                if case .updateDeleteMessages(let deleteUpdate) = decoded {
-                    deleteMessageUpdates.send(deleteUpdate)
-                }
-                update(decoded)
-            } catch {
-                log("Error TdLibUpdateHandler: \(error)")
-            }
-        }
-        self.td = client
-        self.accountID = accountID
-        self.deleteMessageUpdates = deleteMessageUpdates.eraseToAnyPublisher()
-        self.vodRanges = TDLibVODRangeCoordinator(
-            accountID: accountID,
-            client: .live(client),
-            updates: fileUpdates.eraseToAnyPublisher(),
-        )
+    private struct ClientSnapshot {
+        let client: TDLibClient
+        let accountID: UUID
     }
 
     // MARK: Internal
 
     static let shared = TDLib()
 
-    let accountID: String
-    let deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never>
-    let vodRanges: TDLibVODRangeCoordinator
+    private(set) var accounts = [TelegramAccount]()
+    private(set) var activeAccountID: UUID?
+    private(set) var isActiveAccountReady = false
+
+    private let manager = TDLibClientManager()
+    private let registry = TelegramAccountRegistry()
+    private var processLock: TDLibProcessLock?
+    private var ownershipReleaseTask: Task<Void, Never>?
+    private var ownershipResumeTask: Task<Void, Never>?
+    private var ownershipBackgroundTaskIdentifier = UIBackgroundTaskIdentifier.invalid
+    private var ownershipBackgroundTaskEndTask: Task<Void, Never>?
+    private var lifecycleSuspended = false
+    private var wantsForegroundOwnership = true
+    private let clientLock = NSLock()
+    private var storedActiveClient: TDLibClient?
+    private var started = false
+    private var configuredClientIDs = Set<Int32>()
+    private var retiringClientIDs = Set<Int32>()
+    private var recoveringClientIDs = Set<Int32>()
+    private var cancellables = Set<AnyCancellable>()
+    private let fileUpdates = PassthroughSubject<UpdateFile, Never>()
+    private let deleteMessageUpdatesSubject = PassthroughSubject<UpdateDeleteMessages, Never>()
+    private var activeVODRanges: TDLibVODRangeCoordinator?
+
+    var activeAccount: TelegramAccount? {
+        accounts.first(where: { $0.id == activeAccountID })
+    }
+
+    var sortedAccounts: [TelegramAccount] {
+        accounts.sorted(by: { $0.lastActiveAt > $1.lastActiveAt })
+    }
+
+    var activeClient: TDLibClient {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+        guard let storedActiveClient else {
+            preconditionFailure("TDLib was accessed before account bootstrap completed")
+        }
+        return storedActiveClient
+    }
+
+    var deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never> {
+        deleteMessageUpdatesSubject.eraseToAnyPublisher()
+    }
+
+    var vodRanges: TDLibVODRangeCoordinator {
+        guard let activeVODRanges else {
+            preconditionFailure("TDLib VOD ranges were accessed before account bootstrap completed")
+        }
+        return activeVODRanges
+    }
+
+    private init() {}
 
     func startTdLibUpdateHandler() {
         guard !started else { return }
@@ -295,6 +322,11 @@ final class TDLib: @unchecked Sendable {
             }
         }
         setActiveClient(client)
+        activeVODRanges = TDLibVODRangeCoordinator(
+            accountID: accountID.uuidString,
+            client: .live(client),
+            updates: fileUpdates.eraseToAnyPublisher(),
+        )
         try? client.setLogStream(logStream: .logStreamEmpty) { _ in }
 
         if notify {
@@ -339,7 +371,19 @@ final class TDLib: @unchecked Sendable {
         }
 
         guard isActive(client: client, accountID: accountID) else { return }
+        publishMediaUpdate(incomingUpdate)
         update(incomingUpdate)
+    }
+
+    private func publishMediaUpdate(_ update: Update) {
+        switch update {
+        case .updateFile(let fileUpdate):
+            fileUpdates.send(fileUpdate)
+        case .updateDeleteMessages(let deleteUpdate):
+            deleteMessageUpdatesSubject.send(deleteUpdate)
+        default:
+            break
+        }
     }
 
     private func isActive(client: TDLibClient, accountID: UUID) -> Bool {

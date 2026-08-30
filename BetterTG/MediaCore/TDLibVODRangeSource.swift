@@ -41,7 +41,7 @@ struct TDLibVODRangeClient: @unchecked Sendable {
 
 // MARK: - TDLibVODRangeState
 
-enum TDLibVODRangeState: Equatable, Sendable {
+enum TDLibVODRangeState: Equatable {
     case idle
     case cachedReady(Range<Int64>)
     case buffering(requested: Range<Int64>, fetch: Range<Int64>)
@@ -66,7 +66,7 @@ enum TDLibVODRangeError: Swift.Error, Equatable {
 
 // MARK: - TDLibVODChunk
 
-struct TDLibVODChunk: Sendable {
+struct TDLibVODChunk {
     let confirmedRange: Range<Int64>
     let data: Data
     let fileURL: URL?
@@ -76,6 +76,11 @@ struct TDLibVODChunk: Sendable {
 // MARK: - TDLibVODDemandCancellationToken
 
 private final class TDLibVODDemandCancellationToken: @unchecked Sendable {
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var cancelled = false
+
     // MARK: Internal
 
     var isCancelled: Bool {
@@ -89,11 +94,6 @@ private final class TDLibVODDemandCancellationToken: @unchecked Sendable {
         cancelled = true
         lock.unlock()
     }
-
-    // MARK: Private
-
-    private let lock = NSLock()
-    private var cancelled = false
 }
 
 // MARK: - TDLibVODRangeSource
@@ -102,7 +102,47 @@ private final class TDLibVODDemandCancellationToken: @unchecked Sendable {
 /// TDLib permits only one user-requested range per file, so all mutating file commands pass
 /// through `commands` and disjoint demand explicitly supersedes the previous seek generation.
 actor TDLibVODRangeSource {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private struct PendingWaiter {
+        let continuation: CheckedContinuation<Void, Swift.Error>
+        let generation: UInt64
+        let timeoutTask: Task<Void, Never>
+    }
+
+    // MARK: Internal
+
+    static let maximumReadSize = Int64(256 * 1024)
+    static let cacheProbeSize = Int64(512 * 1024)
+    static let normalFetchSize = Int64(2 * 1024 * 1024)
+
+    let accountID: String
+    let fileID: Int
+
+    private(set) var state = TDLibVODRangeState.idle
+
+    private let client: TDLibVODRangeClient
+    private let commands: TDLibVODCommandQueue
+    private let requestTimeout: Duration
+    private let serializedReadGate = TDLibVODSerializedReadGate()
+    private var latestFile: File
+    private var exactSize: Int64?
+    private var requiresFullDownload: Bool
+    private var seekGeneration = UInt64(1)
+    private var lastUpdateSequence = UInt64.zero
+    private var activeFetchRange: Range<Int64>?
+    private var activeRequestToken: UInt64?
+    private var activeDemandIDs = Set<UUID>()
+    private var pendingDemandSuspend = false
+    private var demandEpoch = UInt64.zero
+    private var currentDemandRange: Range<Int64>?
+    private var nextRequestToken = UInt64.zero
+    private var ownsRangeRequest = false
+    private var waiters = [UUID: PendingWaiter]()
+
+    private var localFileURL: URL? {
+        latestFile.local.path.isEmpty ? nil : URL(fileURLWithPath: latestFile.local.path)
+    }
 
     init(
         accountID: String,
@@ -121,17 +161,6 @@ actor TDLibVODRangeSource {
         self.exactSize = file.size > 0 ? file.size : nil
     }
 
-    // MARK: Internal
-
-    static let maximumReadSize = Int64(256 * 1024)
-    static let cacheProbeSize = Int64(512 * 1024)
-    static let normalFetchSize = Int64(2 * 1024 * 1024)
-
-    let accountID: String
-    let fileID: Int
-
-    private(set) var state = TDLibVODRangeState.idle
-
     #if DEBUG
         nonisolated static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-vod-ranges") else { return }
@@ -139,6 +168,61 @@ actor TDLibVODRangeSource {
             Task { await runDebugProbe() }
         }
     #endif
+
+    // MARK: Fileprivate
+
+    fileprivate static func fetchPlan(
+        probeRange: Range<Int64>,
+        activeFetchRange: Range<Int64>?,
+        ownsRangeRequest: Bool,
+        size: Int64,
+    ) -> (range: Range<Int64>, startsNewRequest: Bool) {
+        let initialUpperBound = safeUpperBound(
+            from: probeRange.lowerBound,
+            adding: normalFetchSize,
+            limit: size,
+        )
+        guard ownsRangeRequest, let activeFetchRange else {
+            return (probeRange.lowerBound..<initialUpperBound, true)
+        }
+        if contains(activeFetchRange, probeRange) {
+            return (activeFetchRange, false)
+        }
+        guard activeFetchRange.overlaps(probeRange) else {
+            return (probeRange.lowerBound..<initialUpperBound, true)
+        }
+        let extendedUpperBound = max(
+            activeFetchRange.upperBound,
+            safeUpperBound(from: probeRange.upperBound, adding: normalFetchSize, limit: size),
+        )
+        return (
+            min(activeFetchRange.lowerBound, probeRange.lowerBound)..<extendedUpperBound,
+            true,
+        )
+    }
+
+    fileprivate static func safeUpperBound(
+        from lowerBound: Int64,
+        adding count: Int64,
+        limit: Int64,
+    ) -> Int64 {
+        guard lowerBound < limit, count > 0 else { return min(lowerBound, limit) }
+        return lowerBound + min(count, limit - lowerBound)
+    }
+
+    private static func contains(_ outer: Range<Int64>, _ inner: Range<Int64>) -> Bool {
+        inner.lowerBound >= outer.lowerBound && inner.upperBound <= outer.upperBound
+    }
+
+    private static func localPrefixRange(_ local: LocalFile) -> Range<Int64> {
+        let lowerBound = max(0, local.downloadOffset)
+        let upperBound = safeUpperBound(
+            from: lowerBound,
+            adding: max(0, local.downloadedPrefixSize),
+            limit: Int64.max,
+        )
+        return lowerBound..<upperBound
+    }
 
     func requireFullDownload() {
         requiresFullDownload = true
@@ -322,92 +406,6 @@ actor TDLibVODRangeSource {
         }
         guard generation == seekGeneration else { return }
         state = .cancelled
-    }
-
-    // MARK: Fileprivate
-
-    fileprivate static func fetchPlan(
-        probeRange: Range<Int64>,
-        activeFetchRange: Range<Int64>?,
-        ownsRangeRequest: Bool,
-        size: Int64,
-    ) -> (range: Range<Int64>, startsNewRequest: Bool) {
-        let initialUpperBound = safeUpperBound(
-            from: probeRange.lowerBound,
-            adding: normalFetchSize,
-            limit: size,
-        )
-        guard ownsRangeRequest, let activeFetchRange else {
-            return (probeRange.lowerBound..<initialUpperBound, true)
-        }
-        if contains(activeFetchRange, probeRange) {
-            return (activeFetchRange, false)
-        }
-        guard activeFetchRange.overlaps(probeRange) else {
-            return (probeRange.lowerBound..<initialUpperBound, true)
-        }
-        let extendedUpperBound = max(
-            activeFetchRange.upperBound,
-            safeUpperBound(from: probeRange.upperBound, adding: normalFetchSize, limit: size),
-        )
-        return (
-            min(activeFetchRange.lowerBound, probeRange.lowerBound)..<extendedUpperBound,
-            true,
-        )
-    }
-
-    fileprivate static func safeUpperBound(
-        from lowerBound: Int64,
-        adding count: Int64,
-        limit: Int64,
-    ) -> Int64 {
-        guard lowerBound < limit, count > 0 else { return min(lowerBound, limit) }
-        return lowerBound + min(count, limit - lowerBound)
-    }
-
-    // MARK: Private
-
-    private struct PendingWaiter {
-        let continuation: CheckedContinuation<Void, Swift.Error>
-        let generation: UInt64
-        let timeoutTask: Task<Void, Never>
-    }
-
-    private let client: TDLibVODRangeClient
-    private let commands: TDLibVODCommandQueue
-    private let requestTimeout: Duration
-    private let serializedReadGate = TDLibVODSerializedReadGate()
-    private var latestFile: File
-    private var exactSize: Int64?
-    private var requiresFullDownload: Bool
-    private var seekGeneration = UInt64(1)
-    private var lastUpdateSequence = UInt64.zero
-    private var activeFetchRange: Range<Int64>?
-    private var activeRequestToken: UInt64?
-    private var activeDemandIDs = Set<UUID>()
-    private var pendingDemandSuspend = false
-    private var demandEpoch = UInt64.zero
-    private var currentDemandRange: Range<Int64>?
-    private var nextRequestToken = UInt64.zero
-    private var ownsRangeRequest = false
-    private var waiters = [UUID: PendingWaiter]()
-
-    private var localFileURL: URL? {
-        latestFile.local.path.isEmpty ? nil : URL(fileURLWithPath: latestFile.local.path)
-    }
-
-    private static func contains(_ outer: Range<Int64>, _ inner: Range<Int64>) -> Bool {
-        inner.lowerBound >= outer.lowerBound && inner.upperBound <= outer.upperBound
-    }
-
-    private static func localPrefixRange(_ local: LocalFile) -> Range<Int64> {
-        let lowerBound = max(0, local.downloadOffset)
-        let upperBound = safeUpperBound(
-            from: lowerBound,
-            adding: max(0, local.downloadedPrefixSize),
-            limit: Int64.max,
-        )
-        return lowerBound..<upperBound
     }
 
     private func resolveSizeIfNeeded(waiterID: UUID) async throws -> Int64 {
@@ -814,9 +812,19 @@ actor TDLibVODRangeSource {
 private actor TDLibVODSerializedReadGate {
     // MARK: Internal
 
-    struct Permit: Sendable {
+    struct Permit {
         fileprivate let id: UUID
     }
+
+    // MARK: Private
+
+    private struct Waiter {
+        let continuation: CheckedContinuation<Permit?, Never>
+        let permit: Permit
+    }
+
+    private var holder: Permit?
+    private var waiters = [Waiter]()
 
     func acquire() async -> Permit? {
         guard !Task.isCancelled else { return nil }
@@ -845,16 +853,6 @@ private actor TDLibVODSerializedReadGate {
         }
     }
 
-    // MARK: Private
-
-    private struct Waiter {
-        let continuation: CheckedContinuation<Permit?, Never>
-        let permit: Permit
-    }
-
-    private var holder: Permit?
-    private var waiters = [Waiter]()
-
     private func cancel(id: UUID) {
         guard let index = waiters.firstIndex(where: { $0.permit.id == id }) else { return }
         waiters.remove(at: index).continuation.resume(returning: nil)
@@ -867,7 +865,11 @@ private actor TDLibVODSerializedReadGate {
 /// doesn't cancel generated TDLib async queries. Full fallback also uses asynchronous mode,
 /// so an ordered cancel can always run and a newer download always follows that cancel.
 private actor TDLibVODCommandQueue {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let client: TDLibVODRangeClient
+    private let fileID: Int
+    private var tail: Task<Void, Never>?
 
     init(client: TDLibVODRangeClient, fileID: Int) {
         self.client = client
@@ -904,18 +906,24 @@ private actor TDLibVODCommandQueue {
         tail = Task { _ = try? await operation.value }
         try await operation.value
     }
-
-    // MARK: Private
-
-    private let client: TDLibVODRangeClient
-    private let fileID: Int
-    private var tail: Task<Void, Never>?
 }
 
 // MARK: - TDLibVODRangeLease
 
 final class TDLibVODRangeLease: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    let source: TDLibVODRangeSource
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var releaseOperation: (@Sendable () async -> Void)?
+
+    deinit {
+        guard let release = takeReleaseOperation() else { return }
+        Task { await release() }
+    }
 
     fileprivate init(
         source: TDLibVODRangeSource,
@@ -925,15 +933,6 @@ final class TDLibVODRangeLease: @unchecked Sendable {
         self.releaseOperation = release
     }
 
-    deinit {
-        guard let release = takeReleaseOperation() else { return }
-        Task { await release() }
-    }
-
-    // MARK: Internal
-
-    let source: TDLibVODRangeSource
-
     func invalidate() async {
         guard let release = takeReleaseOperation() else { return }
         await release()
@@ -942,11 +941,6 @@ final class TDLibVODRangeLease: @unchecked Sendable {
     func suspendDemand() async {
         await source.suspendDemand()
     }
-
-    // MARK: Private
-
-    private let lock = NSLock()
-    private var releaseOperation: (@Sendable () async -> Void)?
 
     private func takeReleaseOperation() -> (@Sendable () async -> Void)? {
         lock.lock()
@@ -962,42 +956,27 @@ final class TDLibVODRangeLease: @unchecked Sendable {
 /// One instance belongs to one TDLib client/account. File IDs are deliberately keyed only
 /// inside that account-scoped instance so future accounts cannot cross-satisfy updates.
 final class TDLibVODRangeCoordinator: @unchecked Sendable {
-    // MARK: Lifecycle
-
-    init(
-        accountID: String,
-        client: TDLibVODRangeClient,
-        updates: AnyPublisher<UpdateFile, Never>? = nil,
-        requestTimeout: Duration = .seconds(8),
-    ) {
-        self.storage = Storage(accountID: accountID, client: client, requestTimeout: requestTimeout)
-        self.updateCancellable = updates?.sink { [weak self] update in
-            self?.route(file: update.file)
-        }
-    }
-
-    // MARK: Internal
-
-    func acquire(file: File, requiresFullDownload: Bool = false) async -> TDLibVODRangeLease {
-        await storage.acquire(file: file, requiresFullDownload: requiresFullDownload)
-    }
-
     // MARK: Private
 
     private actor Storage {
-        // MARK: Lifecycle
-
-        init(accountID: String, client: TDLibVODRangeClient, requestTimeout: Duration) {
-            self.accountID = accountID
-            self.client = client
-            self.requestTimeout = requestTimeout
-        }
-
         // MARK: Internal
 
         struct Entry {
             let source: TDLibVODRangeSource
             var leases: Set<UUID>
+        }
+
+        // MARK: Private
+
+        private let accountID: String
+        private let client: TDLibVODRangeClient
+        private let requestTimeout: Duration
+        private var entries = [Int: Entry]()
+
+        init(accountID: String, client: TDLibVODRangeClient, requestTimeout: Duration) {
+            self.accountID = accountID
+            self.client = client
+            self.requestTimeout = requestTimeout
         }
 
         func acquire(file: File, requiresFullDownload: Bool) async -> TDLibVODRangeLease {
@@ -1034,13 +1013,6 @@ final class TDLibVODRangeCoordinator: @unchecked Sendable {
             await source.update(file: file, sequence: sequence)
         }
 
-        // MARK: Private
-
-        private let accountID: String
-        private let client: TDLibVODRangeClient
-        private let requestTimeout: Duration
-        private var entries = [Int: Entry]()
-
         private func release(fileID: Int, leaseID: UUID, source: TDLibVODRangeSource) async {
             guard var entry = entries[fileID], entry.source === source,
                   entry.leases.remove(leaseID) != nil
@@ -1063,6 +1035,24 @@ final class TDLibVODRangeCoordinator: @unchecked Sendable {
     private let sequenceLock = NSLock()
     private var updateSequence = UInt64.zero
 
+    init(
+        accountID: String,
+        client: TDLibVODRangeClient,
+        updates: AnyPublisher<UpdateFile, Never>? = nil,
+        requestTimeout: Duration = .seconds(8),
+    ) {
+        self.storage = Storage(accountID: accountID, client: client, requestTimeout: requestTimeout)
+        self.updateCancellable = updates?.sink { [weak self] update in
+            self?.route(file: update.file)
+        }
+    }
+
+    // MARK: Internal
+
+    func acquire(file: File, requiresFullDownload: Bool = false) async -> TDLibVODRangeLease {
+        await storage.acquire(file: file, requiresFullDownload: requiresFullDownload)
+    }
+
     private func route(file: File) {
         sequenceLock.lock()
         updateSequence &+= 1
@@ -1077,7 +1067,22 @@ final class TDLibVODRangeCoordinator: @unchecked Sendable {
 // MARK: - TDLibVODNetworkMonitor
 
 private final class TDLibVODNetworkMonitor: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    static let shared = TDLibVODNetworkMonitor()
+
+    // MARK: Private
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "bettertg.vod.network")
+    private let lock = NSLock()
+    private var available = true
+
+    var isAvailable: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return available
+    }
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -1088,23 +1093,6 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         }
         monitor.start(queue: queue)
     }
-
-    // MARK: Internal
-
-    static let shared = TDLibVODNetworkMonitor()
-
-    var isAvailable: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return available
-    }
-
-    // MARK: Private
-
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "bettertg.vod.network")
-    private let lock = NSLock()
-    private var available = true
 }
 
 #if DEBUG
@@ -1411,17 +1399,16 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         case invariant(String)
     }
 
-    struct TDLibVODProbeDownload: Sendable {
+    struct TDLibVODProbeDownload {
         let isFullDownload: Bool
         let range: Range<Int64>
     }
 
     final class TDLibVODProbeNetwork: @unchecked Sendable {
-        // MARK: Lifecycle
+        // MARK: Private
 
-        init(available: Bool) {
-            self.storedAvailable = available
-        }
+        private let lock = NSLock()
+        private var storedAvailable: Bool
 
         // MARK: Internal
 
@@ -1438,21 +1425,12 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
             }
         }
 
-        // MARK: Private
-
-        private let lock = NSLock()
-        private var storedAvailable: Bool
+        init(available: Bool) {
+            self.storedAvailable = available
+        }
     }
 
     actor TDLibVODProbeBackend {
-        // MARK: Lifecycle
-
-        init(fileURL: URL, fileSize: Int64, network: TDLibVODProbeNetwork) {
-            self.fileURL = fileURL
-            self.fileSize = fileSize
-            self.network = network
-        }
-
         // MARK: Internal
 
         private(set) var downloadCalls = [TDLibVODProbeDownload]()
@@ -1463,6 +1441,17 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         nonisolated let fileSize: Int64
         nonisolated let network: TDLibVODProbeNetwork
+
+        // MARK: Private
+
+        private let fileURL: URL
+        private var autoFulfill = false
+        private var downloadDelay: Duration?
+        private var reportsExactSize = true
+        private var suspendCancel = false
+        private var cachedRanges = [Range<Int64>]()
+        private var lastDownloadRange: Range<Int64>?
+        private var cancelContinuation: CheckedContinuation<Void, Never>?
 
         nonisolated var client: TDLibVODRangeClient {
             TDLibVODRangeClient(
@@ -1484,6 +1473,12 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 },
                 isNetworkAvailable: { [network] in network.available },
             )
+        }
+
+        init(fileURL: URL, fileSize: Int64, network: TDLibVODProbeNetwork) {
+            self.fileURL = fileURL
+            self.fileSize = fileSize
+            self.network = network
         }
 
         func setAutoFulfill(_ value: Bool) {
@@ -1523,17 +1518,6 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 isCompleted: covers(0..<fileSize),
             )
         }
-
-        // MARK: Private
-
-        private let fileURL: URL
-        private var autoFulfill = false
-        private var downloadDelay: Duration?
-        private var reportsExactSize = true
-        private var suspendCancel = false
-        private var cachedRanges = [Range<Int64>]()
-        private var lastDownloadRange: Range<Int64>?
-        private var cancelContinuation: CheckedContinuation<Void, Never>?
 
         private func cancel() async {
             cancelStarted = true

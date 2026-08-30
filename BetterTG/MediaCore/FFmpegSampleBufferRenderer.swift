@@ -27,7 +27,115 @@ import UIKit
 // MARK: - FFmpegSampleBufferRenderer
 
 final class FFmpegSampleBufferRenderer: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    enum RenderError: Swift.Error, Equatable {
+        case audioBufferCreationFailed(OSStatus)
+        case invalidAudioFrame
+        case invalidTime
+        case invalidVideoFrame
+        case pixelBufferCreationFailed(CVReturn)
+        case videoBufferCreationFailed(OSStatus)
+    }
+
+    struct Snapshot: Equatable {
+        let audioAcceptedUntil: TimeInterval
+        let audioEnqueuedCount: Int
+        let audioEnqueuedUntil: TimeInterval
+        let audioError: String?
+        let audioFirstPresentationTime: TimeInterval?
+        let audioInputIsFinished: Bool
+        let audioRendererIsAttached: Bool
+        let audioQueuedBytes: Int
+        let audioQueuedCount: Int
+        let currentTime: TimeInterval
+        let generation: UInt64
+        let hasAudioInput: Bool
+        let hasVideoInput: Bool
+        let isDisplayReady: Bool
+        let isFeedingEnabled: Bool
+        let isInvalidated: Bool
+        let rate: Float
+        let streamHasAudio: Bool
+        let streamHasVideo: Bool
+        let streamTopologyIsKnown: Bool
+        let videoAcceptedUntil: TimeInterval
+        let videoEnqueuedCount: Int
+        let videoEnqueuedUntil: TimeInterval
+        let videoError: String?
+        let videoFirstPresentationTime: TimeInterval?
+        let videoInputIsFinished: Bool
+        let videoQueuedBytes: Int
+        let videoQueuedCount: Int
+    }
+
+    // MARK: Private
+
+    private enum EnqueueDisposition: Equatable {
+        case current
+        case discard
+        case failed
+    }
+
+    private enum Stream {
+        case audio
+        case video
+    }
+
+    private static let mediaTimescale = CMTimeScale(60000)
+
+    private weak var displayLayer: AVSampleBufferDisplayLayer?
+    private let videoRenderer: AVSampleBufferVideoRenderer
+    private let audioRenderer: AVSampleBufferAudioRenderer
+    private let synchronizer: AVSampleBufferRenderSynchronizer
+    private let sampleFactory = FFmpegSampleBufferFactory()
+    private let videoQueue = FFmpegBoundedSampleBufferQueue(
+        maximumByteCount: 64 * 1024 * 1024,
+        maximumItemCount: 90,
+    )
+    private let audioQueue = FFmpegBoundedSampleBufferQueue(
+        maximumByteCount: 8 * 1024 * 1024,
+        maximumItemCount: 256,
+    )
+    private let feedQueue = DispatchQueue(label: "BetterTG VOD Sample Buffer Feed", qos: .userInitiated)
+    private let stateLock = NSLock()
+    private let snapshotSubject = PassthroughSubject<Snapshot, Never>()
+    private var currentGeneration = UInt64.zero
+    private var failedGeneration: UInt64?
+    private var monitoredGeneration: UInt64?
+    private var isInvalidated = false
+    private var audioError: Swift.Error?
+    private var videoError: Swift.Error?
+    private var hasAudioInput = false
+    private var hasVideoInput = false
+    private var streamHasAudio = false
+    private var streamHasVideo = false
+    private var streamTopologyIsKnown = false
+    private var audioRendererIsAttached = false
+    private var isFeedingEnabled = true
+    private var videoRequestGeneration: UInt64?
+    private var audioRequestGeneration: UInt64?
+    private var videoEnqueuedCount = 0
+    private var audioEnqueuedCount = 0
+    private var videoFirstPresentationTime: TimeInterval?
+    private var audioFirstPresentationTime: TimeInterval?
+    private var videoEnqueuedUntil = TimeInterval.zero
+    private var audioEnqueuedUntil = TimeInterval.zero
+    private var failureMonitor: DispatchSourceTimer?
+
+    var snapshotPublisher: AnyPublisher<Snapshot, Never> {
+        snapshotSubject.eraseToAnyPublisher()
+    }
+
+    @MainActor var currentTime: TimeInterval {
+        Self.finiteNonnegative(synchronizer.currentTime().seconds)
+    }
+
+    @MainActor var rate: Float { synchronizer.rate }
+
+    @MainActor var isReadyForDisplay: Bool { displayLayer?.isReadyForDisplay == true }
+
+    @MainActor var pictureInPictureDisplayLayer: AVSampleBufferDisplayLayer? { displayLayer }
 
     @MainActor init(displayLayer: AVSampleBufferDisplayLayer) {
         self.displayLayer = displayLayer
@@ -75,68 +183,34 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
         }
     }
 
-    // MARK: Internal
-
-    enum RenderError: Swift.Error, Equatable {
-        case audioBufferCreationFailed(OSStatus)
-        case invalidAudioFrame
-        case invalidTime
-        case invalidVideoFrame
-        case pixelBufferCreationFailed(CVReturn)
-        case videoBufferCreationFailed(OSStatus)
-    }
-
-    struct Snapshot: Equatable {
-        let audioAcceptedUntil: TimeInterval
-        let audioEnqueuedCount: Int
-        let audioEnqueuedUntil: TimeInterval
-        let audioError: String?
-        let audioFirstPresentationTime: TimeInterval?
-        let audioInputIsFinished: Bool
-        let audioRendererIsAttached: Bool
-        let audioQueuedBytes: Int
-        let audioQueuedCount: Int
-        let currentTime: TimeInterval
-        let generation: UInt64
-        let hasAudioInput: Bool
-        let hasVideoInput: Bool
-        let isDisplayReady: Bool
-        let isFeedingEnabled: Bool
-        let isInvalidated: Bool
-        let rate: Float
-        let streamHasAudio: Bool
-        let streamHasVideo: Bool
-        let streamTopologyIsKnown: Bool
-        let videoAcceptedUntil: TimeInterval
-        let videoEnqueuedCount: Int
-        let videoEnqueuedUntil: TimeInterval
-        let videoError: String?
-        let videoFirstPresentationTime: TimeInterval?
-        let videoInputIsFinished: Bool
-        let videoQueuedBytes: Int
-        let videoQueuedCount: Int
-    }
-
-    var snapshotPublisher: AnyPublisher<Snapshot, Never> {
-        snapshotSubject.eraseToAnyPublisher()
-    }
-
-    @MainActor var currentTime: TimeInterval {
-        Self.finiteNonnegative(synchronizer.currentTime().seconds)
-    }
-
-    @MainActor var rate: Float { synchronizer.rate }
-
-    @MainActor var isReadyForDisplay: Bool { displayLayer?.isReadyForDisplay == true }
-
-    @MainActor var pictureInPictureDisplayLayer: AVSampleBufferDisplayLayer? { displayLayer }
-
     #if DEBUG
         @MainActor static func runDebugProbeIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-vod-sample-buffer") else { return }
             Task { @MainActor in await runDebugProbe(in: window) }
         }
     #endif
+
+    private static func mediaTime(_ seconds: TimeInterval) -> CMTime {
+        CMTime(seconds: finiteNonnegative(seconds), preferredTimescale: mediaTimescale)
+    }
+
+    private static func finiteNonnegative(_ value: TimeInterval) -> TimeInterval {
+        value.isFinite ? max(0, value) : 0
+    }
+
+    private static func retainRenderersDuringAsynchronousRemoval(
+        videoRenderer: AVSampleBufferVideoRenderer,
+        audioRenderer: AVSampleBufferAudioRenderer,
+        synchronizer: AVSampleBufferRenderSynchronizer,
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            withExtendedLifetime((videoRenderer, audioRenderer, synchronizer)) {}
+        }
+    }
+
+    private static func errorDescription(_ error: Swift.Error?) -> String? {
+        error.map(String.init(describing:))
+    }
 
     @discardableResult @MainActor func reset(at time: TimeInterval) -> UInt64 {
         let target = Self.finiteNonnegative(time)
@@ -398,82 +472,6 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
             synchronizer: synchronizer,
         )
         publishSnapshot()
-    }
-
-    // MARK: Private
-
-    private enum EnqueueDisposition: Equatable {
-        case current
-        case discard
-        case failed
-    }
-
-    private enum Stream {
-        case audio
-        case video
-    }
-
-    private static let mediaTimescale = CMTimeScale(60000)
-
-    private weak var displayLayer: AVSampleBufferDisplayLayer?
-    private let videoRenderer: AVSampleBufferVideoRenderer
-    private let audioRenderer: AVSampleBufferAudioRenderer
-    private let synchronizer: AVSampleBufferRenderSynchronizer
-    private let sampleFactory = FFmpegSampleBufferFactory()
-    private let videoQueue = FFmpegBoundedSampleBufferQueue(
-        maximumByteCount: 64 * 1024 * 1024,
-        maximumItemCount: 90,
-    )
-    private let audioQueue = FFmpegBoundedSampleBufferQueue(
-        maximumByteCount: 8 * 1024 * 1024,
-        maximumItemCount: 256,
-    )
-    private let feedQueue = DispatchQueue(label: "BetterTG VOD Sample Buffer Feed", qos: .userInitiated)
-    private let stateLock = NSLock()
-    private let snapshotSubject = PassthroughSubject<Snapshot, Never>()
-    private var currentGeneration = UInt64.zero
-    private var failedGeneration: UInt64?
-    private var monitoredGeneration: UInt64?
-    private var isInvalidated = false
-    private var audioError: Swift.Error?
-    private var videoError: Swift.Error?
-    private var hasAudioInput = false
-    private var hasVideoInput = false
-    private var streamHasAudio = false
-    private var streamHasVideo = false
-    private var streamTopologyIsKnown = false
-    private var audioRendererIsAttached = false
-    private var isFeedingEnabled = true
-    private var videoRequestGeneration: UInt64?
-    private var audioRequestGeneration: UInt64?
-    private var videoEnqueuedCount = 0
-    private var audioEnqueuedCount = 0
-    private var videoFirstPresentationTime: TimeInterval?
-    private var audioFirstPresentationTime: TimeInterval?
-    private var videoEnqueuedUntil = TimeInterval.zero
-    private var audioEnqueuedUntil = TimeInterval.zero
-    private var failureMonitor: DispatchSourceTimer?
-
-    private static func mediaTime(_ seconds: TimeInterval) -> CMTime {
-        CMTime(seconds: finiteNonnegative(seconds), preferredTimescale: mediaTimescale)
-    }
-
-    private static func finiteNonnegative(_ value: TimeInterval) -> TimeInterval {
-        value.isFinite ? max(0, value) : 0
-    }
-
-    private static func retainRenderersDuringAsynchronousRemoval(
-        videoRenderer: AVSampleBufferVideoRenderer,
-        audioRenderer: AVSampleBufferAudioRenderer,
-        synchronizer: AVSampleBufferRenderSynchronizer,
-    ) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            withExtendedLifetime((videoRenderer, audioRenderer, synchronizer)) {}
-        }
-    }
-
-    private static func errorDescription(_ error: Swift.Error?) -> String? {
-        error.map(String.init(describing:))
     }
 
     private func enqueueDisposition(generation: UInt64) -> EnqueueDisposition {
@@ -794,6 +792,22 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
 // MARK: - FFmpegSampleBufferFactory
 
 private final class FFmpegSampleBufferFactory: @unchecked Sendable {
+    // MARK: Private
+
+    private struct VideoKey: Hashable {
+        let height: Int
+        let width: Int
+    }
+
+    private struct AudioKey: Hashable {
+        let channelCount: Int
+        let sampleRate: Int
+    }
+
+    private let lock = NSLock()
+    private var pixelBufferPools = [VideoKey: CVPixelBufferPool]()
+    private var audioFormatDescriptions = [AudioKey: CMAudioFormatDescription]()
+
     // MARK: Internal
 
     func makeVideoSampleBuffer(
@@ -954,22 +968,6 @@ private final class FFmpegSampleBufferFactory: @unchecked Sendable {
         return sampleBuffer
     }
 
-    // MARK: Private
-
-    private struct VideoKey: Hashable {
-        let height: Int
-        let width: Int
-    }
-
-    private struct AudioKey: Hashable {
-        let channelCount: Int
-        let sampleRate: Int
-    }
-
-    private let lock = NSLock()
-    private var pixelBufferPools = [VideoKey: CVPixelBufferPool]()
-    private var audioFormatDescriptions = [AudioKey: CMAudioFormatDescription]()
-
     private func pixelBufferPool(width: Int, height: Int) throws -> CVPixelBufferPool {
         let key = VideoKey(height: height, width: width)
         return try lock.withLock {
@@ -1060,13 +1058,6 @@ private final class FFmpegSampleBufferFactory: @unchecked Sendable {
 // MARK: - FFmpegBoundedSampleBufferQueue
 
 private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
-    // MARK: Lifecycle
-
-    init(maximumByteCount: Int, maximumItemCount: Int) {
-        self.maximumByteCount = maximumByteCount
-        self.maximumItemCount = maximumItemCount
-    }
-
     // MARK: Internal
 
     enum AppendResult {
@@ -1080,6 +1071,24 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
         let endTime: TimeInterval
         let presentationTime: TimeInterval
         let sampleBuffer: CMSampleBuffer
+    }
+
+    // MARK: Private
+
+    private let condition = NSCondition()
+    private let maximumByteCount: Int
+    private let maximumItemCount: Int
+    private var currentGeneration = UInt64.zero
+    private var failedGeneration: UInt64?
+    private var finishedGeneration: UInt64?
+    private var items = [Item]()
+    private var byteCount = 0
+    private var acceptedUntil = TimeInterval.zero
+    private var isClosed = false
+
+    init(maximumByteCount: Int, maximumItemCount: Int) {
+        self.maximumByteCount = maximumByteCount
+        self.maximumItemCount = maximumItemCount
     }
 
     func append(_ item: Item, generation: UInt64) -> AppendResult {
@@ -1165,19 +1174,6 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
         defer { condition.unlock() }
         return (acceptedUntil, byteCount, finishedGeneration == currentGeneration, items.count)
     }
-
-    // MARK: Private
-
-    private let condition = NSCondition()
-    private let maximumByteCount: Int
-    private let maximumItemCount: Int
-    private var currentGeneration = UInt64.zero
-    private var failedGeneration: UInt64?
-    private var finishedGeneration: UInt64?
-    private var items = [Item]()
-    private var byteCount = 0
-    private var acceptedUntil = TimeInterval.zero
-    private var isClosed = false
 }
 
 #if DEBUG
@@ -1355,7 +1351,10 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
         }
 
         final class ProbeSnapshotRecorder {
-            // MARK: Lifecycle
+            // MARK: Private
+
+            private var cancellable: AnyCancellable?
+            private var snapshots = [Snapshot]()
 
             init(publisher: AnyPublisher<Snapshot, Never>) {
                 self.cancellable = publisher.sink { [weak self] snapshot in
@@ -1372,11 +1371,6 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
                         && $0.audioInputIsFinished
                 }
             }
-
-            // MARK: Private
-
-            private var cancellable: AnyCancellable?
-            private var snapshots = [Snapshot]()
         }
     }
 #endif

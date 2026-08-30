@@ -9,7 +9,98 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
     UIGestureRecognizerDelegate
 {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    enum PresentationMode {
+        case full
+        case contextPreview
+    }
+
+    // MARK: Private
+
+    private enum Section {
+        case messages
+    }
+
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+        presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
+    }
+
+    private let presentationMode: PresentationMode
+    private let targetMessageID: Int64?
+    private let chatVM: ChatVM
+    private let tdlib: TDLib
+    private let historyContainerView = UIView()
+    private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
+    private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
+    private var cancellables = Set<AnyCancellable>()
+    private var messageCancellables = Set<AnyCancellable>()
+    private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    private var pendingInlineVideoOwnerReturns = Set<Int64>()
+    private let customNavigationBar = TelegramChatNavigationBar()
+    private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private lazy var composerView = ChatComposerView(chatVM: chatVM)
+    private let scrollToLatestButton = UIButton(type: .system)
+    private let unreadBadgeLabel = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 11)
+    private var scrollToLatestButtonVisible = false
+    private var didPresentMicrophoneError = false
+    private var didPresentVoiceNoteError = false
+    private var didPresentVideoNoteError = false
+    private var lastHighlightedMessageID: Int64?
+    private var didPerformInitialScroll = false
+    private var pendingScrollMessageID: Int64?
+    private var messageNavigationTask: Task<Void, Never>?
+    private var messageHighlightTask: Task<Void, Never>?
+    private var searchTask: Task<Void, Never>?
+    private var messageSearchActive = false
+    private var isTerminatingNavigation = false
+    private var composerLeadingConstraint: NSLayoutConstraint?
+    private var composerTrailingConstraint: NSLayoutConstraint?
+    private var composerBottomConstraint: NSLayoutConstraint?
+    private var composerKeyboardAttached = false
+    private var voiceGestureDefersSystemGestures = false
+    private var videoNoteRecorder: VideoNoteRecorderViewController?
+    private var videoNoteReplyMessage: CustomMessage?
+    private var videoNoteChatActionActive = false
+    private var restoredVideoRecordingDraftIDHandled: UUID?
+
+    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
+        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
+            guard let self, let gesture else { return }
+            if pressing {
+                let point = gesture.location(in: collectionView)
+                guard let indexPath = collectionView.indexPathForItem(at: point),
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+                else { return }
+                pressedMessageSourceView = cell.contextPreviewView
+                pressedMessageSourceTransform = cell.contextPreviewView.transform
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
+                UIView.animate(
+                    withDuration: 0.16,
+                    delay: 0,
+                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                ) {
+                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
+                }
+            } else {
+                restorePressedMessageSource()
+            }
+        }
+        return gesture
+    }()
+
+    private weak var pressedMessageSourceView: UIView?
+    private var pressedMessageSourceTransform = CGAffineTransform.identity
+
+    private var showsComposer: Bool {
+        presentationMode == .full && chatVM.customChat.canPostMessages
+    }
+
+    private var isNearLatest: Bool {
+        collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
+    }
 
     init(
         customChat: CustomChat,
@@ -33,17 +124,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         MainActor.assumeIsolated {
             inlineVideoPlaybackOwners.values.forEach { $0.invalidate() }
         }
-    }
-
-    // MARK: Internal
-
-    enum PresentationMode {
-        case full
-        case contextPreview
-    }
-
-    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
-        presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
+        messageNavigationTask?.cancel()
+        messageHighlightTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -213,86 +295,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         return true
-    }
-
-    // MARK: Private
-
-    private enum Section {
-        case messages
-    }
-
-    private let presentationMode: PresentationMode
-    private let targetMessageID: Int64?
-    private let chatVM: ChatVM
-    private let tdlib: TDLib
-    private let historyContainerView = UIView()
-    private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
-    private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
-    private var cancellables = Set<AnyCancellable>()
-    private var messageCancellables = Set<AnyCancellable>()
-    private var prefetchTasks = [Int64: Task<Void, Never>]()
-    private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
-    private var pendingInlineVideoOwnerReturns = Set<Int64>()
-    private let customNavigationBar = TelegramChatNavigationBar()
-    private var navigationBarHeightConstraint: NSLayoutConstraint!
-    private lazy var composerView = ChatComposerView(chatVM: chatVM)
-    private let scrollToLatestButton = UIButton(type: .system)
-    private let unreadBadgeLabel = UILabel()
-    private var scrollToLatestButtonVisible = false
-    private var didPresentMicrophoneError = false
-    private var didPresentVoiceNoteError = false
-    private var didPresentVideoNoteError = false
-    private var lastHighlightedMessageID: Int64?
-    private var didPerformInitialScroll = false
-    private var pendingScrollMessageID: Int64?
-    private var searchTask: Task<Void, Never>?
-    private var messageSearchActive = false
-    private var isTerminatingNavigation = false
-    private var composerLeadingConstraint: NSLayoutConstraint?
-    private var composerTrailingConstraint: NSLayoutConstraint?
-    private var composerBottomConstraint: NSLayoutConstraint?
-    private var composerKeyboardAttached = false
-    private var voiceGestureDefersSystemGestures = false
-    private var videoNoteRecorder: VideoNoteRecorderViewController?
-    private var videoNoteReplyMessage: CustomMessage?
-    private var videoNoteChatActionActive = false
-    private var restoredVideoRecordingDraftIDHandled: UUID?
-
-    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
-        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
-        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
-            guard let self, let gesture else { return }
-            if pressing {
-                let point = gesture.location(in: collectionView)
-                guard let indexPath = collectionView.indexPathForItem(at: point),
-                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
-                else { return }
-                pressedMessageSourceView = cell.contextPreviewView
-                pressedMessageSourceTransform = cell.contextPreviewView.transform
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
-                UIView.animate(
-                    withDuration: 0.16,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
-                }
-            } else {
-                restorePressedMessageSource()
-            }
-        }
-        return gesture
-    }()
-
-    private weak var pressedMessageSourceView: UIView?
-    private var pressedMessageSourceTransform = CGAffineTransform.identity
-
-    private var showsComposer: Bool {
-        presentationMode == .full && chatVM.customChat.canPostMessages
-    }
-
-    private var isNearLatest: Bool {
-        collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -712,10 +714,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 chat: chatVM.customChat,
                 highlighted: chatVM.highlightedMessageId == messageID,
                 videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
-                onReplyTap: { [weak self] id in
-                    guard self?.presentationMode == .full else { return }
-                    self?.scrollToMessage(id: id)
-                },
+                onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
+                    ? { [weak self] in self?.chatVM.replyMessage = message }
+                    : nil,
                 onMediaTap: { [weak self] messages, selection in
                     guard self?.presentationMode == .full else { return }
                     self?.showMedia(messages, selection: selection)
@@ -1103,18 +1104,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateInlineVideoPlaybackVisibility() {
         guard presentedViewController == nil, dataSource != nil else { return }
         let visibleRect = CGRect(origin: collectionView.contentOffset, size: collectionView.bounds.size)
-        let activeMessageID = collectionView.indexPathsForVisibleItems.flatMap { indexPath in
-            (collectionView.cellForItem(at: indexPath) as? MessageCell)?
-                .inlineVideoPlaybackCandidates(in: collectionView) ?? []
-        }
-        .compactMap { messageID, frame -> (Int64, CGFloat)? in
-            guard inlineVideoPlaybackOwners[messageID] != nil else { return nil }
-            let intersection = visibleRect.intersection(frame)
-            guard !intersection.isNull, !intersection.isEmpty else { return nil }
-            return (messageID, intersection.width * intersection.height)
-        }
-        .max { lhs, rhs in lhs.1 < rhs.1 }?
-        .0
+        let activeMessageID = collectionView.indexPathsForVisibleItems
+            .flatMap { indexPath in
+                (collectionView.cellForItem(at: indexPath) as? MessageCell)?
+                    .inlineVideoPlaybackCandidates(in: collectionView) ?? []
+            }
+            .compactMap { messageID, frame -> (Int64, CGFloat)? in
+                guard inlineVideoPlaybackOwners[messageID] != nil else { return nil }
+                let intersection = visibleRect.intersection(frame)
+                guard !intersection.isNull, !intersection.isEmpty else { return nil }
+                return (messageID, intersection.width * intersection.height)
+            }
+            .max { lhs, rhs in lhs.1 < rhs.1 }?
+            .0
         for (messageID, owner) in inlineVideoPlaybackOwners where !owner.isAttachedToGallery {
             owner.setPlaybackVisible(messageID == activeMessageID)
         }

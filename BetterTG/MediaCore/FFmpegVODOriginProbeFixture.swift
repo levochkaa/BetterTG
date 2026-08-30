@@ -10,13 +10,6 @@
 
         static let sha256 = "685af512ee52d20c4aa20ef182d7d208df242d45b674f8e6fc2bbef91bfeb810"
 
-        static func write(to url: URL) throws {
-            guard let data = Data(base64Encoded: encoded) else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
-            try data.write(to: url, options: .atomic)
-        }
-
         // MARK: Private
 
         private static let encoded = [
@@ -324,5 +317,12 @@
             "BJyASDm8QyfRikhuEUTD62Ov5X0PGoCgqKGcggSwAEgGOdiF3w8qFC4L4lnboTeHQypFjP/r1JuBB3WihADN/mAcU7tr7LuQs4ITiLeK94EB8YICa/CBN7uQ",
             "s4IbWLeK94EB8YIVB/CBLbuQs4IjKLeK94EB8YImovCBMbuQs4Iq+LeK94EB8YI4ffCBLLuQs4IyyLeK94EB8YJK3vCBL7uQs4I6mLeK94EB8YJdc/CBLQ==",
         ].joined()
+
+        static func write(to url: URL) throws {
+            guard let data = Data(base64Encoded: encoded) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            try data.write(to: url, options: .atomic)
+        }
     }
 #endif

@@ -3,8 +3,12 @@
 import Combine
 import Foundation
 
+// MARK: - VideoNoteDraftCoordinator
+
 final class VideoNoteDraftCoordinator {
     static let shared = VideoNoteDraftCoordinator()
+
+    private var cancellables = Set<AnyCancellable>()
 
     func start() {
         guard cancellables.isEmpty else { return }
@@ -75,7 +79,7 @@ final class VideoNoteDraftCoordinator {
     }
 
     func reconcileRecordingDraftOrigins() async {
-        for attempt in 0 ..< 3 {
+        for attempt in 0..<3 {
             do {
                 guard try await VideoNoteFileStore.shared.reconcileRemovalTombstones() else {
                     throw VideoNoteDraftCoordinatorError.sendCleanupFailed
@@ -96,9 +100,9 @@ final class VideoNoteDraftCoordinator {
             }
         }
     }
-
-    private var cancellables = Set<AnyCancellable>()
 }
+
+// MARK: - VideoNoteDraftCoordinatorError
 
 private enum VideoNoteDraftCoordinatorError: Swift.Error {
     case recordingCleanupFailed

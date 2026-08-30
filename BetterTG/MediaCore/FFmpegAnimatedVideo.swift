@@ -4,13 +4,35 @@ import Combine
 import FFmpegBridge
 import Foundation
 import QuartzCore
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 // MARK: - FFmpegVideoAsset
 
 final class FFmpegVideoAsset {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    let path: String
+    let size: CGSize
+    let frameRate: Double
+    let duration: TimeInterval
+    let firstFrame: UIImage?
+    let hasAlpha: Bool
+
+    // MARK: Private
+
+    private let frameCountLock = NSLock()
+    private var observedFrameCount: Int
+
+    var frameCount: Int {
+        frameCountLock.lock()
+        defer { frameCountLock.unlock() }
+        return observedFrameCount
+    }
+
+    var estimatedMemoryCost: Int {
+        max(1, Int(size.width * size.height * 4))
+    }
 
     init(
         path: String,
@@ -30,25 +52,6 @@ final class FFmpegVideoAsset {
         self.hasAlpha = hasAlpha
     }
 
-    // MARK: Internal
-
-    let path: String
-    let size: CGSize
-    let frameRate: Double
-    let duration: TimeInterval
-    let firstFrame: UIImage?
-    let hasAlpha: Bool
-
-    var frameCount: Int {
-        frameCountLock.lock()
-        defer { frameCountLock.unlock() }
-        return observedFrameCount
-    }
-
-    var estimatedMemoryCost: Int {
-        max(1, Int(size.width * size.height * 4))
-    }
-
     func frameIndex(at timestamp: TimeInterval) -> Int {
         let count = frameCount
         guard count > 1 else { return 0 }
@@ -62,11 +65,6 @@ final class FFmpegVideoAsset {
         observedFrameCount = frameCount
         frameCountLock.unlock()
     }
-
-    // MARK: Private
-
-    private let frameCountLock = NSLock()
-    private var observedFrameCount: Int
 }
 
 // MARK: - FFmpegDecodedVideoFrame
@@ -83,6 +81,27 @@ struct FFmpegDecodedVideoFrame {
 // MARK: - FFmpegVideoRepository
 
 enum FFmpegVideoRepository {
+    // MARK: Private
+
+    private static let maximumInputSize = 64 * 1024 * 1024
+    private static let maximumFrameCount = 600
+    private static let maximumDimension = 2048
+    private static let maximumPixelCount = 4 * 1024 * 1024
+
+    private static let assetCache: NSCache<NSString, FFmpegVideoAsset> = {
+        let cache = NSCache<NSString, FFmpegVideoAsset>()
+        cache.countLimit = 48
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+
+    private static let frameCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 180
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+
     // MARK: Internal
 
     static func asset(at path: String) async -> FFmpegVideoAsset? {
@@ -175,27 +194,6 @@ enum FFmpegVideoRepository {
         )
     }
 
-    // MARK: Private
-
-    private static let maximumInputSize = 64 * 1024 * 1024
-    private static let maximumFrameCount = 600
-    private static let maximumDimension = 2048
-    private static let maximumPixelCount = 4 * 1024 * 1024
-
-    private static let assetCache: NSCache<NSString, FFmpegVideoAsset> = {
-        let cache = NSCache<NSString, FFmpegVideoAsset>()
-        cache.countLimit = 48
-        cache.totalCostLimit = 64 * 1024 * 1024
-        return cache
-    }()
-
-    private static let frameCache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 180
-        cache.totalCostLimit = 64 * 1024 * 1024
-        return cache
-    }()
-
     private static func frameKey(path: String, index: Int) -> NSString {
         "\(path)#\(index)" as NSString
     }
@@ -204,7 +202,13 @@ enum FFmpegVideoRepository {
 // MARK: - FFmpegVideoFrameDecoder
 
 actor FFmpegVideoFrameDecoder {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let width: Int
+    private let height: Int
+    private let decoder: OpaquePointer
+    private var decodedIndex = -1
+    private var observedFrameCount: Int?
 
     init?(asset: FFmpegVideoAsset) {
         self.width = Int(asset.size.width)
@@ -273,14 +277,6 @@ actor FFmpegVideoFrameDecoder {
         return nil
     }
 
-    // MARK: Private
-
-    private let width: Int
-    private let height: Int
-    private let decoder: OpaquePointer
-    private var decodedIndex = -1
-    private var observedFrameCount: Int?
-
     private func reset() -> Bool {
         guard BetterTGFFmpegVideoDecoderReset(decoder) != 0 else { return false }
         decodedIndex = -1
@@ -291,7 +287,32 @@ actor FFmpegVideoFrameDecoder {
 // MARK: - FFmpegAnimatedVideoView
 
 final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var onFirstFrameReady: (() -> Void)?
+
+    // MARK: Private
+
+    private let thumbnailView = TDImageLoadingView()
+    private let frameView = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
+    private var representedFileID: Int?
+    private var loadedPath: String?
+    private var asset: FFmpegVideoAsset?
+    private var decoder: FFmpegVideoFrameDecoder?
+    private var playbackVisible = false
+    private var onTap: (() -> Void)?
+    private var displayLink: CADisplayLink?
+    private var requestedFrameIndex: Int?
+    private var downloadTask: Task<Void, Never>?
+    private var assetTask: Task<Void, Never>?
+    private var decodeTask: Task<Void, Never>?
+    private var fileCancellable: AnyCancellable?
+
+    private var playbackEnabled: Bool {
+        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -331,10 +352,6 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     deinit {
         displayLink?.invalidate()
     }
-
-    // MARK: Internal
-
-    var onFirstFrameReady: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -415,29 +432,6 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     func setPlaybackVisible(_ isVisible: Bool) {
         playbackVisible = isVisible
         updatePlayback()
-    }
-
-    // MARK: Private
-
-    private let thumbnailView = TDImageLoadingView()
-    private let frameView = UIImageView()
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
-    private var representedFileID: Int?
-    private var loadedPath: String?
-    private var asset: FFmpegVideoAsset?
-    private var decoder: FFmpegVideoFrameDecoder?
-    private var playbackVisible = false
-    private var onTap: (() -> Void)?
-    private var displayLink: CADisplayLink?
-    private var requestedFrameIndex: Int?
-    private var downloadTask: Task<Void, Never>?
-    private var assetTask: Task<Void, Never>?
-    private var decodeTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
-
-    private var playbackEnabled: Bool {
-        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
     }
 
     private func apply(displaySize: CGSize?) {

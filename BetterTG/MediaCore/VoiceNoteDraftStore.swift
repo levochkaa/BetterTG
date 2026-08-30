@@ -1,7 +1,7 @@
 // VoiceNoteDraftStore.swift
 
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 
 // MARK: - VoiceNoteFailedSendState
 
@@ -83,6 +83,12 @@ actor VoiceNoteDraftStore {
     // MARK: Internal
 
     static let shared = VoiceNoteDraftStore()
+
+    // MARK: Private
+
+    private let fileManager = FileManager.default
+    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("VoiceNoteDrafts", isDirectory: true)
 
     func adopt(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
         try ensureDirectory()
@@ -298,12 +304,6 @@ actor VoiceNoteDraftStore {
             removeOutcomes(draftID: draft.id)
         }
     }
-
-    // MARK: Private
-
-    private let fileManager = FileManager.default
-    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("VoiceNoteDrafts", isDirectory: true)
 
     private func ensureDirectory() throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)

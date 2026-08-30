@@ -9,19 +9,9 @@ import Foundation
 // MARK: - TDLibVODFFmpegDecoder
 
 actor TDLibVODFFmpegDecoder {
-    // MARK: Lifecycle
-
-    init(lease: TDLibVODRangeLease) {
-        self.lease = lease
-    }
-
-    deinit {
-        activeDecodes.values.forEach { $0.box.cancel() }
-    }
-
     // MARK: Internal
 
-    struct VideoFrame: Sendable {
+    struct VideoFrame {
         let bytes: Data
         let bytesPerRow: Int
         let duration: TimeInterval
@@ -31,7 +21,7 @@ actor TDLibVODFFmpegDecoder {
         let width: Int
     }
 
-    struct AudioFrame: Sendable {
+    struct AudioFrame {
         let channelCount: Int
         let frameCount: Int
         let presentationTime: TimeInterval
@@ -39,7 +29,7 @@ actor TDLibVODFFmpegDecoder {
         let samples: Data
     }
 
-    struct Metadata: Equatable, Sendable {
+    struct Metadata: Equatable {
         let audioCodecID: Int32
         let audioEndTime: TimeInterval
         let audioStartTime: TimeInterval
@@ -52,7 +42,7 @@ actor TDLibVODFFmpegDecoder {
         let videoStartTime: TimeInterval
     }
 
-    struct Summary: Equatable, Sendable {
+    struct Summary: Equatable {
         let audioCodecID: Int32
         let audioDecodedTo: TimeInterval
         let audioFrameCount: Int
@@ -78,6 +68,36 @@ actor TDLibVODFFmpegDecoder {
         case invalidRange
         case range(TDLibVODRangeError)
         case superseded
+    }
+
+    // MARK: Private
+
+    private enum DecodeDisposition {
+        case cancelled
+        case running
+        case superseded
+    }
+
+    private struct ActiveDecode {
+        let box: TDLibVODFFmpegDecodeBox
+        let continuation: CheckedContinuation<Summary, Swift.Error>
+        var disposition: DecodeDisposition
+        let id: UUID
+    }
+
+    private let lease: TDLibVODRangeLease
+    private var activeDecodes = [UUID: ActiveDecode]()
+    private var currentDecodeID: UUID?
+    private var decodeGeneration = UInt64.zero
+    private var isClosed = false
+    private var leaseReleased = false
+
+    init(lease: TDLibVODRangeLease) {
+        self.lease = lease
+    }
+
+    deinit {
+        activeDecodes.values.forEach { $0.box.cancel() }
     }
 
     #if DEBUG
@@ -156,28 +176,6 @@ actor TDLibVODFFmpegDecoder {
         currentDecodeID = nil
         await releaseLeaseIfNeeded()
     }
-
-    // MARK: Private
-
-    private enum DecodeDisposition {
-        case cancelled
-        case running
-        case superseded
-    }
-
-    private struct ActiveDecode {
-        let box: TDLibVODFFmpegDecodeBox
-        let continuation: CheckedContinuation<Summary, Swift.Error>
-        var disposition: DecodeDisposition
-        let id: UUID
-    }
-
-    private let lease: TDLibVODRangeLease
-    private var activeDecodes = [UUID: ActiveDecode]()
-    private var currentDecodeID: UUID?
-    private var decodeGeneration = UInt64.zero
-    private var isClosed = false
-    private var leaseReleased = false
 
     private func supersedeActiveDecode() {
         guard let currentDecodeID, var activeDecode = activeDecodes[currentDecodeID] else { return }
@@ -321,19 +319,17 @@ actor TDLibVODFFmpegDecoder {
 // MARK: - TDLibVODFFmpegDecodeBox
 
 private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Private
 
-    init(
-        source: TDLibVODRangeSource,
-        onMetadata: @escaping @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool,
-        onVideoFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool,
-        onAudioFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool,
-    ) {
-        self.source = source
-        self.onMetadata = onMetadata
-        self.onVideoFrame = onVideoFrame
-        self.onAudioFrame = onAudioFrame
-    }
+    private let source: TDLibVODRangeSource
+    private let onMetadata: @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool
+    private let onVideoFrame: @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool
+    private let onAudioFrame: @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool
+    private let lock = NSLock()
+    private var activeOperation: TDLibVODFFmpegDecodeReadOperation?
+    private var cancelled = false
+    private var job: OpaquePointer?
+    private var storedRangeError: TDLibVODRangeError?
 
     // MARK: Internal
 
@@ -347,6 +343,18 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedRangeError
+    }
+
+    init(
+        source: TDLibVODRangeSource,
+        onMetadata: @escaping @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool,
+        onVideoFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool,
+        onAudioFrame: @escaping @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool,
+    ) {
+        self.source = source
+        self.onMetadata = onMetadata
+        self.onVideoFrame = onVideoFrame
+        self.onAudioFrame = onAudioFrame
     }
 
     func install(job: OpaquePointer) {
@@ -532,23 +540,19 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         )
         return onAudioFrame(frame) ? 1 : 0
     }
-
-    // MARK: Private
-
-    private let source: TDLibVODRangeSource
-    private let onMetadata: @Sendable (TDLibVODFFmpegDecoder.Metadata) -> Bool
-    private let onVideoFrame: @Sendable (TDLibVODFFmpegDecoder.VideoFrame) -> Bool
-    private let onAudioFrame: @Sendable (TDLibVODFFmpegDecoder.AudioFrame) -> Bool
-    private let lock = NSLock()
-    private var activeOperation: TDLibVODFFmpegDecodeReadOperation?
-    private var cancelled = false
-    private var job: OpaquePointer?
-    private var storedRangeError: TDLibVODRangeError?
 }
 
 // MARK: - TDLibVODFFmpegDecodeReadOperation
 
 private final class TDLibVODFFmpegDecodeReadOperation: @unchecked Sendable {
+    // MARK: Private
+
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var cancelled = false
+    private var result: Result<Data, Swift.Error>?
+    private var task: Task<Void, Never>?
+
     // MARK: Internal
 
     func install(task: Task<Void, Never>) {
@@ -587,14 +591,6 @@ private final class TDLibVODFFmpegDecodeReadOperation: @unchecked Sendable {
         defer { lock.unlock() }
         return result ?? .failure(TDLibVODRangeError.readFailed)
     }
-
-    // MARK: Private
-
-    private let lock = NSLock()
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var cancelled = false
-    private var result: Result<Data, Swift.Error>?
-    private var task: Task<Void, Never>?
 }
 
 private func tdLibVODFFmpegDecodeReadCallback(
@@ -686,6 +682,17 @@ private func tdLibVODFFmpegDecodeAudioCallback(
 #if DEBUG
     private extension TDLibVODFFmpegDecoder {
         final class ProbeRecorder: @unchecked Sendable {
+            // MARK: Private
+
+            private let lock = NSLock()
+            private var videoFrameCount = 0
+            private var audioFrameCount = 0
+            private var audioSampleCount = 0
+            private var videoTimes = [TimeInterval]()
+            private var audioTimes = [TimeInterval]()
+            private var videoBytesAreValid = true
+            private var audioBytesAreValid = true
+
             // MARK: Internal
 
             func record(video frame: VideoFrame) -> Bool {
@@ -735,17 +742,6 @@ private func tdLibVODFFmpegDecodeAudioCallback(
                     videoBytesAreValid && audioBytesAreValid,
                 )
             }
-
-            // MARK: Private
-
-            private let lock = NSLock()
-            private var videoFrameCount = 0
-            private var audioFrameCount = 0
-            private var audioSampleCount = 0
-            private var videoTimes = [TimeInterval]()
-            private var audioTimes = [TimeInterval]()
-            private var videoBytesAreValid = true
-            private var audioBytesAreValid = true
         }
 
         static func runDebugProbe() async {

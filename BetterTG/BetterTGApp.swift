@@ -25,9 +25,11 @@ import UIKit
             TDLibVODResourceLoaderSession.runDebugProbeIfRequested()
             GalleryVideoPlaybackOwner.runDebugProbeIfRequested()
         #endif
-        PushRelayCoordinator.shared.start()
         VoiceNoteDraftCoordinator.shared.start()
         VideoNoteDraftCoordinator.shared.start()
+        AvatarColorPalette.shared.start()
+        PushRelayCoordinator.shared.start()
+        RichNotificationCacheCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()

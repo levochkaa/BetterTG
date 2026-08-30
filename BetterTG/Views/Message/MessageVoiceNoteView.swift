@@ -180,6 +180,8 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     }
 }
 
+// MARK: - TelegramWaveformView
+
 final class TelegramWaveformView: UIControl {
     var samples = [CGFloat]() {
         didSet { setNeedsDisplay() }
@@ -199,6 +201,8 @@ final class TelegramWaveformView: UIControl {
     var unplayedColor = UIColor.secondaryLabel {
         didSet { setNeedsDisplay() }
     }
+
+    var onSeek: ((CGFloat) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)

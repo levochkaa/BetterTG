@@ -5,7 +5,9 @@ import Combine
 import Foundation
 import UniformTypeIdentifiers
 
-enum TDLibVODResourceLoaderStatus: Equatable, Sendable {
+// MARK: - TDLibVODResourceLoaderStatus
+
+enum TDLibVODResourceLoaderStatus: Equatable {
     case failed
     case idle
     case loading
@@ -17,7 +19,21 @@ enum TDLibVODResourceLoaderStatus: Equatable, Sendable {
 // MARK: - TDLibVODResourceLoaderSession
 
 final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private static let urlScheme = "bettertg-vod"
+
+    // MARK: Internal
+
+    let asset: AVURLAsset
+
+    private let resourceURL: URL
+    private let state: TDLibVODResourceLoaderState
+    private let statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>
+
+    var statusPublisher: AnyPublisher<TDLibVODResourceLoaderStatus, Never> {
+        statusSubject.removeDuplicates().eraseToAnyPublisher()
+    }
 
     init?(
         lease: TDLibVODRangeLease,
@@ -67,14 +83,6 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
         state.invalidate()
     }
 
-    // MARK: Internal
-
-    let asset: AVURLAsset
-
-    var statusPublisher: AnyPublisher<TDLibVODResourceLoaderStatus, Never> {
-        statusSubject.removeDuplicates().eraseToAnyPublisher()
-    }
-
     #if DEBUG
         static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-vod-resource-loader") else { return }
@@ -82,33 +90,6 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
             Task { await runDebugProbe() }
         }
     #endif
-
-    func invalidate() {
-        state.invalidate()
-    }
-
-    func resourceLoader(
-        _: AVAssetResourceLoader,
-        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest,
-    ) -> Bool {
-        guard loadingRequest.request.url == resourceURL else { return false }
-        return state.start(loadingRequest)
-    }
-
-    func resourceLoader(
-        _: AVAssetResourceLoader,
-        didCancel loadingRequest: AVAssetResourceLoadingRequest,
-    ) {
-        state.cancel(loadingRequest)
-    }
-
-    // MARK: Private
-
-    private static let urlScheme = "bettertg-vod"
-
-    private let resourceURL: URL
-    private let state: TDLibVODResourceLoaderState
-    private let statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>
 
     private static func contentType(forMIMEType mimeType: String) -> String? {
         switch mimeType.lowercased() {
@@ -131,12 +112,94 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
             nil
         }
     }
+
+    func invalidate() {
+        state.invalidate()
+    }
+
+    func resourceLoader(
+        _: AVAssetResourceLoader,
+        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest,
+    ) -> Bool {
+        guard loadingRequest.request.url == resourceURL else { return false }
+        return state.start(loadingRequest)
+    }
+
+    func resourceLoader(
+        _: AVAssetResourceLoader,
+        didCancel loadingRequest: AVAssetResourceLoadingRequest,
+    ) {
+        state.cancel(loadingRequest)
+    }
 }
 
 // MARK: - TDLibVODResourceLoaderState
 
 private final class TDLibVODResourceLoaderState: @unchecked Sendable {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private enum ResourceError: Swift.Error {
+        case invalidRange
+        case shortRead
+        case unreadable
+        case unsupportedContentType
+    }
+
+    private final class LoadingOperation: @unchecked Sendable {
+        // MARK: Internal
+
+        let identifier: ObjectIdentifier
+        let request: AVAssetResourceLoadingRequest
+
+        // MARK: Private
+
+        private let lock = NSLock()
+        private var cancelled = false
+        private var task: Task<Void, Never>?
+
+        init(request: AVAssetResourceLoadingRequest) {
+            self.request = request
+            self.identifier = ObjectIdentifier(request)
+        }
+
+        func install(task: Task<Void, Never>) {
+            lock.lock()
+            if !cancelled {
+                self.task = task
+            }
+            let shouldCancel = cancelled
+            lock.unlock()
+            if shouldCancel {
+                task.cancel()
+            }
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let task = task
+            self.task = nil
+            lock.unlock()
+            task?.cancel()
+        }
+
+        func finish() {
+            lock.lock()
+            task = nil
+            lock.unlock()
+        }
+    }
+
+    private let lease: TDLibVODRangeLease
+    private let contentType: String
+    private let delegateQueue: DispatchQueue
+    private let gate = TDLibVODResourceReadGate()
+    private let lock = NSLock()
+    private let statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>
+    private var currentStatus = TDLibVODResourceLoaderStatus.idle
+    private var invalidated = false
+    private var leaseReleaseTask: Task<Void, Never>?
+    private var operations = [ObjectIdentifier: LoadingOperation]()
 
     init(
         lease: TDLibVODRangeLease,
@@ -152,6 +215,15 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
 
     deinit {
         invalidate()
+    }
+
+    private static func statusPriority(_ status: TDLibVODResourceLoaderStatus) -> Int {
+        switch status {
+        case .idle, .loading, .ready: 0
+        case .failed: 1
+        case .retrying: 2
+        case .offline: 3
+        }
     }
 
     // MARK: Internal
@@ -205,73 +277,6 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
         let lease = lease
         leaseReleaseTask = Task { await lease.invalidate() }
     }
-
-    // MARK: Private
-
-    private enum ResourceError: Swift.Error {
-        case invalidRange
-        case shortRead
-        case unreadable
-        case unsupportedContentType
-    }
-
-    private final class LoadingOperation: @unchecked Sendable {
-        // MARK: Lifecycle
-
-        init(request: AVAssetResourceLoadingRequest) {
-            self.request = request
-            self.identifier = ObjectIdentifier(request)
-        }
-
-        // MARK: Internal
-
-        let identifier: ObjectIdentifier
-        let request: AVAssetResourceLoadingRequest
-
-        func install(task: Task<Void, Never>) {
-            lock.lock()
-            if !cancelled {
-                self.task = task
-            }
-            let shouldCancel = cancelled
-            lock.unlock()
-            if shouldCancel {
-                task.cancel()
-            }
-        }
-
-        func cancel() {
-            lock.lock()
-            cancelled = true
-            let task = task
-            self.task = nil
-            lock.unlock()
-            task?.cancel()
-        }
-
-        func finish() {
-            lock.lock()
-            task = nil
-            lock.unlock()
-        }
-
-        // MARK: Private
-
-        private let lock = NSLock()
-        private var cancelled = false
-        private var task: Task<Void, Never>?
-    }
-
-    private let lease: TDLibVODRangeLease
-    private let contentType: String
-    private let delegateQueue: DispatchQueue
-    private let gate = TDLibVODResourceReadGate()
-    private let lock = NSLock()
-    private let statusSubject: CurrentValueSubject<TDLibVODResourceLoaderStatus, Never>
-    private var currentStatus = TDLibVODResourceLoaderStatus.idle
-    private var invalidated = false
-    private var leaseReleaseTask: Task<Void, Never>?
-    private var operations = [ObjectIdentifier: LoadingOperation]()
 
     private func isActive(_ operation: LoadingOperation) -> Bool {
         lock.lock()
@@ -518,15 +523,6 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
             statusSubject.send(status)
         }
     }
-
-    private static func statusPriority(_ status: TDLibVODResourceLoaderStatus) -> Int {
-        switch status {
-        case .idle, .loading, .ready: 0
-        case .failed: 1
-        case .retrying: 2
-        case .offline: 3
-        }
-    }
 }
 
 // MARK: - TDLibVODResourceReadGate
@@ -534,9 +530,20 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
 private actor TDLibVODResourceReadGate {
     // MARK: Internal
 
-    struct Permit: Sendable {
+    struct Permit {
         fileprivate let id: UUID
     }
+
+    // MARK: Private
+
+    private struct Waiter {
+        let continuation: CheckedContinuation<Permit?, Never>
+        let isAllDataToEnd: Bool
+        let permit: Permit
+    }
+
+    private var holder: Permit?
+    private var waiters = [Waiter]()
 
     var hasBoundedWaiter: Bool {
         waiters.contains { !$0.isAllDataToEnd }
@@ -606,17 +613,6 @@ private actor TDLibVODResourceReadGate {
             waiter.continuation.resume(returning: waiter.permit)
         }
     }
-
-    // MARK: Private
-
-    private struct Waiter {
-        let continuation: CheckedContinuation<Permit?, Never>
-        let isAllDataToEnd: Bool
-        let permit: Permit
-    }
-
-    private var holder: Permit?
-    private var waiters = [Waiter]()
 
     private func cancel(id: UUID) {
         guard let index = waiters.firstIndex(where: { $0.permit.id == id }) else { return }
@@ -963,6 +959,12 @@ private actor TDLibVODResourceReadGate {
         private(set) var didReachExpectedTime = false
         private(set) var maximumTime = TimeInterval.zero
 
+        // MARK: Private
+
+        private var duration = TimeInterval.zero
+        private var expectedTime = TimeInterval.greatestFiniteMagnitude
+        private var states = [String]()
+
         var proof: String {
             "states=\(states), duration=\(duration), maxTime=\(maximumTime)"
         }
@@ -994,12 +996,6 @@ private actor TDLibVODResourceReadGate {
         func update(state: LocalMediaPlayer.State) {
             states.append(String(describing: state))
         }
-
-        // MARK: Private
-
-        private var duration = TimeInterval.zero
-        private var expectedTime = TimeInterval.greatestFiniteMagnitude
-        private var states = [String]()
     }
 
     private actor TDLibVODStatusProbeRecorder {
@@ -1013,7 +1009,45 @@ private actor TDLibVODResourceReadGate {
     }
 
     @MainActor private final class TDLibVODNativePlaybackProbe {
-        // MARK: Lifecycle
+        // MARK: Private
+
+        private let player = LocalMediaPlayer()
+        private var cancellables = Set<AnyCancellable>()
+
+        var didAdoptExternalPause: Bool {
+            !player.isPlaybackRequested
+        }
+
+        var didAdoptExternalPlay: Bool {
+            player.isPlaybackRequested && player.rate == 2
+        }
+
+        var didSettleExternalPausedRate: Bool {
+            player.debugExternalPauseSettled(preferredRate: 2)
+        }
+
+        var didReachExternalEnd: Bool {
+            player.state == .ended && !player.isPlaybackRequested
+        }
+
+        var didRestartAfterExternalEnd: Bool {
+            player.isPlaybackRequested
+                && player.state == .playing
+                && player.currentTime >= 0.05
+                && player.currentTime < 2
+        }
+
+        var externalReplayGeneration: UInt64 {
+            player.debugExternalReplayGeneration
+        }
+
+        var didCancelExternalReplay: Bool {
+            player.state == .ended && !player.isPlaybackRequested
+        }
+
+        var debugPlaybackSnapshot: String {
+            player.debugPlaybackSnapshot
+        }
 
         init(
             session: TDLibVODResourceLoaderSession,
@@ -1068,10 +1102,6 @@ private actor TDLibVODResourceReadGate {
             player.simulateExternalPauseForProbe()
         }
 
-        var didAdoptExternalPause: Bool {
-            !player.isPlaybackRequested
-        }
-
         func resumeExternally(atRate rate: Float) {
             player.simulateExternalPlayForProbe(atRate: rate)
         }
@@ -1080,35 +1110,8 @@ private actor TDLibVODResourceReadGate {
             player.simulateExternalPauseForProbe()
         }
 
-        var didAdoptExternalPlay: Bool {
-            player.isPlaybackRequested && player.rate == 2
-        }
-
-        var didSettleExternalPausedRate: Bool {
-            player.debugExternalPauseSettled(preferredRate: 2)
-        }
-
         func simulateExternalEnd() {
             player.simulateExternalEndForProbe()
-        }
-
-        var didReachExternalEnd: Bool {
-            player.state == .ended && !player.isPlaybackRequested
-        }
-
-        var didRestartAfterExternalEnd: Bool {
-            player.isPlaybackRequested
-                && player.state == .playing
-                && player.currentTime >= 0.05
-                && player.currentTime < 2
-        }
-
-        var externalReplayGeneration: UInt64 {
-            player.debugExternalReplayGeneration
-        }
-
-        var didCancelExternalReplay: Bool {
-            player.state == .ended && !player.isPlaybackRequested
         }
 
         func endExternalControl() -> Bool {
@@ -1116,18 +1119,9 @@ private actor TDLibVODResourceReadGate {
             return !player.isPlaybackRequested && player.rate == 2
         }
 
-        var debugPlaybackSnapshot: String {
-            player.debugPlaybackSnapshot
-        }
-
         func stop() {
             player.stop()
             cancellables.removeAll()
         }
-
-        // MARK: Private
-
-        private let player = LocalMediaPlayer()
-        private var cancellables = Set<AnyCancellable>()
     }
 #endif

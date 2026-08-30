@@ -3,7 +3,18 @@
 import ImageIO
 import UIKit
 
+// MARK: - VideoNoteThumbnailStripView
+
 final class VideoNoteThumbnailStripView: UIView {
+    var onRangeChange: ((Double, Double, Bool, Bool) -> Void)?
+
+    private let imageViews = (0..<13).map { _ in UIImageView() }
+    private let trimView = VoiceRecordingTrimView()
+    private var decodeTask: Task<Void, Never>?
+    private var decodeGeneration = UUID()
+    private var displayedSegmentIDs = [UUID]()
+    private var displayedSampleTimes = [Double]()
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .tertiarySystemFill
@@ -32,7 +43,18 @@ final class VideoNoteThumbnailStripView: UIView {
         decodeTask?.cancel()
     }
 
-    var onRangeChange: ((Double, Double, Bool, Bool) -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width / CGFloat(imageViews.count)
+        for (index, imageView) in imageViews.enumerated() {
+            let minX = floor(CGFloat(index) * width)
+            let maxX = index == imageViews.count - 1
+                ? bounds.width
+                : ceil(CGFloat(index + 1) * width)
+            imageView.frame = CGRect(x: minX, y: 0, width: max(0, maxX - minX), height: bounds.height)
+        }
+        trimView.frame = bounds
+    }
 
     func update(
         samples: [VideoNoteThumbnailSample],
@@ -101,28 +123,8 @@ final class VideoNoteThumbnailStripView: UIView {
         trimView.setEditingEnabled(enabled)
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let width = bounds.width / CGFloat(imageViews.count)
-        for (index, imageView) in imageViews.enumerated() {
-            let minX = floor(CGFloat(index) * width)
-            let maxX = index == imageViews.count - 1
-                ? bounds.width
-                : ceil(CGFloat(index + 1) * width)
-            imageView.frame = CGRect(x: minX, y: 0, width: max(0, maxX - minX), height: bounds.height)
-        }
-        trimView.frame = bounds
-    }
-
-    private let imageViews = (0 ..< 13).map { _ in UIImageView() }
-    private let trimView = VoiceRecordingTrimView()
-    private var decodeTask: Task<Void, Never>?
-    private var decodeGeneration = UUID()
-    private var displayedSegmentIDs = [UUID]()
-    private var displayedSampleTimes = [Double]()
-
     private func apply(images: [CGImage?]) {
-        let fallback = images.compactMap { $0 }.first
+        let fallback = images.compactMap(\.self).first
         for (index, imageView) in imageViews.enumerated() {
             let image = index < images.count ? images[index] ?? fallback : fallback
             imageView.image = image.map { UIImage(cgImage: $0) }
@@ -130,10 +132,12 @@ final class VideoNoteThumbnailStripView: UIView {
     }
 }
 
+// MARK: - SendableImage
+
 private struct SendableImage: @unchecked Sendable {
+    let image: CGImage
+
     init(_ image: CGImage) {
         self.image = image
     }
-
-    let image: CGImage
 }

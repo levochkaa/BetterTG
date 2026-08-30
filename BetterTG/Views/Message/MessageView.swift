@@ -3,10 +3,71 @@
 import TDLibKitDynamic
 import UIKit
 
-// MARK: - MessageCell
+// MARK: - TelegramSwipeToReplyRecognizer
 
-final class MessageCell: UICollectionViewCell {
-    // MARK: Lifecycle
+private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {
+    // MARK: Internal
+
+    var shouldBegin: (() -> Bool)?
+
+    // MARK: Private
+
+    private var firstLocation = CGPoint.zero
+    private var validatedGesture = false
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        maximumNumberOfTouches = 1
+        cancelsTouchesInView = true
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func reset() {
+        super.reset()
+        validatedGesture = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard shouldBegin?() != false, let touch = touches.first else {
+            state = .failed
+            return
+        }
+        firstLocation = touch.location(in: view)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: view)
+        let translation = CGPoint(x: location.x - firstLocation.x, y: location.y - firstLocation.y)
+        let horizontalDistance = abs(translation.x)
+        let verticalDistance = abs(translation.y)
+
+        if !validatedGesture {
+            if translation.x > 0 {
+                state = .failed
+            } else if verticalDistance > 2, verticalDistance > horizontalDistance * 2 {
+                state = .failed
+            } else if horizontalDistance > 8, verticalDistance * 2 < horizontalDistance {
+                validatedGesture = true
+            }
+        }
+
+        if validatedGesture {
+            super.touchesMoved(touches, with: event)
+        }
+    }
+}
+
+// MARK: - SwipeToReplyIndicatorView
+
+private final class SwipeToReplyIndicatorView: UIView {
+    // MARK: Private
+
+    private let iconView = UIImageView()
+    private let progressLayer = CAShapeLayer()
+    private var thresholdPulseView: UIView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -47,12 +108,134 @@ final class MessageCell: UICollectionViewCell {
 
     // MARK: Internal
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        progressLayer.frame = bounds
+        progressLayer.path = UIBezierPath(
+            ovalIn: bounds.insetBy(dx: progressLayer.lineWidth / 2, dy: progressLayer.lineWidth / 2),
+        ).cgPath
+    }
+
+    func update(progress: CGFloat) {
+        let progress = min(max(progress, 0), 1)
+        let foregroundProgress = min(1, progress * 1.2)
+        alpha = foregroundProgress
+        transform = CGAffineTransform(scaleX: 0.65 + foregroundProgress * 0.35, y: 0.65 + foregroundProgress * 0.35)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        progressLayer.strokeEnd = progress
+        CATransaction.commit()
+    }
+
+    func playThresholdAnimation() {
+        thresholdPulseView?.layer.removeAllAnimations()
+        thresholdPulseView?.removeFromSuperview()
+
+        let pulseView = UIView(frame: bounds)
+        pulseView.isUserInteractionEnabled = false
+        pulseView.backgroundColor = backgroundColor
+        pulseView.layer.cornerRadius = bounds.height / 2
+        pulseView.layer.cornerCurve = .continuous
+        pulseView.layer.borderColor = UIColor.systemBlue.cgColor
+        pulseView.layer.borderWidth = 2
+        pulseView.alpha = 0.9
+        insertSubview(pulseView, at: 0)
+        thresholdPulseView = pulseView
+
+        UIView.animate(
+            withDuration: 0.34,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+        ) {
+            pulseView.transform = CGAffineTransform(scaleX: 2.15, y: 2.15)
+            pulseView.alpha = 0
+        } completion: { [weak self, weak pulseView] _ in
+            guard let pulseView else { return }
+            if self?.thresholdPulseView === pulseView {
+                self?.thresholdPulseView = nil
+            }
+            pulseView.removeFromSuperview()
+        }
+    }
+}
+
+// MARK: - MessageCell
+
+final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
+    // MARK: Internal
+
     static let reuseIdentifier = "MessageCell"
+
+    // MARK: Private
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private let rowStack = UIStackView()
+    private let bubbleContainerView = TelegramContextMenuExtractableView()
+    private let bubbleStack = UIStackView()
+    private let avatarView = ProfileAvatarView()
+    private let forwardedLabel = UILabel()
+    private let replyView = ReplySnippetView()
+    private let mediaView = MessageMediaView()
+    private let textView = MessageTextContentView()
+    private let timestampLabel = UILabel()
+    private let mediaTimestampLabel = UILabel()
+    private let leadingSpacer = UIView()
+    private let trailingSpacer = UIView()
+    private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
+    private var bubbleWidthConstraint: NSLayoutConstraint!
+    private lazy var bubbleTopConstraint = bubbleStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6)
+    private lazy var bubbleLeadingConstraint = bubbleStack.leadingAnchor.constraint(
+        equalTo: bubbleView.leadingAnchor,
+        constant: 8,
+    )
+    private lazy var bubbleTrailingConstraint = bubbleStack.trailingAnchor.constraint(
+        equalTo: bubbleView.trailingAnchor,
+        constant: -8,
+    )
+    private lazy var bubbleBottomConstraint = bubbleStack.bottomAnchor.constraint(
+        equalTo: bubbleView.bottomAnchor,
+        constant: -5,
+    )
+    private var bubbleContentNeedsMeasurement = true
+    private var measuredCellWidth = CGFloat.zero
+    private var replyTargetMessageID: Int64?
+    private var onSwipeToReply: (() -> Void)?
+    private var onMediaTap: (([Message], Int64) -> Void)?
+    private var representedGalleryMessageIDs = Set<Int64>()
+    private var mediaTransitionGeneration = UUID()
+    private var swipeReplyThreshold: CGFloat = 45
+    private var swipeReplyFeedbackArmed = true
+    private var swipeReplyFeedback: UIImpactFeedbackGenerator?
+    private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
+    private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
+        target: self,
+        action: #selector(swipeToReply(_:)),
+    )
 
     var contextPreviewView: UIView { bubbleContainerView }
 
+    private var bubbleView: UIView { bubbleContainerView.extractedContentView }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        configureViews()
+        configureConstraints()
+        configureSwipeToReply()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
+        resumeHistoryScrolling()
         avatarView.prepareForReuse()
         mediaView.prepareForReuse()
         textView.prepareForReuse()
@@ -62,18 +245,32 @@ final class MessageCell: UICollectionViewCell {
         mediaView.isHidden = true
         timestampLabel.isHidden = true
         mediaTimestampLabel.isHidden = true
-        onReplyTap = nil
+        replyTargetMessageID = nil
+        onSwipeToReply = nil
         onMediaTap = nil
         representedGalleryMessageIDs.removeAll()
         mediaTransitionGeneration = UUID()
+        swipeToReplyRecognizer.isEnabled = false
+        resetSwipeToReply(animated: false)
+        bubbleContentNeedsMeasurement = true
     }
 
     override func layoutSubviews() {
+        updateBubbleWidth(for: bounds.width)
         super.layoutSubviews()
-        progressLayer.frame = bounds
-        progressLayer.path = UIBezierPath(
-            ovalIn: bounds.insetBy(dx: progressLayer.lineWidth / 2, dy: progressLayer.lineWidth / 2),
-        ).cgPath
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            resumeHistoryScrolling()
+        }
+    }
+
+    func replyMessageID(at point: CGPoint) -> Int64? {
+        guard let replyTargetMessageID, !replyView.isHidden else { return nil }
+        let replyFrame = replyView.convert(replyView.bounds, to: contentView).insetBy(dx: -4, dy: -4)
+        return replyFrame.contains(point) ? replyTargetMessageID : nil
     }
 
     func setMediaPlaybackVisible(_ isVisible: Bool, allowsInlineVideoPlayback: Bool = true) {
@@ -107,9 +304,9 @@ final class MessageCell: UICollectionViewCell {
             },
             validation: { [weak self, weak sourceView] in
                 guard let self, let sourceView else { return false }
-                return self.mediaTransitionGeneration == generation
-                    && self.representedGalleryMessageIDs.contains(messageID)
-                    && self.mediaView.galleryTransitionSourceView(for: messageID) === sourceView
+                return mediaTransitionGeneration == generation
+                    && representedGalleryMessageIDs.contains(messageID)
+                    && mediaView.galleryTransitionSourceView(for: messageID) === sourceView
             },
         )
     }
@@ -119,7 +316,7 @@ final class MessageCell: UICollectionViewCell {
         chat: CustomChat,
         highlighted: Bool,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
-        onReplyTap: @escaping (Int64) -> Void,
+        onSwipeToReply: (() -> Void)?,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
         self.onSwipeToReply = onSwipeToReply
@@ -128,15 +325,21 @@ final class MessageCell: UICollectionViewCell {
         representedGalleryMessageIDs = message.album.isEmpty
             ? [message.id]
             : Set(message.album.map(\.id))
+        swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
+        swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil
         configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
 
-        let isVideoNoteMessage: Bool = if case .messageVideoNote = message.message.content { true } else { false }
-        let isStandaloneVideoNote: Bool =
+        let isVideoNoteMessage =
+            if case .messageVideoNote = message.message.content {
+                true
+            } else {
+                false
+            }
+        let isStandaloneVideoNote =
             if isVideoNoteMessage,
-               message.forwardedFrom == nil,
-               message.replyToMessage == nil,
-               message.formattedText == nil
-            {
+            message.forwardedFrom == nil,
+            message.replyToMessage == nil,
+            message.formattedText == nil {
                 true
             } else {
                 false
@@ -215,47 +418,20 @@ final class MessageCell: UICollectionViewCell {
         ]
             .compactMap(\.self)
             .joined(separator: ", ")
+
+        bubbleContentNeedsMeasurement = true
+        updateBubbleWidth(for: bounds.width)
     }
 
-    // MARK: Private
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-
-    private let rowStack = UIStackView()
-    private let bubbleContainerView = TelegramContextMenuExtractableView()
-    private let bubbleStack = UIStackView()
-    private let avatarView = ProfileAvatarView()
-    private let forwardedLabel = UILabel()
-    private let replyView = ReplySnippetView()
-    private let mediaView = MessageMediaView()
-    private let textView = MessageTextContentView()
-    private let timestampLabel = UILabel()
-    private let mediaTimestampLabel = UILabel()
-    private let leadingSpacer = UIView()
-    private let trailingSpacer = UIView()
-    private lazy var bubbleTopConstraint = bubbleStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6)
-    private lazy var bubbleLeadingConstraint = bubbleStack.leadingAnchor.constraint(
-        equalTo: bubbleView.leadingAnchor,
-        constant: 8,
-    )
-    private lazy var bubbleTrailingConstraint = bubbleStack.trailingAnchor.constraint(
-        equalTo: bubbleView.trailingAnchor,
-        constant: -8,
-    )
-    private lazy var bubbleBottomConstraint = bubbleStack.bottomAnchor.constraint(
-        equalTo: bubbleView.bottomAnchor,
-        constant: -5,
-    )
-    private var onReplyTap: ((Int64) -> Void)?
-    private var onMediaTap: (([Message], Int64) -> Void)?
-    private var representedGalleryMessageIDs = Set<Int64>()
-    private var mediaTransitionGeneration = UUID()
-
-    private var bubbleView: UIView { bubbleContainerView.extractedContentView }
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
+    ) -> Bool {
+        guard gestureRecognizer === swipeToReplyRecognizer || otherGestureRecognizer === swipeToReplyRecognizer else {
+            return false
+        }
+        return gestureRecognizer.view is UIScrollView || otherGestureRecognizer.view is UIScrollView
+    }
 
     private func configureViews() {
         rowStack.translatesAutoresizingMaskIntoConstraints = false
@@ -428,6 +604,7 @@ final class MessageCell: UICollectionViewCell {
             rowStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
             rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             maxBubbleWidth,
+            bubbleWidthConstraint,
             bubbleTopConstraint,
             bubbleLeadingConstraint,
             bubbleTrailingConstraint,
@@ -499,7 +676,13 @@ final class MessageCell: UICollectionViewCell {
 // MARK: - ReplySnippetView
 
 final class ReplySnippetView: UIControl {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private let accentView = UIView()
+    private let stack = UIStackView()
+    private let titleLabel = UILabel()
+    private let textLabel = UILabel()
+    private var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -558,14 +741,6 @@ final class ReplySnippetView: UIControl {
         textLabel.text = text
         self.onTap = onTap
     }
-
-    // MARK: Private
-
-    private let accentView = UIView()
-    private let stack = UIStackView()
-    private let titleLabel = UILabel()
-    private let textLabel = UILabel()
-    private var onTap: (() -> Void)?
 
     @objc private func tapped() {
         onTap?()

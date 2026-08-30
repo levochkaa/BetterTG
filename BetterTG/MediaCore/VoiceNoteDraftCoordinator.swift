@@ -10,6 +10,10 @@ final class VoiceNoteDraftCoordinator {
 
     static let shared = VoiceNoteDraftCoordinator()
 
+    // MARK: Private
+
+    private var cancellables = Set<AnyCancellable>()
+
     func start() {
         guard cancellables.isEmpty else { return }
         nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { update in
@@ -77,10 +81,6 @@ final class VoiceNoteDraftCoordinator {
             }
         }
     }
-
-    // MARK: Private
-
-    private var cancellables = Set<AnyCancellable>()
 }
 
 extension Notification.Name {

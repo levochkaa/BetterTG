@@ -1,6 +1,6 @@
 // CustomEmoji.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 // MARK: - CustomEmojiStickerRepository
@@ -9,6 +9,11 @@ actor CustomEmojiStickerRepository {
     // MARK: Internal
 
     static let shared = CustomEmojiStickerRepository()
+
+    // MARK: Private
+
+    private var stickersByIdentifier = [TdInt64: Sticker]()
+    private var missingStickerIdentifiers = Set<TdInt64>()
 
     func stickers(for identifiers: [TdInt64]) async -> [TdInt64: Sticker] {
         let uniqueIdentifiers = Array(Set(identifiers)).prefix(200)
@@ -30,11 +35,6 @@ actor CustomEmojiStickerRepository {
             stickersByIdentifier[identifier].map { (identifier, $0) }
         })
     }
-
-    // MARK: Private
-
-    private var stickersByIdentifier = [TdInt64: Sticker]()
-    private var missingStickerIdentifiers = Set<TdInt64>()
 }
 
 // MARK: - CustomEmojiInlineView
@@ -43,6 +43,11 @@ final class CustomEmojiInlineView: UIView {
     // MARK: Internal
 
     var onFirstFrameReady: (() -> Void)?
+
+    // MARK: Private
+
+    private var contentView: (UIView & AnimatedFileView)?
+    private var playbackVisible = false
 
     func configure(sticker: Sticker) {
         prepareForReuse()
@@ -85,9 +90,4 @@ final class CustomEmojiInlineView: UIView {
         playbackVisible = isVisible
         contentView?.setPlaybackVisible(isVisible)
     }
-
-    // MARK: Private
-
-    private var contentView: (UIView & AnimatedFileView)?
-    private var playbackVisible = false
 }

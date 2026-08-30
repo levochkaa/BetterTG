@@ -3,7 +3,7 @@
 import AVFoundation
 import FFmpegBridge
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 
 // MARK: - VoiceNoteCodec
 
@@ -63,18 +63,18 @@ enum VoiceNoteCodec {
         guard !linearPCMNormalizedPeaks.isEmpty else {
             return Data(repeating: 0, count: (maximumSamples * 5 + 7) / 8)
         }
-        let peaks = (0 ..< maximumSamples).map { sampleIndex -> Int in
+        let peaks = (0..<maximumSamples).map { sampleIndex -> Int in
             let lowerBound = sampleIndex * linearPCMNormalizedPeaks.count / maximumSamples
             let upperBound = max(
                 lowerBound + 1,
                 (sampleIndex + 1) * linearPCMNormalizedPeaks.count / maximumSamples,
             )
             let peak = linearPCMNormalizedPeaks[
-                lowerBound ..< min(upperBound, linearPCMNormalizedPeaks.count)
+                lowerBound..<min(upperBound, linearPCMNormalizedPeaks.count),
             ].max() ?? 0
             return Int((min(1, max(0, peak)) * Float(Int16.max)).rounded())
         }
-        let normalizationPeak = max(2_500, Int(Double(peaks.reduce(0, +)) * 1.8 / Double(maximumSamples)))
+        let normalizationPeak = max(2500, Int(Double(peaks.reduce(0, +)) * 1.8 / Double(maximumSamples)))
         let samples = peaks.map { peak -> UInt8 in
             UInt8(clamping: min(31, min(peak, normalizationPeak) * 31 / normalizationPeak))
         }
@@ -178,9 +178,9 @@ enum VoiceNoteCodec {
                     await VoiceNoteDraftStore.shared.remove(registration.draft)
                     writeDebugProbeResult("Voice codec probe stage: send draft")
                     writeDebugProbeResult("Voice codec probe stage: creating PCM 1")
-                    try makePCMProbeInput(at: firstSegmentURL, frameCount: 48_000, frequency: 330, amplitude: 0.08)
+                    try makePCMProbeInput(at: firstSegmentURL, frameCount: 48000, frequency: 330, amplitude: 0.08)
                     writeDebugProbeResult("Voice codec probe stage: creating PCM 2")
-                    try makePCMProbeInput(at: secondSegmentURL, frameCount: 48_000, frequency: 550, amplitude: 0.45)
+                    try makePCMProbeInput(at: secondSegmentURL, frameCount: 48000, frequency: 550, amplitude: 0.45)
                     writeDebugProbeResult("Voice codec probe stage: concatenating PCM")
                     let mergedInspection = try await VoiceNotePCMEditor.concatenate(
                         [firstSegmentURL, secondSegmentURL],
@@ -190,7 +190,7 @@ enum VoiceNoteCodec {
                         "Voice codec probe stage: PCM merge raw \(mergedInspection.frameCount) frames, "
                             + "\(mergedInspection.duration)s, \(mergedInspection.waveform.count) waveform bytes",
                     )
-                    precondition(mergedInspection.frameCount == 96_000)
+                    precondition(mergedInspection.frameCount == 96000)
                     precondition(abs(mergedInspection.duration - 2) < 0.001)
                     precondition(mergedInspection.waveform.count == 63)
                     let mergedSamples = normalizedWaveform(data: mergedInspection.waveform)
@@ -200,9 +200,9 @@ enum VoiceNoteCodec {
                     let trimInspection = try await VoiceNotePCMEditor.trim(
                         mergedURL,
                         outputURL: trimURL,
-                        range: 0.25 ..< 1.75,
+                        range: 0.25..<1.75,
                     )
-                    precondition(trimInspection.frameCount == 72_000)
+                    precondition(trimInspection.frameCount == 72000)
                     precondition(abs(trimInspection.duration - 1.5) < 0.000_001)
                     writeDebugProbeResult("Voice codec probe stage: PCM merge")
                     let recordingDraftID = UUID()
@@ -227,7 +227,7 @@ enum VoiceNoteCodec {
                     )
                     let storedRecordingDraft = try await VoiceRecordingDraftStore.shared.adopt(recordingDraft)
                     writeDebugProbeResult("Voice codec probe stage: recording adopt")
-                    try makePCMProbeInput(at: thirdSegmentURL, frameCount: 24_000, frequency: 770, amplitude: 0.2)
+                    try makePCMProbeInput(at: thirdSegmentURL, frameCount: 24000, frequency: 770, amplitude: 0.2)
                     let replacementInspection = try await VoiceNotePCMEditor.concatenate(
                         [storedRecordingDraft.fileURL, thirdSegmentURL],
                         outputURL: replacementURL,
@@ -313,8 +313,8 @@ enum VoiceNoteCodec {
                 let samples = buffer.floatChannelData?[0]
             else { throw CodecError.invalidOutput }
             buffer.frameLength = frameCount
-            for index in 0 ..< Int(frameCount) {
-                samples[index] = sin(Float(index) * 2 * .pi * frequency / 48_000) * amplitude
+            for index in 0..<Int(frameCount) {
+                samples[index] = sin(Float(index) * 2 * .pi * frequency / 48000) * amplitude
             }
             try file.write(from: buffer)
         }
@@ -340,7 +340,7 @@ enum VoiceNoteCodec {
     private static func unpack(data: Data, sampleCount: Int) -> [UInt8] {
         data.withUnsafeBytes { rawBuffer in
             let bytes = rawBuffer.bindMemory(to: UInt8.self)
-            return (0 ..< sampleCount).compactMap { index in
+            return (0..<sampleCount).compactMap { index in
                 let bitOffset = index * 5
                 let byteIndex = bitOffset / 8
                 guard byteIndex < bytes.count else { return nil }

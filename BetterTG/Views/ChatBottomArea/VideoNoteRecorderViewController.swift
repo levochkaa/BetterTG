@@ -5,6 +5,8 @@ import Combine
 @preconcurrency import TDLibKit
 import UIKit
 
+// MARK: - VideoNoteComposerState
+
 enum VideoNoteComposerState: Equatable {
     case failed(String)
     case holding(Double)
@@ -17,7 +19,7 @@ enum VideoNoteComposerState: Equatable {
 
     var isActive: Bool {
         switch self {
-        case .idle, .failed:
+        case .failed, .idle:
             false
         case .holding, .locked, .preparing, .preview, .sending, .stopping:
             true
@@ -25,13 +27,100 @@ enum VideoNoteComposerState: Equatable {
     }
 }
 
-enum VideoNoteSubmissionResult: Sendable {
+// MARK: - VideoNoteSubmissionResult
+
+enum VideoNoteSubmissionResult {
     case enqueued
     case retained(VideoNoteAsset, originConsumed: Bool, message: String)
 }
 
+// MARK: - VideoNoteRecorderViewController
+
 @MainActor final class VideoNoteRecorderViewController: UIViewController {
-    // MARK: Lifecycle
+    // MARK: Private
+
+    private enum ExitDisposition {
+        case discard
+        case none
+        case preserve
+    }
+
+    // MARK: Internal
+
+    var onDismiss: (() -> Void)?
+    var onDiscard: ((VideoNoteAsset) async -> Void)?
+    var onError: ((String) -> Void)?
+    var onPreviewData: ((VideoNoteRecordingDraft, [VideoNoteThumbnailSample]) -> Void)?
+    var onThumbnailData: (([VideoNoteThumbnailSample], [UUID]) -> Void)?
+    var onStateChange: ((VideoNoteComposerState) -> Void)?
+    var onSubmit: ((
+        VideoNoteAsset,
+        VideoNoteInputThumbnailAsset?,
+        UUID?,
+        Int64?,
+        InputMessageReplyTo?,
+    ) async -> VideoNoteSubmissionResult)?
+
+    private(set) var state = VideoNoteComposerState.idle {
+        didSet {
+            guard state != oldValue else { return }
+            updateUI()
+            onStateChange?(state)
+        }
+    }
+
+    private let captureSession = VideoNoteCaptureSession()
+    private let previewPlayer = LocalMediaPlayer()
+    private let chatID: Int64
+    private let replyMessageID: Int64?
+    private let replyTo: InputMessageReplyTo?
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let previewContainer = VideoNotePreviewContainerView()
+    private let cameraPreview = VideoNoteCameraPreviewView()
+    private let playbackPreview = LocalVideoSurfaceView()
+    private let muteBadgeView = UIView()
+    private let muteBadgeImageView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
+    private let loadingIndicator = UIActivityIndicatorView(style: .large)
+    private let statusLabel = UILabel()
+    private let flipButton = UIButton(type: .system)
+    private let flashButton = UIButton(type: .system)
+    private let progressLayer = CAShapeLayer()
+    private var cancellables = Set<AnyCancellable>()
+    private var operationTask: Task<Void, Never>?
+    private var operationGeneration = UUID()
+    private var preferredPosition = VideoNoteCaptureSession.Position.front
+    private var lastFlipTimestamp: TimeInterval?
+    private var lastRecordMoreTimestamp: TimeInterval?
+    private var currentAsset: VideoNoteAsset?
+    private var recordingDraft: VideoNoteRecordingDraft?
+    private var previewThumbnails = [VideoNoteThumbnailSample]()
+    private var previewMuted = true
+    private var previewOwnsAudioSession = false
+    private var previewAudioSessionTask: Task<Void, Never>?
+    private var thumbnailGeneration = UUID()
+    private var thumbnailAppliedStage = 0
+    private var thumbnailTask: Task<Void, Never>?
+    private var recordingDurationBaseline = 0.0
+    private var transientTrimRange: Range<Double>?
+    private var trimBaseDraft: VideoNoteRecordingDraft?
+    private var ownsCurrentAsset = false
+    private var locked = false
+    private var didAnimateIn = false
+    private var didRequestDismiss = false
+    private var dismissAfterSubmission = false
+    private var flashEnabled = false
+    private var exitDisposition = ExitDisposition.none
+    private var initialScreenBrightness: CGFloat?
+    private var currentZoomFactor: CGFloat = 1
+    private var pinchStartZoomFactor: CGFloat = 1
+
+    var hasPersistedRecordingDraft: Bool {
+        recordingDraft != nil
+    }
+
+    private var currentInterfaceOrientation: UIInterfaceOrientation {
+        view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
+    }
 
     init(
         chatID: Int64,
@@ -50,7 +139,7 @@ enum VideoNoteSubmissionResult: Sendable {
                     }
                     return
                 }
-                self.handleAutomaticStop(result)
+                handleAutomaticStop(result)
             }
         }
         observeCaptureSession()
@@ -83,32 +172,25 @@ enum VideoNoteSubmissionResult: Sendable {
         }
     }
 
-    // MARK: Internal
-
-    var onDismiss: (() -> Void)?
-    var onDiscard: ((VideoNoteAsset) async -> Void)?
-    var onError: ((String) -> Void)?
-    var onPreviewData: ((VideoNoteRecordingDraft, [VideoNoteThumbnailSample]) -> Void)?
-    var onThumbnailData: (([VideoNoteThumbnailSample], [UUID]) -> Void)?
-    var onStateChange: ((VideoNoteComposerState) -> Void)?
-    var onSubmit: ((
-        VideoNoteAsset,
-        VideoNoteInputThumbnailAsset?,
-        UUID?,
-        Int64?,
-        InputMessageReplyTo?
-    ) async -> VideoNoteSubmissionResult)?
-
-    private(set) var state = VideoNoteComposerState.idle {
-        didSet {
-            guard state != oldValue else { return }
-            updateUI()
-            onStateChange?(state)
-        }
+    override func loadView() {
+        view = UIView()
+        configureViews()
     }
 
-    var hasPersistedRecordingDraft: Bool {
-        recordingDraft != nil
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutCamera()
+        updateOrientation()
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.view.setNeedsLayout()
+            self?.view.layoutIfNeeded()
+        }) { [weak self] _ in
+            self?.updateOrientation()
+        }
     }
 
     func beginHolding() async -> Bool {
@@ -179,56 +261,6 @@ enum VideoNoteSubmissionResult: Sendable {
         restore(recordingDraft)
     }
 
-    private func beginCapture(lockedInitially: Bool) async -> Bool {
-        let generation = UUID()
-        operationGeneration = generation
-        locked = lockedInitially
-        state = .preparing
-        loadViewIfNeeded()
-        animateInIfNeeded()
-        updateOrientation()
-
-        do {
-            try await captureSession.prepare(position: preferredPosition, generation: generation)
-            try Task.checkCancellation()
-            guard operationGeneration == generation else { throw CancellationError() }
-            cameraPreview.updateConnection(
-                position: captureSession.currentPosition,
-                orientation: currentInterfaceOrientation,
-            )
-            try await Task<Never, Never>.sleep(for: .milliseconds(150))
-            try Task.checkCancellation()
-            guard operationGeneration == generation else { throw CancellationError() }
-            let remainingDuration = max(0.5, 60 - recordingDurationBaseline)
-            let remainingAutomaticDuration = max(0.5, 59.5 - recordingDurationBaseline)
-            try await captureSession.startRecording(
-                maximumDuration: remainingDuration,
-                automaticStopDuration: remainingAutomaticDuration,
-            )
-            try Task.checkCancellation()
-            guard operationGeneration == generation else { throw CancellationError() }
-            state = locked
-                ? .locked(recordingDurationBaseline)
-                : .holding(recordingDurationBaseline)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
-            return true
-        } catch is CancellationError {
-            return false
-        } catch {
-            guard !Task.isCancelled,
-                  operationGeneration == generation,
-                  exitDisposition == .none
-            else { return false }
-            let errorMessage = message(for: error)
-            if lockedInitially, recordingDraft != nil, operationGeneration == generation {
-                await recoverRecordMorePreview(message: errorMessage, generation: generation)
-            } else {
-                fail(errorMessage)
-            }
-            return false
-        }
-    }
-
     func cancel() {
         if case .sending = state {
             exitDisposition = .discard
@@ -277,14 +309,14 @@ enum VideoNoteSubmissionResult: Sendable {
 
     func lockRecording() {
         locked = true
-        if case let .holding(duration) = state {
+        if case .holding(let duration) = state {
             state = .locked(duration)
         }
     }
 
     func togglePreviewPlayback() {
         guard trimBaseDraft == nil else { return }
-        guard case let .preview(duration, isPlaying, canRecordMore) = state else { return }
+        guard case .preview(let duration, let isPlaying, let canRecordMore) = state else { return }
         if isPlaying {
             previewPlayer.pause()
             state = .preview(duration: duration, isPlaying: false, canRecordMore: canRecordMore)
@@ -326,7 +358,7 @@ enum VideoNoteSubmissionResult: Sendable {
             trimBaseDraft = previousDraft
         }
         let canonicalDraft = trimBaseDraft ?? previousDraft
-        let range = lowerBound ..< upperBound
+        let range = lowerBound..<upperBound
         transientTrimRange = range
         previewPlayer.pause()
         previewPlayer.seek(
@@ -406,82 +438,54 @@ enum VideoNoteSubmissionResult: Sendable {
         dismissAnimated()
     }
 
-    override func loadView() {
-        view = UIView()
-        configureViews()
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        layoutCamera()
+    private func beginCapture(lockedInitially: Bool) async -> Bool {
+        let generation = UUID()
+        operationGeneration = generation
+        locked = lockedInitially
+        state = .preparing
+        loadViewIfNeeded()
+        animateInIfNeeded()
         updateOrientation()
-    }
 
-    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        super.viewWillTransition(to: size, with: coordinator)
-        coordinator.animate(alongsideTransition: { [weak self] _ in
-            self?.view.setNeedsLayout()
-            self?.view.layoutIfNeeded()
-        }) { [weak self] _ in
-            self?.updateOrientation()
+        do {
+            try await captureSession.prepare(position: preferredPosition, generation: generation)
+            try Task.checkCancellation()
+            guard operationGeneration == generation else { throw CancellationError() }
+            cameraPreview.updateConnection(
+                position: captureSession.currentPosition,
+                orientation: currentInterfaceOrientation,
+            )
+            try await Task<Never, Never>.sleep(for: .milliseconds(150))
+            try Task.checkCancellation()
+            guard operationGeneration == generation else { throw CancellationError() }
+            let remainingDuration = max(0.5, 60 - recordingDurationBaseline)
+            let remainingAutomaticDuration = max(0.5, 59.5 - recordingDurationBaseline)
+            try await captureSession.startRecording(
+                maximumDuration: remainingDuration,
+                automaticStopDuration: remainingAutomaticDuration,
+            )
+            try Task.checkCancellation()
+            guard operationGeneration == generation else { throw CancellationError() }
+            state = locked
+                ? .locked(recordingDurationBaseline)
+                : .holding(recordingDurationBaseline)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            guard !Task.isCancelled,
+                  operationGeneration == generation,
+                  exitDisposition == .none
+            else { return false }
+            let errorMessage = message(for: error)
+            if lockedInitially, recordingDraft != nil, operationGeneration == generation {
+                await recoverRecordMorePreview(message: errorMessage, generation: generation)
+            } else {
+                fail(errorMessage)
+            }
+            return false
         }
-    }
-
-    // MARK: Private
-
-    private enum ExitDisposition {
-        case discard
-        case none
-        case preserve
-    }
-
-    private let captureSession = VideoNoteCaptureSession()
-    private let previewPlayer = LocalMediaPlayer()
-    private let chatID: Int64
-    private let replyMessageID: Int64?
-    private let replyTo: InputMessageReplyTo?
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
-    private let previewContainer = VideoNotePreviewContainerView()
-    private let cameraPreview = VideoNoteCameraPreviewView()
-    private let playbackPreview = LocalVideoSurfaceView()
-    private let muteBadgeView = UIView()
-    private let muteBadgeImageView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
-    private let loadingIndicator = UIActivityIndicatorView(style: .large)
-    private let statusLabel = UILabel()
-    private let flipButton = UIButton(type: .system)
-    private let flashButton = UIButton(type: .system)
-    private let progressLayer = CAShapeLayer()
-    private var cancellables = Set<AnyCancellable>()
-    private var operationTask: Task<Void, Never>?
-    private var operationGeneration = UUID()
-    private var preferredPosition = VideoNoteCaptureSession.Position.front
-    private var lastFlipTimestamp: TimeInterval?
-    private var lastRecordMoreTimestamp: TimeInterval?
-    private var currentAsset: VideoNoteAsset?
-    private var recordingDraft: VideoNoteRecordingDraft?
-    private var previewThumbnails = [VideoNoteThumbnailSample]()
-    private var previewMuted = true
-    private var previewOwnsAudioSession = false
-    private var previewAudioSessionTask: Task<Void, Never>?
-    private var thumbnailGeneration = UUID()
-    private var thumbnailAppliedStage = 0
-    private var thumbnailTask: Task<Void, Never>?
-    private var recordingDurationBaseline = 0.0
-    private var transientTrimRange: Range<Double>?
-    private var trimBaseDraft: VideoNoteRecordingDraft?
-    private var ownsCurrentAsset = false
-    private var locked = false
-    private var didAnimateIn = false
-    private var didRequestDismiss = false
-    private var dismissAfterSubmission = false
-    private var flashEnabled = false
-    private var exitDisposition = ExitDisposition.none
-    private var initialScreenBrightness: CGFloat?
-    private var currentZoomFactor: CGFloat = 1
-    private var pinchStartZoomFactor: CGFloat = 1
-
-    private var currentInterfaceOrientation: UIInterfaceOrientation {
-        view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
     }
 
     private func configureViews() {
@@ -669,7 +673,7 @@ enum VideoNoteSubmissionResult: Sendable {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] playerState in
                 guard let self,
-                      case let .preview(duration, _, canRecordMore) = state
+                      case .preview(let duration, _, let canRecordMore) = state
                 else { return }
                 switch playerState {
                 case .playing:
@@ -711,7 +715,8 @@ enum VideoNoteSubmissionResult: Sendable {
                 updatePreviewMuteBadge()
             }
             .store(in: &cancellables)
-        Media.shared.$savedMediaPath
+        Media.shared
+            .$savedMediaPath
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] path in
@@ -800,17 +805,17 @@ enum VideoNoteSubmissionResult: Sendable {
             try? FileManager.default.removeItem(at: asset.url)
             throw VideoNoteRecordingDraftStoreError.invalidAsset
         }
-        let draft: VideoNoteRecordingDraft
-        if let recordingDraft {
-            draft = try await VideoNoteRecordingDraftStore.shared.append(asset, to: recordingDraft)
-        } else {
-            draft = try await VideoNoteRecordingDraftStore.shared.adopt(
-                asset,
-                chatID: chatID,
-                replyMessageID: replyMessageID,
-                replyTo: replyTo,
-            )
-        }
+        let draft: VideoNoteRecordingDraft =
+            if let recordingDraft {
+                try await VideoNoteRecordingDraftStore.shared.append(asset, to: recordingDraft)
+            } else {
+                try await VideoNoteRecordingDraftStore.shared.adopt(
+                    asset,
+                    chatID: chatID,
+                    replyMessageID: replyMessageID,
+                    replyTo: replyTo,
+                )
+            }
         guard operationGeneration == generation else {
             if exitDisposition == .discard {
                 await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
@@ -957,7 +962,8 @@ enum VideoNoteSubmissionResult: Sendable {
             var thumbnail: VideoNoteInputThumbnailAsset?
             let originRecordingDraftID: UUID?
             if let draft {
-                let outputURL = FileManager.default.temporaryDirectory
+                let outputURL = FileManager.default
+                    .temporaryDirectory
                     .appendingPathComponent("video-note-send-\(UUID().uuidString).mp4")
                 do {
                     asset = try await VideoNoteRecordingDraftStore.shared.materialize(
@@ -1009,7 +1015,7 @@ enum VideoNoteSubmissionResult: Sendable {
                 replyTo,
             )
             guard !Task.isCancelled, operationGeneration == generation else {
-                if case let .retained(staleAsset, originConsumed, _) = result,
+                if case .retained(let staleAsset, let originConsumed, _) = result,
                    !originConsumed,
                    draft != nil
                 {
@@ -1025,14 +1031,14 @@ enum VideoNoteSubmissionResult: Sendable {
                 thumbnailTask?.cancel()
                 thumbnailTask = nil
                 ownsCurrentAsset = false
-                self.currentAsset = nil
+                currentAsset = nil
                 recordingDraft = nil
                 previewThumbnails = []
                 previewPlayer.stop()
                 releasePreviewAudioSession()
                 state = .idle
                 dismissAnimated()
-            case let .retained(asset, originConsumed, message):
+            case .retained(let asset, let originConsumed, let message):
                 if !originConsumed, let draft {
                     try? FileManager.default.removeItem(at: asset.url)
                     if let thumbnail {
@@ -1067,7 +1073,7 @@ enum VideoNoteSubmissionResult: Sendable {
                         await VideoNoteFileStore.shared.discardAsset(at: asset.url)
                     }
                     ownsCurrentAsset = false
-                    self.currentAsset = nil
+                    currentAsset = nil
                     recordingDraft = nil
                     previewThumbnails = []
                     previewPlayer.stop()
@@ -1076,7 +1082,7 @@ enum VideoNoteSubmissionResult: Sendable {
                     dismissAnimated()
                     return
                 }
-                self.currentAsset = asset
+                currentAsset = asset
                 ownsCurrentAsset = true
                 releasePreviewAudioSession()
                 thumbnailTask?.cancel()
@@ -1095,7 +1101,8 @@ enum VideoNoteSubmissionResult: Sendable {
     private func makeOutgoingThumbnail(
         for videoURL: URL,
     ) async throws -> VideoNoteInputThumbnailAsset? {
-        let outputURL = FileManager.default.temporaryDirectory
+        let outputURL = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("video-note-thumbnail-\(UUID().uuidString).jpg")
         do {
             let sample = try await VideoNoteSegmentComposer.thumbnail(
@@ -1123,12 +1130,13 @@ enum VideoNoteSubmissionResult: Sendable {
     }
 
     private func handleAutomaticStop(_ result: Result<VideoNoteAsset, Swift.Error>) {
-        let acceptsResult: Bool = switch state {
-        case .holding, .locked, .stopping:
-            !didRequestDismiss && exitDisposition == .none
-        case .failed, .idle, .preparing, .preview, .sending:
-            false
-        }
+        let acceptsResult: Bool =
+            switch state {
+            case .holding, .locked, .stopping:
+                !didRequestDismiss && exitDisposition == .none
+            case .failed, .idle, .preparing, .preview, .sending:
+                false
+            }
         guard acceptsResult else {
             if case .success(let asset) = result {
                 try? FileManager.default.removeItem(at: asset.url)
@@ -1235,7 +1243,7 @@ enum VideoNoteSubmissionResult: Sendable {
             statusLabel.text = "Preparing preview…"
             flipButton.isHidden = true
             flashButton.isHidden = true
-        case let .preview(duration, isPlaying, _):
+        case .preview(let duration, let isPlaying, _):
             statusLabel.text = "\(formatted(duration))  \(isPlaying ? "Playing" : "Paused")"
             flipButton.isHidden = true
             flashButton.isHidden = true
@@ -1338,7 +1346,7 @@ enum VideoNoteSubmissionResult: Sendable {
         case .changed:
             currentZoomFactor = min(6, max(1, pinchStartZoomFactor * gesture.scale))
             captureSession.setZoomFactor(currentZoomFactor)
-        case .ended, .cancelled, .failed:
+        case .cancelled, .ended, .failed:
             currentZoomFactor = 1
             captureSession.setZoomFactor(1, rampRate: 8)
         case .possible:
@@ -1503,6 +1511,8 @@ enum VideoNoteSubmissionResult: Sendable {
         }
     }
 }
+
+// MARK: - VideoNotePreviewContainerView
 
 private final class VideoNotePreviewContainerView: UIView {
     var onAccessibilityActivate: (() -> Bool)?

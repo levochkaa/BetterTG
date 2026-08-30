@@ -4,6 +4,16 @@ import TDLibKitDynamic
 import UIKit
 
 final class MessageTextContentView: UITextView, UITextViewDelegate {
+    private struct CustomEmojiRequest {
+        let identifier: TdInt64
+        let range: NSRange
+    }
+
+    private struct CustomEmojiPlacement {
+        let range: NSRange
+        let view: CustomEmojiInlineView
+    }
+
     // MARK: Internal
 
     override var canBecomeFirstResponder: Bool { false }
@@ -23,6 +33,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private var lastLayoutWidth = CGFloat.zero
     private var maximumLayoutWidth = Utils.maxMessageContentWidth
     private let statusLabel = UILabel()
+
+    private var customEmojiPlacements = [CustomEmojiPlacement]()
+    private var customEmojiTask: Task<Void, Never>?
+    private var customEmojiGeneration = 0
+    private var customEmojiPlaybackVisible = false
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -68,15 +83,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         }
     }
 
-    private var formattedText: FormattedText?
-    private var lastLayoutWidth = CGFloat.zero
-    private var maximumLayoutWidth = Utils.maxMessageContentWidth
-    private let statusLabel = UILabel()
-    private var customEmojiPlacements = [CustomEmojiPlacement]()
-    private var customEmojiTask: Task<Void, Never>?
-    private var customEmojiGeneration = 0
-    private var customEmojiPlaybackVisible = false
-
     func configure(
         formattedText: FormattedText,
         statusText: String,
@@ -89,7 +95,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.text = statusText
         statusLabel.textColor = statusColor
         statusLabel.sizeToFit()
-        attributedText = NSAttributedString(getAttributedString(from: formattedText))
+        let result = NSMutableAttributedString(
+            attributedString: NSAttributedString(getAttributedString(from: formattedText)),
+        )
+        result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
+        attributedText = result
         loadCustomEmoji(from: formattedText)
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
@@ -118,7 +128,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         }
     }
 
-    private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat, trailingLineWidth: CGFloat) {
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        textView.selectedTextRange = nil
+    }
+
+    private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
         let storage = NSTextStorage(attributedString: attributedText)
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: maximumWidth, height: .greatestFiniteMagnitude))
@@ -130,16 +144,6 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
         let usedRect = manager.usedRect(for: container)
         return (ceil(usedRect.width), ceil(usedRect.height))
-    }
-
-    private struct CustomEmojiRequest {
-        let identifier: TdInt64
-        let range: NSRange
-    }
-
-    private struct CustomEmojiPlacement {
-        let range: NSRange
-        let view: CustomEmojiInlineView
     }
 
     private func loadCustomEmoji(from formattedText: FormattedText) {
@@ -237,8 +241,27 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         bringSubviewToFront(statusLabel)
     }
 
-    func textViewDidChangeSelection(_ textView: UITextView) {
-        textView.selectedTextRange = nil
+    private func statusSpacer(width: CGFloat) -> NSAttributedString {
+        let spacerCharacter = "\u{00a0}"
+        let spacerText = "\u{200b}" + spacerCharacter + spacerCharacter
+        let characterWidth = (spacerCharacter as NSString)
+            .size(
+                withAttributes: [.font: statusLabel.font as Any],
+            )
+            .width
+        let spacer = NSMutableAttributedString(
+            string: spacerText,
+            attributes: [
+                .font: statusLabel.font as Any,
+                .foregroundColor: UIColor.clear,
+            ],
+        )
+        spacer.addAttribute(
+            .kern,
+            value: max(0, width - characterWidth * 2),
+            range: NSRange(location: 1, length: 1),
+        )
+        return spacer
     }
 
     @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {

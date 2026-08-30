@@ -2,8 +2,27 @@
 
 import UIKit
 
+// MARK: - VoiceRecordingTrimView
+
 final class VoiceRecordingTrimView: UIView {
     var onRangeChange: ((Double, Double, Bool, Bool) -> Void)?
+
+    private let startHandle = VoiceRecordingTrimHandle()
+    private let endHandle = VoiceRecordingTrimHandle()
+    private var duration = 0.0
+    private var lowerBound = 0.0
+    private var upperBound = 0.0
+    private var editingEnabled = true
+    private var minimumVisibleDuration = 2.0
+    private var minimumSelectionWidth = CGFloat(56)
+
+    private var effectiveMinimumDuration: Double {
+        guard duration > 0, bounds.width > 0 else { return min(1, duration) }
+        return min(duration, max(1, Double(minimumSelectionWidth) * duration / Double(bounds.width)))
+    }
+
+    private var trackMinimumX: CGFloat { 6 }
+    private var trackMaximumX: CGFloat { max(trackMinimumX, bounds.width - 6) }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -19,34 +38,6 @@ final class VoiceRecordingTrimView: UIView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(duration: Double, range: Range<Double>) {
-        self.duration = max(0, duration)
-        lowerBound = max(0, min(range.lowerBound, self.duration))
-        upperBound = max(lowerBound, min(range.upperBound, self.duration))
-        isHidden = self.duration < minimumVisibleDuration
-        setNeedsLayout()
-        setNeedsDisplay()
-        updateAccessibilityValues()
-    }
-
-    func setEditingEnabled(_ enabled: Bool) {
-        guard editingEnabled != enabled else { return }
-        editingEnabled = enabled
-        isUserInteractionEnabled = enabled
-        startHandle.isEnabled = enabled
-        endHandle.isEnabled = enabled
-        accessibilityElementsHidden = !enabled
-    }
-
-    func setMinimumVisibleDuration(_ duration: Double) {
-        minimumVisibleDuration = max(0, duration)
-        isHidden = self.duration < minimumVisibleDuration
-    }
-
-    func setMinimumSelectionWidth(_ width: CGFloat) {
-        minimumSelectionWidth = max(0, width)
     }
 
     override func layoutSubviews() {
@@ -88,31 +79,45 @@ final class VoiceRecordingTrimView: UIView {
         let startHit = startHandle.hitTest(convert(point, to: startHandle), with: event)
         let endHit = endHandle.hitTest(convert(point, to: endHandle), with: event)
         switch (startHit, endHit) {
-        case let (start?, end?):
+        case (let start?, let end?):
             let startDistance = abs(point.x - startHandle.frame.midX)
             let endDistance = abs(point.x - endHandle.frame.midX)
             return startDistance <= endDistance ? start : end
-        case let (start?, nil):
+        case (let start?, nil):
             return start
-        case let (nil, end?):
+        case (nil, let end?):
             return end
         case (nil, nil):
             return nil
         }
     }
 
-    private let startHandle = VoiceRecordingTrimHandle()
-    private let endHandle = VoiceRecordingTrimHandle()
-    private var duration = 0.0
-    private var lowerBound = 0.0
-    private var upperBound = 0.0
-    private var editingEnabled = true
-    private var minimumVisibleDuration = 2.0
-    private var minimumSelectionWidth = CGFloat(56)
+    func update(duration: Double, range: Range<Double>) {
+        self.duration = max(0, duration)
+        lowerBound = max(0, min(range.lowerBound, self.duration))
+        upperBound = max(lowerBound, min(range.upperBound, self.duration))
+        isHidden = self.duration < minimumVisibleDuration
+        setNeedsLayout()
+        setNeedsDisplay()
+        updateAccessibilityValues()
+    }
 
-    private var effectiveMinimumDuration: Double {
-        guard duration > 0, bounds.width > 0 else { return min(1, duration) }
-        return min(duration, max(1, Double(minimumSelectionWidth) * duration / Double(bounds.width)))
+    func setEditingEnabled(_ enabled: Bool) {
+        guard editingEnabled != enabled else { return }
+        editingEnabled = enabled
+        isUserInteractionEnabled = enabled
+        startHandle.isEnabled = enabled
+        endHandle.isEnabled = enabled
+        accessibilityElementsHidden = !enabled
+    }
+
+    func setMinimumVisibleDuration(_ duration: Double) {
+        minimumVisibleDuration = max(0, duration)
+        isHidden = self.duration < minimumVisibleDuration
+    }
+
+    func setMinimumSelectionWidth(_ width: CGFloat) {
+        minimumSelectionWidth = max(0, width)
     }
 
     private func configure(handle: VoiceRecordingTrimHandle, updatedEnd: Bool) {
@@ -159,9 +164,6 @@ final class VoiceRecordingTrimView: UIView {
         return Double(progress) * duration
     }
 
-    private var trackMinimumX: CGFloat { 6 }
-    private var trackMaximumX: CGFloat { max(trackMinimumX, bounds.width - 6) }
-
     private func updateAccessibilityValues() {
         startHandle.accessibilityValue = format(lowerBound)
         endHandle.accessibilityValue = format(upperBound)
@@ -175,9 +177,13 @@ final class VoiceRecordingTrimView: UIView {
     }
 }
 
+// MARK: - VoiceRecordingTrimHandle
+
 private final class VoiceRecordingTrimHandle: UIControl {
     var onMove: ((CGFloat, Bool) -> Void)?
     var onAccessibilityStep: ((CGFloat) -> Void)?
+
+    private var lastLocation = CGFloat.zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -196,7 +202,7 @@ private final class VoiceRecordingTrimHandle: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+    override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
         bounds.insetBy(dx: -16, dy: -8).contains(point)
     }
 
@@ -213,7 +219,7 @@ private final class VoiceRecordingTrimHandle: UIControl {
         case .began, .changed:
             lastLocation = gesture.location(in: superview).x
             onMove?(lastLocation, false)
-        case .ended, .cancelled, .failed:
+        case .cancelled, .ended, .failed:
             lastLocation = gesture.location(in: superview).x
             onMove?(lastLocation, true)
         case .possible:
@@ -222,6 +228,4 @@ private final class VoiceRecordingTrimHandle: UIControl {
             onMove?(lastLocation, true)
         }
     }
-
-    private var lastLocation = CGFloat.zero
 }

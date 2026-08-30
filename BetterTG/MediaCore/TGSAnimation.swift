@@ -4,12 +4,20 @@ import Combine
 import Foundation
 import Lottie
 import QuartzCore
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 // MARK: - TGSAnimationRepository
 
 enum TGSAnimationRepository {
+    // MARK: Private
+
+    private static let cache: NSCache<NSString, LottieAnimation> = {
+        let cache = NSCache<NSString, LottieAnimation>()
+        cache.countLimit = 64
+        return cache
+    }()
+
     // MARK: Internal
 
     static func animation(at path: String) async -> LottieAnimation? {
@@ -36,20 +44,35 @@ enum TGSAnimationRepository {
             decodeTask.cancel()
         }
     }
-
-    // MARK: Private
-
-    private static let cache: NSCache<NSString, LottieAnimation> = {
-        let cache = NSCache<NSString, LottieAnimation>()
-        cache.countLimit = 64
-        return cache
-    }()
 }
 
 // MARK: - TGSStickerView
 
 final class TGSStickerView: UIControl, AnimatedFileView {
-    // MARK: Lifecycle
+    // MARK: Internal
+
+    var onFirstFrameReady: (() -> Void)?
+
+    // MARK: Private
+
+    private let thumbnailView = TDImageLoadingView()
+    private let animationView = LottieAnimationView(configuration: LottieConfiguration(
+        renderingEngine: .automatic,
+        decodingStrategy: .legacyCodable,
+    ))
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
+    private var representedFileID: Int?
+    private var loadedPath: String?
+    private var playbackVisible = false
+    private var onTap: (() -> Void)?
+    private var downloadTask: Task<Void, Never>?
+    private var decodeTask: Task<Void, Never>?
+    private var fileCancellable: AnyCancellable?
+
+    private var playbackEnabled: Bool {
+        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -86,10 +109,6 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: Internal
-
-    var onFirstFrameReady: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -166,27 +185,6 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     func setPlaybackVisible(_ isVisible: Bool) {
         playbackVisible = isVisible
         updatePlayback()
-    }
-
-    // MARK: Private
-
-    private let thumbnailView = TDImageLoadingView()
-    private let animationView = LottieAnimationView(configuration: LottieConfiguration(
-        renderingEngine: .automatic,
-        decodingStrategy: .legacyCodable,
-    ))
-    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
-    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
-    private var representedFileID: Int?
-    private var loadedPath: String?
-    private var playbackVisible = false
-    private var onTap: (() -> Void)?
-    private var downloadTask: Task<Void, Never>?
-    private var decodeTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
-
-    private var playbackEnabled: Bool {
-        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
     }
 
     private func apply(displaySize: CGSize?) {
