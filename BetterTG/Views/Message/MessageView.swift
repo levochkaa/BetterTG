@@ -64,6 +64,7 @@ private final class SwipeToReplyIndicatorView: UIView {
 
     private let iconView = UIImageView()
     private let progressLayer = CAShapeLayer()
+    private var thresholdPulseView: UIView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -122,6 +123,37 @@ private final class SwipeToReplyIndicatorView: UIView {
         progressLayer.strokeEnd = progress
         CATransaction.commit()
     }
+
+    func playThresholdAnimation() {
+        thresholdPulseView?.layer.removeAllAnimations()
+        thresholdPulseView?.removeFromSuperview()
+
+        let pulseView = UIView(frame: bounds)
+        pulseView.isUserInteractionEnabled = false
+        pulseView.backgroundColor = backgroundColor
+        pulseView.layer.cornerRadius = bounds.height / 2
+        pulseView.layer.cornerCurve = .continuous
+        pulseView.layer.borderColor = UIColor.systemBlue.cgColor
+        pulseView.layer.borderWidth = 2
+        pulseView.alpha = 0.9
+        insertSubview(pulseView, at: 0)
+        thresholdPulseView = pulseView
+
+        UIView.animate(
+            withDuration: 0.34,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+        ) {
+            pulseView.transform = CGAffineTransform(scaleX: 2.15, y: 2.15)
+            pulseView.alpha = 0
+        } completion: { [weak self, weak pulseView] _ in
+            guard let pulseView else { return }
+            if self?.thresholdPulseView === pulseView {
+                self?.thresholdPulseView = nil
+            }
+            pulseView.removeFromSuperview()
+        }
+    }
 }
 
 // MARK: - MessageCell
@@ -159,7 +191,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
     private var swipeReplyThreshold: CGFloat = 45
-    private var playedSwipeReplyHaptic = false
+    private var swipeReplyFeedbackArmed = true
     private var swipeReplyFeedback: UIImpactFeedbackGenerator?
     private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
     private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
@@ -394,7 +426,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         switch recognizer.state {
         case .began:
             suspendHistoryScrolling()
-            playedSwipeReplyHaptic = false
+            swipeReplyFeedbackArmed = true
             let feedback = UIImpactFeedbackGenerator(style: .heavy)
             feedback.prepare()
             swipeReplyFeedback = feedback
@@ -404,8 +436,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             rowStack.transform = CGAffineTransform(translationX: -distance, y: 0)
             let progress = distance / swipeReplyThreshold
             swipeToReplyIndicator.update(progress: progress)
-            if progress >= 1, !playedSwipeReplyHaptic {
-                playedSwipeReplyHaptic = true
+            if progress <= 0.82, !swipeReplyFeedbackArmed {
+                swipeReplyFeedbackArmed = true
+                swipeReplyFeedback?.prepare()
+            } else if progress >= 1, swipeReplyFeedbackArmed {
+                swipeReplyFeedbackArmed = false
+                swipeToReplyIndicator.playThresholdAnimation()
                 swipeReplyFeedback?.impactOccurred(intensity: 0.8)
             }
         case .cancelled, .ended, .failed:
