@@ -293,20 +293,20 @@ extension ChatVM {
     func updateChatAction(_ update: UpdateChatAction) {
         actionStatus =
             switch update.action {
-            case .chatActionTyping: "typing..."
-            case .chatActionRecordingVideo: "recording video..."
-            case .chatActionUploadingVideo: "uploading video..."
-            case .chatActionRecordingVoiceNote: "recording voice note..."
-            case .chatActionUploadingVoiceNote: "uploading voice note..."
-            case .chatActionUploadingPhoto: "uploading photo..."
-            case .chatActionUploadingDocument: "uploading document..."
-            case .chatActionChoosingSticker: "choosing sticker..."
-            case .chatActionChoosingLocation: "choosing location..."
-            case .chatActionChoosingContact: "choosing contact..."
-            case .chatActionStartPlayingGame: "playing game..."
-            case .chatActionRecordingVideoNote: "recording video note..."
-            case .chatActionUploadingVideoNote: "uploading video note..."
-            case .chatActionWatchingAnimations(let action): "watching animations...\(action.emoji)"
+            case .chatActionTyping: L10n.telegram("DialogList.Typing")
+            case .chatActionRecordingVideo: L10n.telegram("Activity.RecordingVideoMessage")
+            case .chatActionUploadingVideo: L10n.telegram("Activity.UploadingVideo")
+            case .chatActionRecordingVoiceNote: L10n.telegram("Activity.RecordingAudio")
+            case .chatActionUploadingVoiceNote: L10n.telegram("Activity.UploadingDocument")
+            case .chatActionUploadingPhoto: L10n.telegram("Activity.UploadingPhoto")
+            case .chatActionUploadingDocument: L10n.telegram("Activity.UploadingDocument")
+            case .chatActionChoosingSticker: L10n.telegram("Activity.ChoosingSticker")
+            case .chatActionChoosingLocation: L10n.betterTG("Chat.ChoosingLocation")
+            case .chatActionChoosingContact: L10n.betterTG("Chat.ChoosingContact")
+            case .chatActionStartPlayingGame: L10n.telegram("Activity.PlayingGame")
+            case .chatActionRecordingVideoNote: L10n.telegram("Activity.RecordingVideoMessage")
+            case .chatActionUploadingVideoNote: L10n.telegram("Activity.UploadingVideoMessage")
+            case .chatActionWatchingAnimations(let action): L10n.telegram("Activity.EnjoyingAnimations", action.emoji)
             case .chatActionCancel: ""
             }
     }

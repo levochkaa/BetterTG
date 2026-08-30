@@ -23,7 +23,7 @@ import TDLibKitDynamic
     var id: Int64 { chat.id }
 
     var displayTitle: String {
-        isSavedMessages ? "Saved Messages" : chat.title
+        isSavedMessages ? L10n.telegram("Conversation.SavedMessages") : chat.title
     }
 
     var isSavedMessages: Bool {

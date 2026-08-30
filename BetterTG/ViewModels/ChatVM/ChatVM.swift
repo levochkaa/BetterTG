@@ -903,31 +903,32 @@ import UIKit
     func getLastSeenTime(_ time: Int) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(time))
         let dateFormatter = DateFormatter()
-        
+        dateFormatter.locale = Locale(identifier: AppLocalization.shared.selectedLanguagePackID)
+
         let difference = Date().timeIntervalSince1970 - TimeInterval(time)
         if difference < 60 {
-            return "now"
+            return L10n.telegram("LastSeen.JustNow")
         } else if difference < 60 * 60 {
-            return "\(Int(difference / 60)) minutes ago"
+            return L10n.telegramPlural("LastSeen.MinutesAgo", count: Int(difference / 60))
         } else if difference < 60 * 60 * 24 {
-            return "\(Int(difference / 60 / 60)) hours ago"
+            return L10n.telegramPlural("LastSeen.HoursAgo", count: Int(difference / 60 / 60))
         } else if difference < 60 * 60 * 24 * 2 {
-            dateFormatter.dateFormat = "HH:mm"
-            return "yesterday at \(dateFormatter.string(from: date))"
+            dateFormatter.timeStyle = .short
+            return L10n.telegram("LastSeen.YesterdayAt", dateFormatter.string(from: date))
         } else {
-            dateFormatter.dateFormat = "dd.MM.yy"
-            return dateFormatter.string(from: date)
+            dateFormatter.dateStyle = .short
+            return L10n.telegram("LastSeen.AtDate", dateFormatter.string(from: date))
         }
     }
 
     func getOnlineStatus(from userStatus: UserStatus) -> String {
         switch userStatus {
-        case .userStatusEmpty: "empty"
-        case .userStatusOnline: /* (let userStatusOnline) */ "online"
-        case .userStatusOffline(let userStatusOffline): "last seen \(getLastSeenTime(userStatusOffline.wasOnline))"
-        case .userStatusRecently: "last seen recently"
-        case .userStatusLastWeek: "last seen last week"
-        case .userStatusLastMonth: "last seen last month"
+        case .userStatusEmpty: ""
+        case .userStatusOnline: L10n.telegram("Presence.online")
+        case .userStatusOffline(let userStatusOffline): getLastSeenTime(userStatusOffline.wasOnline)
+        case .userStatusRecently: L10n.telegram("LastSeen.Lately")
+        case .userStatusLastWeek: L10n.telegram("LastSeen.WithinAWeek")
+        case .userStatusLastMonth: L10n.telegram("LastSeen.WithinAMonth")
         }
     }
 
@@ -1688,8 +1689,42 @@ import UIKit
             customMessage.senderUser = try? await client.getUser(userId: messageSenderUser.userId)
         }
         
-        customMessage.formattedText = customMessage.contentPresentation.formattedText
-        if case .messageSendingStateFailed = message.sendingState { customMessage.sendFailed = true }
+        if case .messageSenderUser(let messageSenderUser) = replyToMessage?.senderId {
+            customMessage.replyUser = try? await td.getUser(userId: messageSenderUser.userId)
+        }
+        
+        switch message.content {
+        case .messageText(let messageText):
+            customMessage.formattedText = messageText.text
+        case .messagePhoto(let messagePhoto):
+            if !messagePhoto.caption.text.isEmpty {
+                customMessage.formattedText = messagePhoto.caption
+            }
+        case .messageVoiceNote(let messageVoiceNote):
+            if !messageVoiceNote.caption.text.isEmpty {
+                customMessage.formattedText = messageVoiceNote.caption
+            }
+        case .messageAnimation(let messageAnimation):
+            if !messageAnimation.caption.text.isEmpty {
+                customMessage.formattedText = messageAnimation.caption
+            }
+        case .messageVideo(let messageVideo):
+            if !messageVideo.caption.text.isEmpty {
+                customMessage.formattedText = messageVideo.caption
+            }
+        case .messageSticker:
+            break
+        case .messageUnsupported:
+            customMessage.formattedText = FormattedText(
+                entities: [],
+                text: L10n.betterTG("Chat.UnsupportedTDLib"),
+            )
+        default:
+            customMessage.formattedText = FormattedText(
+                entities: [],
+                text: L10n.betterTG("Chat.UnsupportedBetterTG"),
+            )
+        }
         
         return customMessage
     }

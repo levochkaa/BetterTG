@@ -7,9 +7,9 @@ enum LoginState {
 
     var title: String {
         switch self {
-        case .phoneNumber: "Phone number"
-        case .code: "Code"
-        case .twoFactor: "2FA"
+        case .phoneNumber: L10n.telegram("Login.PhoneTitle")
+        case .code: L10n.telegram("Login.Code")
+        case .twoFactor: L10n.telegram("LoginPassword.PasswordPlaceholder")
         }
     }
 }

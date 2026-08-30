@@ -209,7 +209,7 @@ final class TelegramWaveformView: UIControl {
         backgroundColor = .clear
         isOpaque = false
         isAccessibilityElement = true
-        accessibilityLabel = "Voice message waveform"
+        accessibilityLabel = L10n.betterTG("Accessibility.VoiceWaveform")
         accessibilityTraits = [.adjustable]
     }
 

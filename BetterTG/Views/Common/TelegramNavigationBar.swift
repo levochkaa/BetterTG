@@ -316,12 +316,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        backButton.accessibilityLabel = "Back"
+        backButton.accessibilityLabel = L10n.telegram("Common.Back")
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
         addSubview(backButton)
 
         titleControl.translatesAutoresizingMaskIntoConstraints = false
-        titleControl.accessibilityHint = "Opens profile. Long press to search messages"
+        titleControl.accessibilityHint = L10n.betterTG("Accessibility.SearchMessagesHint")
         titleControl.accessibilityTraits = .button
         titleControl.addTarget(self, action: #selector(profilePressed), for: .touchUpInside)
         titleControl.addGestureRecognizer(
@@ -350,7 +350,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         addSubview(avatarView)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholder = "Search messages"
+        searchField.placeholder = L10n.telegram("Conversation.ContextMenuSearchMessages")
         searchField.clearButtonMode = .whileEditing
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no
@@ -369,7 +369,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         closeButton.tintColor = .secondaryLabel
-        closeButton.accessibilityLabel = "Close Search"
+        closeButton.accessibilityLabel = L10n.betterTG("Accessibility.CloseSearch")
         closeButton.alpha = 0
         closeButton.isHidden = true
         closeButton.addTarget(self, action: #selector(endSearch), for: .touchUpInside)

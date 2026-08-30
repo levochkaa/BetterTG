@@ -38,7 +38,7 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Country"
+        title = L10n.telegram("Login.SelectCountry.Title")
         tableView.backgroundColor = .systemGroupedBackground
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CountryCell")
         navigationItem.leftBarButtonItem = UIBarButtonItem(
@@ -50,6 +50,7 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
         let searchController = UISearchController(searchResultsController: nil)
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchResultsUpdater = self
+        searchController.searchBar.placeholder = L10n.telegram("Common.Search")
         navigationItem.searchController = searchController
         navigationItem.hidesSearchBarWhenScrolling = false
         definesPresentationContext = true
@@ -103,7 +104,7 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
                 return PhoneNumberInfo(
                     country: country.countryCode,
                     phoneNumberPrefix: callingCode,
-                    name: country.englishName,
+                    name: country.name,
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }

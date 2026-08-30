@@ -40,7 +40,7 @@ final class ChatFoldersViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Chat Folders"
+        title = L10n.telegram("Settings.ChatFolders")
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .add,
@@ -67,7 +67,7 @@ final class ChatFoldersViewController: UITableViewController {
     }
 
     override func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
-        customFolders.isEmpty ? "Create folders to keep different kinds of chats together." : nil
+        customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -75,7 +75,10 @@ final class ChatFoldersViewController: UITableViewController {
         let folder = customFolders[indexPath.row]
         var configuration = cell.defaultContentConfiguration()
         configuration.text = folder.name
-        configuration.secondaryText = "\(folder.chats.count) chats"
+        configuration.secondaryText = L10n.telegramPlural(
+            "GlobalAutodeleteSettings.ApplyChatsSubject",
+            count: folder.chats.count,
+        )
         configuration.image = UIImage(systemName: "folder.fill")
         configuration.imageProperties.tintColor = .systemBlue
         cell.contentConfiguration = configuration
@@ -101,11 +104,10 @@ final class ChatFoldersViewController: UITableViewController {
         let scope = session.scope(owner: self)
         guard scope.isCurrent else { return nil }
         let folder = customFolders[indexPath.row]
-        let delete = UIContextualAction(style: .destructive, title: "Remove") { [weak self] _, _, complete in
-            guard scope.isCurrent else {
-                complete(false)
-                return
-            }
+        let delete = UIContextualAction(
+            style: .destructive,
+            title: L10n.telegram("ChatList.RemoveFolderAction"),
+        ) { [weak self] _, _, complete in
             self?.confirmRemoval(of: folder)
             complete(true)
         }
@@ -124,17 +126,24 @@ final class ChatFoldersViewController: UITableViewController {
         let scope = session.scope(owner: self)
         guard scope.isCurrent, case .folder(let info, _) = folder.type else { return }
         let alert = UIAlertController(
-            title: "Remove \(folder.name)?",
-            message: "The folder will be removed from your account. Its chats won't be deleted or left.",
+            title: L10n.telegram("ChatList.RemoveFolderAction"),
+            message: L10n.telegram("ChatList.RemoveFolderConfirmation"),
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
-            guard let self, scope.isCurrent else { return }
-            session.mutate(.delete(info.id), owner: self) { [weak self] result in
-                if case .failure(let error) = result { self?.presentFolderError(error) }
-            }
-        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert
+            .addAction(UIAlertAction(
+                title: L10n.telegram("ChatList.RemoveFolderAction"),
+                style: .destructive,
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    do {
+                        _ = try await td.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
+                    } catch {
+                        self?.presentFolderError(error)
+                    }
+                }
+            })
         present(alert, animated: true)
     }
 }
@@ -166,7 +175,7 @@ final class ChatFolderOrderViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Reorder Tabs"
+        title = L10n.telegram("ChatList.ReorderTabs")
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: "Done",
@@ -188,7 +197,7 @@ final class ChatFolderOrderViewController: UITableViewController {
     override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int { folders.count }
 
     override func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
-        "Drag the folders into the order you want to see in the tab bar."
+        L10n.betterTG("Folders.ReorderInfo")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -255,7 +264,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private var draft: ChatFolder
     private lazy var nameField: UITextField = {
         let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
-        field.placeholder = "Folder Name"
+        field.placeholder = L10n.telegram("ChatListFolder.NamePlaceholder")
         field.textAlignment = .right
         field.returnKeyType = .done
         field.clearButtonMode = .whileEditing
@@ -289,7 +298,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = folderInfo == nil ? "New Folder" : "Edit Folder"
+        title = folderInfo == nil
+            ? L10n.telegram("ChatListFolder.TitleCreate")
+            : L10n.telegram("ChatListFolder.TitleEdit")
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .save,
@@ -319,7 +330,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
         guard Section(rawValue: section) == .includedTypes else { return nil }
-        return "A chat is included when it matches any selected type or is selected explicitly."
+        return L10n.telegram("ChatListFolder.IncludeSectionInfo")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -390,8 +401,10 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         guard scope.isCurrent else { return }
         let selected = Set(excluded ? draft.excludedChatIds : draft.includedChatIds)
         let controller = ChatFolderChatSelectionViewController(
-            session: session,
-            title: excluded ? "Excluded Chats" : "Included Chats",
+            rootVM: rootVM,
+            title: excluded
+                ? L10n.telegram("ChatListFolder.ExcludeChatsTitle")
+                : L10n.telegram("ChatListFolder.IncludeChatsTitle"),
             selectedChatIDs: selected,
         ) { [weak self] selection, selectedChatIDs in
             guard let self, activeSelection === selection, session.scope(owner: self).isCurrent else { return false }
@@ -411,11 +424,11 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         nameField.resignFirstResponder()
         let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty else {
-            presentFolderError(message: "Enter a folder name.")
+            presentFolderError(message: L10n.betterTG("Folders.EnterNameError"))
             return
         }
         guard draft.hasIncludedRule else {
-            presentFolderError(message: "Choose at least one chat or chat type to include.")
+            presentFolderError(message: L10n.betterTG("Folders.SelectIncludeError"))
             return
         }
 
@@ -493,7 +506,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         navigationItem.rightBarButtonItem?.accessibilityLabel = "Done"
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = "Search Chats"
+        searchController.searchBar.placeholder = L10n.telegram("ChatListFilter.AddChatsSearchPlaceholder")
         navigationItem.searchController = searchController
         definesPresentationContext = true
         sessionObservation = session.bind(self) { [weak self] in self?.reloadCandidates() }
@@ -536,7 +549,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int { visibleChats.count }
 
     override func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
-        visibleChats.isEmpty ? "No loaded chats match this search." : nil
+        visibleChats.isEmpty ? L10n.betterTG("Folders.EmptySearch") : nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -659,11 +672,11 @@ enum ChatFolderInclusion: CaseIterable {
 
     var title: String {
         switch self {
-        case .contacts: "Contacts"
-        case .nonContacts: "Non-Contacts"
-        case .groups: "Groups"
-        case .channels: "Channels"
-        case .bots: "Bots"
+        case .contacts: L10n.telegram("ChatListFolder.CategoryContacts")
+        case .nonContacts: L10n.telegram("ChatListFolder.CategoryNonContacts")
+        case .groups: L10n.telegram("ChatListFolder.CategoryGroups")
+        case .channels: L10n.telegram("ChatListFolder.CategoryChannels")
+        case .bots: L10n.telegram("ChatListFolder.CategoryBots")
         }
     }
 }
@@ -679,9 +692,9 @@ enum ChatFolderExclusion: CaseIterable {
 
     var title: String {
         switch self {
-        case .muted: "Muted"
-        case .read: "Read"
-        case .archived: "Archived"
+        case .muted: L10n.telegram("ChatListFolder.CategoryMuted")
+        case .read: L10n.telegram("ChatListFolder.CategoryRead")
+        case .archived: L10n.telegram("ChatListFolder.CategoryArchived")
         }
     }
 }
@@ -862,9 +875,9 @@ private extension ChatFolderEditorViewController {
         var title: String? {
             switch self {
             case .name: nil
-            case .includedTypes: "Included Chat Types"
-            case .chats: "Selected Chats"
-            case .excludedTypes: "Exclude"
+            case .includedTypes: L10n.betterTG("Folders.IncludedTypes")
+            case .chats: L10n.betterTG("Folders.SelectedChats")
+            case .excludedTypes: L10n.betterTG("Folders.Exclude")
             }
         }
 
@@ -889,18 +902,26 @@ private extension ChatFolderEditorViewController {
 
         var title: String {
             switch self {
-            case .name: "Name"
+            case .name: L10n.telegram("ChatListFolder.NameSectionHeader")
             case .include(let type): type.title
-            case .includedChats: "Always Include"
-            case .excludedChats: "Never Include"
+            case .includedChats: L10n.betterTG("Folders.AlwaysInclude")
+            case .excludedChats: L10n.betterTG("Folders.NeverInclude")
             case .exclude(let type): type.title
             }
         }
 
         func subtitle(for folder: ChatFolder) -> String? {
             switch self {
-            case .includedChats: "\(folder.includedChatIds.count) chats"
-            case .excludedChats: "\(folder.excludedChatIds.count) chats"
+            case .includedChats:
+                L10n.telegramPlural(
+                    "GlobalAutodeleteSettings.ApplyChatsSubject",
+                    count: folder.includedChatIds.count,
+                )
+            case .excludedChats:
+                L10n.telegramPlural(
+                    "GlobalAutodeleteSettings.ApplyChatsSubject",
+                    count: folder.excludedChatIds.count,
+                )
             default: nil
             }
         }
@@ -912,36 +933,13 @@ private extension CustomChat {
         let existing = displayTitle
         if !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return existing }
         switch type {
-        case .bot(let user), .user(let user):
-            switch user.type {
-            case .userTypeDeleted: return "Deleted Account"
-            case .userTypeUnknown: return "Unknown User"
-            default: break
-            }
-            let name = [user.firstName, user.lastName]
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-            if !name.isEmpty { return name }
-            if let username = user.usernames?.activeUsernames.first, !username.isEmpty { return "@" + username }
-            if !user.phoneNumber.isEmpty { return user.phoneNumber }
-            if case .bot = type { return "Bot" }
-            return "User"
-        case .group: return "Untitled Group"
-        case .supergroup(let group): return group.isChannel ? "Untitled Channel" : "Untitled Group"
-        }
-    }
-
-    var folderPickerSubtitle: String? {
-        switch type {
-        case .user(let user):
-            switch user.type {
-            case .userTypeDeleted, .userTypeUnknown: nil
-            default: user.isContact ? "Contact" : "Non-Contact"
-            }
-        case .bot: "Bot"
-        case .group: "Group"
-        case .supergroup(let group): group.isChannel ? "Channel" : "Group"
+        case .user: L10n.telegram("ChatList.PeerTypeContact")
+        case .bot: L10n.telegram("ChatList.PeerTypeBot")
+        case .group: L10n.telegram("ChatList.PeerTypeGroup")
+        case .supergroup(let group):
+            group.isChannel
+                ? L10n.telegram("ChatList.PeerTypeChannel")
+                : L10n.telegram("ChatList.PeerTypeGroup")
         }
     }
 }
@@ -952,8 +950,12 @@ private extension UIViewController {
     }
 
     func presentFolderError(message: String) {
-        let alert = UIAlertController(title: "Couldn't Update Folder", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(
+            title: L10n.betterTG("Folders.UpdateError"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 }

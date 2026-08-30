@@ -25,7 +25,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     var isActive: Bool { searchField.isFirstResponder }
     var hasMarkedText: Bool { searchField.markedTextRange != nil }
 
-    init(placeholder: String = "Search chats…") {
+    init(placeholder: String = L10n.telegram("DialogList.SearchLabel")) {
         self.placeholder = placeholder
         super.init(frame: .zero)
         configureViews()
@@ -115,7 +115,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         closeButton.tintColor = .secondaryLabel
-        closeButton.accessibilityLabel = "Close Search"
+        closeButton.accessibilityLabel = L10n.betterTG("Accessibility.CloseSearch")
         closeButton.alpha = 0
         closeButton.transform = CGAffineTransform(translationX: 60, y: 0)
         closeButton.addTarget(self, action: #selector(closeSearch), for: .touchUpInside)

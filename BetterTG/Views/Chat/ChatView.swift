@@ -1534,7 +1534,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         scrollToLatestButton.layer.shadowOffset = CGSize(width: 0, height: 3)
         scrollToLatestButton.alpha = 0
         scrollToLatestButton.transform = CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
-        scrollToLatestButton.accessibilityLabel = "Scroll to latest message"
+        scrollToLatestButton.accessibilityLabel = L10n.betterTG("Accessibility.ScrollToLatest")
         scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
 
         unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1945,7 +1945,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             : chatVM.customChat.unreadCount
         unreadBadgeLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
         unreadBadgeLabel.isHidden = unreadCount == 0
-        scrollToLatestButton.accessibilityValue = unreadCount == 0 ? nil : "\(unreadCount) unread"
+        scrollToLatestButton.accessibilityValue = unreadCount == 0
+            ? nil
+            : L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: unreadCount)
     }
 
     private func updatePinnedMessageBanner(animated: Bool) {
@@ -2545,7 +2547,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func emptyLabel() -> UIView {
         let label = UILabel()
-        label.text = "No messages"
+        label.text = L10n.telegram("Conversation.EmptyPlaceholder")
         label.textColor = .secondaryLabel
         label.textAlignment = .center
         label.transform = CGAffineTransform(scaleX: 1, y: -1)
@@ -3426,8 +3428,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func showCamera() {
         guard chatVM.canAttachPhotos else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            let alert = UIAlertController(title: "Camera unavailable", message: nil, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            let alert = UIAlertController(
+                title: L10n.betterTG("Chat.CameraUnavailable"),
+                message: nil,
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
             present(alert, animated: true)
             return
         }
@@ -3445,18 +3451,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         didPresentMicrophoneError = true
         chatVM.errorShown = false
         let alert = UIAlertController(
-            title: "Microphone Access Required",
-            message: "Enable Microphone in Settings → BetterTG to record voice messages.",
+            title: L10n.betterTG("Permissions.MicrophoneTitle"),
+            message: L10n.betterTG("Permissions.MicrophoneMessage"),
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
             self?.didPresentMicrophoneError = false
         })
-        alert.addAction(UIAlertAction(title: "Open Settings", style: .default) { [weak self] _ in
-            self?.didPresentMicrophoneError = false
-            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-            UIApplication.shared.open(url)
-        })
+        alert
+            .addAction(UIAlertAction(
+                title: L10n.telegram("Notifications.PermissionsOpenSettings"),
+                style: .default,
+            ) { [weak self] _ in
+                self?.didPresentMicrophoneError = false
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            })
         present(alert, animated: true)
     }
 
@@ -3641,7 +3651,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if message.properties.canBeReplied {
             elements
                 .append(TelegramContextMenuAction(
-                    title: "Reply",
+                    title: L10n.telegram("Conversation.ContextMenuReply"),
                     image: UIImage(systemName: "arrowshape.turn.up.left"),
                 ) { [weak self] in
                     self?.chatVM.beginReply(to: message)
@@ -3657,7 +3667,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if message.properties.canBeEdited {
             elements.append(TelegramContextMenuAction(
-                title: "Edit",
+                title: L10n.telegram("Common.Edit"),
                 image: UIImage(systemName: "square.and.pencil"),
             ) { [weak self] in
                 self?.chatVM.beginMessageEditing(message)
@@ -3667,7 +3677,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
            let text = formattedText(from: message.message.content)
         {
             elements.append(TelegramContextMenuAction(
-                title: "Copy",
+                title: L10n.telegram("Conversation.ContextMenuCopy"),
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
             ) { UIPasteboard.setFormattedText(text) })
         }
@@ -3714,13 +3724,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
 
         let deleteSelf = TelegramContextMenuAction(
-            title: "Delete only for me",
+            title: L10n.telegram("Conversation.DeleteMessagesForMe"),
             image: UIImage(systemName: "trash"),
             isDestructive: true,
             startsNewSection: true,
         ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false) }
         let deleteAll = TelegramContextMenuAction(
-            title: "Delete for both",
+            title: L10n.telegram("Conversation.DeleteMessagesForEveryone"),
             image: UIImage(systemName: "trash.fill"),
             isDestructive: true,
             startsNewSection: true,

@@ -193,17 +193,17 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         let chatController = hostController as? ChatViewController
         hostController.presentTelegramContextMenu(sourceView: self, actions: [
             TelegramContextMenuAction(
-                title: "Open Profile",
+                title: L10n.telegram("Conversation.ContextMenuOpenProfile"),
                 image: UIImage(systemName: "person.crop.circle"),
             ) {},
             TelegramContextMenuAction(
-                title: "Search",
+                title: L10n.telegram("PeerInfo.ButtonSearch"),
                 image: UIImage(systemName: "magnifyingglass"),
             ) { [weak chatController] in
                 chatController?.beginMessageSearch()
             },
             TelegramContextMenuAction(
-                title: "Save Photo",
+                title: L10n.telegram("Gallery.SaveImage"),
                 image: UIImage(systemName: "square.and.arrow.down"),
             ) { [weak self] in
                 guard let image = self?.imageView.image else { return }

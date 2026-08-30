@@ -645,7 +645,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private func emptyLabel() -> UIView {
         let label = UILabel()
-        label.text = "Empty folder :("
+        label.text = L10n.telegram("ChatList.EmptyChatListFilterTitle")
         label.textAlignment = .center
         label.textColor = .secondaryLabel
         label.font = .preferredFont(forTextStyle: .body)
@@ -673,13 +673,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
         var actions = [
             TelegramContextMenuAction(
-                title: isCustomFolder ? "Remove from Folder" : "Add to Folder",
+                title: isCustomFolder
+                    ? L10n.telegram("ChatList.Context.RemoveFromFolder")
+                    : L10n.telegram("ChatList.Context.AddToFolder"),
                 image: UIImage(systemName: isCustomFolder ? "folder.badge.minus" : "folder.badge.plus"),
             ) { [weak self] in
                 self?.performFolderAction(for: chat)
             },
             TelegramContextMenuAction(
-                title: unread ? "Mark as Read" : "Mark as Unread",
+                title: unread
+                    ? L10n.telegram("ChatList.Context.MarkAsRead")
+                    : L10n.telegram("ChatList.Context.MarkAsUnread"),
                 image: UIImage(systemName: unread ? "envelope.open" : "envelope.badge"),
             ) {
                 Task {
@@ -705,7 +709,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 }
             },
             TelegramContextMenuAction(
-                title: archived ? "Unarchive" : "Archive",
+                title: archived
+                    ? L10n.telegram("ChatList.Context.Unarchive")
+                    : L10n.telegram("ChatList.Context.Archive"),
                 image: UIImage(systemName: archived ? "tray.and.arrow.up" : "archivebox"),
             ) {
                 Task {
@@ -718,7 +724,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 }
             },
             TelegramContextMenuAction(
-                title: pinned ? "Unpin" : "Pin",
+                title: pinned
+                    ? L10n.telegram("ChatList.Context.Unpin")
+                    : L10n.telegram("ChatList.Context.Pin"),
                 image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
             ) { [weak self] in
                 guard let self else { return }
@@ -733,7 +741,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 }
             },
             TelegramContextMenuAction(
-                title: muted ? "Unmute" : "Mute",
+                title: muted
+                    ? L10n.telegram("ChatList.Context.Unmute")
+                    : L10n.telegram("ChatList.Context.Mute"),
                 image: UIImage(systemName: muted ? "speaker.wave.2.fill" : "speaker.slash.fill"),
             ) {
                 Task {
@@ -751,7 +761,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
         if chat.chat.canBeDeletedOnlyForSelf || chat.chat.canBeDeletedForAllUsers {
             actions.append(TelegramContextMenuAction(
-                title: "Delete",
+                title: L10n.telegram("ChatList.Context.Delete"),
                 image: UIImage(systemName: "trash"),
                 isDestructive: true,
                 startsNewSection: true,
@@ -806,7 +816,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             return (info.id, folder.name, definition)
         }
         guard !targets.isEmpty else { return }
-        let picker = UIAlertController(title: "Add to Folder", message: nil, preferredStyle: .actionSheet)
+        let picker = UIAlertController(
+            title: L10n.telegram("ChatList.Context.AddToFolder"),
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
         for target in targets {
             picker.addAction(UIAlertAction(title: target.1, style: .default) { _ in
                 Task {
@@ -819,7 +833,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 }
             })
         }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        picker.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         picker.popoverPresentationController?.sourceView = view
         picker.popoverPresentationController?.sourceRect = CGRect(
             x: view.bounds.midX,
@@ -835,12 +849,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let client = actionAuthority.client
         guard scope.isCurrent else { return }
         let alert = UIAlertController(
-            title: "Delete chat?",
-            message: "Are you sure you want to delete chat with \(chat.displayTitle)?",
+            title: L10n.telegram("ChatList.DeleteChat"),
+            message: L10n.telegram("ChatList.DeleteChatConfirmation", chat.displayTitle),
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { _ in
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Delete"), style: .destructive) { _ in
             Task {
                 _ = try? await scope.perform {
                     try await client.deleteChatHistory(

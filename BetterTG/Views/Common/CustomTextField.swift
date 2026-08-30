@@ -85,14 +85,22 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         guard let selected = text(in: textRange), !selected.isEmpty else {
             return UIMenu(children: suggestedActions)
         }
-        let format = UIMenu(title: "Format", children: [
-            formattingAction(title: "Bold", type: .textEntityTypeBold),
-            formattingAction(title: "Italic", type: .textEntityTypeItalic),
-            formattingAction(title: "Monospace", type: .textEntityTypeCode),
-            UIAction(title: "Link") { [weak self] _ in self?.showLinkAlert() },
-            formattingAction(title: "Strikethrough", type: .textEntityTypeStrikethrough),
-            formattingAction(title: "Underline", type: .textEntityTypeUnderline),
-            formattingAction(title: "Spoiler", type: .textEntityTypeSpoiler),
+        let format = UIMenu(title: L10n.telegram("TextFormat.Format"), children: [
+            formattingAction(title: L10n.telegram("TextFormat.Bold"), key: .font, value: UIFont.bold),
+            formattingAction(title: L10n.telegram("TextFormat.Italic"), key: .font, value: UIFont.italic),
+            formattingAction(title: L10n.telegram("TextFormat.Monospace"), key: .font, value: UIFont.monospaced),
+            UIAction(title: L10n.telegram("TextFormat.Link")) { [weak self] _ in self?.showLinkAlert() },
+            formattingAction(
+                title: L10n.telegram("TextFormat.Strikethrough"),
+                key: .strikethroughStyle,
+                value: 1,
+            ),
+            formattingAction(title: L10n.telegram("TextFormat.Underline"), key: .underlineStyle, value: 1),
+            formattingAction(
+                title: L10n.telegram("TextFormat.Spoiler"),
+                key: .backgroundColor,
+                value: UIColor.systemGray,
+            ),
         ])
         var actions = suggestedActions
         actions.insert(format, at: min(1, actions.count))
@@ -232,12 +240,14 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     private func showLinkAlert() {
-        let original = NSAttributedString(attributedString: attributedText!)
-        let range = selectedRange
-        let alert = UIAlertController(title: "Enter URL", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "https://example.com/" }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self, weak alert] _ in
+        let alert = UIAlertController(
+            title: L10n.telegram("TextFormat.AddLinkTitle"),
+            message: nil,
+            preferredStyle: .alert,
+        )
+        alert.addTextField { $0.placeholder = L10n.telegram("TextFormat.AddLinkPlaceholder") }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self, weak alert] _ in
             guard let self,
                   attributedText.isEqual(to: original),
                   let text = alert?.textFields?.first?.text

@@ -34,8 +34,8 @@ import TDLibKitDynamic
 
     var name: String {
         switch type {
-        case .main: "All"
-        case .archive: "Archive"
+        case .main: L10n.telegram("ChatList.Tabs.All")
+        case .archive: L10n.telegram("ChatList.Context.Archive")
         case .folder(let info, _): info.name.text.text
         }
     }
