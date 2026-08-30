@@ -1,6 +1,7 @@
 // MainView.swift
 
 import Combine
+import TDLibKit
 import UIKit
 
 final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
@@ -134,6 +135,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         folderPicker.onReselection = { [weak self] id in
             self?.folderControllers.first(where: { $0.folder.id == id })?.scrollToTop()
         }
+        folderPicker.onAction = { [weak self] action, folder in
+            self?.performFolderAction(action, for: folder)
+        }
         view.addSubview(folderPicker)
         NSLayoutConstraint.activate([
             folderPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -257,6 +261,144 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     @objc private func openSettings() {
         navigationController?.pushViewController(SettingsViewController(), animated: true)
     }
+
+    private func performFolderAction(_ action: FolderMenuAction, for folder: CustomFolder) {
+        switch action {
+        case .editFolders:
+            pushFolderController(ChatFoldersViewController(rootVM: rootVM))
+        case .reorderTabs:
+            pushFolderController(ChatFolderOrderViewController(rootVM: rootVM))
+        case .editFolder:
+            guard case .folder = folder.type else { return }
+            pushFolderController(ChatFolderEditorViewController(rootVM: rootVM, folder: folder))
+        case .addChats:
+            addChats(to: folder)
+        case .readAll:
+            markAllChatsAsRead(in: folder)
+        case .toggleMute:
+            setAllChatsMuted(!folder.areAllChatsMuted, in: folder)
+        case .remove:
+            confirmFolderRemoval(folder)
+        }
+    }
+
+    private func pushFolderController(_ controller: UIViewController) {
+        if let navigationController {
+            navigationController.pushViewController(controller, animated: true)
+        } else {
+            present(UINavigationController(rootViewController: controller), animated: true)
+        }
+    }
+
+    private func addChats(to folder: CustomFolder) {
+        guard case .folder(let info, let definition) = folder.type else { return }
+        let controller = ChatFolderChatSelectionViewController(
+            rootVM: rootVM,
+            title: "Add Chats",
+            selectedChatIDs: Set(definition.includedChatIds)
+        ) { [weak self] selectedChatIDs in
+            guard let self else { return }
+            let updated = definition.replacingIncludedChatIDs(selectedChatIDs)
+            Task { @MainActor [weak self] in
+                do {
+                    _ = try await td.editChatFolder(chatFolderId: info.id, folder: updated)
+                } catch {
+                    self?.presentFolderError(error)
+                }
+            }
+        }
+        pushFolderController(controller)
+    }
+
+    private func markAllChatsAsRead(in folder: CustomFolder) {
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await td.readChatList(chatList: folder.chatList)
+            } catch {
+                self?.presentFolderError(error)
+            }
+        }
+    }
+
+    private func setAllChatsMuted(_ muted: Bool, in folder: CustomFolder) {
+        guard case .folder(_, let definition) = folder.type else { return }
+        Task { @MainActor [weak self] in
+            do {
+                let chatCount = try await td.getChatFolderChatCount(folder: definition).count
+                guard chatCount <= 200 else {
+                    self?.presentFolderNotice(
+                        title: "Too Many Chats",
+                        message: "Mute All is available for folders with up to 200 chats."
+                    )
+                    return
+                }
+                let chatIDs = try await td.getChats(chatList: folder.chatList, limit: 200).chatIds
+                var firstError: (any Swift.Error)?
+                for chatID in chatIDs {
+                    do {
+                        let chat = try await td.getChat(chatId: chatID)
+                        _ = try await td.setChatNotificationSettings(
+                            chatId: chatID,
+                            notificationSettings: chat.notificationSettings.replacingMuteFor(
+                                muted ? Int(Int32.max) : 0
+                            )
+                        )
+                    } catch {
+                        firstError = firstError ?? error
+                    }
+                }
+                if let firstError {
+                    self?.presentFolderError(firstError)
+                }
+            } catch {
+                self?.presentFolderError(error)
+            }
+        }
+    }
+
+    private func confirmFolderRemoval(_ folder: CustomFolder) {
+        guard case .folder(let info, _) = folder.type else { return }
+        let alert = UIAlertController(
+            title: "Remove \(folder.name)?",
+            message: "The folder will be removed from your account. Its chats won't be deleted or left.",
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                do {
+                    _ = try await td.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
+                    if self?.rootVM.currentFolder == folder.id {
+                        self?.rootVM.currentFolder = self?.rootVM.folders.first(where: { $0.id == 0 })?.id
+                    }
+                } catch {
+                    self?.presentFolderError(error)
+                }
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    private func presentFolderError(_ error: any Swift.Error) {
+        presentFolderNotice(title: "Couldn't Update Folder", message: error.localizedDescription)
+    }
+
+    private func presentFolderNotice(title: String, message: String) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+}
+
+enum FolderMenuAction {
+    case editFolders
+    case reorderTabs
+    case editFolder
+    case addChats
+    case readAll
+    case toggleMute
+    case remove
 }
 
 /// Telegram's iOS 26 folder strip: a clipped scrolling lens with a continuously
@@ -264,6 +406,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 final class FolderPickerView: UIView {
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
+    var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -563,46 +706,56 @@ final class FolderPickerView: UIView {
 
     private func folderActions(for folder: CustomFolder) -> [TelegramContextMenuAction] {
         if case .main = folder.type {
-            return [
+            var actions = [
                 TelegramContextMenuAction(
                     title: "Edit Folders",
                     image: UIImage(systemName: "square.and.pencil"),
-                ) {},
-                TelegramContextMenuAction(
+                ) { [weak self] in self?.onAction?(.editFolders, folder) },
+            ]
+            if folders.count > 1 {
+                actions.append(TelegramContextMenuAction(
                     title: "Reorder Tabs",
                     image: UIImage(systemName: "arrow.up.arrow.down"),
                     startsNewSection: true,
-                ) {},
-            ]
+                ) { [weak self] in self?.onAction?(.reorderTabs, folder) })
+            }
+            return actions
         }
-        return [
+        var actions = [
             TelegramContextMenuAction(
                 title: "Edit Folder",
                 image: UIImage(systemName: "square.and.pencil"),
-            ) {},
+            ) { [weak self] in self?.onAction?(.editFolder, folder) },
             TelegramContextMenuAction(
                 title: "Add Chats",
                 image: UIImage(systemName: "person.badge.plus"),
-            ) {},
-            TelegramContextMenuAction(
+            ) { [weak self] in self?.onAction?(.addChats, folder) },
+        ]
+        if folder.hasUnreadChats {
+            actions.append(TelegramContextMenuAction(
                 title: "Read All",
                 image: UIImage(systemName: "envelope.open"),
-            ) {},
+            ) { [weak self] in self?.onAction?(.readAll, folder) })
+        }
+        actions.append(contentsOf: [
             TelegramContextMenuAction(
-                title: "Mute All",
-                image: UIImage(systemName: "bell.slash"),
-            ) {},
+                title: folder.areAllChatsMuted ? "Unmute All" : "Mute All",
+                image: UIImage(systemName: folder.areAllChatsMuted ? "bell" : "bell.slash"),
+            ) { [weak self] in self?.onAction?(.toggleMute, folder) },
             TelegramContextMenuAction(
                 title: "Remove",
                 image: UIImage(systemName: "trash"),
                 isDestructive: true,
-            ) {},
-            TelegramContextMenuAction(
+            ) { [weak self] in self?.onAction?(.remove, folder) },
+        ])
+        if folders.count > 1 {
+            actions.append(TelegramContextMenuAction(
                 title: "Reorder Tabs",
                 image: UIImage(systemName: "arrow.up.arrow.down"),
                 startsNewSection: true,
-            ) {},
-        ]
+            ) { [weak self] in self?.onAction?(.reorderTabs, folder) })
+        }
+        return actions
     }
 }
 
