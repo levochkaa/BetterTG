@@ -51,6 +51,9 @@ extension RootVM {
         nc.publisher(&cancellables, for: .updateChatIsMarkedAsUnread) { [weak self] update in
             self?.refreshChat(id: update.chatId)
         }
+        nc.publisher(&cancellables, for: .updateUnreadChatCount) { update in
+            FolderUnreadStore.shared.update(update, clientID: td.id)
+        }
     }
 
     func updateChatFolders(_ update: UpdateChatFolders) {

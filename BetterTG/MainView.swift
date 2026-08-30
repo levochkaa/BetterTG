@@ -28,6 +28,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 DispatchQueue.main.async { self?.reloadFromState() }
             }
             .store(in: &cancellables)
+        FolderUnreadStore.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                DispatchQueue.main.async { self?.reloadFolderUnreadStates() }
+            }
+            .store(in: &cancellables)
+        folderUnreadStates = FolderUnreadStore.shared.states(for: td.id)
         reloadFromState()
         configureAutomatedSmokeRoute()
     }
@@ -63,6 +70,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var searchQuery = ""
     private var pageScrollObservation: NSKeyValueObservation?
     private var interactiveFolderTransition: (fromID: Int, toID: Int)?
+    private var folderUnreadStates = [ChatList: FolderUnreadState]()
 
     private func configureAutomatedSmokeRoute() {
         #if DEBUG
@@ -161,7 +169,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
         guard currentIDs != newIDs else {
             folderControllers.forEach { $0.updateQuery(searchQuery) }
-            folderPicker.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
+            folderPicker.configure(
+                folders: rootVM.folders,
+                selectedID: rootVM.currentFolder,
+                unreadStates: folderUnreadStates,
+            )
             return
         }
 
@@ -175,9 +187,24 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             }
             return controller
         }
-        folderPicker.configure(folders: rootVM.folders, selectedID: rootVM.currentFolder)
+        folderPicker.configure(
+            folders: rootVM.folders,
+            selectedID: rootVM.currentFolder,
+            unreadStates: folderUnreadStates,
+        )
         guard let selected = rootVM.currentFolder ?? rootVM.folders.first?.id else { return }
         selectFolder(id: selected, animated: false)
+    }
+
+    private func reloadFolderUnreadStates() {
+        let states = FolderUnreadStore.shared.states(for: td.id)
+        guard folderUnreadStates != states else { return }
+        folderUnreadStates = states
+        folderPicker.configure(
+            folders: rootVM.folders,
+            selectedID: rootVM.currentFolder,
+            unreadStates: folderUnreadStates,
+        )
     }
 
     private func selectFolder(id: Int, animated: Bool) {
@@ -444,6 +471,7 @@ final class FolderPickerView: UIView {
     private var resolvedSegmentWidths = [CGFloat]()
     private var segmentWidthConstraints = [NSLayoutConstraint]()
     private var buttons = [FolderButton]()
+    private var unreadStates = [FolderUnreadState]()
     private var interactiveSelection: (fromID: Int, toID: Int, fraction: CGFloat)?
 
     private func configureViews() {
@@ -508,13 +536,29 @@ final class FolderPickerView: UIView {
         ])
     }
 
-    func configure(folders: [CustomFolder], selectedID: Int?) {
+    func configure(
+        folders: [CustomFolder],
+        selectedID: Int?,
+        unreadStates: [ChatList: FolderUnreadState],
+    ) {
+        let displayedUnreadStates: [FolderUnreadState] = folders.map { folder in
+            if case .folder = folder.type {
+                unreadStates[folder.chatList] ?? FolderUnreadState.empty
+            } else {
+                FolderUnreadState.empty
+            }
+        }
         let needsRebuild = self.folders.count != folders.count || zip(self.folders, folders).contains { pair in
             pair.0.id != pair.1.id || pair.0.name != pair.1.name
         }
+        let unreadStatesChanged = self.unreadStates != displayedUnreadStates
         self.folders = folders
+        self.unreadStates = displayedUnreadStates
         let resolvedSelectedID = selectedID ?? folders.first?.id
         guard needsRebuild else {
+            if unreadStatesChanged {
+                updateButtonContents(animated: true)
+            }
             select(id: resolvedSelectedID, animated: true)
             return
         }
@@ -546,17 +590,14 @@ final class FolderPickerView: UIView {
         }
         segmentWidthConstraints.removeAll()
         buttons.removeAll()
-        let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
-        naturalSegmentWidths = folders.map { folder in
-            max(60, ceil((folder.name as NSString).size(withAttributes: [.font: titleFont]).width) + 32)
+        naturalSegmentWidths = folders.indices.map { index in
+            naturalSegmentWidth(for: folders[index], unreadState: unreadStates[index])
         }
         resolvedSegmentWidths = naturalSegmentWidths
         for (index, folder) in folders.enumerated() {
             let button = FolderButton(type: .system)
             button.tag = index
-            button.setTitle(folder.name, for: .normal)
-            button.titleLabel?.font = titleFont
-            button.accessibilityLabel = folder.name
+            button.configure(title: folder.name, unreadState: unreadStates[index], animated: false)
             button.addTarget(self, action: #selector(folderPressed(_:)), for: .touchUpInside)
             let longPress = UILongPressGestureRecognizer(target: self, action: #selector(folderLongPressed(_:)))
             longPress.minimumPressDuration = 0.3
@@ -573,6 +614,26 @@ final class FolderPickerView: UIView {
         updateButtonAppearance()
         layoutSelection(animated: false)
         scrollSelectedSegmentIntoView(animated: false)
+    }
+
+    private func updateButtonContents(animated: Bool) {
+        guard folders.count == buttons.count, unreadStates.count == buttons.count else { return }
+        for index in buttons.indices {
+            buttons[index].configure(
+                title: folders[index].name,
+                unreadState: unreadStates[index],
+                animated: animated,
+            )
+        }
+        naturalSegmentWidths = folders.indices.map { index in
+            naturalSegmentWidth(for: folders[index], unreadState: unreadStates[index])
+        }
+        updateResolvedWidths()
+        layoutSelection(animated: animated)
+    }
+
+    private func naturalSegmentWidth(for folder: CustomFolder, unreadState: FolderUnreadState) -> CGFloat {
+        max(60, ceil(FolderButton.contentWidth(title: folder.name, unreadCount: unreadState.count)) + 32)
     }
 
     private func scrollSelectedSegmentIntoView(animated: Bool) {
@@ -674,7 +735,9 @@ final class FolderPickerView: UIView {
             } else {
                 selectedAlpha = folders[index].id == selectedID ? 1 : 0
             }
-            button.setTitleColor(UIColor.label.withAlphaComponent(0.68 + selectedAlpha * 0.32), for: .normal)
+            button.updateAppearance(
+                titleColor: UIColor.label.withAlphaComponent(0.68 + selectedAlpha * 0.32),
+            )
         }
     }
 
@@ -770,4 +833,121 @@ private final class FolderPickerScrollView: UIScrollView {
     }
 }
 
-private final class FolderButton: UIButton {}
+private final class FolderButton: UIButton {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configureViews()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isHighlighted: Bool {
+        didSet { contentStack.alpha = isHighlighted ? 0.55 : 1 }
+    }
+
+    private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .regular)
+
+    private let contentStack = UIStackView()
+    private let folderTitleLabel = UILabel()
+    private let unreadBadgeLabel = FolderUnreadBadgeLabel()
+    private var unreadHasUnmuted = false
+    private var resolvedTitleColor = UIColor.label
+
+    static func contentWidth(title: String, unreadCount: Int) -> CGFloat {
+        let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
+        guard unreadCount > 0 else { return titleWidth }
+        let badgeTextWidth = ("\(unreadCount)" as NSString).size(withAttributes: [.font: badgeFont]).width
+        return titleWidth + 4 + max(18, badgeTextWidth + 8)
+    }
+
+    func configure(title: String, unreadState: FolderUnreadState, animated: Bool) {
+        folderTitleLabel.text = title
+        accessibilityLabel = title
+        accessibilityValue = unreadState.count > 0 ? "\(unreadState.count) unread chats" : nil
+        unreadHasUnmuted = unreadState.hasUnmuted
+
+        let wasHidden = unreadBadgeLabel.isHidden
+        unreadBadgeLabel.text = "\(unreadState.count)"
+        let shouldHide = unreadState.count == 0
+        updateAppearance(titleColor: resolvedTitleColor)
+
+        guard animated, wasHidden != shouldHide else {
+            unreadBadgeLabel.isHidden = shouldHide
+            unreadBadgeLabel.alpha = shouldHide ? 0 : 1
+            unreadBadgeLabel.transform = shouldHide
+                ? CGAffineTransform(scaleX: 0.4, y: 0.4)
+                : .identity
+            return
+        }
+        if !shouldHide {
+            unreadBadgeLabel.isHidden = false
+            unreadBadgeLabel.alpha = 0
+            unreadBadgeLabel.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
+        }
+        UIView.animate(
+            withDuration: 0.32,
+            delay: 0,
+            usingSpringWithDamping: 0.76,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            self.unreadBadgeLabel.alpha = shouldHide ? 0 : 1
+            self.unreadBadgeLabel.transform = shouldHide
+                ? CGAffineTransform(scaleX: 0.4, y: 0.4)
+                : .identity
+        } completion: { _ in
+            self.unreadBadgeLabel.isHidden = shouldHide
+        }
+    }
+
+    func updateAppearance(titleColor: UIColor) {
+        resolvedTitleColor = titleColor
+        folderTitleLabel.textColor = titleColor
+        if unreadHasUnmuted {
+            unreadBadgeLabel.backgroundColor = titleColor
+            unreadBadgeLabel.textColor = .systemBackground
+        } else {
+            unreadBadgeLabel.backgroundColor = .tertiarySystemFill
+            unreadBadgeLabel.textColor = .secondaryLabel
+        }
+    }
+
+    private func configureViews() {
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 4
+        contentStack.isUserInteractionEnabled = false
+
+        folderTitleLabel.font = Self.titleFont
+        folderTitleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        unreadBadgeLabel.font = Self.badgeFont
+        unreadBadgeLabel.textAlignment = .center
+        unreadBadgeLabel.layer.cornerRadius = 9
+        unreadBadgeLabel.clipsToBounds = true
+        unreadBadgeLabel.isHidden = true
+        unreadBadgeLabel.alpha = 0
+
+        contentStack.addArrangedSubview(folderTitleLabel)
+        contentStack.addArrangedSubview(unreadBadgeLabel)
+        addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 18),
+        ])
+    }
+}
+
+private final class FolderUnreadBadgeLabel: UILabel {
+    override var intrinsicContentSize: CGSize {
+        let contentSize = super.intrinsicContentSize
+        return CGSize(width: max(18, contentSize.width + 8), height: 18)
+    }
+}
