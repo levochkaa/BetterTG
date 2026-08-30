@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
 const identifier = z.union([z.string().max(32), z.number().int().safe()])
+const telegramFlag = z
+    .union([z.boolean(), z.enum(['0', '1']), z.literal(0), z.literal(1)])
+    .transform((value): '0' | '1' => (value === true || value === 1 || value === '1' ? '1' : '0'))
 const customSchema = z
     .object({
         msg_id: identifier.optional(),
@@ -11,8 +14,8 @@ const customSchema = z
         chat_from_group_id: identifier.optional(),
         chat_from_id: identifier.optional(),
         top_msg_id: identifier.optional(),
-        silent: z.boolean().optional(),
-        mention: z.boolean().optional(),
+        silent: telegramFlag.optional(),
+        mention: telegramFlag.optional(),
         max_id: identifier.optional(),
         messages: z.string().max(1024).optional(),
     })
@@ -25,6 +28,8 @@ const dataSchema = z
         user_id: identifier.optional(),
         sound: z.string().max(128).optional(),
         message: z.string().max(3072).optional(),
+        title: z.string().max(512).optional(),
+        description: z.string().max(3072).optional(),
         custom: customSchema.default({}),
     })
     .passthrough()

@@ -18,13 +18,21 @@ export class ApnsPayloadMapperService {
         source: TelegramPushPayload,
         deliverySeed: string,
         now = new Date(),
+        notificationPayloadToken?: string,
     ): ApnsCommand | null {
-        if (action === 'alert') return this.alert(source, deliverySeed, now)
+        if (action === 'alert') {
+            return this.alert(source, deliverySeed, now, notificationPayloadToken)
+        }
         if (action === 'background') return this.background(source, deliverySeed, now)
         return null
     }
 
-    private alert(source: TelegramPushPayload, deliverySeed: string, now: Date): ApnsCommand {
+    private alert(
+        source: TelegramPushPayload,
+        deliverySeed: string,
+        now: Date,
+        notificationPayloadToken?: string,
+    ): ApnsCommand {
         const locArgs = source.data.loc_args.map((argument) => this.truncate(argument, 2048))
         const route = this.route(source)
         const payload: Record<string, unknown> = {
@@ -33,11 +41,18 @@ export class ApnsPayloadMapperService {
                     'loc-key': source.data.loc_key,
                     'loc-args': locArgs,
                 },
-                ...(source.data.custom.silent ? {} : { sound: 'default' }),
+                ...(source.data.custom.silent === '1' ? {} : { sound: 'default' }),
                 'thread-id': route.threadId,
                 category: 'TELEGRAM_MESSAGE',
+                'mutable-content': 1,
             },
-            tg: route.data,
+            tg: {
+                ...route.data,
+                event: source.data.loc_key,
+                ...(notificationPayloadToken
+                    ? { notification_payload_token: notificationPayloadToken }
+                    : {}),
+            },
         }
         this.fitPayload(payload, locArgs)
 
@@ -81,6 +96,13 @@ export class ApnsPayloadMapperService {
               ? { type: 'basicGroup', id: this.identifier(custom.chat_id) }
               : { type: 'private', id: this.identifier(custom.from_id) }
         const account = this.identifier(source.data.user_id)
+        const sender = custom.chat_from_broadcast_id
+            ? { type: 'supergroup', id: this.identifier(custom.chat_from_broadcast_id) }
+            : custom.chat_from_group_id
+              ? { type: 'supergroup', id: this.identifier(custom.chat_from_group_id) }
+              : custom.chat_from_id
+                ? { type: 'private', id: this.identifier(custom.chat_from_id) }
+                : peer
         const threadSeed = `${account}:${peer.type}:${peer.id}`
 
         return {
@@ -90,11 +112,29 @@ export class ApnsPayloadMapperService {
                     account,
                     peer_type: peer.type,
                     peer_id: peer.id,
+                    sender_type: sender.type,
+                    sender_id: sender.id,
+                    sender_name: this.senderName(source),
+                    conversation_title: this.conversationTitle(source),
                     message_id: this.identifier(custom.msg_id),
                     top_message_id: this.identifier(custom.top_msg_id),
                 }).filter((entry): entry is [string, string] => Boolean(entry[1])),
             ),
         }
+    }
+
+    private senderName(source: TelegramPushPayload): string {
+        return this.truncate(source.data.loc_args[0] ?? source.data.title ?? '', 128)
+    }
+
+    private conversationTitle(source: TelegramPushPayload): string {
+        const locKey = source.data.loc_key
+        const title = locKey.startsWith('CHAT_')
+            ? source.data.loc_args[1]
+            : locKey.startsWith('CHANNEL_')
+              ? source.data.loc_args[0]
+              : undefined
+        return this.truncate(title ?? '', 128)
     }
 
     private fitPayload(payload: Record<string, unknown>, locArgs: string[]): void {

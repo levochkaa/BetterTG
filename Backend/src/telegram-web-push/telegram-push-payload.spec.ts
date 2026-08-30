@@ -21,7 +21,7 @@ describe('parseTelegramPushPayload', () => {
             loc_key: 'MESSAGE_TEXT',
             loc_args: ['Alice', 'Hello'],
             user_id: 42,
-            custom: { from_id: '5', msg_id: '9' },
+            custom: { from_id: '5', msg_id: '9', silent: '1' },
             mute: '0',
             badge: '1',
             title: 'Alice',
@@ -29,7 +29,7 @@ describe('parseTelegramPushPayload', () => {
         })
 
         expect(payload.data.loc_key).toBe('MESSAGE_TEXT')
-        expect(payload.data.custom).toEqual({ from_id: '5', msg_id: '9' })
+        expect(payload.data.custom).toEqual({ from_id: '5', msg_id: '9', silent: '1' })
         expect(payload.data.title).toBe('Alice')
     })
 

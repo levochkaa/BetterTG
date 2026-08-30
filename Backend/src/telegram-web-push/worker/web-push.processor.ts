@@ -17,6 +17,7 @@ import {
     WebPushDecryptorService,
 } from '../crypto/web-push-decryptor.service'
 import { TELEGRAM_WEB_PUSH_QUEUE, type TelegramWebPushJob } from '../web-push-job'
+import { NotificationContentStoreService } from '../notification-content/notification-content-store.service'
 
 @Processor(TELEGRAM_WEB_PUSH_QUEUE, { concurrency: 20 })
 export class WebPushProcessor extends WorkerHost {
@@ -32,6 +33,7 @@ export class WebPushProcessor extends WorkerHost {
         private readonly apns: ApnsClientService,
         private readonly secretBox: SecretBoxService,
         private readonly metrics: MetricsService,
+        private readonly notificationContent: NotificationContentStoreService,
     ) {
         super()
     }
@@ -52,10 +54,18 @@ export class WebPushProcessor extends WorkerHost {
             )
             const action = classifyTelegramPush(payload.data.loc_key)
             this.metrics.classification.add(1, { loc_key: payload.data.loc_key, action })
+            const custom = payload.data.custom
+            const hasConversation = Boolean(custom.from_id || custom.chat_id || custom.channel_id)
+            const notificationPayloadToken =
+                action === 'alert' && hasConversation
+                    ? await this.notificationContent.put(payload)
+                    : undefined
             const command = this.mapper.map(
                 action,
                 payload,
                 String(job.id ?? `${subscription.id}:${job.data.receivedAt}`),
+                new Date(),
+                notificationPayloadToken,
             )
             if (!command) {
                 this.logger.log({

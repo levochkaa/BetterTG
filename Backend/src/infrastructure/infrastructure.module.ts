@@ -8,6 +8,7 @@ import { validateEnvironment } from '@/config/environment'
 import { redisOptionsFromUrl } from '@/config/redis-options'
 import { ObservabilityModule } from '@/observability/observability.module'
 import { SecurityModule } from '@/security/security.module'
+import { NotificationContentStoreService } from '@/telegram-web-push/notification-content/notification-content-store.service'
 
 import { RedisService } from './redis.service'
 
@@ -39,7 +40,14 @@ import { RedisService } from './redis.service'
         ObservabilityModule,
         SecurityModule,
     ],
-    providers: [RedisService],
-    exports: [RedisService, TypeOrmModule, BullModule, ObservabilityModule, SecurityModule],
+    providers: [RedisService, NotificationContentStoreService],
+    exports: [
+        RedisService,
+        NotificationContentStoreService,
+        TypeOrmModule,
+        BullModule,
+        ObservabilityModule,
+        SecurityModule,
+    ],
 })
 export class InfrastructureModule {}

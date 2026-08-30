@@ -32,6 +32,7 @@ describe('ApnsPayloadMapperService', () => {
             }),
             'delivery',
             new Date('2026-08-23T00:00:00Z'),
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         )
 
         expect(command?.pushType).toBe('alert')
@@ -42,10 +43,47 @@ describe('ApnsPayloadMapperService', () => {
                     'loc-args': ['Alice', 'Family', 'Hello'],
                 },
                 sound: 'default',
+                'mutable-content': 1,
             },
-            tg: { account: '42', peer_type: 'basicGroup', peer_id: '7', message_id: '9' },
+            tg: {
+                account: '42',
+                peer_type: 'basicGroup',
+                peer_id: '7',
+                sender_type: 'basicGroup',
+                sender_id: '7',
+                sender_name: 'Alice',
+                conversation_title: 'Family',
+                message_id: '9',
+                event: 'CHAT_MESSAGE_TEXT',
+                notification_payload_token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            },
         })
         expect(command?.deliveryId).toMatch(/^[0-9a-f-]{36}$/)
+    })
+
+    it('routes a group author separately from the conversation', () => {
+        const command = mapper().map(
+            'alert',
+            parseTelegramPushPayload({
+                data: {
+                    loc_key: 'CHAT_MESSAGE_PHOTO',
+                    loc_args: ['Alice', 'Family'],
+                    custom: { chat_id: 7, chat_from_id: 11, msg_id: 9 },
+                },
+            }),
+            'group-author',
+        )
+
+        expect(command?.payload).toMatchObject({
+            tg: {
+                peer_type: 'basicGroup',
+                peer_id: '7',
+                sender_type: 'private',
+                sender_id: '11',
+                sender_name: 'Alice',
+                conversation_title: 'Family',
+            },
+        })
     })
 
     it('omits sound for silent messages and trims oversized previews', () => {
