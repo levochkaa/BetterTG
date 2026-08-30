@@ -523,11 +523,11 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func notificationBody(for content: PushMessageContent) -> String? {
         switch content {
         case .pushMessageContentPhoto(let value):
-            value.caption.isEmpty ? "📷 Photo" : value.caption
+            captionedMediaBody(icon: "🖼", caption: value.caption, fallback: "Photo")
         case .pushMessageContentVideo(let value):
-            value.caption.isEmpty ? "🎥 Video" : value.caption
+            captionedMediaBody(icon: "📹", caption: value.caption, fallback: "Video")
         case .pushMessageContentAnimation(let value):
-            value.caption.isEmpty ? "🎬 GIF" : value.caption
+            captionedMediaBody(icon: "🎬", caption: value.caption, fallback: "GIF")
         case .pushMessageContentDocument:
             "📎 File"
         case .pushMessageContentSticker(let value):
@@ -542,23 +542,28 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func notificationBody(for content: MessageContent) -> String? {
         switch content {
         case .messagePhoto(let value):
-            return value.caption.text.isEmpty ? "📷 Photo" : value.caption.text
+            captionedMediaBody(icon: "🖼", caption: value.caption.text, fallback: "Photo")
         case .messageVideo(let value):
-            return value.caption.text.isEmpty ? "🎥 Video" : value.caption.text
+            captionedMediaBody(icon: "📹", caption: value.caption.text, fallback: "Video")
         case .messageAnimation(let value):
-            return value.caption.text.isEmpty ? "🎬 GIF" : value.caption.text
+            captionedMediaBody(icon: "🎬", caption: value.caption.text, fallback: "GIF")
         case .messageDocument(let value):
-            if !value.caption.text.isEmpty {
-                return value.caption.text
-            }
-            return value.document.fileName.isEmpty ? "📎 File" : value.document.fileName
+            captionedMediaBody(
+                icon: "📎",
+                caption: value.caption.text,
+                fallback: value.document.fileName.isEmpty ? "File" : value.document.fileName,
+            )
         case .messageSticker(let value):
-            return value.sticker.emoji.isEmpty ? "Sticker" : "\(value.sticker.emoji) Sticker"
+            value.sticker.emoji.isEmpty ? "Sticker" : "\(value.sticker.emoji) Sticker"
         case .messageVideoNote:
-            return "Video message"
+            "Video message"
         default:
-            return nil
+            nil
         }
+    }
+
+    private func captionedMediaBody(icon: String, caption: String, fallback: String) -> String {
+        "\(icon) \(caption.isEmpty ? fallback : caption)"
     }
 
     private func finish(_ result: ResolvedTelegramNotification?, reason: String) {
