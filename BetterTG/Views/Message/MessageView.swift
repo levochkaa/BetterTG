@@ -32,12 +32,12 @@ final class MessageCell: UICollectionViewCell {
         mediaTimestampLabel.isHidden = true
         onReplyTap = nil
         onMediaTap = nil
+        bubbleContentNeedsMeasurement = true
     }
 
     override func layoutSubviews() {
+        updateBubbleWidth(for: bounds.width)
         super.layoutSubviews()
-        let maximumBubbleWidth = contentView.bounds.width * 0.82
-        textView.setMaximumLayoutWidth(maximumBubbleWidth - 16)
     }
 
     private let rowStack = UIStackView()
@@ -53,6 +53,9 @@ final class MessageCell: UICollectionViewCell {
     private let mediaTimestampLabel = UILabel()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
+    private var bubbleWidthConstraint: NSLayoutConstraint!
+    private var bubbleContentNeedsMeasurement = true
+    private var measuredCellWidth = CGFloat.zero
     private var onReplyTap: ((Int64) -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
 
@@ -92,12 +95,11 @@ final class MessageCell: UICollectionViewCell {
         let timestampColor: UIColor = message.sendFailed ? .systemRed : .secondaryLabel
         if let formatted = message.formattedText {
             textView.isHidden = false
-            let maximumBubbleWidth = contentView.bounds.width * 0.82
             textView.configure(
                 formattedText: formatted,
                 statusText: timestampText,
                 statusColor: timestampColor,
-                maximumWidth: maximumBubbleWidth - 16,
+                maximumWidth: maximumTextWidth(for: bounds.width),
             )
         } else {
             textView.isHidden = true
@@ -132,6 +134,9 @@ final class MessageCell: UICollectionViewCell {
         ]
         .compactMap(\.self)
         .joined(separator: ", ")
+
+        bubbleContentNeedsMeasurement = true
+        updateBubbleWidth(for: bounds.width)
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -202,12 +207,15 @@ final class MessageCell: UICollectionViewCell {
             multiplier: 0.82
         )
         maxBubbleWidth.priority = .required
+        bubbleWidthConstraint = bubbleContainerView.widthAnchor.constraint(equalToConstant: 16)
+        bubbleWidthConstraint.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             rowStack.topAnchor.constraint(equalTo: contentView.topAnchor),
             rowStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
             rowStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
             rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             maxBubbleWidth,
+            bubbleWidthConstraint,
             bubbleStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6),
             bubbleStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 8),
             bubbleStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -8),
@@ -234,6 +242,39 @@ final class MessageCell: UICollectionViewCell {
             trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
         }
+    }
+
+    private func updateBubbleWidth(for cellWidth: CGFloat) {
+        guard cellWidth > 0 else { return }
+        guard bubbleContentNeedsMeasurement || abs(measuredCellWidth - cellWidth) > 0.5 else { return }
+        let maximumBubbleWidth = floor(cellWidth * 0.82)
+        let maximumContentWidth = max(1, maximumBubbleWidth - 16)
+        textView.setMaximumLayoutWidth(maximumContentWidth)
+
+        let fittingSize = CGSize(
+            width: maximumContentWidth,
+            height: UIView.layoutFittingCompressedSize.height,
+        )
+        var preferredContentWidth = CGFloat.zero
+        for view in bubbleStack.arrangedSubviews where !view.isHidden {
+            let width = view.systemLayoutSizeFitting(
+                fittingSize,
+                withHorizontalFittingPriority: .fittingSizeLevel,
+                verticalFittingPriority: .fittingSizeLevel,
+            ).width
+            preferredContentWidth = max(preferredContentWidth, width)
+        }
+        let preferredBubbleWidth = min(maximumBubbleWidth, ceil(preferredContentWidth) + 16)
+        if abs(bubbleWidthConstraint.constant - preferredBubbleWidth) > 0.5 {
+            bubbleWidthConstraint.constant = preferredBubbleWidth
+        }
+        measuredCellWidth = cellWidth
+        bubbleContentNeedsMeasurement = false
+    }
+
+    private func maximumTextWidth(for cellWidth: CGFloat) -> CGFloat {
+        guard cellWidth > 0 else { return Utils.maxMessageContentWidth }
+        return max(1, floor(cellWidth * 0.82) - 16)
     }
 }
 
