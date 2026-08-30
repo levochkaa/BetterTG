@@ -588,7 +588,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToLoadedMessage(id: Int64) {
-        guard let index = dataSource.snapshot().indexOfItem(id) else { return }
+        guard let index = dataSource.snapshot().indexOfItem(id) else {
+            pendingScrollMessageID = id
+            updateSnapshot(animated: false)
+            return
+        }
+        collectionView.layoutIfNeeded()
         collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .centeredVertically, animated: true)
         chatVM.highlightedMessageId = id
         Task.main(delay: 0.7) { [weak chatVM] in chatVM?.highlightedMessageId = nil }

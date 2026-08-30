@@ -40,7 +40,7 @@ private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {
                 state = .failed
             } else if verticalDistance > 2, verticalDistance > horizontalDistance * 2 {
                 state = .failed
-            } else if horizontalDistance > 2, verticalDistance * 2 < horizontalDistance {
+            } else if horizontalDistance > 8, verticalDistance * 2 < horizontalDistance {
                 validatedGesture = true
             }
         }
@@ -133,6 +133,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        resumeHistoryScrolling()
         avatarView.prepareForReuse()
         mediaView.prepareForReuse()
         forwardedLabel.isHidden = true
@@ -152,6 +153,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     override func layoutSubviews() {
         updateBubbleWidth(for: bounds.width)
         super.layoutSubviews()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            resumeHistoryScrolling()
+        }
     }
 
     private let rowStack = UIStackView()
@@ -177,6 +185,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var swipeReplyThreshold: CGFloat = 45
     private var playedSwipeReplyHaptic = false
     private var swipeReplyFeedback: UIImpactFeedbackGenerator?
+    private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
     private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
         target: self,
         action: #selector(swipeToReply(_:)),
@@ -349,6 +358,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     @objc private func swipeToReply(_ recognizer: TelegramSwipeToReplyRecognizer) {
         switch recognizer.state {
         case .began:
+            suspendHistoryScrolling()
             playedSwipeReplyHaptic = false
             let feedback = UIImpactFeedbackGenerator(style: .heavy)
             feedback.prepare()
@@ -367,6 +377,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             let shouldReply = recognizer.state == .ended
                 && recognizer.translation(in: contentView).x < -swipeReplyThreshold
             swipeReplyFeedback = nil
+            resumeHistoryScrolling()
             resetSwipeToReply(animated: true)
             if shouldReply {
                 onSwipeToReply?()
@@ -401,6 +412,34 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             options: [.allowUserInteraction, .beginFromCurrentState],
             animations: changes,
         )
+    }
+
+    private func suspendHistoryScrolling() {
+        guard suspendedHistoryPanGesture == nil else { return }
+        var ancestor = superview
+        while let view = ancestor {
+            if let collectionView = view as? UICollectionView {
+                let panGesture = collectionView.panGestureRecognizer
+                guard panGesture.isEnabled else { return }
+                suspendedHistoryPanGesture = panGesture
+                panGesture.isEnabled = false
+                return
+            }
+            ancestor = view.superview
+        }
+    }
+
+    private func resumeHistoryScrolling() {
+        suspendedHistoryPanGesture?.isEnabled = true
+        suspendedHistoryPanGesture = nil
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch,
+    ) -> Bool {
+        guard gestureRecognizer === swipeToReplyRecognizer, let touchedView = touch.view else { return true }
+        return touchedView !== replyView && !touchedView.isDescendant(of: replyView)
     }
 
     func gestureRecognizer(
