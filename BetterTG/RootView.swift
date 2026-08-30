@@ -64,6 +64,10 @@ final class RootViewController: UIViewController {
     }
 
     private func transition(from oldController: UIViewController?, to newController: UIViewController, animated: Bool) {
+        if let oldController, oldController === newController {
+            return
+        }
+
         addChild(newController)
         newController.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(newController.view)
