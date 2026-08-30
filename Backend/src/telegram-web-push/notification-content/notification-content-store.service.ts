@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { randomBytes } from 'node:crypto'
 
 import { RedisService } from '@/infrastructure/redis.service'
@@ -9,6 +9,8 @@ const CONTENT_KEY_PREFIX = 'notification-content:'
 
 @Injectable()
 export class NotificationContentStoreService {
+    private readonly logger = new Logger(NotificationContentStoreService.name)
+
     constructor(private readonly redis: RedisService) {}
 
     async put(payload: TelegramPushPayload): Promise<string> {
@@ -27,6 +29,11 @@ export class NotificationContentStoreService {
         const value = (await this.redis.client.call('GETDEL', `${CONTENT_KEY_PREFIX}${token}`)) as
             string | null
         if (!value) return null
-        return JSON.parse(value) as TelegramPushPayload
+        const payload = JSON.parse(value) as TelegramPushPayload
+        this.logger.log({
+            event: 'notification_content.consumed',
+            locKey: payload.data.loc_key,
+        })
+        return payload
     }
 }

@@ -213,14 +213,20 @@ final class NotificationTDLibSession: @unchecked Sendable {
             "rich_notification.media_resolved available=\(media != nil, privacy: .public) expected=\(expectsMedia, privacy: .public)",
         )
 
+        let resolvedSenderID = senderID
+        let resolvedMediaCandidate = media
         let conversation = try? await client.getChat(chatId: chatID)
-        async let senderAvatar = avatarData(for: senderID, client: client)
+        async let senderAvatar = avatarData(for: resolvedSenderID, client: client)
         async let conversationAvatar = imageData(
             file: conversation?.photo?.small,
             placeholder: conversation?.photo?.minithumbnail?.data,
             client: client,
         )
-        async let mediaData = imageData(file: media?.file, placeholder: media?.placeholder, client: client)
+        async let mediaData = imageData(
+            file: resolvedMediaCandidate?.file,
+            placeholder: resolvedMediaCandidate?.placeholder,
+            client: client,
+        )
 
         let resolvedSenderAvatar = await senderAvatar
             ?? RichNotificationCache.avatarData(for: metadata.sender)
@@ -229,7 +235,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
         let resolvedMedia = await mediaData
         if expectsMedia {
             logger.log(
-                "rich_notification.media_downloaded success=\(resolvedMedia != nil, privacy: .public) kind=\(media?.kind ?? "none", privacy: .public)",
+                "rich_notification.media_downloaded success=\(resolvedMedia != nil, privacy: .public) kind=\(resolvedMediaCandidate?.kind ?? "none", privacy: .public)",
             )
         }
         let canQuickReply =
