@@ -22,6 +22,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case messages
     }
 
+    private final class PrefetchTaskEntry {
+        let generation: UUID
+        var task: Task<Void, Never>?
+
+        init(generation: UUID) {
+            self.generation = generation
+        }
+    }
+
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
         presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
     }
@@ -35,7 +44,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
     private var cancellables = Set<AnyCancellable>()
     private var messageCancellables = Set<AnyCancellable>()
-    private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private var prefetchTasks = [Int64: PrefetchTaskEntry]()
     private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
@@ -120,7 +129,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     deinit {
-        prefetchTasks.values.forEach { $0.cancel() }
+        prefetchTasks.values.forEach { $0.task?.cancel() }
         MainActor.assumeIsolated {
             inlineVideoPlaybackOwners.values.forEach { $0.invalidate() }
         }
@@ -265,9 +274,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   let message = message(for: messageID),
                   prefetchTasks[messageID] == nil
             else { continue }
-            prefetchTasks[messageID] = Task { [weak self] in
-                await TDMediaPrefetcher.prefetch(message: message.message)
-                await MainActor.run { self?.prefetchTasks[messageID] = nil }
+            let messages = message.album.isEmpty ? [message.message] : message.album
+            let client = chatVM.client
+            let generation = UUID()
+            let entry = PrefetchTaskEntry(generation: generation)
+            prefetchTasks[messageID] = entry
+            entry.task = Task { [weak self] in
+                for item in messages where !Task.isCancelled {
+                    await TDMediaPrefetcher.prefetch(message: item, client: client)
+                }
+                await MainActor.run {
+                    guard self?.prefetchTasks[messageID]?.generation == generation else { return }
+                    self?.prefetchTasks[messageID] = nil
+                }
             }
         }
     }
@@ -275,7 +294,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func collectionView(_: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
             guard let id = dataSource.itemIdentifier(for: indexPath) else { continue }
-            prefetchTasks[id]?.cancel()
+            prefetchTasks[id]?.task?.cancel()
             prefetchTasks[id] = nil
         }
     }
@@ -713,10 +732,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 message: message,
                 chat: chatVM.customChat,
                 highlighted: chatVM.highlightedMessageId == messageID,
+                client: chatVM.client,
+                pollInteractionStore: chatVM.pollInteractionStore,
                 videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
                 onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
                     ? { [weak self] in self?.chatVM.replyMessage = message }
                     : nil,
+                onContentAction: { [weak self] action in
+                    guard self?.presentationMode == .full else { return }
+                    self?.performContentAction(action)
+                },
                 onMediaTap: { [weak self] messages, selection in
                     guard self?.presentationMode == .full else { return }
                     self?.showMedia(messages, selection: selection)
@@ -987,6 +1012,37 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ),
             animated: true,
         )
+    }
+
+    private func performContentAction(_ action: MessageContentAction) {
+        switch action {
+        case .openContact(let contact):
+            let details = TelegramContactDetailsViewController(contact: contact)
+            let navigation = UINavigationController(rootViewController: details)
+            navigation.modalPresentationStyle = .pageSheet
+            present(navigation, animated: true)
+        case .openDocument(let url):
+            let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activity.popoverPresentationController?.sourceView = view
+            activity.popoverPresentationController?.sourceRect = CGRect(
+                x: view.bounds.midX,
+                y: view.bounds.midY,
+                width: 1,
+                height: 1,
+            )
+            present(activity, animated: true)
+        case .openLocation(let location, let title):
+            var components = URLComponents(string: "https://maps.apple.com/")
+            components?.queryItems = [
+                URLQueryItem(name: "ll", value: "\(location.latitude),\(location.longitude)"),
+                URLQueryItem(name: "q", value: title),
+            ]
+            if let url = components?.url {
+                UIApplication.shared.open(url)
+            }
+        case .submitPollAnswer(let messageID, let optionIDs):
+            chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs)
+        }
     }
 
     private func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
@@ -1393,8 +1449,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             voice.caption.text.isEmpty ? nil : voice.caption
         case .messageAnimation(let animation):
             animation.caption.text.isEmpty ? nil : animation.caption
+        case .messageAudio(let audio):
+            audio.caption.text.isEmpty ? nil : audio.caption
+        case .messageDocument(let document):
+            document.caption.text.isEmpty ? nil : document.caption
         case .messageVideo(let video):
             video.caption.text.isEmpty ? nil : video.caption
+        case .messagePoll(let poll):
+            poll.description.text.isEmpty ? nil : poll.description
         default:
             nil
         }

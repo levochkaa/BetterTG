@@ -31,10 +31,18 @@ final class MessageMediaView: UIView {
     ) -> Bool {
         prepareForReuse()
         let view: UIView?
-        if !message.album.isEmpty {
+        let visualAlbum = message.album.filter { message in
+            switch message.content {
+            case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+                true
+            default:
+                false
+            }
+        }
+        if !visualAlbum.isEmpty {
             let albumView = AlbumMediaView()
             albumView.configure(
-                messages: message.album,
+                messages: visualAlbum,
                 videoPlaybackOwners: videoPlaybackOwners,
                 onTap: onTap,
             )
@@ -922,11 +930,19 @@ enum TDMediaPrefetcher {
         case ffmpegVideo
     }
 
-    static func prefetch(message: Message) async {
+    static func prefetch(message: Message, client: TDLibClient) async {
         let files: [(id: Int, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
                 photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
+            case .messageAudio(let audio):
+                [audio.audio.albumCoverThumbnail?.file.id]
+                    .compactMap(\.self)
+                    .map { ($0, .none) }
+            case .messageDocument(let document):
+                [document.document.thumbnail?.file.id]
+                    .compactMap(\.self)
+                    .map { ($0, .none) }
             case .messageVoiceNote(let voice):
                 [(voice.voiceNote.voice.id, .none)]
             case .messageVideoNote(let video):
@@ -942,6 +958,10 @@ enum TDMediaPrefetcher {
             case .messageSticker(let sticker):
                 [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
                     + [(sticker.sticker.sticker.id, decodeKind(for: sticker.sticker.format))]
+            case .messageAnimatedEmoji(let emoji):
+                stickerFiles(emoji.animatedEmoji.sticker)
+            case .messageDice(let dice):
+                dice.value == 0 ? stickerFiles(regularSticker(dice.initialState)) : []
             case .messageVideo(let video):
                 [video.video.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
             default:
@@ -949,7 +969,7 @@ enum TDMediaPrefetcher {
             }
         for file in files where !Task.isCancelled {
             let downloaded = await withTaskCancellationHandler {
-                try? await td.downloadFile(
+                try? await client.downloadFile(
                     fileId: file.id,
                     limit: 0,
                     offset: 0,
@@ -957,7 +977,7 @@ enum TDMediaPrefetcher {
                     synchronous: true,
                 )
             } onCancel: {
-                Task { try? await td.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
+                Task { try? await client.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
             }
             guard let downloaded,
                   downloaded.local.isDownloadingCompleted,
@@ -985,6 +1005,17 @@ enum TDMediaPrefetcher {
         case .stickerFormatWebm:
             .ffmpegVideo
         }
+    }
+
+    private static func stickerFiles(_ sticker: Sticker?) -> [(id: Int, decodeKind: DecodeKind)] {
+        guard let sticker else { return [] }
+        return [sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+            + [(sticker.sticker.id, decodeKind(for: sticker.format))]
+    }
+
+    private static func regularSticker(_ dice: DiceStickers?) -> Sticker? {
+        guard let dice, case .diceStickersRegular(let regular) = dice else { return nil }
+        return regular.sticker
     }
 }
 

@@ -18,6 +18,10 @@ import TDLibKitDynamic
     @Published var properties: MessageProperties
 
     var id: Int64 { message.id }
+    var contentPresentation: MessageContentPresentation {
+        MessageContentPresentation.make(message)
+    }
+
     var date: Foundation.Date {
         Foundation.Date(timeIntervalSince1970: TimeInterval(message.date))
     }

@@ -39,6 +39,8 @@ import UIKit
 
     let customChat: CustomChat
     nonisolated let chatID: Int64
+    let client: TDLibClient
+    let pollInteractionStore = MessagePollInteractionStore()
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
     @Published var editCustomMessage: CustomMessage?
@@ -135,7 +137,7 @@ import UIKit
     var canEditMessage: Bool {
         guard let editCustomMessage else { return false }
         switch editCustomMessage.message.content {
-        case .messageAnimation, .messagePhoto, .messageVideo, .messageVoiceNote:
+        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
             return true
         case .messageText:
             return !editMessageText.characters.isEmpty
@@ -266,13 +268,14 @@ import UIKit
     init(customChat: CustomChat, previewing: Bool = false) {
         self.customChat = customChat
         self.chatID = customChat.id
+        self.client = td
         self.previewing = previewing
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
         }
 
-        try? td.openChat(chatId: customChat.chat.id) { _ in }
+        try? client.openChat(chatId: customChat.chat.id) { _ in }
         setPublishers()
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
@@ -580,6 +583,22 @@ import UIKit
             )
         }
     }
+
+    func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
+        let client = client
+        Task {
+            do {
+                _ = try await client.setPollAnswer(
+                    chatId: chatID,
+                    messageId: messageID,
+                    optionIds: optionIDs,
+                )
+            } catch {
+                log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
+                pollInteractionStore.failSubmission(messageID: messageID)
+            }
+        }
+    }
     
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
         guard let message = try? await td.getMessage(chatId: customChat.chat.id, messageId: id) else { return nil }
@@ -609,34 +628,7 @@ import UIKit
             customMessage.replyUser = try? await td.getUser(userId: messageSenderUser.userId)
         }
         
-        switch message.content {
-        case .messageText(let messageText):
-            customMessage.formattedText = messageText.text
-        case .messagePhoto(let messagePhoto):
-            if !messagePhoto.caption.text.isEmpty {
-                customMessage.formattedText = messagePhoto.caption
-            }
-        case .messageVoiceNote(let messageVoiceNote):
-            if !messageVoiceNote.caption.text.isEmpty {
-                customMessage.formattedText = messageVoiceNote.caption
-            }
-        case .messageVideoNote:
-            break
-        case .messageAnimation(let messageAnimation):
-            if !messageAnimation.caption.text.isEmpty {
-                customMessage.formattedText = messageAnimation.caption
-            }
-        case .messageVideo(let messageVideo):
-            if !messageVideo.caption.text.isEmpty {
-                customMessage.formattedText = messageVideo.caption
-            }
-        case .messageSticker:
-            break
-        case .messageUnsupported:
-            customMessage.formattedText = FormattedText(entities: [], text: "TDLib not supported")
-        default:
-            customMessage.formattedText = FormattedText(entities: [], text: "BTG not supported")
-        }
+        customMessage.formattedText = customMessage.contentPresentation.formattedText
         
         return customMessage
     }
@@ -1089,7 +1081,7 @@ import UIKit
                 messageId: message.id,
                 replyMarkup: nil,
             )
-        case .messageAnimation, .messagePhoto, .messageVideo, .messageVoiceNote:
+        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
             _ = try? await td.editMessageCaption(
                 caption: FormattedText(
                     entities: getEntities(from: editMessageText),
@@ -1138,6 +1130,10 @@ import UIKit
             editMessageText = getAttributedString(from: messageVoiceNote.caption)
         case .messageAnimation(let messageAnimation):
             editMessageText = getAttributedString(from: messageAnimation.caption)
+        case .messageAudio(let messageAudio):
+            editMessageText = getAttributedString(from: messageAudio.caption)
+        case .messageDocument(let messageDocument):
+            editMessageText = getAttributedString(from: messageDocument.caption)
         case .messageVideo(let messageVideo):
             editMessageText = getAttributedString(from: messageVideo.caption)
         default:

@@ -125,6 +125,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             MediaGalleryTransitionTarget.runDebugProbeIfRequested(in: window)
             FFmpegSampleBufferRenderer.runDebugProbeIfRequested(in: window)
             TDLibVODFFmpegSampleBufferPlayer.runDebugProbeIfRequested(in: window)
+            MessageContentDebugProbe.runIfRequested(in: window)
         #endif
 
         if let response = connectionOptions.notificationResponse {

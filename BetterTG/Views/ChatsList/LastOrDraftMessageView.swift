@@ -32,23 +32,6 @@ import UIKit
     }
 
     static func summary(for message: Message) -> String {
-        switch message.content {
-        case .messagePhoto(let photo):
-            photo.caption.text.isEmpty ? "Photo" : "Photo: \(photo.caption.text)"
-        case .messageVoiceNote(let voice):
-            voice.caption.text.isEmpty ? "Voice" : "Voice: \(voice.caption.text)"
-        case .messageText(let text):
-            text.text.text
-        case .messageAnimation:
-            "Animation"
-        case .messageSticker:
-            "Sticker"
-        case .messageVideo:
-            "Video"
-        case .messageUnsupported:
-            "TDLib not supported"
-        default:
-            "BTG not supported"
-        }
+        MessageContentPresentation.make(message).summary
     }
 }

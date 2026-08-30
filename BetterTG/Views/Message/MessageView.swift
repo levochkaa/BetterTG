@@ -181,6 +181,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let forwardedLabel = UILabel()
     private let replyView = ReplySnippetView()
     private let mediaView = MessageMediaView()
+    private let structuredContentView = MessageStructuredContentView()
     private let textView = MessageTextContentView()
     private let timestampLabel = UILabel()
     private let mediaTimestampLabel = UILabel()
@@ -203,6 +204,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     )
     private var bubbleContentNeedsMeasurement = true
     private var measuredCellWidth = CGFloat.zero
+    private var centeredSpacerConstraint: NSLayoutConstraint?
     private var replyTargetMessageID: Int64?
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
@@ -238,11 +240,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         resumeHistoryScrolling()
         avatarView.prepareForReuse()
         mediaView.prepareForReuse()
+        structuredContentView.prepareForReuse()
         textView.prepareForReuse()
         forwardedLabel.isHidden = true
         replyView.isHidden = true
         textView.isHidden = true
         mediaView.isHidden = true
+        structuredContentView.isHidden = true
         timestampLabel.isHidden = true
         mediaTimestampLabel.isHidden = true
         replyTargetMessageID = nil
@@ -278,6 +282,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             isVisible,
             allowsInlineVideoPlayback: allowsInlineVideoPlayback,
         )
+        structuredContentView.setPlaybackVisible(isVisible)
         textView.setCustomEmojiPlaybackVisible(isVisible)
     }
 
@@ -315,8 +320,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         message: CustomMessage,
         chat: CustomChat,
         highlighted: Bool,
+        client: TDLibClient,
+        pollInteractionStore: MessagePollInteractionStore,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onSwipeToReply: (() -> Void)?,
+        onContentAction: @escaping (MessageContentAction) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
         self.onSwipeToReply = onSwipeToReply
@@ -327,7 +335,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             : Set(message.album.map(\.id))
         swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
         swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil
-        configureAlignment(outgoing: message.message.isOutgoing, showsAvatar: chat.shouldShowProfileImage)
+        let presentation = message.contentPresentation
+        configureAlignment(
+            outgoing: message.message.isOutgoing,
+            showsAvatar: chat.shouldShowProfileImage,
+            centered: presentation.isService,
+        )
 
         let isVideoNoteMessage =
             if case .messageVideoNote = message.message.content {
@@ -344,13 +357,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             } else {
                 false
             }
-        bubbleView.backgroundColor = isStandaloneVideoNote
-            ? (highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear)
-            : (highlighted ? .messageHighlight : .secondarySystemBackground)
-        bubbleTopConstraint.constant = isStandaloneVideoNote ? 0 : 6
-        bubbleLeadingConstraint.constant = isStandaloneVideoNote ? 0 : 8
-        bubbleTrailingConstraint.constant = isStandaloneVideoNote ? 0 : -8
-        bubbleBottomConstraint.constant = isStandaloneVideoNote ? 0 : -5
+        bubbleView.backgroundColor =
+            if presentation.isService {
+                highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear
+            } else if isStandaloneVideoNote {
+                highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear
+            } else {
+                highlighted ? .messageHighlight : .secondarySystemBackground
+            }
+        let usesEdgeToEdgeContent = isStandaloneVideoNote || presentation.isService
+        bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
+        bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
+        bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
+        bubbleBottomConstraint.constant = usesEdgeToEdgeContent ? 0 : -5
         forwardedLabel.isHidden = message.forwardedFrom == nil
         forwardedLabel.text = message.forwardedFrom.map { "Forwarded from \($0)" }
 
@@ -375,10 +394,21 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         mediaView.isHidden = !hasMedia
 
+        let hasStructuredContent = structuredContentView.configure(
+            presentation: presentation,
+            messageID: message.id,
+            album: message.album,
+            client: client,
+            pollInteractionStore: pollInteractionStore,
+            onAction: onContentAction,
+        )
+        structuredContentView.isHidden = !hasStructuredContent
+        let displayedFormattedText = structuredContentView.handlesAlbumCaptions ? nil : message.formattedText
+
         let timestamp = Self.timeFormatter.string(from: message.date)
         let timestampText = message.sendFailed ? "Failed • \(timestamp)" : timestamp
         let timestampColor: UIColor = message.sendFailed ? .systemRed : .secondaryLabel
-        if let formatted = message.formattedText {
+        if let formatted = displayedFormattedText {
             textView.isHidden = false
             textView.configure(
                 formattedText: formatted,
@@ -395,8 +425,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaTimestampLabel.text = timestampText
         mediaTimestampLabel.textColor = message.sendFailed ? .systemRed : .white
         let hasVisualMedia = hasMedia && message.hasVisualMedia
-        timestampLabel.isHidden = message.formattedText != nil || hasVisualMedia
-        mediaTimestampLabel.isHidden = message.formattedText != nil || !hasVisualMedia
+        timestampLabel.isHidden = displayedFormattedText != nil || hasVisualMedia || presentation.isService
+        mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || presentation.isService
         mediaView.bringSubviewToFront(mediaTimestampLabel)
 
         if let sender = message.senderUser, chat.shouldShowProfileImage, !message.message.isOutgoing {
@@ -411,9 +441,15 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
 
         isAccessibilityElement = !isVideoNoteMessage
+        let accessibilityContent =
+            if structuredContentView.handlesAlbumCaptions {
+                message.album.map { MessageContentPresentation.make($0).summary }.joined(separator: ", ")
+            } else {
+                displayedFormattedText?.text ?? presentation.summary
+            }
         accessibilityLabel = [
             message.forwardedFrom.map { "Forwarded from \($0)" },
-            message.formattedText?.text,
+            accessibilityContent,
             timestampLabel.text,
         ]
             .compactMap(\.self)
@@ -483,7 +519,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             mediaTimestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
         ])
 
-        for view in [forwardedLabel, replyView, mediaView, textView, timestampLabel] {
+        for view in [forwardedLabel, replyView, mediaView, structuredContentView, textView, timestampLabel] {
             bubbleStack.addArrangedSubview(view)
         }
         bubbleStack.setCustomSpacing(6, after: replyView)
@@ -612,12 +648,24 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         ])
     }
 
-    private func configureAlignment(outgoing: Bool, showsAvatar: Bool) {
+    private func configureAlignment(outgoing: Bool, showsAvatar: Bool, centered: Bool) {
+        centeredSpacerConstraint?.isActive = false
+        centeredSpacerConstraint = nil
         for arrangedSubview in rowStack.arrangedSubviews {
             rowStack.removeArrangedSubview(arrangedSubview)
             arrangedSubview.removeFromSuperview()
         }
-        if outgoing {
+        if centered {
+            rowStack.addArrangedSubview(leadingSpacer)
+            rowStack.addArrangedSubview(bubbleContainerView)
+            rowStack.addArrangedSubview(trailingSpacer)
+            leadingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
+            let constraint = leadingSpacer.widthAnchor.constraint(equalTo: trailingSpacer.widthAnchor)
+            constraint.isActive = true
+            centeredSpacerConstraint = constraint
+        } else if outgoing {
             rowStack.addArrangedSubview(leadingSpacer)
             rowStack.addArrangedSubview(bubbleContainerView)
             leadingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -750,13 +798,8 @@ final class ReplySnippetView: UIControl {
 private extension CustomMessage {
     var hasVisualMedia: Bool {
         if !album.isEmpty {
-            return true
+            return album.contains { MessageContentPresentation.make($0).isVisualMedia }
         }
-        return switch message.content {
-        case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo, .messageVideoNote:
-            true
-        default:
-            false
-        }
+        return contentPresentation.isVisualMedia
     }
 }
