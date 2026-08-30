@@ -94,9 +94,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
 
         if let response = connectionOptions.notificationResponse {
-            PushRelayCoordinator.shared.handleNotificationResponse(
-                userInfo: response.notification.request.content.userInfo,
-            )
+            Task {
+                await PushRelayCoordinator.shared.handleNotificationResponse(response)
+            }
         }
     }
 }

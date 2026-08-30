@@ -35,7 +35,10 @@ final class NotificationService: UNNotificationServiceExtension {
 
         processingTask = Task { [weak self] in
             guard let self else { return }
-            let fallback = RichNotificationContentBuilder.fallback(metadata: metadata)
+            let fallback = RichNotificationContentBuilder.fallback(
+                metadata: metadata,
+                canQuickReply: canQuickReplyUsingMetadata(metadata),
+            )
             var resolved = fallback
 
             do {
@@ -51,6 +54,7 @@ final class NotificationService: UNNotificationServiceExtension {
                             account: account,
                             payload: payload,
                             metadata: metadata,
+                            allowsQuickReply: account.id == state.activeAccountID,
                             logger: logger,
                         ).resolve() {
                             resolved = tdlibResolved
@@ -84,6 +88,15 @@ final class NotificationService: UNNotificationServiceExtension {
         logger.error("rich_notification.expired")
         processingTask?.cancel()
         finish(with: nil)
+    }
+
+    private func canQuickReplyUsingMetadata(_ metadata: RelayNotificationMetadata) -> Bool {
+        guard metadata.isQuickReplyCandidate,
+              let state = try? TelegramAccountRegistry().loadExisting(),
+              let activeAccount = state.accounts.first(where: { $0.id == state.activeAccountID }),
+              metadata.accountID == nil || metadata.accountID == activeAccount.userID
+        else { return false }
+        return true
     }
 
     private func finish(with content: UNNotificationContent?) {

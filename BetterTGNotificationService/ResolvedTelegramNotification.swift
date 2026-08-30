@@ -8,4 +8,5 @@ struct ResolvedTelegramNotification {
     let senderAvatarData: Data?
     let conversationAvatarData: Data?
     let mediaData: Data?
+    let canQuickReply: Bool
 }

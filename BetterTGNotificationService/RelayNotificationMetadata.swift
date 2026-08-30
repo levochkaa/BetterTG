@@ -19,6 +19,11 @@ struct RelayNotificationMetadata {
         return RichNotificationMessageReference(peer: peer, serverMessageID: serverMessageID)
     }
 
+    var isQuickReplyCandidate: Bool {
+        guard let event else { return false }
+        return event.hasPrefix("MESSAGE_") || event.hasPrefix("CHAT_MESSAGE_")
+    }
+
     init?(userInfo: [AnyHashable: Any]) {
         guard let data = userInfo["tg"] as? [String: Any],
               let peerKindValue = data["peer_type"] as? String,

@@ -15,16 +15,17 @@ struct PushNotificationRoute: Hashable {
     let peerType: PeerType
     let peerId: Int64
     let serverMessageId: Int64?
+    let topServerMessageId: Int64?
     let event: String?
     let maxId: Int64?
     let deletedMessageIds: Set<Int64>
 
     var tdlibMessageId: Int64? {
-        guard let serverMessageId,
-              serverMessageId > 0,
-              serverMessageId <= Int64.max >> 20
-        else { return nil }
-        return serverMessageId << 20
+        Self.tdlibMessageId(from: serverMessageId)
+    }
+
+    var tdlibTopMessageId: Int64? {
+        Self.tdlibMessageId(from: topServerMessageId)
     }
 
     init?(userInfo: [AnyHashable: Any]) {
@@ -38,6 +39,7 @@ struct PushNotificationRoute: Hashable {
         self.peerId = peerId
         self.accountId = Self.int64(data["account"])
         self.serverMessageId = Self.int64(data["message_id"])
+        self.topServerMessageId = Self.int64(data["top_message_id"])
         self.event = data["event"] as? String
         self.maxId = Self.int64(data["max_id"])
         self.deletedMessageIds = Set(
@@ -56,6 +58,14 @@ struct PushNotificationRoute: Hashable {
         case let integer as Int64: integer
         default: nil
         }
+    }
+
+    private static func tdlibMessageId(from serverMessageId: Int64?) -> Int64? {
+        guard let serverMessageId,
+              serverMessageId > 0,
+              serverMessageId <= Int64.max >> 20
+        else { return nil }
+        return serverMessageId << 20
     }
 
     func refersToSameConversation(as other: Self) -> Bool {

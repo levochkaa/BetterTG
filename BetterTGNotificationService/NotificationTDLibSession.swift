@@ -15,6 +15,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private let account: TelegramAccount
     private let payload: String
     private let metadata: RelayNotificationMetadata
+    private let allowsQuickReply: Bool
     private let logger: os.Logger
     private let manager = TDLibClientManager()
     private let stateLock = NSLock()
@@ -28,11 +29,13 @@ final class NotificationTDLibSession: @unchecked Sendable {
         account: TelegramAccount,
         payload: String,
         metadata: RelayNotificationMetadata,
+        allowsQuickReply: Bool,
         logger: os.Logger,
     ) {
         self.account = account
         self.payload = payload
         self.metadata = metadata
+        self.allowsQuickReply = allowsQuickReply
         self.logger = logger
     }
 
@@ -199,6 +202,12 @@ final class NotificationTDLibSession: @unchecked Sendable {
         let resolvedConversationAvatar = await conversationAvatar
             ?? RichNotificationCache.avatarData(for: metadata.peer)
         let resolvedMedia = await mediaData
+        let canQuickReply =
+            if allowsQuickReply, let conversation {
+                await QuickReplyNotification.canSendText(to: conversation, using: client)
+            } else {
+                false
+            }
         if let resolvedMedia, let message = metadata.messageReference {
             RichNotificationCache.cacheMedia(resolvedMedia, for: message)
         }
@@ -215,6 +224,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
             senderAvatarData: resolvedSenderAvatar,
             conversationAvatarData: resolvedConversationAvatar,
             mediaData: resolvedMedia,
+            canQuickReply: canQuickReply,
         )
     }
 

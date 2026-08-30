@@ -66,10 +66,20 @@ enum RichNotificationContentBuilder {
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
         interaction.donate(completion: nil)
-        return (try? mutable.updating(from: intent)) ?? mutable
+        let updated = (try? mutable.updating(from: intent)) ?? mutable
+        guard let finalContent = updated.mutableCopy() as? UNMutableNotificationContent else {
+            return updated
+        }
+        finalContent.categoryIdentifier = resolved.canQuickReply
+            ? QuickReplyNotification.categoryIdentifier
+            : QuickReplyNotification.messageCategoryIdentifier
+        return finalContent
     }
 
-    static func fallback(metadata: RelayNotificationMetadata) -> ResolvedTelegramNotification {
+    static func fallback(
+        metadata: RelayNotificationMetadata,
+        canQuickReply: Bool,
+    ) -> ResolvedTelegramNotification {
         let mediaData = metadata.messageReference
             .flatMap(RichNotificationCache.mediaURL)
             .flatMap { try? Data(contentsOf: $0) }
@@ -79,6 +89,7 @@ enum RichNotificationContentBuilder {
             senderAvatarData: RichNotificationCache.avatarData(for: metadata.sender),
             conversationAvatarData: RichNotificationCache.avatarData(for: metadata.peer),
             mediaData: mediaData,
+            canQuickReply: canQuickReply,
         )
     }
 

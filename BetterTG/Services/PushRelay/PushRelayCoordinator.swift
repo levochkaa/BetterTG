@@ -29,6 +29,7 @@ import UserNotifications
     private var synchronizationRequested = false
     private var pendingRoute: PushNotificationRoute?
     private var lastOpenedRoute: PushNotificationRoute?
+    private var handledQuickReplyRequestIdentifiers = Set<String>()
     private var cancellables = Set<AnyCancellable>()
 
     override private init() {
@@ -50,10 +51,22 @@ import UserNotifications
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        let replyAction = UNTextInputNotificationAction(
+            identifier: QuickReplyNotification.actionIdentifier,
+            title: "Reply",
+            options: [],
+            textInputButtonTitle: "Reply",
+            textInputPlaceholder: "Message",
+        )
         center.setNotificationCategories([
             UNNotificationCategory(
-                identifier: "TELEGRAM_MESSAGE",
+                identifier: QuickReplyNotification.messageCategoryIdentifier,
                 actions: [],
+                intentIdentifiers: [],
+            ),
+            UNNotificationCategory(
+                identifier: QuickReplyNotification.categoryIdentifier,
+                actions: [replyAction],
                 intentIdentifiers: [],
             ),
         ])
@@ -144,6 +157,27 @@ import UserNotifications
             return
         }
         open(route: route)
+    }
+
+    func handleNotificationResponse(_ response: UNNotificationResponse) async {
+        if response.actionIdentifier == QuickReplyNotification.actionIdentifier {
+            guard let response = response as? UNTextInputNotificationResponse,
+                  !response.userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let route = PushNotificationRoute(
+                      userInfo: response.notification.request.content.userInfo,
+                  )
+            else { return }
+            if handledQuickReplyRequestIdentifiers.count >= 128 {
+                handledQuickReplyRequestIdentifiers.removeAll(keepingCapacity: true)
+            }
+            guard handledQuickReplyRequestIdentifiers.insert(
+                response.notification.request.identifier,
+            )
+            .inserted else { return }
+            await sendQuickReply(response.userText, route: route)
+        } else {
+            handleNotificationResponse(userInfo: response.notification.request.content.userInfo)
+        }
     }
 
     func handleBackgroundNotification(userInfo: [AnyHashable: Any]) async -> Bool {
@@ -239,7 +273,7 @@ import UserNotifications
         _: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
     ) async {
-        await handleNotificationResponse(userInfo: response.notification.request.content.userInfo)
+        await handleNotificationResponse(response)
     }
 
     private func scheduleSynchronization() {
@@ -518,6 +552,88 @@ import UserNotifications
         }
     }
 
+    private func sendQuickReply(_ text: String, route: PushNotificationRoute) async {
+        guard await waitForTelegramAuthorization() else {
+            log("Unable to send quick reply: TDLib authorization timed out")
+            return
+        }
+
+        do {
+            let client = td
+            let currentUser = try await client.getMe()
+            guard route.accountId == nil || route.accountId == currentUser.id else {
+                log("Unable to send quick reply: notification belongs to another Telegram account")
+                return
+            }
+
+            let chat = try await chat(for: route, using: client)
+            guard await QuickReplyNotification.canSendText(to: chat, using: client) else {
+                log("Unable to send quick reply: sending messages is no longer allowed")
+                return
+            }
+
+            let replyTo = route.tdlibTopMessageId.map {
+                InputMessageReplyTo.inputMessageReplyToMessage(
+                    InputMessageReplyToMessage(
+                        checklistTaskId: 0,
+                        messageId: $0,
+                        pollOptionId: "",
+                        quote: nil,
+                    ),
+                )
+            }
+            _ = try await client.sendMessage(
+                chatId: chat.id,
+                inputMessageContent: .inputMessageText(
+                    InputMessageText(
+                        clearDraft: false,
+                        linkPreviewOptions: nil,
+                        text: FormattedText(entities: [], text: text),
+                    ),
+                ),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: replyTo,
+                topicId: nil,
+            )
+            if let messageId = route.tdlibMessageId {
+                _ = try? await client.viewMessages(
+                    chatId: chat.id,
+                    forceRead: true,
+                    messageIds: [messageId],
+                    source: nil,
+                )
+            }
+            log("Quick reply sent")
+        } catch {
+            log("Unable to send quick reply: \(error.localizedDescription)")
+        }
+    }
+
+    private func waitForTelegramAuthorization() async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(15))
+        while !telegramReady, clock.now < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                return false
+            }
+        }
+        return telegramReady
+    }
+
+    private func chat(for route: PushNotificationRoute, using client: TDLibClient) async throws -> Chat {
+        switch route.peerType {
+        case .privateChat:
+            try await client.createPrivateChat(force: false, userId: route.peerId)
+        case .basicGroup:
+            try await client.createBasicGroupChat(basicGroupId: route.peerId, force: false)
+        case .supergroup:
+            try await client.createSupergroupChat(force: false, supergroupId: route.peerId)
+        }
+    }
+
     private func open(route: PushNotificationRoute) {
         guard lastOpenedRoute != route else { return }
         lastOpenedRoute = route
@@ -529,15 +645,7 @@ import UserNotifications
             do {
                 let currentUser = try await td.getMe()
                 guard route.accountId == nil || route.accountId == currentUser.id else { return }
-                let chat: Chat =
-                    switch route.peerType {
-                    case .privateChat:
-                        try await td.createPrivateChat(force: false, userId: route.peerId)
-                    case .basicGroup:
-                        try await td.createBasicGroupChat(basicGroupId: route.peerId, force: false)
-                    case .supergroup:
-                        try await td.createSupergroupChat(force: false, supergroupId: route.peerId)
-                    }
+                let chat = try await chat(for: route, using: td)
                 let position = chat.positions.first ?? ChatPosition(
                     isPinned: false,
                     list: .chatListMain,
