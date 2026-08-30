@@ -120,10 +120,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         )
     }
 
-    var isSearchNavigationHidden: Bool {
-        searchScrollOffset >= ChatListNavigationSearchView.scrollHeight - 1
-    }
-
     private var filteredChats: [CustomChat] {
         folder.chats
             .sorted { $0.position.order > $1.position.order }
@@ -266,17 +262,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     func revealSearch(animated: Bool) {
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated)
-    }
-
-    func adjustSearchOffsetForNavigation(isHidden: Bool) {
-        let targetOffset = isHidden ? ChatListNavigationSearchView.scrollHeight : 0
-        guard abs(searchScrollOffset - targetOffset) >= 1 else { return }
-        initialSearchScrollOffset = targetOffset
-        guard isViewLoaded, didSetInitialSearchOffset else { return }
-        tableView.setContentOffset(
-            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + targetOffset),
-            animated: false,
-        )
     }
 
     func setSearchActive(_ active: Bool, animated: Bool) {
