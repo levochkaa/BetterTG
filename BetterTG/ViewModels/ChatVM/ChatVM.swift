@@ -56,6 +56,11 @@ import UIKit
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
 
+    struct PreparedMessageWindow {
+        let messages: [CustomMessage]
+        let displayedMessageID: Int64
+    }
+
     let customChat: CustomChat
     nonisolated let chatID: Int64
     private let previewing: Bool
@@ -206,18 +211,16 @@ import UIKit
         })?.id
     }
 
-    func ensureMessageLoaded(id: Int64) async -> Int64? {
-        if let displayedID = displayedMessageID(containing: id) {
-            return displayedID
-        }
-
+    func prepareMessageWindow(around id: Int64) async -> PreparedMessageWindow? {
+        let windowSize = 50
         var history = (try? await td.getChatHistory(
             chatId: chatID,
             fromMessageId: id,
-            limit: 30,
-            offset: -15,
+            limit: windowSize,
+            offset: -(windowSize / 2),
             onlyLocal: false,
         ).messages) ?? []
+        guard !Task.isCancelled else { return nil }
         if !history.contains(where: { $0.id == id }),
            let target = try? await td.getMessage(chatId: chatID, messageId: id)
         {
@@ -226,6 +229,7 @@ import UIKit
         guard !history.isEmpty else { return nil }
 
         let loaded = await history.asyncMap { await getCustomMessage(from: $0) }
+        guard !Task.isCancelled else { return nil }
         var grouped = [CustomMessage]()
         for message in loaded {
             let albumID = message.message.mediaAlbumId
@@ -251,10 +255,17 @@ import UIKit
                 merged.append(message)
             }
         }
-        messages = merged.sorted { lhs, rhs in
+        let preparedMessages = merged.sorted { lhs, rhs in
             lhs.message.date == rhs.message.date ? lhs.id > rhs.id : lhs.message.date > rhs.message.date
         }
-        return displayedMessageID(containing: id)
+        guard let displayedMessageID = preparedMessages.first(where: { message in
+            message.id == id || message.album.contains(where: { $0.id == id })
+        })?.id else { return nil }
+        return PreparedMessageWindow(messages: preparedMessages, displayedMessageID: displayedMessageID)
+    }
+
+    func applyMessageWindow(_ window: PreparedMessageWindow) {
+        messages = window.messages
     }
 
     func deleteMessage(id: Int64, deleteForBoth: Bool) {

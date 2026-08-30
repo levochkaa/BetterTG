@@ -33,6 +33,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     deinit {
         prefetchTasks.values.forEach { $0.cancel() }
+        messageNavigationTask?.cancel()
     }
 
     // MARK: Internal
@@ -180,6 +181,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
+    private var messageNavigationTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
     private var composerLeadingConstraint: NSLayoutConstraint?
@@ -576,14 +578,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToMessage(id: Int64) {
+        messageNavigationTask?.cancel()
+        messageNavigationTask = nil
+        pendingScrollMessageID = nil
         if let displayedID = chatVM.displayedMessageID(containing: id) {
             scrollToLoadedMessage(id: displayedID)
             return
         }
-        Task { [weak self] in
-            guard let self, let displayedID = await chatVM.ensureMessageLoaded(id: id) else { return }
-            pendingScrollMessageID = displayedID
-            updateSnapshot(animated: false)
+        messageNavigationTask = Task { [weak self] in
+            guard let self,
+                  let window = await chatVM.prepareMessageWindow(around: id),
+                  !Task.isCancelled
+            else { return }
+            pendingScrollMessageID = window.displayedMessageID
+            chatVM.applyMessageWindow(window)
+            messageNavigationTask = nil
         }
     }
 
