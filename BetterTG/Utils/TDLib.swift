@@ -48,6 +48,7 @@ final class TDLib: @unchecked Sendable {
     private var ownershipReleaseTask: Task<Void, Never>?
     private var ownershipResumeTask: Task<Void, Never>?
     private var ownershipBackgroundTaskIdentifier = UIBackgroundTaskIdentifier.invalid
+    private var ownershipBackgroundTaskEndTask: Task<Void, Never>?
     private var lifecycleSuspended = false
     private var wantsForegroundOwnership = true
     private let clientLock = NSLock()
@@ -116,7 +117,6 @@ final class TDLib: @unchecked Sendable {
             guard let self else { return }
             processLock?.unlock()
             processLock = nil
-            endOwnershipBackgroundTask()
             log("TDLib ownership released for notification service")
         }
     }
@@ -559,19 +559,35 @@ final class TDLib: @unchecked Sendable {
     }
 
     @MainActor private func beginOwnershipBackgroundTask() {
-        guard ownershipBackgroundTaskIdentifier == .invalid else { return }
-        ownershipBackgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(
-            withName: "Release TDLib for notifications",
-        ) { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                log("TDLib ownership handoff background time expired")
-                self.endOwnershipBackgroundTask()
+        if ownershipBackgroundTaskIdentifier == .invalid {
+            ownershipBackgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(
+                withName: "Release TDLib and retain background process",
+            ) { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    log("TDLib background retention expired before 30 seconds")
+                    self.endOwnershipBackgroundTask()
+                }
             }
+        }
+
+        guard ownershipBackgroundTaskIdentifier != .invalid else {
+            log("TDLib background retention was not granted")
+            return
+        }
+
+        ownershipBackgroundTaskEndTask?.cancel()
+        ownershipBackgroundTaskEndTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, let self else { return }
+            log("TDLib background retention completed after 30 seconds")
+            endOwnershipBackgroundTask()
         }
     }
 
     @MainActor private func endOwnershipBackgroundTask() {
+        ownershipBackgroundTaskEndTask?.cancel()
+        ownershipBackgroundTaskEndTask = nil
         guard ownershipBackgroundTaskIdentifier != .invalid else { return }
         UIApplication.shared.endBackgroundTask(ownershipBackgroundTaskIdentifier)
         ownershipBackgroundTaskIdentifier = .invalid
