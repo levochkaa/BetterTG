@@ -84,7 +84,7 @@ import UIKit
     }
 
     private func logPendingRichNotificationDiagnostics() {
-        for entry in RichNotificationDiagnostics.drain() {
+        for entry in RichNotificationDiagnostics.recentEntries() {
             let fields = entry.fields
                 .sorted(by: { $0.key < $1.key })
                 .map { "\($0.key)=\($0.value)" }

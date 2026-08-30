@@ -25,13 +25,12 @@ enum RichNotificationDiagnostics {
         }
     }
 
-    static func drain() -> [RichNotificationDiagnosticEntry] {
-        var drained = [RichNotificationDiagnosticEntry]()
+    static func recentEntries() -> [RichNotificationDiagnosticEntry] {
+        var recent = [RichNotificationDiagnosticEntry]()
         withLockedEntries { entries in
-            drained = entries
-            entries.removeAll()
+            recent = entries
         }
-        return drained
+        return recent
     }
 
     private static func withLockedEntries(_ body: (inout [RichNotificationDiagnosticEntry]) -> Void) {
