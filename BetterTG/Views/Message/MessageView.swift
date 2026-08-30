@@ -190,7 +190,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var bubbleWidthConstraint: NSLayoutConstraint!
     private var bubbleContentNeedsMeasurement = true
     private var measuredCellWidth = CGFloat.zero
-    private var onReplyTap: ((Int64) -> Void)?
+    private var replyTargetMessageID: Int64?
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
     private var swipeReplyThreshold: CGFloat = 45
@@ -229,7 +229,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaView.isHidden = true
         timestampLabel.isHidden = true
         mediaTimestampLabel.isHidden = true
-        onReplyTap = nil
+        replyTargetMessageID = nil
         onSwipeToReply = nil
         onMediaTap = nil
         swipeToReplyRecognizer.isEnabled = false
@@ -249,15 +249,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
+    func replyMessageID(at point: CGPoint) -> Int64? {
+        guard let replyTargetMessageID, !replyView.isHidden else { return nil }
+        let replyFrame = replyView.convert(replyView.bounds, to: contentView).insetBy(dx: -4, dy: -4)
+        return replyFrame.contains(point) ? replyTargetMessageID : nil
+    }
+
     func configure(
         message: CustomMessage,
         chat: CustomChat,
         highlighted: Bool,
-        onReplyTap: @escaping (Int64) -> Void,
         onSwipeToReply: (() -> Void)?,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
-        self.onReplyTap = onReplyTap
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
         swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
@@ -270,13 +274,15 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         if let reply = message.replyToMessage {
             replyView.isHidden = false
+            replyTargetMessageID = reply.id
             replyView.configure(
                 title: message.replyUser?.firstName ?? "Reply",
                 message: reply,
-                onTap: { [weak self] in self?.onReplyTap?(reply.id) },
+                onTap: {},
             )
         } else {
             replyView.isHidden = true
+            replyTargetMessageID = nil
         }
 
         let hasMedia = mediaView.configure(message: message) { [weak self] messages, selection in

@@ -308,7 +308,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
         if presentationMode == .full {
-            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped))
+            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped(_:)))
             tapGesture.cancelsTouchesInView = false
             tapGesture.delegate = self
             collectionView.addGestureRecognizer(tapGesture)
@@ -430,10 +430,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 message: message,
                 chat: chatVM.customChat,
                 highlighted: chatVM.highlightedMessageId == messageID,
-                onReplyTap: { [weak self] id in
-                    guard self?.presentationMode == .full else { return }
-                    self?.scrollToMessage(id: id)
-                },
                 onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
                     ? { [weak self] in self?.chatVM.replyMessage = message }
                     : nil,
@@ -804,7 +800,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    @objc private func historyTapped() {
+    @objc private func historyTapped(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: collectionView)
+        if let indexPath = collectionView.indexPathForItem(at: point),
+           let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+        {
+            let pointInCell = cell.contentView.convert(point, from: collectionView)
+            if let replyMessageID = cell.replyMessageID(at: pointInCell) {
+                scrollToMessage(id: replyMessageID)
+                return
+            }
+        }
         view.endEditing(true)
     }
 
