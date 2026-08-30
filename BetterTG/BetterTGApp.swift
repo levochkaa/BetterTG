@@ -45,13 +45,16 @@ import UIKit
         }
     }
 
+    /// Do not use this callback for lifecycle work. BetterTG uses scenes; keep background
+    /// ownership in `SceneDelegate.sceneDidEnterBackground(_:)`. This log verifies runtime dispatch.
     func applicationDidEnterBackground(_: UIApplication) {
-        TDLib.shared.releaseForNotificationService()
+        log("Lifecycle callback: AppDelegate.applicationDidEnterBackground")
     }
 
+    /// Do not use this callback for lifecycle work. BetterTG uses scenes; keep foreground
+    /// ownership in `SceneDelegate.sceneWillEnterForeground(_:)`. This log verifies runtime dispatch.
     func applicationWillEnterForeground(_: UIApplication) {
-        logPendingRichNotificationDiagnostics()
-        TDLib.shared.resumeAfterNotificationService()
+        log("Lifecycle callback: AppDelegate.applicationWillEnterForeground")
     }
 
     func application(
@@ -82,16 +85,6 @@ import UIKit
         UINavigationBar.appearance().compactAppearance = appearance
         UINavigationBar.appearance().tintColor = .systemBlue
     }
-
-    private func logPendingRichNotificationDiagnostics() {
-        for entry in RichNotificationDiagnostics.recentEntries() {
-            let fields = entry.fields
-                .sorted(by: { $0.key < $1.key })
-                .map { "\($0.key)=\($0.value)" }
-                .joined(separator: ",")
-            log("NSE diagnostic: event=\(entry.event)\(fields.isEmpty ? "" : ",\(fields)")")
-        }
-    }
 }
 
 // MARK: - SceneDelegate
@@ -118,5 +111,26 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
                 await PushRelayCoordinator.shared.handleNotificationResponse(response)
             }
         }
+    }
+
+    func sceneDidEnterBackground(_: UIScene) {
+        log("Lifecycle callback: SceneDelegate.sceneDidEnterBackground")
+        TDLib.shared.releaseForNotificationService()
+    }
+
+    func sceneWillEnterForeground(_: UIScene) {
+        log("Lifecycle callback: SceneDelegate.sceneWillEnterForeground")
+        logPendingRichNotificationDiagnostics()
+        TDLib.shared.resumeAfterNotificationService()
+    }
+}
+
+private func logPendingRichNotificationDiagnostics() {
+    for entry in RichNotificationDiagnostics.recentEntries() {
+        let fields = entry.fields
+            .sorted(by: { $0.key < $1.key })
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: ",")
+        log("NSE diagnostic: event=\(entry.event)\(fields.isEmpty ? "" : ",\(fields)")")
     }
 }
