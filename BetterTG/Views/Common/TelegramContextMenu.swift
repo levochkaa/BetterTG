@@ -7,6 +7,10 @@ import UIKit
 
 private enum TelegramContextMenuLayout {
     static let actionHeight = CGFloat(44)
+    static let actionFontSize = CGFloat(17)
+    static let contentSideInset = CGFloat(16)
+    static let iconSize = CGFloat(24)
+    static let titleToIconSpacing = CGFloat(20)
     static let menuWidth = CGFloat(250)
     static let sectionSeparatorHeight = CGFloat(8)
 }
@@ -841,8 +845,7 @@ private final class TelegramContextMenuActionButton: UIControl {
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
-        titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.actionFontSize)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
@@ -850,17 +853,36 @@ private final class TelegramContextMenuActionButton: UIControl {
         iconView.tintColor = color
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(iconView)
 
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 22),
-            iconView.heightAnchor.constraint(equalToConstant: 22),
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+        var constraints = [
+            titleLabel.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: TelegramContextMenuLayout.contentSideInset,
+            ),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
-        ])
+        ]
+        if action.image != nil {
+            addSubview(iconView)
+            constraints.append(contentsOf: [
+                iconView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -TelegramContextMenuLayout.contentSideInset,
+                ),
+                iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                iconView.widthAnchor.constraint(equalToConstant: TelegramContextMenuLayout.iconSize),
+                iconView.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.iconSize),
+                titleLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: iconView.leadingAnchor,
+                    constant: -TelegramContextMenuLayout.titleToIconSpacing,
+                ),
+            ])
+        } else {
+            constraints.append(titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -TelegramContextMenuLayout.contentSideInset,
+            ))
+        }
+        NSLayoutConstraint.activate(constraints)
         accessibilityLabel = action.title
         accessibilityTraits = .button
     }
