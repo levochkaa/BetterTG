@@ -389,8 +389,20 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
 final class TDImageLoadingView: UIImageView {
     // MARK: Private
 
-    private static let cache: NSCache<NSNumber, UIImage> = {
-        let cache = NSCache<NSNumber, UIImage>()
+    private struct RequestIdentity: Equatable {
+        let accountID: UUID?
+        let clientID: Int32
+        let fileID: Int
+        let generation: UUID
+
+        var cacheKey: NSString {
+            let accountNamespace = accountID?.uuidString ?? "unknown-account"
+            return "\(accountNamespace):\(clientID):\(fileID)" as NSString
+        }
+    }
+
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 200
         cache.totalCostLimit = 96 * 1024 * 1024
         return cache
@@ -400,7 +412,8 @@ final class TDImageLoadingView: UIImageView {
 
     private(set) var loadedPath: String?
 
-    private var representedFileID: Int?
+    private var representedRequest: RequestIdentity?
+    private var representedClient: TDLibClient?
     private var downloadTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
     private var maximumPixelSize = 1280
@@ -416,20 +429,28 @@ final class TDImageLoadingView: UIImageView {
 
     func load(file: File, placeholderData: Data? = nil, maximumPixelSize: Int = 1280) {
         cancel()
+        let client = td
+        let request = RequestIdentity(
+            accountID: TDLib.shared.activeAccountID,
+            clientID: client.id,
+            fileID: file.id,
+            generation: UUID(),
+        )
         self.maximumPixelSize = maximumPixelSize
-        representedFileID = file.id
+        representedRequest = request
+        representedClient = client
         image = placeholderData.flatMap(UIImage.init(data:))
-        if let cached = Self.cache.object(forKey: NSNumber(value: file.id)) {
+        if let cached = Self.cache.object(forKey: request.cacheKey) {
             image = cached
             return
         }
-        update(file: file)
+        update(file: file, for: request)
         cancellable = nc.publisher(for: .updateFile)
             .receive(on: DispatchQueue.main)
             .filter { $0.file.id == file.id }
-            .sink { [weak self] update in self?.update(file: update.file) }
+            .sink { [weak self] update in self?.update(file: update.file, for: request) }
         downloadTask = Task { [weak self] in
-            let downloaded = try? await td.downloadFile(
+            let downloaded = try? await client.downloadFile(
                 fileId: file.id,
                 limit: 0,
                 offset: 0,
@@ -437,25 +458,31 @@ final class TDImageLoadingView: UIImageView {
                 synchronous: false,
             )
             guard let self, let downloaded else { return }
-            await MainActor.run { self.update(file: downloaded) }
+            await MainActor.run { self.update(file: downloaded, for: request) }
         }
     }
 
     func cancel() {
-        let fileID = representedFileID
-        representedFileID = nil
+        let request = representedRequest
+        let client = representedClient
+        representedRequest = nil
+        representedClient = nil
         downloadTask?.cancel()
         downloadTask = nil
         cancellable?.cancel()
         cancellable = nil
         loadedPath = nil
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
+        if let request, let client {
+            Task { try? await client.cancelDownloadFile(fileId: request.fileID, onlyIfPending: true) }
         }
     }
 
-    private func update(file: File) {
-        guard representedFileID == file.id, file.local.isDownloadingCompleted else { return }
+    private func update(file: File, for request: RequestIdentity) {
+        guard representedRequest == request,
+              TDLib.shared.activeClient.id == request.clientID,
+              file.id == request.fileID,
+              file.local.isDownloadingCompleted
+        else { return }
         let path = file.local.path
         let maximumPixelSize = maximumPixelSize
         loadedPath = path
@@ -464,9 +491,13 @@ final class TDImageLoadingView: UIImageView {
                 downsampledImage(at: path, maximumPixelSize: maximumPixelSize)
             }.value
             await MainActor.run {
-                guard let self, self.representedFileID == file.id, let decoded else { return }
+                guard let self,
+                      self.representedRequest == request,
+                      TDLib.shared.activeClient.id == request.clientID,
+                      let decoded
+                else { return }
                 let cost = Int(decoded.size.width * decoded.size.height * decoded.scale * decoded.scale * 4)
-                Self.cache.setObject(decoded, forKey: NSNumber(value: file.id), cost: cost)
+                Self.cache.setObject(decoded, forKey: request.cacheKey, cost: cost)
                 self.image = decoded
             }
         }

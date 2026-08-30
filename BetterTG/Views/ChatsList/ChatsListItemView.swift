@@ -129,6 +129,9 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
 
     private let imageView = TDImageLoadingView()
     private let label = UILabel()
+    private var representedAccountID: UUID?
+    private var representedClientID: Int32?
+    private var representedPeerID: Int64?
     private var representedFile: File?
     private var representedMinithumbnailData: Data?
 
@@ -174,10 +177,20 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     func configure(file: File?, minithumbnail: Minithumbnail?, title: String, id: Int64) {
         label.text = String(title.prefix(1)).uppercased()
         extractedContentView.backgroundColor = UIColor(userID: id)
+        let accountID = TDLib.shared.activeAccountID
+        let clientID = td.id
         let thumbnailData = minithumbnail?.data
-        guard representedFile != file || representedMinithumbnailData != thumbnailData else { return }
+        guard representedAccountID != accountID
+            || representedClientID != clientID
+            || representedPeerID != id
+            || representedFile != file
+            || representedMinithumbnailData != thumbnailData
+        else { return }
         imageView.cancel()
         imageView.image = nil
+        representedAccountID = accountID
+        representedClientID = clientID
+        representedPeerID = id
         representedFile = file
         representedMinithumbnailData = thumbnailData
         if let file {
@@ -189,9 +202,14 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
 
     func prepareForReuse() {
         imageView.cancel()
+        representedAccountID = nil
+        representedClientID = nil
+        representedPeerID = nil
         representedFile = nil
         representedMinithumbnailData = nil
         imageView.image = nil
+        label.text = nil
+        extractedContentView.backgroundColor = .clear
     }
 
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
