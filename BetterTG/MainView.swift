@@ -849,7 +849,10 @@ private final class FolderButton: UIButton {
     }
 
     private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
-    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .regular)
+    private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let activeBadgeTextColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .black : .white
+    }
 
     private let contentStack = UIStackView()
     private let folderTitleLabel = UILabel()
@@ -908,8 +911,8 @@ private final class FolderButton: UIButton {
         resolvedTitleColor = titleColor
         folderTitleLabel.textColor = titleColor
         if unreadHasUnmuted {
-            unreadBadgeLabel.backgroundColor = titleColor
-            unreadBadgeLabel.textColor = .systemBackground
+            unreadBadgeLabel.backgroundColor = .label
+            unreadBadgeLabel.textColor = Self.activeBadgeTextColor
         } else {
             unreadBadgeLabel.backgroundColor = .tertiarySystemFill
             unreadBadgeLabel.textColor = .secondaryLabel
