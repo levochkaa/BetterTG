@@ -49,6 +49,8 @@ export class WebPushIngressService {
             throw new NotFoundException()
         }
 
+        await this.redis.enforceRateLimit(`webpush:ip:${ipAddress}`, 600, 60)
+
         const endpointTokenHash = this.secretBox.hashCapability(capabilityToken)
         const subscription = await this.subscriptions.findOne({
             where: { endpointTokenHash },
@@ -56,6 +58,11 @@ export class WebPushIngressService {
         })
         if (!subscription || subscription.installation.status !== 'active') {
             this.metrics.ingress.add(1, { status: 'unknown_subscription' })
+            this.logger.warn({
+                event: 'webpush.unknown_subscription',
+                contentEncoding: headers.contentEncoding?.toLowerCase() ?? 'missing',
+                bodyBytes: ciphertext.length,
+            })
             throw new NotFoundException()
         }
 
@@ -86,10 +93,7 @@ export class WebPushIngressService {
             )
         }
 
-        await Promise.all([
-            this.redis.enforceRateLimit(`webpush:ip:${ipAddress}`, 600, 60),
-            this.redis.enforceRateLimit(`webpush:subscription:${subscription.id}`, 120, 60),
-        ])
+        await this.redis.enforceRateLimit(`webpush:subscription:${subscription.id}`, 120, 60)
 
         const digest = this.secretBox.ciphertextDigest(ciphertext)
         const deduplicationKey = `webpush:dedupe:${subscription.id}:${digest}`
