@@ -363,7 +363,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.backgroundColor = .secondarySystemBackground
-        bubbleView.layer.cornerRadius = 20
+        bubbleView.layer.cornerRadius = 16
         bubbleView.clipsToBounds = true
         bubbleStack.translatesAutoresizingMaskIntoConstraints = false
         bubbleStack.axis = .vertical
