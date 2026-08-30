@@ -34,5 +34,8 @@ const payloadSchema = z.object({ data: dataSchema }).passthrough()
 export type TelegramPushPayload = z.infer<typeof payloadSchema>
 
 export function parseTelegramPushPayload(value: unknown): TelegramPushPayload {
-    return payloadSchema.parse(value)
+    if (value !== null && typeof value === 'object' && Object.hasOwn(value, 'data')) {
+        return payloadSchema.parse(value)
+    }
+    return { data: dataSchema.parse(value) }
 }
