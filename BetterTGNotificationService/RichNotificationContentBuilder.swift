@@ -14,6 +14,12 @@ enum RichNotificationContentBuilder {
     ) -> UNNotificationContent {
         guard let mutable = original.mutableCopy() as? UNMutableNotificationContent else { return original }
 
+        mutable.body = bodyWithoutRedundantSender(
+            mutable.body,
+            senderName: resolved.senderName,
+            conversationTitle: resolved.conversationTitle ?? metadata.conversationTitle,
+        )
+
         if let mediaData = resolved.mediaData ?? metadata.messageReference
             .flatMap(RichNotificationCache.mediaURL)
             .flatMap({ try? Data(contentsOf: $0) }),
@@ -83,6 +89,29 @@ enum RichNotificationContentBuilder {
     }
 
     // MARK: Private
+
+    private static func bodyWithoutRedundantSender(
+        _ body: String,
+        senderName: String,
+        conversationTitle: String?,
+    ) -> String {
+        guard !senderName.isEmpty, body.hasPrefix(senderName) else { return body }
+        var remainder = String(body.dropFirst(senderName.count))
+
+        if let conversationTitle, !conversationTitle.isEmpty {
+            let groupPrefix = " @ \(conversationTitle)"
+            if remainder.hasPrefix(groupPrefix) {
+                remainder.removeFirst(groupPrefix.count)
+            }
+        }
+
+        for separator in [": ", ":", " — ", " – ", " "] where remainder.hasPrefix(separator) {
+            remainder.removeFirst(separator.count)
+            break
+        }
+
+        return remainder.isEmpty ? body : remainder
+    }
 
     private static func generatedAvatar(name: String, id: Int64) -> Data? {
         let size = CGSize(width: 128, height: 128)
