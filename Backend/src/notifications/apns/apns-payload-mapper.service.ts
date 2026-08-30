@@ -34,13 +34,19 @@ export class ApnsPayloadMapperService {
         notificationPayloadToken?: string,
     ): ApnsCommand {
         const locArgs = source.data.loc_args.map((argument) => this.truncate(argument, 2048))
+        const alert = source.data.description
+            ? {
+                  title: this.truncate(source.data.title || 'Telegram', 512),
+                  body: this.truncate(source.data.description, 3072),
+              }
+            : {
+                  'loc-key': source.data.loc_key,
+                  'loc-args': locArgs,
+              }
         const route = this.route(source)
         const payload: Record<string, unknown> = {
             aps: {
-                alert: {
-                    'loc-key': source.data.loc_key,
-                    'loc-args': locArgs,
-                },
+                alert,
                 ...(source.data.custom.silent === '1' ? {} : { sound: 'default' }),
                 'thread-id': route.threadId,
                 category: 'TELEGRAM_MESSAGE',
@@ -54,7 +60,7 @@ export class ApnsPayloadMapperService {
                     : {}),
             },
         }
-        this.fitPayload(payload, locArgs)
+        this.fitPayload(payload, locArgs, alert)
 
         return {
             deliveryId: this.deliveryId(deliverySeed),
@@ -137,8 +143,16 @@ export class ApnsPayloadMapperService {
         return this.truncate(title ?? '', 128)
     }
 
-    private fitPayload(payload: Record<string, unknown>, locArgs: string[]): void {
+    private fitPayload(
+        payload: Record<string, unknown>,
+        locArgs: string[],
+        alert?: Record<string, unknown>,
+    ): void {
         while (Buffer.byteLength(JSON.stringify(payload)) > APNS_PAYLOAD_LIMIT) {
+            if (typeof alert?.body === 'string' && alert.body.length > 0) {
+                alert.body = this.truncate(alert.body, Math.max(0, alert.body.length - 128))
+                continue
+            }
             let longestIndex = -1
             for (let index = 0; index < locArgs.length; index += 1) {
                 if (
@@ -148,13 +162,18 @@ export class ApnsPayloadMapperService {
                     longestIndex = index
                 }
             }
-            if (longestIndex < 0 || (locArgs[longestIndex]?.length ?? 0) === 0) {
-                throw new Error('unable to fit APNs payload into 4096 bytes')
+            if (longestIndex >= 0 && (locArgs[longestIndex]?.length ?? 0) > 0) {
+                locArgs[longestIndex] = this.truncate(
+                    locArgs[longestIndex] ?? '',
+                    Math.max(0, (locArgs[longestIndex]?.length ?? 0) - 128),
+                )
+                continue
             }
-            locArgs[longestIndex] = this.truncate(
-                locArgs[longestIndex] ?? '',
-                Math.max(0, (locArgs[longestIndex]?.length ?? 0) - 128),
-            )
+            if (typeof alert?.title === 'string' && alert.title.length > 0) {
+                alert.title = this.truncate(alert.title, Math.max(0, alert.title.length - 64))
+                continue
+            }
+            throw new Error('unable to fit APNs payload into 4096 bytes')
         }
     }
 

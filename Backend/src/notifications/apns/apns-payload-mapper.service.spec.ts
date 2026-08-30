@@ -86,6 +86,29 @@ describe('ApnsPayloadMapperService', () => {
         })
     })
 
+    it('uses the title and description preformatted by Telegram Web Push', () => {
+        const command = mapper().map(
+            'alert',
+            parseTelegramPushPayload({
+                loc_key: 'MESSAGE_TEXT',
+                loc_args: ['Alice', 'Hello'],
+                title: 'Alice',
+                description: 'Hello',
+                custom: { from_id: 1, msg_id: 2 },
+            }),
+            'preformatted',
+        )
+
+        expect(command?.payload).toMatchObject({
+            aps: {
+                alert: {
+                    title: 'Alice',
+                    body: 'Hello',
+                },
+            },
+        })
+    })
+
     it('omits sound for silent messages and trims oversized previews', () => {
         const command = mapper().map(
             'alert',
