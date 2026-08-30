@@ -17,7 +17,7 @@ final class AppearanceViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Appearance"
+        title = L10n.telegram("Appearance.Title")
         navigationItem.largeTitleDisplayMode = .never
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppearanceCell")
     }

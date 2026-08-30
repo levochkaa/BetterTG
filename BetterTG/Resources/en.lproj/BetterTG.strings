@@ -1,0 +1,57 @@
+/* BetterTG-owned strings. Keep Telegram language-pack keys in Telegram.strings. */
+
+"Accounts.Section" = "Accounts";
+"Accounts.Account" = "Account";
+"Accounts.Current" = "Current Account";
+"Accounts.New" = "New Account";
+"Accounts.ErrorTitle" = "Account Error";
+"Accounts.Unavailable" = "The selected account is no longer available.";
+"Accounts.PersistenceFailed" = "BetterTG couldn't save the account list.";
+"Accounts.RemoveFromDevice" = "%@ will be removed from this device.";
+"Accounts.ThisAccount" = "this account";
+
+"Settings.MediaSection" = "Media";
+"Settings.AboutSection" = "About";
+"Settings.AnimatedMedia" = "Animated Media";
+"Settings.AnimatedMediaInfo" = "Animated stickers and media can use more processing power.";
+"Settings.AnimatedMediaFormats" = "TGS, WebP and WebM";
+"Settings.Version" = "BetterTG Version";
+
+"Localization.LanguagePacksInfo" = "Telegram translations are downloaded from the server. BetterTG-specific text uses a separate bundled catalog.";
+"Localization.DownloadError" = "The language pack couldn't be downloaded. Check your connection and try again.";
+
+"Login.ErrorTitle" = "Error";
+"Login.AuthorizationStateError" = "There was an error with the authorization state. Please restart the app.";
+"Login.PremiumRequired" = "Login requires Telegram Premium. Please upgrade in the Telegram app.";
+
+"Folders.ReorderInfo" = "Drag the folders into the order you want to see in the tab bar.";
+"Folders.IncludedTypes" = "Included Chat Types";
+"Folders.SelectedChats" = "Selected Chats";
+"Folders.Exclude" = "Exclude";
+"Folders.AlwaysInclude" = "Always Include";
+"Folders.NeverInclude" = "Never Include";
+"Folders.EmptySearch" = "No loaded chats match this search.";
+"Folders.UpdateError" = "Couldn't Update Folder";
+"Folders.EnterNameError" = "Enter a folder name.";
+"Folders.SelectIncludeError" = "Choose at least one chat or chat type to include.";
+"Folders.TooManyChatsTitle" = "Too Many Chats";
+"Folders.MuteAllLimit" = "Mute All is available for folders with up to 200 chats.";
+
+"Chat.UnsupportedTDLib" = "This message isn't supported by TDLib.";
+"Chat.UnsupportedBetterTG" = "This message isn't supported by BetterTG.";
+"Chat.CameraUnavailable" = "Camera unavailable";
+"Chat.ChoosingLocation" = "choosing location";
+"Chat.ChoosingContact" = "choosing contact";
+
+"Permissions.MicrophoneTitle" = "Microphone Access Required";
+"Permissions.MicrophoneMessage" = "Enable Microphone in Settings → BetterTG to record voice messages.";
+
+"Accessibility.CloseSearch" = "Close Search";
+"Accessibility.ScrollToLatest" = "Scroll to latest message";
+"Accessibility.CancelReply" = "Cancel reply or edit";
+"Accessibility.CancelVoiceRecording" = "Cancel voice recording";
+"Accessibility.SendVoiceMessage" = "Send voice message";
+"Accessibility.RecordVoiceMessage" = "Record voice message";
+"Accessibility.VoiceWaveform" = "Voice message waveform";
+"Accessibility.SearchMessagesHint" = "Long press to search messages";
+"Accessibility.FolderActions" = "Actions for %@";

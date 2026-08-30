@@ -22,13 +22,17 @@ final class SettingsViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Settings"
+        title = L10n.telegram("Settings.Title")
         navigationItem.largeTitleDisplayMode = .never
         tableView.backgroundColor = .systemGroupedBackground
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 58, bottom: 0, right: 0)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
 
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
+            self?.tableView.reloadData()
+        }
+        nc.publisher(&cancellables, for: .appLanguageChanged) { [weak self] _ in
+            self?.title = L10n.telegram("Settings.Title")
             self?.tableView.reloadData()
         }
     }
@@ -52,7 +56,7 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
         guard Section(rawValue: section) == .media else { return nil }
-        return "Animated stickers and media can use more processing power."
+        return L10n.betterTG("Settings.AnimatedMediaInfo")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -79,7 +83,7 @@ final class SettingsViewController: UITableViewController {
         case .addAccount:
             configuration.textProperties.color = .systemBlue
             cell.contentConfiguration = configuration
-        case .appearance:
+        case .appearance, .language:
             cell.accessoryType = .disclosureIndicator
         case .animatedMedia:
             let toggle = UISwitch()
@@ -103,6 +107,8 @@ final class SettingsViewController: UITableViewController {
             performAccountOperation { try TDLib.shared.addAccount() }
         case .appearance:
             navigationController?.pushViewController(AppearanceViewController(), animated: true)
+        case .language:
+            navigationController?.pushViewController(LanguageSelectionViewController(), animated: true)
         case .logOut:
             confirmLogout(from: indexPath)
         case .animatedMedia, .version:
@@ -117,7 +123,7 @@ final class SettingsViewController: UITableViewController {
             let accountRows: [Row] = TDLib.shared.sortedAccounts.map { .account($0.id) }
             return accountRows + [.addAccount]
         case .appearance:
-            return [.appearance]
+            return [.appearance, .language]
         case .media:
             return [.animatedMedia]
         case .about:
@@ -138,14 +144,14 @@ final class SettingsViewController: UITableViewController {
     }
 
     private func confirmLogout(from indexPath: IndexPath) {
-        let accountName = TDLib.shared.activeAccount?.title ?? "this account"
+        let accountName = TDLib.shared.activeAccount?.localizedTitle ?? L10n.betterTG("Accounts.ThisAccount")
         let alert = UIAlertController(
-            title: "Log Out?",
-            message: "\(accountName) will be removed from this device.",
+            title: L10n.telegram("Settings.LogoutConfirmationTitle"),
+            message: L10n.betterTG("Accounts.RemoveFromDevice", accountName),
             preferredStyle: .actionSheet,
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Log Out", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Settings.Logout"), style: .destructive) { [weak self] _ in
             self?.performAccountOperation { try TDLib.shared.logOutActiveAccount() }
         })
         if let popover = alert.popoverPresentationController {
@@ -156,8 +162,12 @@ final class SettingsViewController: UITableViewController {
     }
 
     private func showError(_ message: String) {
-        let alert = UIAlertController(title: "Account Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(
+            title: L10n.betterTG("Accounts.ErrorTitle"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 
@@ -178,10 +188,10 @@ private extension SettingsViewController {
 
         var title: String? {
             switch self {
-            case .accounts: "Accounts"
-            case .appearance: "Appearance"
-            case .media: "Media"
-            case .about: "About"
+            case .accounts: L10n.betterTG("Accounts.Section")
+            case .appearance: L10n.telegram("Settings.Appearance")
+            case .media: L10n.betterTG("Settings.MediaSection")
+            case .about: L10n.betterTG("Settings.AboutSection")
             case .accountActions: nil
             }
         }
@@ -191,6 +201,7 @@ private extension SettingsViewController {
         case account(UUID)
         case addAccount
         case appearance
+        case language
         case animatedMedia
         case version
         case logOut
@@ -205,28 +216,34 @@ private extension SettingsViewController {
         var title: String {
             switch self {
             case .account:
-                account?.title ?? "Account"
+                account?.localizedTitle ?? L10n.betterTG("Accounts.Account")
             case .addAccount:
-                "Add Account"
+                L10n.telegram("Settings.AddAccount")
             case .appearance:
-                "Color Theme"
+                L10n.telegram("Conversation.Theme")
+            case .language:
+                L10n.telegram("Settings.AppLanguage")
             case .animatedMedia:
-                "Animated Media"
+                L10n.betterTG("Settings.AnimatedMedia")
             case .version:
-                "BetterTG Version"
+                L10n.betterTG("Settings.Version")
             case .logOut:
-                "Log Out"
+                L10n.telegram("Settings.Logout")
             }
         }
 
         var subtitle: String? {
             switch self {
             case .account(let id):
-                id == TDLib.shared.activeAccountID ? "Current Account" : account?.phoneNumber.map { "+\($0)" }
+                id == TDLib.shared.activeAccountID
+                    ? L10n.betterTG("Accounts.Current")
+                    : account?.phoneNumber.map { "+\($0)" }
             case .appearance:
                 AppAppearance.current.title
+            case .language:
+                AppLocalization.shared.currentLanguage.nativeName
             case .animatedMedia:
-                "TGS, WebP and WebM"
+                L10n.betterTG("Settings.AnimatedMediaFormats")
             case .version:
                 Utils.applicationVersion
             case .addAccount, .logOut:
@@ -239,6 +256,7 @@ private extension SettingsViewController {
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
             case .appearance: "paintpalette.fill"
+            case .language: "globe"
             case .animatedMedia: "sparkles.tv"
             case .version: "info.circle.fill"
             case .logOut: "rectangle.portrait.and.arrow.right"
@@ -248,7 +266,7 @@ private extension SettingsViewController {
         var tintColor: UIColor {
             switch self {
             case .account: .systemTeal
-            case .addAccount, .appearance, .version: .systemBlue
+            case .addAccount, .appearance, .language, .version: .systemBlue
             case .animatedMedia: .systemPurple
             case .logOut: .systemRed
             }

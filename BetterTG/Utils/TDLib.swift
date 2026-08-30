@@ -17,9 +17,9 @@ enum TelegramAccountError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            "The selected account is no longer available."
+            L10n.betterTG("Accounts.Unavailable")
         case .persistenceFailed:
-            "BetterTG couldn't save the account list."
+            L10n.betterTG("Accounts.PersistenceFailed")
         }
     }
 }
@@ -422,6 +422,7 @@ final class TDLib: @unchecked Sendable {
         Task {
             do {
                 let directory = try registry.databaseDirectory(for: accountID)
+                try await AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
                 try await client.setTdlibParameters(
                     apiHash: Secret.apiHash,
                     apiId: Secret.apiId,
@@ -430,7 +431,7 @@ final class TDLib: @unchecked Sendable {
                     databaseEncryptionKey: Data(),
                     deviceModel: Utils.modelName,
                     filesDirectory: directory.path,
-                    systemLanguageCode: "en-US",
+                    systemLanguageCode: Locale.preferredLanguages.first ?? "en-US",
                     systemVersion: UIDevice.current.systemVersion,
                     useChatInfoDatabase: true,
                     useFileDatabase: true,
@@ -438,6 +439,15 @@ final class TDLib: @unchecked Sendable {
                     useSecretChats: true,
                     useTestDc: false,
                 )
+                AppLocalization.shared.clientDidConfigure(client)
+                let state = try await client.getAuthorizationState()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, isActive(client: client, accountID: accountID) else { return }
+                    if case .authorizationStateWaitTdlibParameters = state {
+                        return
+                    }
+                    UpdateAuthorizationState(state)
+                }
             } catch {
                 configuredClientIDs.remove(client.id)
                 log("TDLib client parameter configuration failed: \(error.localizedDescription)")

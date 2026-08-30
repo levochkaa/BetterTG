@@ -3,6 +3,8 @@
 import Foundation
 
 extension Foundation.Notification.Name {
+    static let appLanguageChanged = Self("appLanguageChanged")
+    static let availableAppLanguagesChanged = Self("availableAppLanguagesChanged")
     static let activeTelegramAccountChanged = Self("activeTelegramAccountChanged")
     static let telegramAccountsChanged = Self("telegramAccountsChanged")
     static let authorizationStateWaitTdlibParameters = Self("authorizationStateWaitTdlibParameters")

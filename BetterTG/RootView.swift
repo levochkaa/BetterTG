@@ -36,6 +36,12 @@ final class RootViewController: UIViewController {
                 DispatchQueue.main.async { self?.render(animated: true) }
             }
             .store(in: &cancellables)
+        nc.publisher(&cancellables, for: .appLanguageChanged) { [weak self] _ in
+            self?.displayedLoggedInState = nil
+            self?.displayedAccountID = nil
+            self?.view.semanticContentAttribute = AppLocalization.shared.isRTL ? .forceRightToLeft : .forceLeftToRight
+            self?.render(animated: false)
+        }
         render(animated: false)
     }
 

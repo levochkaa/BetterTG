@@ -1,0 +1,57 @@
+/* Строки, принадлежащие BetterTG. */
+
+"Accounts.Section" = "Аккаунты";
+"Accounts.Account" = "Аккаунт";
+"Accounts.Current" = "Текущий аккаунт";
+"Accounts.New" = "Новый аккаунт";
+"Accounts.ErrorTitle" = "Ошибка аккаунта";
+"Accounts.Unavailable" = "Выбранный аккаунт больше недоступен.";
+"Accounts.PersistenceFailed" = "BetterTG не удалось сохранить список аккаунтов.";
+"Accounts.RemoveFromDevice" = "%@ будет удалён с этого устройства.";
+"Accounts.ThisAccount" = "этот аккаунт";
+
+"Settings.MediaSection" = "Медиа";
+"Settings.AboutSection" = "О приложении";
+"Settings.AnimatedMedia" = "Анимированные медиа";
+"Settings.AnimatedMediaInfo" = "Анимированные стикеры и медиа могут использовать больше ресурсов устройства.";
+"Settings.AnimatedMediaFormats" = "TGS, WebP и WebM";
+"Settings.Version" = "Версия BetterTG";
+
+"Localization.LanguagePacksInfo" = "Переводы Telegram загружаются с сервера. Собственный текст BetterTG хранится в отдельном встроенном каталоге.";
+"Localization.DownloadError" = "Не удалось загрузить языковой пакет. Проверьте подключение и попробуйте снова.";
+
+"Login.ErrorTitle" = "Ошибка";
+"Login.AuthorizationStateError" = "Произошла ошибка состояния авторизации. Перезапустите приложение.";
+"Login.PremiumRequired" = "Для входа требуется Telegram Premium. Оформите подписку в приложении Telegram.";
+
+"Folders.ReorderInfo" = "Перетащите папки в нужном порядке для панели вкладок.";
+"Folders.IncludedTypes" = "Включённые типы чатов";
+"Folders.SelectedChats" = "Выбранные чаты";
+"Folders.Exclude" = "Исключить";
+"Folders.AlwaysInclude" = "Всегда включать";
+"Folders.NeverInclude" = "Никогда не включать";
+"Folders.EmptySearch" = "Среди загруженных чатов ничего не найдено.";
+"Folders.UpdateError" = "Не удалось обновить папку";
+"Folders.EnterNameError" = "Введите название папки.";
+"Folders.SelectIncludeError" = "Выберите хотя бы один чат или тип чатов.";
+"Folders.TooManyChatsTitle" = "Слишком много чатов";
+"Folders.MuteAllLimit" = "Отключить звук для всех можно в папках, содержащих не более 200 чатов.";
+
+"Chat.UnsupportedTDLib" = "TDLib не поддерживает это сообщение.";
+"Chat.UnsupportedBetterTG" = "BetterTG не поддерживает это сообщение.";
+"Chat.CameraUnavailable" = "Камера недоступна";
+"Chat.ChoosingLocation" = "выбирает геопозицию";
+"Chat.ChoosingContact" = "выбирает контакт";
+
+"Permissions.MicrophoneTitle" = "Нужен доступ к микрофону";
+"Permissions.MicrophoneMessage" = "Разрешите BetterTG доступ к микрофону в Настройках, чтобы записывать голосовые сообщения.";
+
+"Accessibility.CloseSearch" = "Закрыть поиск";
+"Accessibility.ScrollToLatest" = "Перейти к последнему сообщению";
+"Accessibility.CancelReply" = "Отменить ответ или редактирование";
+"Accessibility.CancelVoiceRecording" = "Отменить запись голосового сообщения";
+"Accessibility.SendVoiceMessage" = "Отправить голосовое сообщение";
+"Accessibility.RecordVoiceMessage" = "Записать голосовое сообщение";
+"Accessibility.VoiceWaveform" = "Форма волны голосового сообщения";
+"Accessibility.SearchMessagesHint" = "Удерживайте, чтобы искать сообщения";
+"Accessibility.FolderActions" = "Действия для папки %@";

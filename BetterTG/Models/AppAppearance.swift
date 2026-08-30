@@ -25,9 +25,9 @@ enum AppAppearance: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
+        case .system: L10n.telegram("AutoNightTheme.System")
+        case .light: L10n.telegram("Appearance.ThemeDay")
+        case .dark: L10n.telegram("Appearance.ThemeNight")
         }
     }
 

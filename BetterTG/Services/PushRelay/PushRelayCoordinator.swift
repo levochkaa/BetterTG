@@ -51,25 +51,11 @@ import UserNotifications
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        let replyAction = UNTextInputNotificationAction(
-            identifier: QuickReplyNotification.actionIdentifier,
-            title: "Reply",
-            options: [],
-            textInputButtonTitle: "Reply",
-            textInputPlaceholder: "Message",
-        )
-        center.setNotificationCategories([
-            UNNotificationCategory(
-                identifier: QuickReplyNotification.messageCategoryIdentifier,
-                actions: [],
-                intentIdentifiers: [],
-            ),
-            UNNotificationCategory(
-                identifier: QuickReplyNotification.categoryIdentifier,
-                actions: [replyAction],
-                intentIdentifiers: [],
-            ),
-        ])
+        configureNotificationCategories(center: center)
+
+        nc.publisher(&cancellables, for: .appLanguageChanged) { [weak self] _ in
+            self?.configureNotificationCategories(center: .current())
+        }
 
         nc
             .publisher(for: .authorizationStateReady)
@@ -274,6 +260,28 @@ import UserNotifications
         didReceive response: UNNotificationResponse,
     ) async {
         await handleNotificationResponse(response)
+    }
+
+    private func configureNotificationCategories(center: UNUserNotificationCenter) {
+        let replyAction = UNTextInputNotificationAction(
+            identifier: QuickReplyNotification.actionIdentifier,
+            title: L10n.telegram("Conversation.ContextMenuReply"),
+            options: [],
+            textInputButtonTitle: L10n.telegram("Conversation.ContextMenuReply"),
+            textInputPlaceholder: L10n.telegram("Conversation.InputTextPlaceholder"),
+        )
+        center.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: QuickReplyNotification.messageCategoryIdentifier,
+                actions: [],
+                intentIdentifiers: [],
+            ),
+            UNNotificationCategory(
+                identifier: QuickReplyNotification.categoryIdentifier,
+                actions: [replyAction],
+                intentIdentifiers: [],
+            ),
+        ])
     }
 
     private func scheduleSynchronization() {
