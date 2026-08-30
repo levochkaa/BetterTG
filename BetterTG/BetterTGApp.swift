@@ -9,6 +9,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
     ) -> Bool {
         PushRelayCoordinator.shared.start()
+        RichNotificationCacheCoordinator.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         configureAppearance()
         return true

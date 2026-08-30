@@ -1,7 +1,7 @@
 // CustomChat.swift
 
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 
 @MainActor final class CustomChat: ObservableObject {
     // MARK: Lifecycle

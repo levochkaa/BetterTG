@@ -1,7 +1,7 @@
 // TdNotification.swift
 
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
     
 struct TdNotification<T> {
     // MARK: Lifecycle

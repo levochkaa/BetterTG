@@ -2,7 +2,7 @@
 
 import Combine
 import ImageIO
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 // MARK: - MessageMediaView

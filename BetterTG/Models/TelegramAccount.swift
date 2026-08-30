@@ -33,6 +33,7 @@ struct TelegramAccountRegistry {
     }
 
     func loadOrCreate() throws -> TelegramAccountRegistryState {
+        try migrateApplicationSupportDirectoryIfNeeded()
         if fileManager.fileExists(atPath: registryURL.path) {
             let data = try Data(contentsOf: registryURL)
             guard var state = try? JSONDecoder().decode(TelegramAccountRegistryState.self, from: data) else {
@@ -48,10 +49,21 @@ struct TelegramAccountRegistry {
         return try makeInitialState()
     }
 
+    func loadExisting() throws -> TelegramAccountRegistryState? {
+        guard fileManager.fileExists(atPath: registryURL.path) else { return nil }
+        let data = try Data(contentsOf: registryURL)
+        let state = try JSONDecoder().decode(TelegramAccountRegistryState.self, from: data)
+        return state.accounts.isEmpty ? nil : state
+    }
+
     func save(_ state: TelegramAccountRegistryState) throws {
         try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(state)
         try data.write(to: registryURL, options: .atomic)
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: registryURL.path,
+        )
     }
 
     func databaseDirectory(for accountID: UUID) throws -> URL {
@@ -67,6 +79,12 @@ struct TelegramAccountRegistry {
     private let fileManager: FileManager
 
     private var baseDirectory: URL {
+        (BetterTGAppGroup.containerURL(fileManager: fileManager)
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+            .appendingPathComponent("tdlib", isDirectory: true)
+    }
+
+    private var previousApplicationSupportDirectory: URL {
         fileManager
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("tdlib", isDirectory: true)
@@ -80,6 +98,25 @@ struct TelegramAccountRegistry {
         fileManager
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("td", isDirectory: true)
+    }
+
+    private func migrateApplicationSupportDirectoryIfNeeded() throws {
+        let source = previousApplicationSupportDirectory
+        guard source.standardizedFileURL != baseDirectory.standardizedFileURL,
+              fileManager.fileExists(atPath: source.appendingPathComponent("accounts.json").path),
+              !fileManager.fileExists(atPath: registryURL.path)
+        else { return }
+
+        try fileManager.createDirectory(
+            at: baseDirectory.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+        )
+        if fileManager.fileExists(atPath: baseDirectory.path) {
+            let contents = try fileManager.contentsOfDirectory(atPath: baseDirectory.path)
+            guard contents.isEmpty else { return }
+            try fileManager.removeItem(at: baseDirectory)
+        }
+        try fileManager.moveItem(at: source, to: baseDirectory)
     }
 
     private func makeInitialState() throws -> TelegramAccountRegistryState {

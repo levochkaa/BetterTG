@@ -26,9 +26,8 @@ settings:
     SWIFT_VERSION: "5.0"
     WATCHOS_DEPLOYMENT_TARGET: 9.0
 packages:
-  TDLibKit:
-    url: https://github.com/Swiftgram/TDLibKit
-    exactVersion: 1.5.2-tdlib-1.8.66-022d6020
+  TDLibKitDynamic:
+    path: Packages/TDLibKitDynamic
   MobileVLCKit:
     url: https://github.com/levochkaa/MobileVLCKit
     exactVersion: 3.7.3
@@ -43,8 +42,11 @@ targets:
           - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
-      - package: TDLibKit
+      - package: TDLibKitDynamic
+        embed: true
       - package: MobileVLCKit
+      - target: BetterTGNotificationService
+        embed: true
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -100,5 +102,50 @@ targets:
           else
             echo "warning: SwiftFormat not installed. Install from https://github.com/nicklockwood/SwiftFormat (Homebrew: brew install swiftformat)"
           fi
+    postBuildScripts:
+      - name: Remove Static TDLib Artifact
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
+        script: |
+          static_artifact="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/TDLibFramework.framework"
+          if [ -d "$static_artifact" ]; then
+            rm -rf "$static_artifact"
+          fi
     scheme:
       gatherCoverageData: false
+  BetterTGNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BetterTGNotificationService
+        excludes:
+          - Info.plist
+          - BetterTGNotificationService.entitlements
+      - path: BetterTG/Shared
+      - path: BetterTG/Models/TelegramAccount.swift
+      - path: BetterTG/Secret/Secret.swift
+    dependencies:
+      - package: TDLibKitDynamic
+        embed: false
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: BetterTGNotificationService/BetterTGNotificationService.entitlements
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: BetterTGNotificationService/Info.plist
+        IPHONEOS_DEPLOYMENT_TARGET: 26.0
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - "@executable_path/../../Frameworks"
+        PRODUCT_BUNDLE_IDENTIFIER: com.levochkaaa.BetterTG.NotificationService
+        PRODUCT_NAME: $(TARGET_NAME)
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        SKIP_INSTALL: YES
+        SUPPORTED_PLATFORMS: iphoneos iphonesimulator
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+        SWIFT_USE_INTEGRATED_DRIVER: NO
+        TARGETED_DEVICE_FAMILY: 1

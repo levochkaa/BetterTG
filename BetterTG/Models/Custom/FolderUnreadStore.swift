@@ -1,7 +1,7 @@
 // FolderUnreadStore.swift
 
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 
 struct FolderUnreadState: Equatable {
     static let empty = FolderUnreadState(count: 0, hasUnmuted: false)

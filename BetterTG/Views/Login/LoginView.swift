@@ -1,7 +1,7 @@
 // LoginView.swift
 
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class LoginViewController: UIViewController {

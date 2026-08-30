@@ -2,7 +2,7 @@
 
 import Combine
 import MobileVLCKit
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate {

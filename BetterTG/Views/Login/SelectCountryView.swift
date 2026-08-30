@@ -1,6 +1,6 @@
 // SelectCountryView.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class SelectCountryViewController: UITableViewController, UISearchResultsUpdating {

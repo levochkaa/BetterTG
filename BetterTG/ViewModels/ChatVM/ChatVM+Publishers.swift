@@ -1,7 +1,7 @@
 // ChatVM+Publishers.swift
 
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 
 extension ChatVM {
     func setPublishers() {

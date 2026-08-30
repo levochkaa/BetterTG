@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 import UserNotifications
 
@@ -82,6 +82,10 @@ import UserNotifications
         guard configuration != nil else {
             log("Push relay disabled: BetterTGRelayBaseURL is not configured")
             return
+        }
+
+        if let configuration {
+            PushRelaySharedConfiguration.store(baseURL: configuration.baseURL)
         }
 
         log("Push relay enabled: \(configuration?.baseURL.absoluteString ?? "unknown URL")")

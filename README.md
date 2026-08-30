@@ -91,3 +91,12 @@ sudo chmod +x gyb.sh
 ```
 
 Everything is set up now! **GL HF**
+
+## Push notification capabilities
+
+Rich notifications require the Apple Developer team to configure these identifiers:
+
+- App Group `group.com.levochkaaa.BetterTG`, assigned to both `com.levochkaaa.BetterTG` and `com.levochkaaa.BetterTG.NotificationService`.
+- Communication Notifications capability on the main `com.levochkaaa.BetterTG` App ID.
+
+The notification extension links the shared `TDLibKitDynamic.framework` from the containing app. Do not embed a second TDLibKit copy inside the `.appex`.

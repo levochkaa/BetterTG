@@ -1,6 +1,6 @@
 // ChatBottomArea.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class ChatComposerView: UIView {

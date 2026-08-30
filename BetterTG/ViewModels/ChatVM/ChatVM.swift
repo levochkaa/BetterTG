@@ -3,7 +3,7 @@
 import AVFoundation
 import Combine
 import ImageIO
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 @MainActor final class ChatVM: ObservableObject {

@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 
 // MARK: - Route
 

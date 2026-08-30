@@ -2,7 +2,7 @@
 
 import Combine
 import PhotosUI
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,

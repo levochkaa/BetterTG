@@ -11,6 +11,10 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>We would like to access your Microphone to let you send Voice messages in chats.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>We would like to access your Photos to let you send them in chats.</string>
 	<key>UIBackgroundModes</key>

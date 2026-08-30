@@ -1,7 +1,7 @@
 // TDLib.swift
 
 import Combine
-@preconcurrency import TDLibKit
+@preconcurrency import TDLibKitDynamic
 import UIKit
 
 var td: TDLibClient { TDLib.shared.activeClient }
@@ -48,9 +48,11 @@ final class TDLib: @unchecked Sendable {
 
     func startTdLibUpdateHandler() {
         guard !started else { return }
-        started = true
 
         do {
+            processLock = try TDLibProcessLock.acquire(wait: true)
+            guard processLock != nil else { throw TelegramAccountError.unavailable }
+            started = true
             let state = try registry.loadOrCreate()
             accounts = state.accounts
             activeAccountID = state.activeAccountID
@@ -61,7 +63,10 @@ final class TDLib: @unchecked Sendable {
         }
 
         nc.publisher(&cancellables, for: UIApplication.willTerminateNotification) { [weak self] _ in
-            self?.manager.closeClients()
+            guard let self else { return }
+            manager.closeClients()
+            processLock?.unlock()
+            processLock = nil
         }
     }
 
@@ -203,6 +208,7 @@ final class TDLib: @unchecked Sendable {
 
     private let manager = TDLibClientManager()
     private let registry = TelegramAccountRegistry()
+    private var processLock: TDLibProcessLock?
     private let clientLock = NSLock()
     private var storedActiveClient: TDLibClient?
     private var started = false

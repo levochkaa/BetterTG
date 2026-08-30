@@ -1,6 +1,6 @@
 // MessageView.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {

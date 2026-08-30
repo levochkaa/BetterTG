@@ -4,7 +4,7 @@
 // Any modifications will be overwritten
 
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 
 func update(_ update: Update) {
     switch update {

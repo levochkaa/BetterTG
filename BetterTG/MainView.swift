@@ -1,7 +1,7 @@
 // MainView.swift
 
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {

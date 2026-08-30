@@ -1,7 +1,7 @@
 // TextEntity.swift
 
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 
 extension TextEntity {
     init(_ type: TextEntityType, range: NSRange) {

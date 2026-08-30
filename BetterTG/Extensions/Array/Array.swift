@@ -1,6 +1,6 @@
 // Array.swift
 
-import TDLibKit
+import TDLibKitDynamic
 
 extension Array {
     @inlinable mutating func add(_ newElement: Element) {

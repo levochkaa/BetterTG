@@ -1,6 +1,6 @@
 // MessageTextView.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 final class MessageTextContentView: UITextView, UITextViewDelegate {

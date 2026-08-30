@@ -18,7 +18,7 @@ CORE = """// Td+Generated.swift
 // Any modifications will be overwritten
 
 import Foundation
-import TDLibKit
+import TDLibKitDynamic
 """
 
 UPDATE_FUNC = """

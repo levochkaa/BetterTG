@@ -1,7 +1,7 @@
 // CustomFolder.swift
 
 import Combine
-import TDLibKit
+import TDLibKitDynamic
 
 @MainActor final class CustomFolder: ObservableObject {
     // MARK: Lifecycle

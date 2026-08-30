@@ -1,6 +1,6 @@
 // UIPasteboard.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 import UniformTypeIdentifiers
 

@@ -1,6 +1,6 @@
 // Text.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 func defaultAttributes(_ foregroundColor: UIColor = .label) -> [NSAttributedString.Key: Any] {

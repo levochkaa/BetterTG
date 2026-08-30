@@ -1,6 +1,6 @@
 // Array+GetSize.swift
 
-import TDLibKit
+import TDLibKitDynamic
 
 // MARK: - PhotoSizeType
 

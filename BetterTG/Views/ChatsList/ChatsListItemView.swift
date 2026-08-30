@@ -1,6 +1,6 @@
 // ChatsListItemView.swift
 
-import TDLibKit
+import TDLibKitDynamic
 import UIKit
 
 // MARK: - ChatListCell
