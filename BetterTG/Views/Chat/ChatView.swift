@@ -42,6 +42,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
     private var messageNavigationTask: Task<Void, Never>?
+    private var messageHighlightTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
     private var composerLeadingConstraint: NSLayoutConstraint?
@@ -104,6 +105,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     deinit {
         prefetchTasks.values.forEach { $0.cancel() }
         messageNavigationTask?.cancel()
+        messageHighlightTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -649,9 +651,37 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return
         }
         collectionView.layoutIfNeeded()
-        collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .centeredVertically, animated: true)
+        let indexPath = IndexPath(item: index, section: 0)
+        if let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath) {
+            let insets = collectionView.adjustedContentInset
+            let visibleCenterOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
+            let desiredOffset = attributes.center.y - visibleCenterOffset
+            let minimumOffset = -insets.top
+            let maximumOffset = max(
+                minimumOffset,
+                collectionView.contentSize.height - collectionView.bounds.height + insets.bottom,
+            )
+            collectionView.setContentOffset(
+                CGPoint(
+                    x: collectionView.contentOffset.x,
+                    y: min(max(desiredOffset, minimumOffset), maximumOffset),
+                ),
+                animated: true,
+            )
+        } else {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+        }
+
+        messageHighlightTask?.cancel()
         chatVM.highlightedMessageId = id
-        Task.main(delay: 0.7) { [weak chatVM] in chatVM?.highlightedMessageId = nil }
+        updateHighlightState()
+        messageHighlightTask = Task { [weak self, weak chatVM] in
+            try? await Task<Never, Never>.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            chatVM?.highlightedMessageId = nil
+            self?.updateHighlightState()
+            self?.messageHighlightTask = nil
+        }
     }
 
     private func showMedia(_ messages: [Message], selection: Int64) {

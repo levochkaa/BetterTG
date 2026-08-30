@@ -18,6 +18,9 @@ private final class TelegramSwipeToReplyRecognizer: UIPanGestureRecognizer {
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
         maximumNumberOfTouches = 1
+        cancelsTouchesInView = true
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
     }
 
     override func reset() {
@@ -327,14 +330,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         bubbleContentNeedsMeasurement = true
         updateBubbleWidth(for: bounds.width)
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldReceive touch: UITouch,
-    ) -> Bool {
-        guard gestureRecognizer === swipeToReplyRecognizer, let touchedView = touch.view else { return true }
-        return touchedView !== replyView && !touchedView.isDescendant(of: replyView)
     }
 
     func gestureRecognizer(
