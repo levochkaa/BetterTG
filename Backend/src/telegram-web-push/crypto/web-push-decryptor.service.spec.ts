@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { ConfigService } from '@nestjs/config'
-import { createECDH } from 'node:crypto'
+import { createECDH, randomBytes } from 'node:crypto'
 import { encrypt } from 'http_ece'
 
 import type { Environment } from '@/config/environment'
@@ -85,5 +85,56 @@ describe('WebPushDecryptorService', () => {
         expect(() => decryptor.decryptTelegramPayload(subscription, ciphertext)).toThrow(
             InvalidWebPushPayloadError,
         )
+    })
+
+    it('decrypts Telegram legacy aesgcm messages with parameters from HTTP headers', () => {
+        const box = secretBox()
+        const receiver = createECDH('prime256v1')
+        receiver.generateKeys()
+        const sender = createECDH('prime256v1')
+        sender.generateKeys()
+        const authSecret = randomBytes(16)
+        const salt = randomBytes(16)
+        const subscription = new TelegramPushSubscriptionEntity()
+        subscription.id = '018f47a0-7b8d-7c1f-8c2e-523456789abc'
+        subscription.p256dhPrivateKeyEncrypted = box.encrypt(
+            receiver.getPrivateKey(),
+            `telegram-subscription:${subscription.id}:private-key`,
+        )
+        subscription.authSecretEncrypted = box.encrypt(
+            authSecret,
+            `telegram-subscription:${subscription.id}:auth-secret`,
+        )
+        const plaintext = Buffer.from(
+            JSON.stringify({
+                data: {
+                    loc_key: 'MESSAGE_TEXT',
+                    loc_args: ['Alice', 'Legacy payload'],
+                    custom: { from_id: 1, msg_id: 3 },
+                },
+            }),
+        )
+        const ciphertext = encrypt(plaintext, {
+            version: 'aesgcm',
+            privateKey: sender,
+            dh: receiver.getPublicKey(),
+            authSecret,
+            salt,
+            rs: 4096,
+        })
+
+        const payload = new WebPushDecryptorService(box).decryptTelegramPayload(
+            subscription,
+            ciphertext,
+            {
+                contentEncoding: 'aesgcm',
+                senderPublicKeyBase64url: sender.getPublicKey().toString('base64url'),
+                saltBase64url: salt.toString('base64url'),
+                recordSize: 4096,
+            },
+        )
+
+        expect(payload.data.loc_key).toBe('MESSAGE_TEXT')
+        expect(payload.data.loc_args).toEqual(['Alice', 'Legacy payload'])
     })
 })

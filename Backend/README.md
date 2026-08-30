@@ -1,6 +1,6 @@
 # BetterTG Backend
 
-Rich push relay for BetterTG. It accepts Telegram Web Push subscriptions, decrypts RFC 8291 payloads, classifies visible and service notifications, and sends the resulting payloads to APNs.
+Rich push relay for BetterTG. It accepts Telegram Web Push subscriptions, decrypts both Telegram's legacy `aesgcm` profile and RFC 8291 `aes128gcm` payloads, classifies visible and service notifications, and sends the resulting payloads to APNs.
 
 The backend never opens a Telegram session and does not store Telegram accounts, message history, chat identifiers, or notification text. Decrypted previews exist only in worker memory while an APNs request is built.
 

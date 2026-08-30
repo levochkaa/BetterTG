@@ -24,13 +24,20 @@ export class WebPushIngressController {
     async accept(
         @Param('capabilityToken') capabilityToken: string,
         @Headers('content-encoding') contentEncoding: string | undefined,
+        @Headers('encryption') encryption: string | undefined,
+        @Headers('crypto-key') cryptoKey: string | undefined,
         @Ip() ipAddress: string,
         @Req() request: RawBodyRequest<Request>,
         @Res({ passthrough: true }) response: Response,
     ): Promise<void> {
         const body =
             request.rawBody ?? (Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0))
-        const digest = await this.ingress.accept(capabilityToken, body, contentEncoding, ipAddress)
+        const digest = await this.ingress.accept(
+            capabilityToken,
+            body,
+            { contentEncoding, encryption, cryptoKey },
+            ipAddress,
+        )
         response.setHeader('Location', `/webpush/receipts/${digest}`)
     }
 }

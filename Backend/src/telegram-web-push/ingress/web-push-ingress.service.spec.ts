@@ -51,16 +51,76 @@ describe('WebPushIngressService', () => {
         )
         const ciphertext = Buffer.alloc(104, 7)
 
-        const digest = await service.accept('a'.repeat(43), ciphertext, 'aes128gcm', '127.0.0.1')
+        const digest = await service.accept(
+            'a'.repeat(43),
+            ciphertext,
+            { contentEncoding: 'aes128gcm' },
+            '127.0.0.1',
+        )
 
         expect(digest).toBe(box.ciphertextDigest(ciphertext))
         expect(add).toHaveBeenCalledTimes(1)
         const queued = add.mock.calls[0]?.[1]
         expect(queued?.ciphertextBase64).toBe(ciphertext.toString('base64'))
+        expect(queued?.encryption).toEqual({ contentEncoding: 'aes128gcm' })
         expect(JSON.stringify(queued)).not.toContain('loc_args')
 
         set.mockImplementationOnce(() => Promise.resolve(null))
-        await service.accept('a'.repeat(43), ciphertext, 'aes128gcm', '127.0.0.1')
+        await service.accept(
+            'a'.repeat(43),
+            ciphertext,
+            { contentEncoding: 'aes128gcm' },
+            '127.0.0.1',
+        )
         expect(add).toHaveBeenCalledTimes(1)
+    })
+
+    it('normalizes legacy aesgcm encryption headers for the worker', async () => {
+        const box = secretBox()
+        const installation = Object.assign(new InstallationEntity(), { status: 'active' as const })
+        const subscription = Object.assign(new TelegramPushSubscriptionEntity(), {
+            id: '018f47a0-7b8d-7c1f-8c2e-823456789abc',
+            endpointTokenHash: box.hashCapability('b'.repeat(43)),
+            installation,
+        })
+        const add = mock((_name: string, _data: TelegramWebPushJob) => Promise.resolve(undefined))
+        const service = new WebPushIngressService(
+            {
+                findOne: mock(() => Promise.resolve(subscription)),
+                update: mock(() => Promise.resolve({ affected: 1 })),
+            } as unknown as Repository<TelegramPushSubscriptionEntity>,
+            { add } as unknown as Queue<TelegramWebPushJob>,
+            {
+                client: {
+                    set: mock(() => Promise.resolve<string | null>('OK')),
+                    del: mock(() => 1),
+                },
+                enforceRateLimit: mock(() => Promise.resolve()),
+            } as unknown as RedisService,
+            box,
+            { ingress: { add: mock(() => undefined) } } as unknown as MetricsService,
+        )
+        const salt = Buffer.alloc(16, 3).toString('base64url')
+        const senderPublicKey = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 5)]).toString(
+            'base64url',
+        )
+
+        await service.accept(
+            'b'.repeat(43),
+            Buffer.alloc(19, 7),
+            {
+                contentEncoding: 'aesgcm',
+                encryption: `salt=${salt}; rs=4096`,
+                cryptoKey: `dh=${senderPublicKey}`,
+            },
+            '127.0.0.1',
+        )
+
+        expect(add.mock.calls[0]?.[1].encryption).toEqual({
+            contentEncoding: 'aesgcm',
+            saltBase64url: salt,
+            senderPublicKeyBase64url: senderPublicKey,
+            recordSize: 4096,
+        })
     })
 })

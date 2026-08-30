@@ -48,6 +48,7 @@ export class WebPushProcessor extends WorkerHost {
             const payload = this.decryptor.decryptTelegramPayload(
                 subscription,
                 Buffer.from(job.data.ciphertextBase64, 'base64'),
+                job.data.encryption,
             )
             const action = classifyTelegramPush(payload.data.loc_key)
             this.metrics.classification.add(1, { loc_key: payload.data.loc_key, action })
