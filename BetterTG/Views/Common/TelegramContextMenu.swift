@@ -3,6 +3,14 @@
 import ObjectiveC.runtime
 import UIKit
 
+// MARK: - TelegramContextMenuLayout
+
+private enum TelegramContextMenuLayout {
+    static let actionHeight = CGFloat(44)
+    static let menuWidth = CGFloat(250)
+    static let sectionSeparatorHeight = CGFloat(8)
+}
+
 // MARK: - TelegramContextMenuAction
 
 struct TelegramContextMenuAction {
@@ -384,7 +392,7 @@ private final class TelegramContextMenuController: UIViewController {
             }
             let button = TelegramContextMenuActionButton(action: action)
             button.addTarget(self, action: #selector(actionPressed(_:)), for: .touchUpInside)
-            button.heightAnchor.constraint(equalToConstant: 52).isActive = true
+            button.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.actionHeight).isActive = true
             menuStack.addArrangedSubview(button)
             actionButtons.append(button)
         }
@@ -397,10 +405,10 @@ private final class TelegramContextMenuController: UIViewController {
         let verticalInset = max(view.safeAreaInsets.top, CGFloat(12))
         let availableWidth = view.bounds.width - horizontalInset * 2
         let separatorHeight = actions.dropFirst().reduce(CGFloat.zero) {
-            $0 + ($1.startsNewSection ? 9 : 0)
+            $0 + ($1.startsNewSection ? TelegramContextMenuLayout.sectionSeparatorHeight : 0)
         }
-        let menuHeight = CGFloat(actions.count) * 52 + separatorHeight
-        let menuWidth = min(CGFloat(260), availableWidth)
+        let menuHeight = CGFloat(actions.count) * TelegramContextMenuLayout.actionHeight + separatorHeight
+        let menuWidth = min(TelegramContextMenuLayout.menuWidth, availableWidth)
         let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
         let maximumBottom = view.bounds.height - bottomInset
 
@@ -795,7 +803,7 @@ private final class TelegramContextMenuSectionDivider: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 9).isActive = true
+        heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.sectionSeparatorHeight).isActive = true
 
         let line = UIView()
         line.translatesAutoresizingMaskIntoConstraints = false
