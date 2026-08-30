@@ -9,9 +9,12 @@ import { parseTelegramPushPayload, type TelegramPushPayload } from '../telegram-
 import type { WebPushEncryptionMetadata } from '../web-push-job'
 
 export class InvalidWebPushPayloadError extends Error {
-    constructor() {
+    readonly reason: string
+
+    constructor(cause?: unknown) {
         super('invalid encrypted Web Push payload')
         this.name = 'InvalidWebPushPayloadError'
+        this.reason = classifyDecryptionFailure(cause)
     }
 }
 
@@ -53,8 +56,8 @@ export class WebPushDecryptorService {
                 privateKey: ecdh,
                 authSecret,
             })
-        } catch {
-            throw new InvalidWebPushPayloadError()
+        } catch (error) {
+            throw new InvalidWebPushPayloadError(error)
         }
     }
 
@@ -65,10 +68,26 @@ export class WebPushDecryptorService {
     ): TelegramPushPayload {
         try {
             const plaintext = this.decryptBytes(subscription, ciphertext, encryption)
-            if (plaintext.length > 4096) throw new InvalidWebPushPayloadError()
+            if (plaintext.length > 4096) {
+                throw new InvalidWebPushPayloadError(new Error('plaintext_too_large'))
+            }
             return parseTelegramPushPayload(JSON.parse(plaintext.toString('utf8')) as unknown)
-        } catch {
-            throw new InvalidWebPushPayloadError()
+        } catch (error) {
+            if (error instanceof InvalidWebPushPayloadError) throw error
+            throw new InvalidWebPushPayloadError(error)
         }
     }
+}
+
+function classifyDecryptionFailure(cause: unknown): string {
+    const message = cause instanceof Error ? cause.message.toLowerCase() : ''
+    if (message.includes('authenticate') || message.includes('auth tag')) {
+        return 'authentication_failed'
+    }
+    if (message.includes('padding')) return 'invalid_padding'
+    if (message.includes('truncated')) return 'truncated_payload'
+    if (message.includes('block')) return 'invalid_record'
+    if (message.includes('plaintext_too_large')) return 'plaintext_too_large'
+    if (cause instanceof SyntaxError) return 'invalid_json'
+    return 'invalid_key_material_or_payload'
 }

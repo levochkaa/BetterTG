@@ -113,8 +113,9 @@ export class WebPushProcessor extends WorkerHost {
                 this.logger.warn({
                     event: 'webpush.decryption_failed',
                     subscriptionId: subscription.id,
+                    reason: error.reason,
                 })
-                return
+                throw error
             }
             throw error
         } finally {
