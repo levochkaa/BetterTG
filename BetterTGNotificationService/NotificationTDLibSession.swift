@@ -183,8 +183,9 @@ final class NotificationTDLibSession: @unchecked Sendable {
             media = mediaCandidate(for: value.content)
             body = notificationBody(for: value.content)
             expectsMedia = isMediaContent(value.content)
+            let canFetchMessage = value.messageId > 0 || metadata.serverMessageID != nil
             if media == nil,
-               expectsMedia,
+               canFetchMessage,
                let message = await fetchMessage(
                    chatID: chatID,
                    suggestedMessageID: value.messageId,
@@ -196,6 +197,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
                     ?? senderName
                 media = mediaCandidate(for: message.content)
                 body = notificationBody(for: message.content) ?? body
+                expectsMedia = isMediaContent(message.content)
             }
         case .notificationTypeNewMessage(let value):
             senderID = value.message.senderId
