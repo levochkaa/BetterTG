@@ -21,6 +21,7 @@ CLONED_SOURCE_PACKAGES_DIR_PATH=""
 TOOLCHAIN_KEY=""
 BUILD_LOCK_PATH="/tmp/bettertg-build.lock"
 BUILD_LOCK_HELD=0
+BUILD_ONLY=0
 XCODEBUILD_LOG_DIR="$ROOT_DIR/.build/logs/xcodebuild"
 LAST_XCODEBUILD_LOG_PATH=""
 SIMULATOR_NAME="iPhone 17 Pro"
@@ -237,6 +238,9 @@ while [[ $# -gt 0 ]]; do
     --build-lock-held)
       BUILD_LOCK_HELD=1
       ;;
+    --build-only)
+      BUILD_ONLY=1
+      ;;
     --full-output|--verbose)
       FULL_OUTPUT=1
       ;;
@@ -389,9 +393,21 @@ acquire_build_lock() {
     return
   fi
 
+  if [[ "$ACTION" == "run" && "$SKIP_BUILD" == "1" ]]; then
+    return
+  fi
+
   local reentry_args=()
   case "${ORIGINAL_ARGS[0]:-}" in
-    build|run|clean-intermediates)
+    run)
+      reentry_args=(
+        run
+        --build-lock-held
+        --build-only
+        "${ORIGINAL_ARGS[@]:1}"
+      )
+      ;;
+    build|clean-intermediates)
       reentry_args=(
         "${ORIGINAL_ARGS[0]}"
         --build-lock-held
@@ -399,11 +415,23 @@ acquire_build_lock() {
       )
       ;;
     *)
-      reentry_args=(--build-lock-held "${ORIGINAL_ARGS[@]}")
+      if [[ "$ACTION" == "run" ]]; then
+        reentry_args=(--build-lock-held --build-only "${ORIGINAL_ARGS[@]}")
+      else
+        reentry_args=(--build-lock-held "${ORIGINAL_ARGS[@]}")
+      fi
       ;;
   esac
 
   echo "Waiting for BetterTG build lock: $BUILD_LOCK_PATH"
+  if [[ "$ACTION" == "run" ]]; then
+    /usr/bin/lockf \
+      "$BUILD_LOCK_PATH" \
+      "$ROOT_DIR/script/build.sh" \
+      "${reentry_args[@]}"
+    SKIP_BUILD=1
+    return
+  fi
   exec /usr/bin/lockf \
     "$BUILD_LOCK_PATH" \
     "$ROOT_DIR/script/build.sh" \
@@ -810,7 +838,7 @@ else
   echo "Skipping build and reusing the existing $CONFIGURATION app product."
 fi
 
-if [[ "$ACTION" == "build" ]]; then
+if [[ "$BUILD_ONLY" == "1" || "$ACTION" == "build" ]]; then
   exit 0
 fi
 
