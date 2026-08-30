@@ -6747,8 +6747,10 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(photo: Photo, client: TDLibClient) {
-        imageView.load(photo: photo, preferredSize: .yBox, client: client)
+    // MARK: Internal
+
+    func configure(photo: Photo) {
+        imageView.load(photo: photo, preferredSize: .yBox, maximumPixelSize: 2048)
     }
 
     func prepareForReuse() {

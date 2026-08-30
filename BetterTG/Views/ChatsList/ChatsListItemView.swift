@@ -116,7 +116,7 @@ final class ChatListCell: UITableViewCell {
         deliveryLabel.isHidden = delivery == nil
         updateBackground(highlighted: isHighlighted || isSelected, animated: false)
         avatarView.configure(
-            file: chat.chat.photo?.big,
+            file: chat.chat.photo?.small,
             minithumbnail: chat.chat.photo?.minithumbnail,
             placeholder: chat.telegramAvatarPlaceholder,
             client: client,

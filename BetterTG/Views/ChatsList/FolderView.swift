@@ -305,8 +305,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var initialSearchScrollOffset = ChatListNavigationSearchView.scrollHeight
     private var clientViewportRestoration: ChatListViewportRestoration
     private var cancellables = Set<AnyCancellable>()
-    private var chatCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
+    private var chatsByID = [Int64: CustomChat]()
     private var pendingChangedChatIDs = Set<Int64>()
     private var chatUpdateScheduled = false
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
@@ -386,13 +386,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         longPressGesture.minimumPressDuration = 0.3
         tableView.addGestureRecognizer(longPressGesture)
         configureDataSource()
+        rebuildChatIndex()
         updateSnapshot(animated: false)
         startStateUpdates()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        warmVisibleChats()
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-scroll-chats") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -484,28 +484,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         for indexPath in indexPaths {
             guard let id = dataSource.itemIdentifier(for: indexPath),
                   let chat = chat(for: id),
+                  let avatar = chat.chat.photo?.small,
                   prefetchTasks[id] == nil
             else { continue }
             prefetchTasks[id] = Task { [weak self] in
-                guard authority.isCurrent, !Task.isCancelled else { return }
-                if chat.chat.viewAsTopics {
-                    let _: ForumTopics? = try? await client.getForumTopics(
-                        chatId: id,
-                        limit: 30,
-                        offsetDate: 0,
-                        offsetForumTopicId: 0,
-                        offsetMessageId: 0,
-                        query: "",
-                    )
-                } else {
-                    let _: Messages? = try? await client.getChatHistory(
-                        chatId: id,
-                        fromMessageId: 0,
-                        limit: 30,
-                        offset: 0,
-                        onlyLocal: false,
-                    )
-                }
+                await TDImagePrefetcher.prefetch(file: avatar, maximumPixelSize: 160)
                 await MainActor.run { self?.prefetchTasks[id] = nil }
             }
         }
@@ -593,7 +576,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
-                    self?.subscribeToChats()
+                    self?.rebuildChatIndex()
                     self?.updateSnapshot(animated: true)
                 }
             }
@@ -610,16 +593,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             guard let self else { return }
             updateSnapshot(animated: false, changedIDs: Set(folder.chats.map(\.id)))
         }
-        subscribeToChats()
+        folder.chatDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] chatID in
+                self?.scheduleChatUpdate(id: chatID)
+            }
+            .store(in: &cancellables)
     }
 
-    private func subscribeToChats() {
-        chatCancellables.removeAll()
-        for chat in folder.chats {
-            chat.objectWillChange
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, chatID = chat.id] in self?.scheduleChatUpdate(id: chatID) }
-                .store(in: &chatCancellables)
+    private func rebuildChatIndex() {
+        chatsByID = Dictionary(uniqueKeysWithValues: folder.chats.map { ($0.id, $0) })
+        for id in Array(prefetchTasks.keys) where chatsByID[id] == nil {
+            prefetchTasks[id]?.cancel()
+            prefetchTasks[id] = nil
         }
     }
 
@@ -667,11 +653,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func chat(for id: Int64) -> CustomChat? {
-        folder.chats.first(where: { $0.id == id })
-    }
-
-    private func warmVisibleChats() {
-        tableView(tableView, prefetchRowsAt: tableView.indexPathsForVisibleRows ?? [])
+        chatsByID[id]
     }
 
     private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {

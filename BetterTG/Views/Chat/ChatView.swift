@@ -1918,7 +1918,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             statusColor: statusColor,
         )
         customNavigationBar.configureAvatar(
-            file: chat.photo?.big,
+            file: chat.photo?.small,
             minithumbnail: chat.photo?.minithumbnail,
             placeholder: chatVM.customChat.telegramAvatarPlaceholder,
             client: chatVM.client,

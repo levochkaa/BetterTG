@@ -13,6 +13,7 @@ import TDLibKitDynamic
     }
 
     @Published var chats: [CustomChat]
+    let chatDidChange = PassthroughSubject<Int64, Never>()
     let type: CustomFolderType
 
     var id: Int {

@@ -173,7 +173,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                 origin: sourceOrigin,
             )
         } else {
-            imageView.loadPlaceholder(data: minithumbnailData, origin: sourceOrigin)
+            imageView.loadPlaceholder(data: minithumbnailData, maximumPixelSize: 160)
         }
     }
 
@@ -234,6 +234,7 @@ private final class TelegramAvatarPlaceholderView: UIView {
         super.init(frame: frame)
         isOpaque = true
         contentMode = .redraw
+        layer.drawsAsynchronously = true
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
