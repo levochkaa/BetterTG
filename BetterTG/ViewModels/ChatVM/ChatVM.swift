@@ -65,17 +65,10 @@ import UIKit
     let pollInteractionStore = MessagePollInteractionStore()
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
-    @Published private(set) var editCustomMessage: CustomMessage? {
-        didSet { queueForumTopicDemandRefresh() }
-    }
-
-    @Published var replyMessage: CustomMessage? {
-        didSet { queueForumTopicDemandRefresh() }
-    }
-
-    @Published private(set) var replyQuote: InputTextQuote?
-    @Published private(set) var replyInputOverride: InputMessageReplyTo?
-    @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
+    @Published var memberCount = 0
+    @Published var onlineMemberCount = 0
+    @Published var editCustomMessage: CustomMessage?
+    @Published var replyMessage: CustomMessage?
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var displayedDocuments = [SelectedDocument]()
@@ -125,8 +118,8 @@ import UIKit
     var timer: Timer?
     var wave = [Float]()
     var sendMessageTask: Task<Void, Never>?
-    var voiceFinalizeTask: Task<Void, Never>?
-    var recordingVoiceNoteURL: URL?
+    var chatInfoTask: Task<Void, Never>?
+    var savedVoiceNoteUrl = URL(filePath: "")
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
         didSet {
@@ -435,6 +428,26 @@ import UIKit
         return ChatComposerEditState.allowsSubmission(message: editCustomMessage.message, text: editMessageText)
     }
 
+    var headerStatus: String {
+        guard actionStatus.isEmpty else { return actionStatus }
+        switch customChat.type {
+        case .bot, .user:
+            return onlineStatus
+        case .group:
+            return memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
+        case .supergroup(let group):
+            guard memberCount > 0 else { return group.isChannel ? "channel" : "group" }
+            if group.isChannel {
+                return countStatus(memberCount, singular: "subscriber", plural: "subscribers")
+            }
+            return memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
+        }
+    }
+
+    var headerStatusIsActive: Bool {
+        !actionStatus.isEmpty || headerStatus == "online"
+    }
+
     var formattedTimerCount: String {
         let time = String(format: "%.2f", timerCount).split(separator: ".", maxSplits: 2)
         let seconds = Int(time[0]) ?? 0
@@ -472,25 +485,14 @@ import UIKit
         self.metadataResolver = MessageMetadataResolver(client: client)
         self.currentChatPermissions = customChat.chat.permissions
         self.previewing = previewing
-        self.forumTopic = forumTopic
-        self.forumTopicInfo = forumTopic?.info
-        self.canAddReactions = customChat.chat.permissions.canReactToMessages
-        self.maximumChosenReactionCount =
-            customChat.chat.availableReactions.maximumChosenReactionCount
-        if UIApplication.shared.applicationState == .background {
-            _ = voiceRecordingLifecycle.suspend(.background)
-        }
+        self.memberCount = customChat.group?.memberCount ?? customChat.supergroup?.memberCount ?? 0
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
         }
 
         setPublishers()
-        loadDeliveryReceiptIfNeeded()
-        refreshAllMessagesForumTopicsIfNeeded()
-        refreshDeliveryStates()
-        observeVoiceRecordingPreviewPlayer()
-        observeVoiceRecordingInterruptions()
+        loadGroupInfo()
         loadMessages()
         if isReadOnlyTopic, forumTopicInfo == nil, forumTopicTask == nil {
             loadForumTopic()
@@ -607,26 +609,16 @@ import UIKit
         }
     }
 
-    static func restoringComposer(
-        from transfer: ChatComposerRestorationTransfer,
-        customChat: CustomChat,
-        location: ChatLocation,
-        forumTopic: ForumTopic? = nil,
-        history: ChatHistoryRestorationState? = nil,
-        visibleMessageIDs: [Int64] = [],
-        client: TDLibClient? = nil,
-    ) -> ChatVM? {
-        let client = client ?? td
-        guard location.chatID == customChat.id, location.clientID == client.id,
-              history.map({ $0.location.accountID == location.accountID
-                      && $0.location.chatID == location.chatID && $0.location.topic == location.topic }) ?? true
-        else { return nil }
-        return transfer.commit(to: location, currentSource: TDLib.shared.activeUpdateSource) { snapshot in
-            ChatVM(
-                customChat: customChat, location: location, forumTopic: forumTopic,
-                previewing: false, restoration: snapshot, history: history,
-                visibleMessageIDs: visibleMessageIDs, client: client,
-            )
+    deinit {
+        log("deinit \(chatID)")
+        loadingMessagesTask?.cancel()
+        sendMessageTask?.cancel()
+        chatInfoTask?.cancel()
+        timer?.invalidate()
+        audioRecorder?.stop()
+        try? td.closeChat(chatId: chatID) { _ in }
+        if !previewing {
+            Media.shared.onChatDismiss()
         }
     }
 
@@ -939,6 +931,31 @@ import UIKit
         }
     }
 
+    func loadGroupInfo() {
+        let client = td
+        switch customChat.type {
+        case .supergroup(let group):
+            chatInfoTask = Task { [weak self] in
+                guard let info = try? await client.getSupergroupFullInfo(supergroupId: group.id),
+                      !Task.isCancelled,
+                      info.memberCount > 0,
+                      let self
+                else { return }
+                memberCount = info.memberCount
+            }
+        case .group(let group) where group.memberCount == 0:
+            chatInfoTask = Task { [weak self] in
+                guard let info = try? await client.getBasicGroupFullInfo(basicGroupId: group.id),
+                      !Task.isCancelled,
+                      let self
+                else { return }
+                memberCount = info.members.count
+            }
+        case .bot, .group, .user:
+            break
+        }
+    }
+    
     func loadMessages() {
         guard loadingMessagesTask == nil, hasMoreMessages else { return }
         let fromMessageID = oldestLoadedMessageID
@@ -955,7 +972,7 @@ import UIKit
             await _loadMessages(fromMessageID: fromMessageID, client: client)
         }
     }
-    
+
     func _loadMessages(fromMessageID: Int64, client: TDLibClient) async {
         var knownIDs = Set(messages.flatMap { message in
             [message.id] + message.album.map(\.id)
@@ -5235,5 +5252,15 @@ import UIKit
             .compactMap(\.self)
         // Expiry only ends the assertion; canonical work and accepted RPCs keep their owners.
         voiceBackgroundCheckpoint.protect(tasks)
+    }
+
+    private func memberStatus(memberCount: Int, onlineMemberCount: Int) -> String {
+        let members = countStatus(memberCount, singular: "member", plural: "members")
+        guard onlineMemberCount > 1 else { return members }
+        return "\(members), \(onlineMemberCount.formatted(.number)) online"
+    }
+
+    private func countStatus(_ count: Int, singular: String, plural: String) -> String {
+        "\(count.formatted(.number)) \(count == 1 ? singular : plural)"
     }
 }

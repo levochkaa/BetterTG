@@ -1900,22 +1900,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
-        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
-        let status =
-            if location.isTopicScoped {
-                chatVM.isReadOnlyTopic
-                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
-                        ? "Closed topic · Read-only"
-                        : "\(chatVM.customChat.displayTitle) · Read-only")
-                    : chatVM.customChat.displayTitle
-            } else {
-                chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
-            }
-        let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: title,
-            status: status,
-            statusColor: statusColor,
+            title: chatVM.customChat.displayTitle,
+            status: chatVM.headerStatus,
+            statusColor: chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel,
         )
         customNavigationBar.configureAvatar(
             file: chat.photo?.small,
@@ -1947,22 +1935,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateStatus() {
-        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
-        let status =
-            if location.isTopicScoped {
-                chatVM.isReadOnlyTopic
-                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
-                        ? "Closed topic · Read-only"
-                        : "\(chatVM.customChat.displayTitle) · Read-only")
-                    : chatVM.customChat.displayTitle
-            } else {
-                chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
-            }
-        let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: title,
-            status: status,
-            statusColor: statusColor,
+            title: chatVM.customChat.displayTitle,
+            status: chatVM.headerStatus,
+            statusColor: chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel,
         )
         let unreadCount = location.isTopicScoped
             ? (chatVM.forumTopic?.unreadCount ?? 0)
