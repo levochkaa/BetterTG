@@ -469,11 +469,15 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         var preferredContentWidth = CGFloat.zero
         for view in bubbleStack.arrangedSubviews where !view.isHidden {
-            let width = view.systemLayoutSizeFitting(
-                fittingSize,
-                withHorizontalFittingPriority: .fittingSizeLevel,
-                verticalFittingPriority: .fittingSizeLevel,
-            ).width
+            let width = if view === textView {
+                textView.intrinsicContentSize.width
+            } else {
+                view.systemLayoutSizeFitting(
+                    fittingSize,
+                    withHorizontalFittingPriority: .fittingSizeLevel,
+                    verticalFittingPriority: .fittingSizeLevel,
+                ).width
+            }
             preferredContentWidth = max(preferredContentWidth, width)
         }
         let preferredBubbleWidth = min(maximumBubbleWidth, ceil(preferredContentWidth) + 16)
