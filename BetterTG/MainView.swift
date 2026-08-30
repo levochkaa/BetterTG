@@ -1094,6 +1094,7 @@ final class FolderPickerView: UIView {
         guard folders.indices.contains(sender.tag) else { return }
         let folder = folders[sender.tag]
         if selectedID == folder.id {
+            scrollSelectedSegmentIntoView(animated: true)
             onReselection?(folder.id)
         } else {
             select(id: folder.id, animated: true)
