@@ -489,6 +489,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ForumTopicRunHeaderCell.self,
             forCellWithReuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
         )
+        collectionView.register(
+            ChatDateHeaderCell.self,
+            forCellWithReuseIdentifier: ChatDateHeaderCell.reuseIdentifier,
+        )
         if presentationMode == .full {
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped(_:)))
             tapGesture.cancelsTouchesInView = false
@@ -885,6 +889,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ) { [weak self] collectionView, indexPath, itemID in
             guard let self else { return UICollectionViewCell() }
             switch itemID {
+            case .dateHeader(let headerID):
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: ChatDateHeaderCell.reuseIdentifier,
+                    for: indexPath,
+                ) as? ChatDateHeaderCell else { return UICollectionViewCell() }
+                cell.configure(id: headerID)
+                return cell
             case .topicHeader(let headerID):
                 guard let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
@@ -1007,6 +1018,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateStatus() } }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIApplication.significantTimeChangeNotification)
+            .merge(with: NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification))
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateSnapshot(animated: false) }
             .store(in: &cancellables)
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
             self?.updateChatHeader()
@@ -1155,7 +1172,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         let shouldKeepLatestVisible = !didPerformInitialScroll || isNearLatest
         let anchor = shouldKeepLatestVisible ? nil : captureSnapshotAnchor()
-        let itemIDs = ForumTopicTimelineProjection.items(
+        let itemIDs = ChatTimelineProjection.items(
             messages: chatVM.messages,
             includesTopicHeaders: chatVM.isAllMessagesForum,
         )
@@ -1163,7 +1180,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         snapshot.appendSections([.messages])
         snapshot.appendItems(itemIDs)
         let headerIDs = itemIDs.filter {
-            if case .topicHeader = $0 {
+            if case .dateHeader = $0 {
+                true
+            } else if case .topicHeader = $0 {
                 true
             } else {
                 false

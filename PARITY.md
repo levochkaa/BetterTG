@@ -27,26 +27,22 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | P1 | Profiles, shared media, fullscreen gallery | pre-Liquid peer info/gallery controllers | user/basic-group/supergroup/full-info and message-search APIs | **queued** — exact thumbnail transitions, paging/prefetch, zoom/dismiss gesture arbitration, video controls, actions, and state restoration. |
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **queued** — isolated clients/storage/subscriptions plus add/auth/switch/remove/logout. |
 | P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists and paging already exist; folder tabs are classic full-width material, and chat cells now use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
-| P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` history merge/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/header IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration now cover prepend/edit/delete/header structural snapshots. Remaining proof and gaps: live pagination seam/album mutation smoke, explicit resize/keyboard anchor instrumentation, date separators and eliminating residual metadata work from the main actor. |
+| P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover prepend/edit/delete/header structural snapshots. Every chat now emits one stable localized 34pt date row per day; simultaneous boundaries render date→topic→message, midnight within one topic does not duplicate its topic header, and significant-time/locale changes rebuild IDs and labels. Remaining proof/gaps: live pagination seam/album mutation, explicit resize/keyboard anchor instrumentation and eliminating residual metadata work from the main actor. |
 | P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars, `ChatListFilterTabContainerNode.swift` and `ChatListItem.swift` | n/a | **implemented classic shell/list breadth** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Chat-list cards are replaced by contiguous 76pt full-width rows with 60pt avatars at x=10 and separators from x=80. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proofs are below. Remaining P2: systematic audit of secondary navigation/search/action surfaces. |
 
 ## Checkpoint
 
-- Current slice: verify and route notification quick replies into the authoritative forum topic instead of rejecting forums or falling
-  through to General.
-- Identity/preflight: quick reply now requires the notification's exact Telegram account user ID; missing/mismatched account payloads
-  fail closed. The captured TDLib client/account is rechecked after every suspension. For a forum notification the coordinator fetches
-  the authoritative notification message, requires its `.messageTopicForum`, then fetches matching `ForumTopic` metadata.
-- Permissions/routing: existing paid/private/chat membership/basic-message checks remain. Closed/hidden topics additionally require
-  topic ownership, supergroup creator or `canManageTopics`. The reply target is the verified notification message, not an untrusted
-  top-message hint; `sendMessage` receives its exact `topicId`, and the returned message must match both chat and topic before the
-  notification is marked read. Every missing chat/message/topic/permission lookup is fail-closed.
-- Verification: one SwiftFormat invocation covered the changed Swift file. Final Xcode 26.6 build
-  `.build/logs/xcodebuild/build-Debug-20260831-080453-55869-29388.log` succeeds without warnings. Source review specifically audited
-  account ambiguity, topic derivation, closed/admin/payment permissions, reply target and result validation; the missing-account P1 was
-  fixed by requiring exact account identity.
-- Proof gap: no synthetic notification or external reply was sent from the user's account. Next slice: Telegram all-messages
-  General-or-reply resolver plus adjacent-topic run headers; only after both restore `viewAsTopics == false` base routing.
+- Current slice: base all-messages forums now combine stable date/topic boundaries with General-or-reply text/photo/voice/video routing,
+  while the route draft remains `topic:nil` and durable media persists its immutable send topic separately.
+- Timeline invariants: raw TDLib pagination owns the cursor; `mediaAlbumId` owns grouped identity across pages; heterogeneous
+  message/date/topic items rebuild from canonical state; only messages participate in behavior; every structural apply restores a visible
+  message + exact pixel offset. Date→topic ordering and significant-time/locale reconfiguration follow Telegram's header spaces.
+- Verification: warning-free Xcode 26.6 build `.build/logs/xcodebuild/build-Debug-20260831-090344-73347-22038.log`; focused reviews are
+  clean. PID `71701` passed frozen-destination voice/video recording/send/relaunch probes with no crash/assert; PID `67526` and the date
+  smoke stayed alive. Simulator remains booted.
+- Proof blocker: current simulator data has no safe reachable forum with `viewAsTopics == false`, so real topic-header tap and live
+  General/reply send remain unmutated/unproved. Next slice: retain `messageId + pixelOffset` across keyboard/inset and self-sizing media
+  changes, then continue timeline insertion/delete transitions.
 
 ### Forum notification quick-reply slice
 
@@ -86,7 +82,20 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   no safe `viewAsTopics == false` forum exists in current simulator data, so live header tap remains a data-state blocker. Fresh PID
   `71701` passed `.build/ui-probe-evidence/forum-all-messages-media-destination-*`: voice Ogg/Opus + base-draft/frozen-topic relaunch,
   video send outcome/legacy/thumbnail/tombstone cleanup, and ordered multi-segment video recording trim/thumbnails/frozen-topic handoff.
-- Deferred: date separators and live all-messages header/pagination/album seam proof on an account with a reachable forum in this mode.
+- Deferred: live all-messages topic-header/pagination/album seam proof on an account with a reachable forum in this mode.
+
+### Date and topic boundary slice
+
+- **P1 flow:** pre-Liquid/current `ChatMessageItemImpl.swift` date/topic merge break and `ChatMessageDateHeader.swift` 34pt service
+  header ordering, adapted to stable heterogeneous UIKit diffable items.
+- Implemented: calendar-start stable IDs; 34pt inverted rows with centered 22pt localized pills; Today/Yesterday/year-aware labels and
+  header accessibility; one separator per day in ordinary and forum histories; exact visual date→topic→message ordering on simultaneous
+  boundaries; no duplicate topic header at midnight; message-only read/prefetch/selection/playback; structural pixel-anchor reuse; and
+  significant-time/locale snapshot reconfiguration so cached Today labels and timezone-derived identities cannot go stale.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-090344-73347-22038.log`; runtime hierarchy/screenshot evidence is
+  `.build/ui-probe-evidence/date-headers-*`. Fresh PID `73694` exposes `chat-date-1787860800` (`Aug 28`, 58.67×22) and
+  `chat-date-1788033600` (`Yesterday`, 76.67×22); 6pt row insets plus existing 5pt message gaps prove the exact 34pt row with zero
+  overlap, while the enabled composer remains at y=796.67.
 
 ### Writable explicit forum topic slice
 

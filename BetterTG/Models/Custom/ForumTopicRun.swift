@@ -1,5 +1,6 @@
 // ForumTopicRun.swift
 
+import Foundation
 import TDLibKitDynamic
 
 // MARK: - ForumTopicRunHeaderID
@@ -7,6 +8,12 @@ import TDLibKitDynamic
 struct ForumTopicRunHeaderID: Hashable {
     let topicID: Int
     let runStartMessageID: Int64
+}
+
+// MARK: - ChatDateHeaderID
+
+struct ChatDateHeaderID: Hashable {
+    let dayTimestamp: Int
 }
 
 // MARK: - DisplayedMessageID
@@ -19,6 +26,7 @@ enum DisplayedMessageID: Hashable {
 // MARK: - ChatTimelineItemID
 
 enum ChatTimelineItemID: Hashable {
+    case dateHeader(ChatDateHeaderID)
     case message(DisplayedMessageID)
     case topicHeader(ForumTopicRunHeaderID)
 
@@ -28,30 +36,35 @@ enum ChatTimelineItemID: Hashable {
     }
 }
 
-// MARK: - ForumTopicTimelineProjection
+// MARK: - ChatTimelineProjection
 
-@MainActor enum ForumTopicTimelineProjection {
+@MainActor enum ChatTimelineProjection {
     static func items(
         messages: [CustomMessage],
         includesTopicHeaders: Bool,
     ) -> [ChatTimelineItemID] {
-        guard includesTopicHeaders else {
-            return messages.map { .message($0.displayedID) }
-        }
         var result = [ChatTimelineItemID]()
-        result.reserveCapacity(messages.count * 2)
+        result.reserveCapacity(messages.count * (includesTopicHeaders ? 3 : 2))
         for index in messages.indices {
             let message = messages[index]
             result.append(.message(message.displayedID))
-            guard let topicID = message.forumTopicID else { continue }
-            let olderTopicID = messages.indices.contains(index + 1)
-                ? messages[index + 1].forumTopicID
+            if includesTopicHeaders, let topicID = message.forumTopicID {
+                let olderTopicID = messages.indices.contains(index + 1)
+                    ? messages[index + 1].forumTopicID
+                    : nil
+                if olderTopicID != topicID {
+                    result.append(.topicHeader(ForumTopicRunHeaderID(
+                        topicID: topicID,
+                        runStartMessageID: message.oldestSourceMessageID,
+                    )))
+                }
+            }
+            let dayTimestamp = message.dayTimestamp
+            let olderDayTimestamp = messages.indices.contains(index + 1)
+                ? messages[index + 1].dayTimestamp
                 : nil
-            if olderTopicID != topicID {
-                result.append(.topicHeader(ForumTopicRunHeaderID(
-                    topicID: topicID,
-                    runStartMessageID: message.oldestSourceMessageID,
-                )))
+            if olderDayTimestamp != dayTimestamp {
+                result.append(.dateHeader(ChatDateHeaderID(dayTimestamp: dayTimestamp)))
             }
         }
         return result
@@ -87,6 +100,10 @@ extension CustomMessage {
         })
         assert(topicIDs.count <= 1, "A media album must not span forum topics")
         return topicIDs.first
+    }
+
+    var dayTimestamp: Int {
+        Int(Calendar.autoupdatingCurrent.startOfDay(for: date).timeIntervalSince1970)
     }
 
     var sourceMessages: [Message] {
