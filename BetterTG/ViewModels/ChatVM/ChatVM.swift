@@ -68,6 +68,7 @@ import UIKit
     @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
+    @Published var displayedDocuments = [SelectedDocument]()
     @Published var timerCount = 0.0
     @Published var text: AttributedString = ""
     @Published var editMessageText: AttributedString = ""
@@ -137,6 +138,10 @@ import UIKit
     private var voiceRecordingTrimBaseDraft: VoiceRecordingDraft?
     private var pendingVideoNote: VideoNoteSendDraft?
     private var outgoingVideoNotes = [Int64: VideoNoteSendDraft]()
+    private var outgoingDocumentURLsByMessageID = [Int64: URL]()
+    private var outgoingDocumentProvisionalLeaseIDsByMessageID = [Int64: Int64]()
+    private var bufferedTerminalDocumentMessageIDs = Set<Int64>()
+    private var bufferedDocumentMessageIDAliases = [Int64: Int64]()
     private var videoRetryAvailabilityTask: Task<Void, Never>?
     private var videoRetryTask: Task<Void, Never>?
     private var videoSendTransitionIDs = [UUID: UUID]()
@@ -221,11 +226,23 @@ import UIKit
     }
 
     var canAttachPhotos: Bool {
-        (try? resolveSendContext(for: .photo, replyingTo: replyMessage)) != nil
+        (try? resolveSendContext(
+            for: .photo,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
+    var canAttachDocuments: Bool {
+        (try? resolveSendContext(
+            for: .document,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
     }
 
     var canWriteAnyMessage: Bool {
-        canWriteBasicMessages || canAttachPhotos || canRecordVoiceNote || canRecordVideoNote
+        canWriteBasicMessages || canAttachPhotos || canAttachDocuments || canRecordVoiceNote || canRecordVideoNote
     }
 
     var canShowComposer: Bool {
@@ -660,6 +677,12 @@ import UIKit
         audioRecorder?.stop()
         if let recordingVoiceNoteURL {
             try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
+        }
+        MainActor.assumeIsolated {
+            let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
+            SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
+                !outgoingDocumentURLs.contains($0.standardizedFileURL)
+            })
         }
         chatOpenLease.invalidate()
         if !previewing {
@@ -1349,6 +1372,24 @@ import UIKit
         text = value
     }
 
+    func replaceDisplayedDocuments(_ documents: [SelectedDocument]) {
+        let previousURLs = displayedDocuments.map(\.url)
+        displayedDocuments = documents
+        removeTemporaryDocuments(previousURLs)
+    }
+
+    func removeDisplayedDocument(id: UUID) {
+        let removedURLs = displayedDocuments.filter { $0.id == id }.map(\.url)
+        displayedDocuments.removeAll { $0.id == id }
+        removeTemporaryDocuments(removedURLs)
+    }
+
+    func discardDisplayedDocuments() {
+        let removedURLs = displayedDocuments.map(\.url)
+        displayedDocuments = []
+        removeTemporaryDocuments(removedURLs)
+    }
+
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
         guard let message = try? await client.getMessage(chatId: customChat.chat.id, messageId: id),
               location.matches(message: message)
@@ -1420,13 +1461,18 @@ import UIKit
         }
         let sentText = text
         let sentImageIDs = Set(displayedImages.map(\.id))
+        let sentDocumentIDs = Set(displayedDocuments.map(\.id))
         let sentReplyID = replyMessage?.id
         let transitionID = UUID()
-        let transitionKind: ComposerSendTransitionKind = displayedImages.isEmpty ? .text : .media
+        let transitionKind: ComposerSendTransitionKind = displayedImages.isEmpty && displayedDocuments.isEmpty
+            ? .text
+            : .media
         sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: transitionKind))
         do {
             let result: (context: ResolvedSendContext, messages: [Message])
-            if !displayedImages.isEmpty {
+            if !displayedDocuments.isEmpty {
+                result = try await sendMessageDocuments()
+            } else if !displayedImages.isEmpty {
                 result = try await sendMessagePhotos()
             } else if !text.characters.isEmpty {
                 result = try await sendMessageText()
@@ -1440,6 +1486,7 @@ import UIKit
                 return
             }
             displayedImages.removeAll { sentImageIDs.contains($0.id) }
+            displayedDocuments.removeAll { sentDocumentIDs.contains($0.id) }
             if text == sentText {
                 text = ""
             }
@@ -1450,6 +1497,7 @@ import UIKit
             let hasNewComposerState = !text.characters.isEmpty
                 || replyMessage != nil
                 || !displayedImages.isEmpty
+                || !displayedDocuments.isEmpty
                 || editCustomMessage != nil
             awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
             composerIsDirty = awaitingAuthoritativeDraftClear
@@ -1470,6 +1518,167 @@ import UIKit
         } catch {
             sendTransitionCancelled.send(transitionID)
             sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    func sendMessageDocuments() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        let context = try resolveSendContext(
+            for: .document,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        let documents = Array(displayedDocuments.prefix(10))
+        guard !documents.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
+        let caption: FormattedText? = text.characters.isEmpty
+            ? nil
+            : FormattedText(entities: getEntities(from: text), text: text.string)
+        let provisionalMessageIDs = documents.map { _ in -Int64.random(in: 1...Int64.max) }
+        var persistedProvisionalMessageIDs = [Int64]()
+        do {
+            for (document, provisionalMessageID) in zip(documents, provisionalMessageIDs) {
+                try SelectedDocumentFileStore.lease(
+                    document.url,
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+                persistedProvisionalMessageIDs.append(provisionalMessageID)
+            }
+        } catch {
+            for provisionalMessageID in persistedProvisionalMessageIDs {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            throw error
+        }
+        var boundProvisionalMessageIDs = Set<Int64>()
+        do {
+            try await sendChatAction(.chatActionUploadingDocument(.init(progress: 0)), in: context)
+            let contents = documents.enumerated().map { index, document in
+                InputMessageContent.inputMessageDocument(.init(
+                    caption: index == 0 ? caption : nil,
+                    document: InputDocument(
+                        disableContentTypeDetection: true,
+                        document: .inputFileLocal(.init(path: document.url.path(percentEncoded: false))),
+                        thumbnail: nil,
+                    ),
+                ))
+            }
+            guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
+            let messages: [Message]
+            if contents.count == 1, let content = contents.first {
+                let message = try await client.sendMessage(
+                    chatId: context.chatID,
+                    inputMessageContent: content,
+                    options: nil,
+                    replyMarkup: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                messages = [message]
+            } else {
+                let result = try await client.sendMessageAlbum(
+                    chatId: context.chatID,
+                    inputMessageContents: contents,
+                    options: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                messages = result.messages ?? []
+            }
+            for index in 0..<min(messages.count, documents.count) {
+                let resolvedMessageID = bufferedDocumentMessageIDAliases[messages[index].id] ?? messages[index].id
+                let provisionalMessageID = provisionalMessageIDs[index]
+                boundProvisionalMessageIDs.insert(provisionalMessageID)
+                do {
+                    try SelectedDocumentFileStore.replaceMessageID(
+                        accountID: context.accountID,
+                        chatID: context.chatID,
+                        old: provisionalMessageID,
+                        new: resolvedMessageID,
+                    )
+                } catch {
+                    outgoingDocumentProvisionalLeaseIDsByMessageID[resolvedMessageID] = provisionalMessageID
+                }
+            }
+            for provisionalMessageID in provisionalMessageIDs
+                where !boundProvisionalMessageIDs.contains(provisionalMessageID)
+            {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            retainOutgoingDocumentFiles(messages: messages, documents: documents)
+            guard messages.count == contents.count else {
+                let acceptedDocumentIDs = Set(documents.prefix(messages.count).map(\.id))
+                displayedDocuments.removeAll { acceptedDocumentIDs.contains($0.id) }
+                throw ChatSendContextError.partialAlbum(sent: messages.count, expected: contents.count)
+            }
+            guard messages.allSatisfy({ context.matches(message: $0) }) else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            try? await cancelChatAction(in: context)
+            return (context, messages)
+        } catch {
+            for provisionalMessageID in provisionalMessageIDs
+                where !boundProvisionalMessageIDs.contains(provisionalMessageID)
+            {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            try? await cancelChatAction(in: context)
+            throw error
+        }
+    }
+
+    func releaseOutgoingDocumentFile(messageID: Int64) {
+        if let url = outgoingDocumentURLsByMessageID.removeValue(forKey: messageID) {
+            if let provisionalMessageID = outgoingDocumentProvisionalLeaseIDsByMessageID.removeValue(
+                forKey: messageID,
+            ) {
+                SelectedDocumentFileStore.unlease(
+                    accountID: accountID,
+                    chatID: chatID,
+                    messageID: provisionalMessageID,
+                )
+                SelectedDocumentFileStore.remove([url])
+            } else {
+                SelectedDocumentFileStore.complete(
+                    accountID: accountID,
+                    chatID: chatID,
+                    messageID: messageID,
+                )
+                removeTemporaryDocuments([url])
+            }
+        } else if sendingComposerMessage, !displayedDocuments.isEmpty {
+            bufferedTerminalDocumentMessageIDs.insert(messageID)
+        }
+    }
+
+    func replaceOutgoingDocumentMessageID(old: Int64, new: Int64) {
+        if let url = outgoingDocumentURLsByMessageID.removeValue(forKey: old) {
+            outgoingDocumentURLsByMessageID[new] = url
+            let persistedMessageID = outgoingDocumentProvisionalLeaseIDsByMessageID.removeValue(forKey: old) ?? old
+            do {
+                try SelectedDocumentFileStore.replaceMessageID(
+                    accountID: accountID,
+                    chatID: chatID,
+                    old: persistedMessageID,
+                    new: new,
+                )
+            } catch {
+                outgoingDocumentProvisionalLeaseIDsByMessageID[new] = persistedMessageID
+            }
+        } else if sendingComposerMessage, !displayedDocuments.isEmpty {
+            bufferedDocumentMessageIDAliases[old] = new
         }
     }
 
@@ -2456,6 +2665,26 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func retainOutgoingDocumentFiles(
+        messages: [Message],
+        documents: [SelectedDocument],
+    ) {
+        for (message, document) in zip(messages, documents) {
+            let resolvedMessageID = bufferedDocumentMessageIDAliases[message.id] ?? message.id
+            if message.sendingState == nil
+                || bufferedTerminalDocumentMessageIDs.contains(message.id)
+                || bufferedTerminalDocumentMessageIDs.contains(resolvedMessageID)
+            {
+                outgoingDocumentURLsByMessageID[resolvedMessageID] = document.url
+                releaseOutgoingDocumentFile(messageID: resolvedMessageID)
+            } else {
+                outgoingDocumentURLsByMessageID[resolvedMessageID] = document.url
+            }
+        }
+        bufferedTerminalDocumentMessageIDs.removeAll()
+        bufferedDocumentMessageIDAliases.removeAll()
+    }
+
     private func forumTopicInfo(for topic: MessageTopic?) -> ForumTopicInfo? {
         guard case .messageTopicForum(let forumTopic) = topic else { return nil }
         return forumTopicsByID[forumTopic.forumTopicId]?.info
@@ -2654,6 +2883,8 @@ import UIKit
 
     private func sendContentKind(for action: ChatAction) -> ChatSendContentKind {
         switch action {
+        case .chatActionUploadingDocument:
+            .document
         case .chatActionRecordingVoiceNote, .chatActionUploadingVoiceNote:
             .voiceNote
         case .chatActionRecordingVideoNote, .chatActionUploadingVideoNote:
@@ -2729,6 +2960,8 @@ import UIKit
         guard customChat.canPostMessages else { return false }
         let permissions = currentChatPermissions
         return switch kind {
+        case .document:
+            permissions.canSendDocuments
         case .photo:
             permissions.canSendPhotos
         case .text:
@@ -2737,6 +2970,13 @@ import UIKit
             permissions.canSendVideoNotes
         case .voiceNote:
             permissions.canSendVoiceNotes
+        }
+    }
+
+    private func removeTemporaryDocuments(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            SelectedDocumentFileStore.removeUnleased(urls)
         }
     }
 
@@ -3989,7 +4229,10 @@ import UIKit
         let draftClearSucceeded = await clearRouteDraft(context)
         guard locationContextIsCurrent else { return }
         composerRevision &+= 1
-        let hasNewComposerState = !text.characters.isEmpty || replyMessage != nil || !displayedImages.isEmpty
+        let hasNewComposerState = !text.characters.isEmpty
+            || replyMessage != nil
+            || !displayedImages.isEmpty
+            || !displayedDocuments.isEmpty
         if hasNewComposerState {
             composerIsDirty = true
             awaitingAuthoritativeDraftClear = false

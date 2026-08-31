@@ -31,6 +31,7 @@ final class ChatComposerView: UIView {
     // MARK: Internal
 
     var onPickPhotos: (() -> Void)?
+    var onPickFiles: (() -> Void)?
     var onTakePhoto: (() -> Void)?
     var onNavigateToMessage: ((MessageMetadataNavigationTarget) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
@@ -53,6 +54,8 @@ final class ChatComposerView: UIView {
     private let closeReplyButton = UIButton(type: .system)
     private let photosScroll = UIScrollView()
     private let photosStack = UIStackView()
+    private let documentsScroll = UIScrollView()
+    private let documentsStack = UIStackView()
     private let inputRow = UIStackView()
     private let attachmentButton = UIButton(type: .system)
     private let textView = FormattedTextView(placeholder: "Message…")
@@ -77,6 +80,8 @@ final class ChatComposerView: UIView {
     }()
 
     private var displayedImageIDs = [UUID]()
+    private var displayedDocumentIDs = [UUID]()
+    private var contentSizeCategoryObserver: NSObjectProtocol?
     private var draftTask: Task<Void, Never>?
     private var typingTask: Task<Void, Never>?
     private var isApplyingState = false
@@ -85,6 +90,7 @@ final class ChatComposerView: UIView {
     private var lastReplyID: Int64?
     private var lastEditID: Int64?
     private var replyContainerHeightConstraint: NSLayoutConstraint!
+    private var documentsScrollHeightConstraint: NSLayoutConstraint!
     private var replyPreviewVisible = false
     private var voiceGestureStartPoint = CGPoint.zero
     private var voiceGestureLastPoint = CGPoint.zero
@@ -134,9 +140,19 @@ final class ChatComposerView: UIView {
         configureViews()
         configureActions()
         update(from: chatVM)
+        self.contentSizeCategoryObserver = NotificationCenter.default.addObserver(
+            forName: UIContentSizeCategory.didChangeNotification,
+            object: nil,
+            queue: .main,
+        ) { [weak self] _ in
+            self?.updateDocumentsScrollHeight()
+        }
     }
 
     deinit {
+        if let contentSizeCategoryObserver {
+            NotificationCenter.default.removeObserver(contentSizeCategoryObserver)
+        }
         draftTask?.cancel()
         typingTask?.cancel()
         voiceGestureArmTask?.cancel()
@@ -162,6 +178,9 @@ final class ChatComposerView: UIView {
         case .media:
             if !photosScroll.isHidden {
                 sources.append(photosScroll)
+            }
+            if !documentsScroll.isHidden {
+                sources.append(documentsScroll)
             }
             if !textView.text.isEmpty {
                 sources.append(textView)
@@ -293,8 +312,9 @@ final class ChatComposerView: UIView {
         textView.isEditable = canWriteText
         textView.isSelectable = canWriteText
         textView.alpha = canWriteText ? 1 : 0.5
-        attachmentButton.isHidden = !chatVM.canAttachPhotos
-        attachmentButton.isEnabled = chatVM.canAttachPhotos
+        let canAttach = chatVM.canAttachPhotos || chatVM.canAttachDocuments
+        attachmentButton.isHidden = !canAttach
+        attachmentButton.isEnabled = canAttach
         if selectedMediaRecordingMode == .voice,
            !chatVM.canRecordVoiceNote,
            chatVM.canRecordVideoNote
@@ -413,11 +433,17 @@ final class ChatComposerView: UIView {
             displayedImageIDs = imageIDs
             rebuildPhotos()
         }
+        let documentIDs = chatVM.displayedDocuments.map(\.id)
+        if displayedDocumentIDs != documentIDs {
+            displayedDocumentIDs = documentIDs
+            rebuildDocuments()
+        }
         restrictionLabel.text = chatVM.composerRestrictionText
         restrictionLabel.isHidden = canWrite
         let isRecordingVideoNote = videoNoteState.isActive
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
         photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
+        documentsScroll.isHidden = !canWrite || chatVM.displayedDocuments.isEmpty
         inputRow.isHidden = !canWrite || isRecordingMedia
         recordingRow.isHidden = !canWrite || !isRecordingMedia
         if isRecordingVideoNote {
@@ -538,6 +564,23 @@ final class ChatComposerView: UIView {
             photosStack.bottomAnchor.constraint(equalTo: photosScroll.contentLayoutGuide.bottomAnchor),
             photosStack.heightAnchor.constraint(equalTo: photosScroll.frameLayoutGuide.heightAnchor),
         ])
+
+        documentsScroll.translatesAutoresizingMaskIntoConstraints = false
+        documentsScroll.showsHorizontalScrollIndicator = false
+        documentsStack.translatesAutoresizingMaskIntoConstraints = false
+        documentsStack.axis = .horizontal
+        documentsStack.spacing = 6
+        documentsScroll.addSubview(documentsStack)
+        documentsScrollHeightConstraint = documentsScroll.heightAnchor.constraint(equalToConstant: 54)
+        NSLayoutConstraint.activate([
+            documentsScrollHeightConstraint,
+            documentsStack.topAnchor.constraint(equalTo: documentsScroll.contentLayoutGuide.topAnchor),
+            documentsStack.leadingAnchor.constraint(equalTo: documentsScroll.contentLayoutGuide.leadingAnchor),
+            documentsStack.trailingAnchor.constraint(equalTo: documentsScroll.contentLayoutGuide.trailingAnchor),
+            documentsStack.bottomAnchor.constraint(equalTo: documentsScroll.contentLayoutGuide.bottomAnchor),
+            documentsStack.heightAnchor.constraint(equalTo: documentsScroll.frameLayoutGuide.heightAnchor),
+        ])
+        updateDocumentsScrollHeight()
 
         inputRow.axis = .horizontal
         inputRow.alignment = .bottom
@@ -679,10 +722,12 @@ final class ChatComposerView: UIView {
 
         rootStack.addArrangedSubview(replyContainer)
         rootStack.addArrangedSubview(photosScroll)
+        rootStack.addArrangedSubview(documentsScroll)
         rootStack.addArrangedSubview(inputRow)
         rootStack.addArrangedSubview(recordingRow)
         rootStack.addArrangedSubview(restrictionLabel)
         rootStack.setCustomSpacing(6, after: photosScroll)
+        rootStack.setCustomSpacing(6, after: documentsScroll)
     }
 
     private func configureActions() {
@@ -692,6 +737,9 @@ final class ChatComposerView: UIView {
             },
             UIAction(title: "Take Photo", image: UIImage(systemName: "camera.fill")) { [weak self] _ in
                 self?.onTakePhoto?()
+            },
+            UIAction(title: "Attach Files", image: UIImage(systemName: "doc.fill")) { [weak self] _ in
+                self?.onPickFiles?()
             },
         ])
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
@@ -706,6 +754,7 @@ final class ChatComposerView: UIView {
         textView.onTextChange = { [weak self] text in self?.textChanged(text) }
         textView.onPasteImages = { [weak self] images in
             guard let self else { return }
+            chatVM.discardDisplayedDocuments()
             chatVM.displayedImages = Array(images.prefix(10))
         }
     }
@@ -780,6 +829,80 @@ final class ChatComposerView: UIView {
         }
     }
 
+    private func rebuildDocuments() {
+        for arrangedSubview in documentsStack.arrangedSubviews {
+            documentsStack.removeArrangedSubview(arrangedSubview)
+            arrangedSubview.removeFromSuperview()
+        }
+        for document in chatVM.displayedDocuments {
+            let container = UIView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.backgroundColor = .tertiarySystemFill
+            container.layer.cornerCurve = .continuous
+            container.layer.cornerRadius = 10
+
+            let iconView = UIImageView(image: UIImage(systemName: "doc.fill"))
+            iconView.translatesAutoresizingMaskIntoConstraints = false
+            iconView.contentMode = .scaleAspectFit
+            iconView.tintColor = .systemBlue
+
+            let titleLabel = UILabel()
+            titleLabel.font = .preferredFont(forTextStyle: .subheadline)
+            titleLabel.adjustsFontForContentSizeCategory = true
+            titleLabel.lineBreakMode = .byTruncatingMiddle
+            titleLabel.text = document.name
+
+            let sizeLabel = UILabel()
+            sizeLabel.font = .preferredFont(forTextStyle: .caption1)
+            sizeLabel.adjustsFontForContentSizeCategory = true
+            sizeLabel.textColor = .secondaryLabel
+            sizeLabel.text = ByteCountFormatter.string(fromByteCount: document.size, countStyle: .file)
+
+            let labels = UIStackView(arrangedSubviews: [titleLabel, sizeLabel])
+            labels.translatesAutoresizingMaskIntoConstraints = false
+            labels.axis = .vertical
+            labels.spacing = 1
+
+            let removeButton = UIButton(type: .system)
+            removeButton.translatesAutoresizingMaskIntoConstraints = false
+            removeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+            removeButton.tintColor = .secondaryLabel
+            removeButton.accessibilityLabel = "Remove \(document.name)"
+            removeButton.addAction(UIAction { [weak self] _ in
+                self?.chatVM.removeDisplayedDocument(id: document.id)
+            }, for: .touchUpInside)
+
+            container.addSubview(iconView)
+            container.addSubview(labels)
+            container.addSubview(removeButton)
+            titleLabel.accessibilityLabel = "\(document.name), \(sizeLabel.text ?? "file")"
+            sizeLabel.isAccessibilityElement = false
+            NSLayoutConstraint.activate([
+                container.widthAnchor.constraint(equalToConstant: 220),
+                iconView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+                iconView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                iconView.widthAnchor.constraint(equalToConstant: 28),
+                iconView.heightAnchor.constraint(equalToConstant: 28),
+                labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+                labels.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                labels.trailingAnchor.constraint(equalTo: removeButton.leadingAnchor, constant: -6),
+                removeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
+                removeButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                removeButton.widthAnchor.constraint(equalToConstant: 32),
+                removeButton.heightAnchor.constraint(equalToConstant: 40),
+            ])
+            documentsStack.addArrangedSubview(container)
+        }
+    }
+
+    private func updateDocumentsScrollHeight() {
+        guard documentsScrollHeightConstraint != nil else { return }
+        let titleHeight = UIFont.preferredFont(forTextStyle: .subheadline).lineHeight
+        let captionHeight = UIFont.preferredFont(forTextStyle: .caption1).lineHeight
+        documentsScrollHeightConstraint.constant = max(54, ceil(titleHeight + captionHeight + 15))
+        superview?.setNeedsLayout()
+    }
+
     private func textChanged(_ text: AttributedString) {
         guard !isApplyingState else { return }
         if chatVM.editCustomMessage == nil {
@@ -804,6 +927,7 @@ final class ChatComposerView: UIView {
 
     private func updateActionButton() {
         let hasContent = !chatVM.displayedImages.isEmpty
+            || !chatVM.displayedDocuments.isEmpty
             || !chatVM.text.characters.isEmpty
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
@@ -1124,6 +1248,7 @@ final class ChatComposerView: UIView {
             return
         }
         let hasContent = !chatVM.displayedImages.isEmpty
+            || !chatVM.displayedDocuments.isEmpty
             || !chatVM.text.characters.isEmpty
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil

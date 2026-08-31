@@ -4,10 +4,11 @@ import Combine
 import PhotosUI
 import TDLibKitDynamic
 import UIKit
+import UniformTypeIdentifiers
 
 final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
-    UIGestureRecognizerDelegate
+    UIDocumentPickerDelegate, UIGestureRecognizerDelegate
 {
     // MARK: Internal
 
@@ -340,6 +341,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         picker.dismiss(animated: true)
         guard !results.isEmpty else { return }
         PhotoPickerSelectionLoader.load(results) { [weak self] images in
+            self?.chatVM.discardDisplayedDocuments()
             self?.chatVM.displayedImages = images
         }
     }
@@ -358,7 +360,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         Task { [weak self] in
             let selected = await Task.detached(priority: .userInitiated) { writeImage(image) }.value
             guard let selected else { return }
+            self?.chatVM.discardDisplayedDocuments()
             self?.chatVM.displayedImages = [selected]
+        }
+    }
+
+    func documentPicker(
+        _: UIDocumentPickerViewController,
+        didPickDocumentsAt urls: [URL],
+    ) {
+        guard !urls.isEmpty else { return }
+        let expectedLocation = chatVM.location
+        Task { [weak self] in
+            let documents = await Task.detached(priority: .userInitiated) {
+                SelectedDocumentFileStore.copy(Array(urls.prefix(10)))
+            }.value
+            guard let self,
+                  !documents.isEmpty,
+                  chatVM.location == expectedLocation,
+                  chatVM.locationContextIsCurrent,
+                  chatVM.canAttachDocuments
+            else {
+                await Task.detached { SelectedDocumentFileStore.remove(documents.map(\.url)) }.value
+                return
+            }
+            chatVM.displayedImages = []
+            chatVM.replaceDisplayedDocuments(documents)
         }
     }
 
@@ -562,6 +589,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if showsComposer {
             view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
+            composerView.onPickFiles = { [weak self] in self?.showDocumentPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
@@ -2202,6 +2230,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func showPhotoPicker() {
+        guard chatVM.canAttachPhotos else { return }
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .images
         configuration.selectionLimit = 10
@@ -2211,7 +2240,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(picker, animated: true)
     }
 
+    private func showDocumentPicker() {
+        guard chatVM.canAttachDocuments else { return }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
     private func showCamera() {
+        guard chatVM.canAttachPhotos else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             let alert = UIAlertController(title: "Camera unavailable", message: nil, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))

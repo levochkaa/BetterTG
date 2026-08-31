@@ -62,6 +62,33 @@ extension RootVM {
         nc.publisher(&cancellables, for: .updateChatViewAsTopics) { [weak self] update in
             self?.refreshChat(id: update.chatId)
         }
+        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
+            guard let self else { return }
+            SelectedDocumentFileStore.complete(
+                accountID: activeAccountID,
+                chatID: update.message.chatId,
+                messageID: update.oldMessageId,
+            )
+        }
+        nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
+            guard let self else { return }
+            try? SelectedDocumentFileStore.replaceMessageID(
+                accountID: activeAccountID,
+                chatID: update.message.chatId,
+                old: update.oldMessageId,
+                new: update.message.id,
+            )
+        }
+        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
+            guard let self, !update.fromCache, update.isPermanent else { return }
+            for messageID in update.messageIds {
+                SelectedDocumentFileStore.complete(
+                    accountID: activeAccountID,
+                    chatID: update.chatId,
+                    messageID: messageID,
+                )
+            }
+        }
         nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
             guard let self else { return }
             for folder in allFolders {

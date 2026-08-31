@@ -6,6 +6,7 @@ import TDLibKitDynamic
 // MARK: - ChatSendContentKind
 
 enum ChatSendContentKind {
+    case document
     case photo
     case text
     case videoNote
@@ -58,7 +59,7 @@ enum ChatSendContextError: LocalizedError {
         case .forumTopicRequired:
             "Choose a forum topic before sending."
         case .partialAlbum(let sent, let expected):
-            "Telegram accepted \(sent) of \(expected) photos. The selection was kept to avoid losing anything."
+            "Telegram accepted \(sent) of \(expected) attachments. The selection was kept to avoid losing anything."
         case .topicMetadataUnavailable:
             "The topic couldn't be checked yet."
         case .topicReadOnly:

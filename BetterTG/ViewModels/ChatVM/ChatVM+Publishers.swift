@@ -213,6 +213,7 @@ extension ChatVM {
 
     func updateMessageSendSucceeded(_ update: UpdateMessageSendSucceeded) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
+        releaseOutgoingDocumentFile(messageID: update.oldMessageId)
         Task {
             let replacement = await self.getCustomMessage(from: update.message)
             await main {
@@ -223,6 +224,7 @@ extension ChatVM {
 
     func updateMessageSendFailed(_ update: UpdateMessageSendFailed) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
+        replaceOutgoingDocumentMessageID(old: update.oldMessageId, new: update.message.id)
         Task {
             let replacement = await self.getCustomMessage(from: update.message)
             await main {
@@ -237,6 +239,7 @@ extension ChatVM {
         bufferPotentialVoiceMessageDeletions(update.messageIds)
         handlePotentialVideoMessageDeletions(update.messageIds)
         let deletedIDs = Set(update.messageIds)
+        update.messageIds.forEach { releaseOutgoingDocumentFile(messageID: $0) }
         let deletedBubbleIDs = Set(messages.compactMap { message -> DisplayedMessageID? in
             message.sourceMessages.allSatisfy { deletedIDs.contains($0.id) }
                 ? message.displayedID
