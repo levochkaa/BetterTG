@@ -251,6 +251,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        alpha = 1
+        transform = .identity
+        isUserInteractionEnabled = true
         resumeHistoryScrolling()
         avatarView.prepareForReuse()
         mediaView.prepareForReuse()
@@ -370,6 +373,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onContentAction: @escaping (MessageContentAction) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
+        alpha = 1
+        transform = .identity
+        isUserInteractionEnabled = true
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
         self.onSelectionToggle = onSelectionToggle

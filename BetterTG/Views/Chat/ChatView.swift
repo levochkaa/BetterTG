@@ -111,6 +111,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingSelfSizingAnchor: SnapshotAnchor?
     private var pendingSelfSizingKeepsLatest = false
     private var selfSizingAnchorRestoreScheduled = false
+    private var pendingDeleteSnapshotWorkItem: DispatchWorkItem?
+    private var pendingDeleteSnapshotDeadline: CFTimeInterval?
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
         let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
@@ -212,6 +214,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageHighlightTask?.cancel()
         reactionPickerTask?.cancel()
         selectionCapabilityTask?.cancel()
+        pendingDeleteSnapshotWorkItem?.cancel()
     }
 
     override func viewDidLoad() {
@@ -1039,6 +1042,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 DispatchQueue.main.async { self?.updateSnapshot(animated: true) }
             }
             .store(in: &cancellables)
+        chatVM.messageBubblesWillDelete
+            .sink { [weak self] ids in self?.prepareDeleteTransition(for: ids) }
+            .store(in: &cancellables)
         chatVM.customChat
             .$chat
             .dropFirst()
@@ -1201,6 +1207,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateSnapshot(animated: Bool) {
         guard isViewLoaded else { return }
+        if deferSnapshotForDeleteTransitionIfNeeded() {
+            return
+        }
         subscribeToMessages()
         if isSelectingMessages {
             let displayedIDs = Set(chatVM.messages.map(\.displayedID))
@@ -1256,6 +1265,51 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
     }
 
+    private func prepareDeleteTransition(for ids: Set<DisplayedMessageID>) {
+        var animatedVisibleCell = false
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard case .message(let displayedID) = dataSource.itemIdentifier(for: indexPath),
+                  ids.contains(displayedID),
+                  let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+                  let message = message(for: displayedID)
+            else { continue }
+            animatedVisibleCell = true
+            cell.isUserInteractionEnabled = false
+            let horizontalOffset: CGFloat = message.message.isOutgoing ? 24 : -24
+            UIView.animate(
+                withDuration: 0.14,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseIn],
+            ) {
+                cell.alpha = 0
+                cell.transform = CGAffineTransform(translationX: horizontalOffset, y: 0)
+                    .scaledBy(x: 0.98, y: 0.98)
+            }
+        }
+        guard animatedVisibleCell else { return }
+        pendingDeleteSnapshotDeadline = CACurrentMediaTime() + 0.14
+    }
+
+    private func deferSnapshotForDeleteTransitionIfNeeded() -> Bool {
+        guard let deadline = pendingDeleteSnapshotDeadline else { return false }
+        let delay = deadline - CACurrentMediaTime()
+        guard delay > 0 else {
+            pendingDeleteSnapshotDeadline = nil
+            pendingDeleteSnapshotWorkItem = nil
+            return false
+        }
+        pendingDeleteSnapshotWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            pendingDeleteSnapshotDeadline = nil
+            pendingDeleteSnapshotWorkItem = nil
+            updateSnapshot(animated: true)
+        }
+        pendingDeleteSnapshotWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        return true
+    }
+
     private func captureSnapshotAnchor(ensuringLayout: Bool = true) -> SnapshotAnchor? {
         if ensuringLayout {
             collectionView.layoutIfNeeded()
@@ -1264,7 +1318,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return collectionView.indexPathsForVisibleItems
             .compactMap { indexPath -> (ChatTimelineItemID, UICollectionViewLayoutAttributes)? in
                 guard let itemID = dataSource.itemIdentifier(for: indexPath),
-                      case .message = itemID,
+                      case .message(let displayedID) = itemID,
+                      message(for: displayedID) != nil,
                       let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)
                 else { return nil }
                 return (itemID, attributes)

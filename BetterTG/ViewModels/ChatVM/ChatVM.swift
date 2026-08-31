@@ -46,6 +46,7 @@ import UIKit
     }
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
+    let messageBubblesWillDelete = PassthroughSubject<Set<DisplayedMessageID>, Never>()
 
     let customChat: CustomChat
     nonisolated let chatID: Int64

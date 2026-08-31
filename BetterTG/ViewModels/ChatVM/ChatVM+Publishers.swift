@@ -235,6 +235,14 @@ extension ChatVM {
         bufferPotentialVoiceMessageDeletions(update.messageIds)
         handlePotentialVideoMessageDeletions(update.messageIds)
         let deletedIDs = Set(update.messageIds)
+        let deletedBubbleIDs = Set(messages.compactMap { message -> DisplayedMessageID? in
+            message.sourceMessages.allSatisfy { deletedIDs.contains($0.id) }
+                ? message.displayedID
+                : nil
+        })
+        if !deletedBubbleIDs.isEmpty {
+            messageBubblesWillDelete.send(deletedBubbleIDs)
+        }
         var promotedRepresentativeIDs = [Int64]()
         messages = messages.compactMap { message in
             let remaining = message.sourceMessages.filter { !deletedIDs.contains($0.id) }
