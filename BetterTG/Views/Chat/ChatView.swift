@@ -32,9 +32,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private struct PendingQuoteDestination {
-        let displayedMessageID: Int64
+        let displayedMessageID: DisplayedMessageID
         let quote: MessageQuoteHighlight
         let targetMessageID: Int64
+    }
+
+    private struct SnapshotAnchor {
+        let itemID: ChatTimelineItemID
+        let minYRelativeToViewport: CGFloat
     }
 
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
@@ -49,10 +54,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let tdlib: TDLib
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
-    private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
+    private var dataSource: UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>!
     private var cancellables = Set<AnyCancellable>()
     private var messageCancellables = Set<AnyCancellable>()
-    private var prefetchTasks = [Int64: PrefetchTaskEntry]()
+    private var prefetchTasks = [DisplayedMessageID: PrefetchTaskEntry]()
     private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
@@ -76,7 +81,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPresentDraftError = false
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
-    private var pendingScrollMessageID: Int64?
+    private var pendingScrollMessageID: DisplayedMessageID?
     private var pendingQuoteHighlight: MessageQuoteHighlight?
     private var pendingQuoteTargetMessageID: Int64?
     private var pendingQuoteDestination: PendingQuoteDestination?
@@ -97,7 +102,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var videoNoteReplyInput: InputMessageReplyTo?
     private var videoNoteChatActionActive = false
     private var restoredVideoRecordingDraftIDHandled: UUID?
-    private var selectedDisplayedMessageIDs = Set<Int64>()
+    private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
     private var isSelectingMessages = false
     private var selectionCapabilityTask: Task<Void, Never>?
     private var selectionCapabilityGeneration: UUID?
@@ -145,7 +150,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private var selectedDisplayedMessages: [CustomMessage] {
-        chatVM.messages.filter { selectedDisplayedMessageIDs.contains($0.id) }
+        chatVM.messages.filter { selectedDisplayedMessageIDs.contains($0.displayedID) }
     }
 
     private var selectedSourceMessageIDs: [Int64] {
@@ -310,8 +315,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return }
-        if let cell = cell as? MessageCell, let message = message(for: messageID) {
+        guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
+              let message = message(for: displayedMessageID)
+        else { return }
+        if let cell = cell as? MessageCell {
             for owner in inlineVideoPlaybackOwners(for: message).values {
                 if cell.restoreInlineVideoPlaybackOwner(owner) {
                     pendingInlineVideoOwnerReturns.remove(owner.messageID)
@@ -323,13 +330,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             allowsInlineVideoPlayback: false,
         )
         if let cell = cell as? MessageCell {
-            applyPendingQuoteHighlight(to: cell, displayedMessageID: messageID)
+            applyPendingQuoteHighlight(to: cell, displayedMessageID: displayedMessageID)
         }
         updateInlineVideoPlaybackVisibility()
         if presentationMode == .full {
-            chatVM.viewMessage(id: messageID)
+            chatVM.viewMessages(ids: message.sourceMessages.map(\.id))
         }
-        if indexPath.item >= max(chatVM.messages.count - 5, 0) {
+        if Set(chatVM.messages.suffix(5).map(\.displayedID)).contains(displayedMessageID) {
             chatVM.loadMessages()
         }
     }
@@ -348,22 +355,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
-            guard let messageID = dataSource.itemIdentifier(for: indexPath),
-                  let message = message(for: messageID),
-                  prefetchTasks[messageID] == nil
+            guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: displayedMessageID),
+                  prefetchTasks[displayedMessageID] == nil
             else { continue }
             let messages = message.album.isEmpty ? [message.message] : message.album
             let client = chatVM.client
             let generation = UUID()
             let entry = PrefetchTaskEntry(generation: generation)
-            prefetchTasks[messageID] = entry
+            prefetchTasks[displayedMessageID] = entry
             entry.task = Task { [weak self] in
                 for item in messages where !Task.isCancelled {
                     await TDMediaPrefetcher.prefetch(message: item, client: client)
                 }
                 await MainActor.run {
-                    guard self?.prefetchTasks[messageID]?.generation == generation else { return }
-                    self?.prefetchTasks[messageID] = nil
+                    guard self?.prefetchTasks[displayedMessageID]?.generation == generation else { return }
+                    self?.prefetchTasks[displayedMessageID] = nil
                 }
             }
         }
@@ -371,7 +378,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
-            guard let id = dataSource.itemIdentifier(for: indexPath) else { continue }
+            guard case .message(let id) = dataSource.itemIdentifier(for: indexPath) else { continue }
             prefetchTasks[id]?.task?.cancel()
             prefetchTasks[id] = nil
         }
@@ -477,6 +484,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
+        collectionView.register(
+            ForumTopicRunHeaderCell.self,
+            forCellWithReuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
+        )
         if presentationMode == .full {
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped(_:)))
             tapGesture.cancelsTouchesInView = false
@@ -846,68 +857,85 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func configureDataSource() {
-        dataSource = UICollectionViewDiffableDataSource<Section, Int64>(
+        dataSource = UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>(
             collectionView: collectionView,
-        ) { [weak self] collectionView, indexPath, messageID in
-            guard let self,
-                  let cell = collectionView.dequeueReusableCell(
-                      withReuseIdentifier: MessageCell.reuseIdentifier,
-                      for: indexPath,
-                  ) as? MessageCell,
-                  let message = message(for: messageID)
-            else { return UICollectionViewCell() }
-            let messageSelectable = canSelectMessage(message)
-            cell.configure(
-                message: message,
-                chat: chatVM.customChat,
-                highlighted: chatVM.highlightedMessageId == messageID,
-                client: chatVM.client,
-                pollInteractionStore: chatVM.pollInteractionStore,
-                videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
-                canAddReactions: chatVM.canAddReactions,
-                selectionActive: isSelectingMessages && messageSelectable,
-                selected: selectedDisplayedMessageIDs.contains(messageID),
-                onSwipeToReply: presentationMode == .full
-                    && !isSelectingMessages
-                    && !chatVM.isReadOnlyTopic
-                    && message.properties.canBeReplied
-                    ? { [weak self] in self?.chatVM.beginReply(to: message) }
-                    : nil,
-                onSelectionToggle: isSelectingMessages && messageSelectable
-                    ? { [weak self] in self?.toggleMessageSelection(displayedMessageID: messageID) }
-                    : nil,
-                onReactionTap: { [weak self] type in
-                    guard let self,
-                          presentationMode == .full,
-                          !isSelectingMessages,
-                          !chatVM.isReadOnlyTopic
-                    else { return }
-                    chatVM.toggleReaction(on: message, type: type, isBig: false)
-                },
-                onMetadataNavigate: { [weak self] target in
-                    guard self?.presentationMode == .full,
-                          self?.isSelectingMessages == false
-                    else { return }
-                    self?.navigate(to: target)
-                },
-                onReplyQuoteExpand: { [weak self] in
-                    self?.expandReplyQuote(for: message)
-                },
-                onContentAction: { [weak self] action in
-                    guard self?.presentationMode == .full,
-                          self?.isSelectingMessages == false
-                    else { return }
-                    self?.performContentAction(action)
-                },
-                onMediaTap: { [weak self] messages, selection in
-                    guard self?.presentationMode == .full,
-                          self?.isSelectingMessages == false
-                    else { return }
-                    self?.showMedia(messages, selection: selection)
-                },
-            )
-            pendingInlineVideoOwnerReturns.remove(messageID)
-            return cell
+        ) { [weak self] collectionView, indexPath, itemID in
+            guard let self else { return UICollectionViewCell() }
+            switch itemID {
+            case .topicHeader(let headerID):
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
+                    for: indexPath,
+                ) as? ForumTopicRunHeaderCell else { return UICollectionViewCell() }
+                cell.configure(
+                    id: headerID,
+                    info: chatVM.forumTopic(id: headerID.topicID)?.info,
+                    client: chatVM.client,
+                    onOpen: { [weak self] in self?.openForumTopic(id: headerID.topicID) },
+                )
+                return cell
+            case .message(let displayedMessageID):
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: MessageCell.reuseIdentifier,
+                    for: indexPath,
+                ) as? MessageCell,
+                    let message = message(for: displayedMessageID)
+                else { return UICollectionViewCell() }
+                let messageSelectable = canSelectMessage(message)
+                cell.configure(
+                    message: message,
+                    chat: chatVM.customChat,
+                    highlighted: message.sourceMessages.contains(where: {
+                        $0.id == self.chatVM.highlightedMessageId
+                    }),
+                    client: chatVM.client,
+                    pollInteractionStore: chatVM.pollInteractionStore,
+                    videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
+                    canAddReactions: chatVM.canAddReactions,
+                    selectionActive: isSelectingMessages && messageSelectable,
+                    selected: selectedDisplayedMessageIDs.contains(displayedMessageID),
+                    onSwipeToReply: presentationMode == .full
+                        && !isSelectingMessages
+                        && !chatVM.isReadOnlyTopic
+                        && message.properties.canBeReplied
+                        ? { [weak self] in self?.chatVM.beginReply(to: message) }
+                        : nil,
+                    onSelectionToggle: isSelectingMessages && messageSelectable
+                        ? { [weak self] in self?.toggleMessageSelection(displayedMessageID: displayedMessageID) }
+                        : nil,
+                    onReactionTap: { [weak self] type in
+                        guard let self,
+                              presentationMode == .full,
+                              !isSelectingMessages,
+                              !chatVM.isReadOnlyTopic
+                        else { return }
+                        chatVM.toggleReaction(on: message, type: type, isBig: false)
+                    },
+                    onMetadataNavigate: { [weak self] target in
+                        guard self?.presentationMode == .full,
+                              self?.isSelectingMessages == false
+                        else { return }
+                        self?.navigate(to: target)
+                    },
+                    onReplyQuoteExpand: { [weak self] in
+                        self?.expandReplyQuote(for: message)
+                    },
+                    onContentAction: { [weak self] action in
+                        guard self?.presentationMode == .full,
+                              self?.isSelectingMessages == false
+                        else { return }
+                        self?.performContentAction(action)
+                    },
+                    onMediaTap: { [weak self] messages, selection in
+                        guard self?.presentationMode == .full,
+                              self?.isSelectingMessages == false
+                        else { return }
+                        self?.showMedia(messages, selection: selection)
+                    },
+                )
+                message.sourceMessages.forEach { self.pendingInlineVideoOwnerReturns.remove($0.id) }
+                return cell
+            }
         }
     }
 
@@ -1094,7 +1122,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard isViewLoaded else { return }
         subscribeToMessages()
         if isSelectingMessages {
-            let displayedIDs = Set(chatVM.messages.map(\.id))
+            let displayedIDs = Set(chatVM.messages.map(\.displayedID))
             selectedDisplayedMessageIDs.formIntersection(displayedIDs)
             if selectedDisplayedMessageIDs.isEmpty {
                 endMessageSelection(reconfigure: false)
@@ -1103,11 +1131,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         let shouldKeepLatestVisible = !didPerformInitialScroll || isNearLatest
-        var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+        let anchor = shouldKeepLatestVisible ? nil : captureSnapshotAnchor()
+        let itemIDs = ForumTopicTimelineProjection.items(
+            messages: chatVM.messages,
+            includesTopicHeaders: chatVM.isAllMessagesForum,
+        )
+        var snapshot = NSDiffableDataSourceSnapshot<Section, ChatTimelineItemID>()
         snapshot.appendSections([.messages])
-        snapshot.appendItems(chatVM.messages.map(\.id))
+        snapshot.appendItems(itemIDs)
+        let headerIDs = itemIDs.filter {
+            if case .topicHeader = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        snapshot.reconfigureItems(headerIDs)
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
-            guard let self, !snapshot.itemIdentifiers.isEmpty else { return }
+            guard let self else { return }
+            collectionView.layoutIfNeeded()
             if let pendingScrollMessageID {
                 let quote = pendingQuoteHighlight
                 let quoteTargetMessageID = pendingQuoteTargetMessageID
@@ -1121,16 +1163,62 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 )
             } else if shouldKeepLatestVisible {
                 scrollToLatestMessage(animated: false)
+            } else if let anchor {
+                restoreSnapshotAnchor(anchor)
             }
             didPerformInitialScroll = true
         }
         collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
     }
 
+    private func captureSnapshotAnchor() -> SnapshotAnchor? {
+        collectionView.layoutIfNeeded()
+        let viewportCenterY = collectionView.contentOffset.y + collectionView.bounds.height / 2
+        return collectionView.indexPathsForVisibleItems
+            .compactMap { indexPath -> (ChatTimelineItemID, UICollectionViewLayoutAttributes)? in
+                guard let itemID = dataSource.itemIdentifier(for: indexPath),
+                      case .message = itemID,
+                      let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)
+                else { return nil }
+                return (itemID, attributes)
+            }
+            .min { lhs, rhs in
+                abs(lhs.1.frame.midY - viewportCenterY) < abs(rhs.1.frame.midY - viewportCenterY)
+            }
+            .map { itemID, attributes in
+                SnapshotAnchor(
+                    itemID: itemID,
+                    minYRelativeToViewport: attributes.frame.minY - collectionView.contentOffset.y,
+                )
+            }
+    }
+
+    private func restoreSnapshotAnchor(_ anchor: SnapshotAnchor) {
+        guard let indexPath = dataSource.indexPath(for: anchor.itemID),
+              let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)
+        else { return }
+        let insets = collectionView.adjustedContentInset
+        let minimumOffset = -insets.top
+        let maximumOffset = max(
+            minimumOffset,
+            collectionView.contentSize.height - collectionView.bounds.height + insets.bottom,
+        )
+        let desiredOffset = attributes.frame.minY - anchor.minYRelativeToViewport
+        collectionView.setContentOffset(
+            CGPoint(
+                x: collectionView.contentOffset.x,
+                y: min(max(desiredOffset, minimumOffset), maximumOffset),
+            ),
+            animated: false,
+        )
+    }
+
     private func reconfigureMessage(id: Int64) {
+        guard let displayedID = chatVM.displayedMessageID(containing: id) else { return }
+        let itemID = ChatTimelineItemID.message(displayedID)
         var snapshot = dataSource.snapshot()
-        guard snapshot.indexOfItem(id) != nil else { return }
-        snapshot.reconfigureItems([id])
+        guard snapshot.indexOfItem(itemID) != nil else { return }
+        snapshot.reconfigureItems([itemID])
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
@@ -1139,7 +1227,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         lastHighlightedMessageID = chatVM.highlightedMessageId
         guard !changed.isEmpty else { return }
         var snapshot = dataSource.snapshot()
-        let presentIdentifiers = changed.filter { snapshot.indexOfItem($0) != nil }
+        let presentIdentifiers = changed.compactMap { id -> ChatTimelineItemID? in
+            guard let displayedID = chatVM.displayedMessageID(containing: id) else { return nil }
+            let itemID = ChatTimelineItemID.message(displayedID)
+            return snapshot.indexOfItem(itemID) == nil ? nil : itemID
+        }
         guard !presentIdentifiers.isEmpty else { return }
         snapshot.reconfigureItems(presentIdentifiers)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -1207,8 +1299,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         composerBottomConstraint?.constant = keyboardAttached ? -8 : 0
     }
 
-    private func message(for id: Int64) -> CustomMessage? {
-        chatVM.messages.first(where: { $0.id == id })
+    private func message(for id: DisplayedMessageID) -> CustomMessage? {
+        chatVM.messages.first(where: { $0.displayedID == id })
     }
 
     private func scrollToMessage(id: Int64, quote: MessageQuoteHighlight? = nil) {
@@ -1236,11 +1328,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToLoadedMessage(
-        id: Int64,
+        id: DisplayedMessageID,
         quote: MessageQuoteHighlight? = nil,
         quoteTargetMessageID: Int64? = nil,
     ) {
-        guard let index = dataSource.snapshot().indexOfItem(id) else {
+        let itemID = ChatTimelineItemID.message(id)
+        guard let indexPath = dataSource.indexPath(for: itemID) else {
             pendingScrollMessageID = id
             pendingQuoteHighlight = quote
             pendingQuoteTargetMessageID = quoteTargetMessageID
@@ -1248,7 +1341,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return
         }
         collectionView.layoutIfNeeded()
-        let indexPath = IndexPath(item: index, section: 0)
         if let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath) {
             let insets = collectionView.adjustedContentInset
             let visibleCenterOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
@@ -1270,7 +1362,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
 
         messageHighlightTask?.cancel()
-        chatVM.highlightedMessageId = id
+        chatVM.highlightedMessageId = quoteTargetMessageID ?? message(for: id)?.message.id
         updateHighlightState()
         messageHighlightTask = Task { [weak self, weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .seconds(1))
@@ -1291,12 +1383,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    private func applyPendingQuoteHighlight(to cell: MessageCell, displayedMessageID: Int64) {
+    private func applyPendingQuoteHighlight(to cell: MessageCell, displayedMessageID: DisplayedMessageID) {
         guard let destination = pendingQuoteDestination,
               destination.displayedMessageID == displayedMessageID
         else { return }
         pendingQuoteDestination = nil
-        guard destination.targetMessageID == displayedMessageID else { return }
+        guard message(for: displayedMessageID)?.sourceMessages.contains(where: {
+            $0.id == destination.targetMessageID
+        }) == true else { return }
         cell.highlightQuote(destination.quote)
     }
 
@@ -1362,6 +1456,37 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 NavigationStorage.shared.push(.customChat(customChat))
                 metadataNavigationTask = nil
             }
+        }
+    }
+
+    private func openForumTopic(id: Int) {
+        guard presentationMode == .full,
+              navigationController?.topViewController === self
+        else { return }
+        metadataNavigationTask?.cancel()
+        let client = chatVM.client
+        let currentLocation = location
+        metadataNavigationTask = Task { [weak self] in
+            guard let self else { return }
+            let topic = try? await client.getForumTopic(
+                chatId: currentLocation.chatID,
+                forumTopicId: id,
+            )
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == currentLocation.accountID,
+                  TDLib.shared.activeClient.id == currentLocation.clientID,
+                  navigationController?.topViewController === self,
+                  let topic
+            else {
+                metadataNavigationTask = nil
+                return
+            }
+            NavigationStorage.shared.push(.customChat(
+                chatVM.customChat,
+                location: currentLocation.withForumTopic(id: id),
+                forumTopic: topic,
+            ))
+            metadataNavigationTask = nil
         }
     }
 
@@ -1450,16 +1575,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func expandReplyQuote(for message: CustomMessage) {
+        let itemID = ChatTimelineItemID.message(message.displayedID)
         guard !message.isReplyQuoteExpanded,
-              let index = dataSource.snapshot().indexOfItem(message.id)
+              let indexPath = dataSource.indexPath(for: itemID)
         else { return }
         collectionView.layoutIfNeeded()
-        let indexPath = IndexPath(item: index, section: 0)
         let oldFrame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame
         let oldOffset = collectionView.contentOffset
         message.isReplyQuoteExpanded = true
         var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems([message.id])
+        snapshot.reconfigureItems([itemID])
         UIView.performWithoutAnimation {
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 guard let self else { return }
@@ -1508,8 +1633,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
         guard let displayedMessageID = chatVM.displayedMessageID(containing: messageID),
-              let index = dataSource.snapshot().indexOfItem(displayedMessageID),
-              let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell
+              let indexPath = dataSource.indexPath(for: .message(displayedMessageID)),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return nil }
         return cell.galleryTransitionTarget(for: messageID)
     }
@@ -1559,8 +1684,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func restoreReturnedInlineVideoOwnerIfVisible(_ owner: GalleryVideoPlaybackOwner) {
         guard let displayedMessageID = chatVM.displayedMessageID(containing: owner.messageID),
-              let index = dataSource.snapshot().indexOfItem(displayedMessageID),
-              let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell,
+              let indexPath = dataSource.indexPath(for: .message(displayedMessageID)),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
               cell.restoreInlineVideoPlaybackOwner(owner)
         else { return }
         pendingInlineVideoOwnerReturns.remove(owner.messageID)
@@ -1575,8 +1700,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func restoreVisibleInlineVideoPlayback() {
         guard presentedViewController == nil else { return }
         for indexPath in collectionView.indexPathsForVisibleItems {
-            guard let messageID = dataSource.itemIdentifier(for: indexPath),
-                  let message = message(for: messageID),
+            guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: displayedMessageID),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
             else { continue }
             for owner in inlineVideoPlaybackOwners(for: message).values
@@ -1854,8 +1979,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         cancelHistoryPanGesture()
         let point = gesture.location(in: collectionView)
         guard let indexPath = collectionView.indexPathForItem(at: point),
-              let messageID = dataSource.itemIdentifier(for: indexPath),
-              let message = message(for: messageID),
+              case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
+              let message = message(for: displayedMessageID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
         let baseTransform = pressedMessageSourceView === cell.contextPreviewView
@@ -1975,7 +2100,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 image: UIImage(systemName: "arrowshape.turn.up.right"),
                 startsNewSection: true,
             ) { [weak self] in
-                self?.presentForwardPicker(forDisplayedMessageIDs: [message.id])
+                self?.presentForwardPicker(forDisplayedMessageIDs: [message.displayedID])
             })
         }
         if canSelectMessage(message) {
@@ -1983,7 +2108,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 title: "Select",
                 image: UIImage(systemName: "checkmark.circle"),
             ) { [weak self] in
-                self?.beginMessageSelection(with: message.id)
+                self?.beginMessageSelection(with: message.displayedID)
             })
         }
 
@@ -2014,7 +2139,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return elements
     }
 
-    private func beginMessageSelection(with displayedMessageID: Int64) {
+    private func beginMessageSelection(with displayedMessageID: DisplayedMessageID) {
         guard presentationMode == .full,
               let message = message(for: displayedMessageID),
               canSelectMessage(message)
@@ -2048,7 +2173,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
-    private func toggleMessageSelection(displayedMessageID: Int64) {
+    private func toggleMessageSelection(displayedMessageID: DisplayedMessageID) {
         guard isSelectingMessages,
               let selectedMessage = message(for: displayedMessageID),
               canSelectMessage(selectedMessage)
@@ -2073,7 +2198,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 present(alert, animated: true)
                 return
             }
-            selectedDisplayedMessageIDs.insert(selectedMessage.id)
+            selectedDisplayedMessageIDs.insert(selectedMessage.displayedID)
         }
         if selectedDisplayedMessageIDs.isEmpty {
             endMessageSelection()
@@ -2122,7 +2247,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateMessageSelectionChrome(
-        reconfigureIDs: [Int64]? = nil,
+        reconfigureIDs: [DisplayedMessageID]? = nil,
         isBusy: Bool = false,
     ) {
         guard isSelectingMessages else { return }
@@ -2145,17 +2270,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let reconfigureIDs {
             reconfigureMessages(ids: reconfigureIDs)
         } else {
-            reconfigureMessages(ids: dataSource.snapshot().itemIdentifiers)
+            reconfigureMessages(ids: dataSource.snapshot().itemIdentifiers.compactMap(\.displayedMessageID))
         }
         view.setNeedsLayout()
     }
 
-    private func sourceMessageIDs(forDisplayedMessageIDs displayedIDs: Set<Int64>) -> [Int64] {
+    private func sourceMessageIDs(forDisplayedMessageIDs displayedIDs: Set<DisplayedMessageID>) -> [Int64] {
         let sourceIDs = chatVM.messages
-            .filter { displayedIDs.contains($0.id) }
-            .flatMap { message in
-                message.album.isEmpty ? [message.id] : message.album.map(\.id)
-            }
+            .filter { displayedIDs.contains($0.displayedID) }
+            .flatMap { $0.sourceMessages.map(\.id) }
         return Array(Set(sourceIDs)).sorted()
     }
 
@@ -2302,7 +2425,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 guard !Task.isCancelled,
                       TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id,
-                      self.message(for: messageID) === message
+                      chatVM.displayedMessageID(containing: messageID)
+                          .flatMap({ self.message(for: $0) }) === message
                 else {
                     reactionPickerTask = nil
                     return
@@ -2373,10 +2497,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
-    private func reconfigureMessages(ids: [Int64]) {
+    private func reconfigureMessages(ids: [DisplayedMessageID]) {
         guard !ids.isEmpty else { return }
         var snapshot = dataSource.snapshot()
-        let existing = ids.filter { snapshot.indexOfItem($0) != nil }
+        let existing = ids
+            .map(ChatTimelineItemID.message)
+            .filter { snapshot.indexOfItem($0) != nil }
         guard !existing.isEmpty else { return }
         snapshot.reconfigureItems(existing)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -2386,7 +2512,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         presentForwardPicker(forDisplayedMessageIDs: selectedDisplayedMessageIDs)
     }
 
-    private func presentForwardPicker(forDisplayedMessageIDs displayedIDs: Set<Int64>) {
+    private func presentForwardPicker(forDisplayedMessageIDs displayedIDs: Set<DisplayedMessageID>) {
         guard presentationMode == .full,
               presentedViewController == nil,
               let accountID = TDLib.shared.activeAccountID,

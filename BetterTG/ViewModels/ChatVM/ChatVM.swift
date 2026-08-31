@@ -20,7 +20,7 @@ import UIKit
 
     struct PreparedMessageWindow {
         let messages: [CustomMessage]
-        let displayedMessageID: Int64
+        let displayedMessageID: DisplayedMessageID
     }
 
     // MARK: Private
@@ -93,6 +93,7 @@ import UIKit
     @Published var pinErrorMessage: String?
     @Published private(set) var forumTopic: ForumTopic?
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
+    @Published private(set) var forumTopicsByID = [Int: ForumTopic]()
     @Published var errorShown = false
     var loadingMessagesTask: Task<Void, Never>?
     var cancellables = Set<AnyCancellable>()
@@ -103,7 +104,10 @@ import UIKit
     var recordingVoiceNoteURL: URL?
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
-        didSet { messagesDidChange.send() }
+        didSet {
+            messagesDidChange.send()
+            refreshAllMessagesForumTopicsIfNeeded()
+        }
     }
 
     var metadataRefreshGenerations = [Int64: UUID]()
@@ -142,6 +146,7 @@ import UIKit
     private var pinAuthoritativeRevisions = [Int64: UInt64]()
     private var pinnedMessageAuthoritativeRevision = UInt64.zero
     private var forumTopicTask: Task<Void, Never>?
+    private var forumTopicTasks = [Int: Task<Void, Never>]()
     private var composerRevision = UInt64.zero
     private var composerIsDirty = false
     private var awaitingAuthoritativeDraftClear = false
@@ -156,6 +161,7 @@ import UIKit
     private var bufferedDeletedMessageIDs = Set<Int64>()
     private var voiceRetryAvailabilityTask: Task<Void, Never>?
     private var hasMoreMessages = true
+    private var oldestHistoryMessageID: Int64?
 
     var visiblePinnedMessage: Message? {
         PinnedMessageState.visibleMessage(
@@ -175,6 +181,12 @@ import UIKit
 
     var isReadOnlyTopic: Bool {
         location.isTopicScoped && !canWriteAnyMessage
+    }
+
+    var isAllMessagesForum: Bool {
+        location.topic == nil
+            && customChat.supergroup?.isForum == true
+            && !customChat.chat.viewAsTopics
     }
 
     var canWriteBasicMessages: Bool {
@@ -553,6 +565,7 @@ import UIKit
         reactionMutationTasks.values.forEach { $0.cancel() }
         pinnedMessageTask?.cancel()
         forumTopicTask?.cancel()
+        forumTopicTasks.values.forEach { $0.cancel() }
         draftClearTask?.cancel()
         pinMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
@@ -677,7 +690,7 @@ import UIKit
 
     func loadMessages() {
         guard loadingMessagesTask == nil, hasMoreMessages else { return }
-        let fromMessageID = messages.last?.message.id ?? 0
+        let fromMessageID = oldestHistoryMessageID ?? messages.last?.oldestSourceMessageID ?? 0
         loadingMessagesTask = Task { [weak self] in
             await self?._loadMessages(fromMessageID: fromMessageID)
         }
@@ -707,40 +720,27 @@ import UIKit
         let customMessages = await chatHistory.asyncMap { chatMessage in
             await getCustomMessage(from: chatMessage)
         }
-        
-        var savedMessages = [CustomMessage]()
-        for customMessage in customMessages {
-            if customMessage.message.mediaAlbumId != 0 {
-                if let index = savedMessages.firstIndex(where: {
-                    $0.message.mediaAlbumId == customMessage.message.mediaAlbumId
-                }) {
-                    savedMessages[index].album.append(customMessage.message)
-                } else {
-                    customMessage.album = [customMessage.message]
-                    savedMessages.append(customMessage)
-                }
-            } else {
-                savedMessages.append(customMessage)
-            }
-        }
-        
-        await main { [savedMessages] in
+        let nextCursor = chatHistory.last?.id
+        await main { [customMessages] in
             guard self.locationContextIsCurrent else {
                 self.loadingMessagesTask = nil
                 return
             }
-            let existingIDs = Set(self.messages.map(\.id))
-            let newMessages = savedMessages.filter { !existingIDs.contains($0.id) }
-            self.messages.append(contentsOf: newMessages)
-            self.hasMoreMessages = !chatHistory.isEmpty && !newMessages.isEmpty
+            self.messages = self.canonicalMessages(
+                merging: self.messages,
+                with: customMessages,
+            )
+            let cursorAdvanced = nextCursor != nil && (fromMessageID == 0 || nextCursor != fromMessageID)
+            self.oldestHistoryMessageID = nextCursor
+            self.hasMoreMessages = cursorAdvanced
             self.loadingMessagesTask = nil
         }
     }
 
-    func displayedMessageID(containing messageID: Int64) -> Int64? {
+    func displayedMessageID(containing messageID: Int64) -> DisplayedMessageID? {
         messages.first(where: { message in
             message.id == messageID || message.album.contains(where: { $0.id == messageID })
-        })?.id
+        })?.displayedID
     }
 
     func prepareMessageWindow(around id: Int64) async -> PreparedMessageWindow? {
@@ -762,42 +762,45 @@ import UIKit
 
         let loaded = await history.asyncMap { await getCustomMessage(from: $0) }
         guard !Task.isCancelled, locationContextIsCurrent else { return nil }
-        var grouped = [CustomMessage]()
-        for message in loaded {
-            let albumID = message.message.mediaAlbumId
-            if albumID != 0, let existing = grouped.first(where: { $0.message.mediaAlbumId == albumID }) {
-                if !existing.album.contains(where: { $0.id == message.id }) {
-                    existing.album.append(message.message)
-                }
-            } else {
-                grouped.append(message)
-            }
-        }
-
-        var merged = messages
-        for message in grouped {
-            let albumID = message.message.mediaAlbumId
-            if albumID != 0, let existing = merged.first(where: { $0.message.mediaAlbumId == albumID }) {
-                let knownIDs = Set(existing.album.map(\.id))
-                existing.album.append(contentsOf: message.album.filter { !knownIDs.contains($0.id) })
-                existing.album.sort { lhs, rhs in
-                    lhs.date == rhs.date ? lhs.id > rhs.id : lhs.date > rhs.date
-                }
-            } else if !merged.contains(where: { $0.id == message.id }) {
-                merged.append(message)
-            }
-        }
-        let preparedMessages = merged.sorted { lhs, rhs in
-            lhs.message.date == rhs.message.date ? lhs.id > rhs.id : lhs.message.date > rhs.message.date
-        }
+        let preparedMessages = canonicalMessages(merging: messages, with: loaded)
         guard let displayedMessageID = preparedMessages.first(where: { message in
             message.id == id || message.album.contains(where: { $0.id == id })
-        })?.id else { return nil }
+        })?.displayedID else { return nil }
         return PreparedMessageWindow(messages: preparedMessages, displayedMessageID: displayedMessageID)
     }
 
     func applyMessageWindow(_ window: PreparedMessageWindow) {
         messages = window.messages
+        oldestHistoryMessageID = window.messages.last?.oldestSourceMessageID
+    }
+
+    func mergeIncomingMessages(_ incoming: [CustomMessage]) {
+        messages = canonicalMessages(merging: messages, with: incoming)
+    }
+
+    func replaceSourceMessage(oldID: Int64, with replacement: CustomMessage) {
+        guard let index = messages.firstIndex(where: {
+            $0.sourceMessages.contains(where: { $0.id == oldID })
+        }) else { return }
+        let current = messages[index]
+        guard case .album = current.displayedID else {
+            messages[index] = replacement
+            if replyMessage?.id == oldID {
+                replyMessage = replacement
+            }
+            return
+        }
+        let members = deduplicatedAlbumMessages(
+            current.sourceMessages.filter { $0.id != oldID } + [replacement.message],
+        )
+        let representative = members.first?.id == replacement.message.id
+            ? replacement
+            : current
+        representative.album = members
+        messages[index] = representative
+        if replyMessage?.id == oldID {
+            replyMessage = replacement
+        }
     }
 
     func deleteMessage(id: Int64, deleteForBoth: Bool) {
@@ -839,7 +842,8 @@ import UIKit
         }
     }
 
-    func viewMessage(id: Int64) {
+    func viewMessages(ids: [Int64]) {
+        guard !ids.isEmpty else { return }
         let client = client
         let accountID = accountID
         Task {
@@ -849,7 +853,7 @@ import UIKit
             try await client.viewMessages(
                 chatId: chatID,
                 forceRead: true,
-                messageIds: [id],
+                messageIds: ids,
                 source: nil,
             )
         }
@@ -1020,10 +1024,42 @@ import UIKit
     }
 
     func updateForumTopicInfo(_ info: ForumTopicInfo) {
-        guard info.chatId == location.chatID,
-              info.forumTopicId == location.forumTopicID
+        guard info.chatId == location.chatID else { return }
+        if info.forumTopicId == location.forumTopicID {
+            forumTopicInfo = info
+        }
+        if let topic = forumTopicsByID[info.forumTopicId] {
+            forumTopicsByID[info.forumTopicId] = topic.replacing(info: info)
+            messagesDidChange.send()
+        }
+    }
+
+    func forumTopic(id: Int) -> ForumTopic? {
+        forumTopicsByID[id]
+    }
+
+    func refreshForumTopic(id: Int) {
+        guard isAllMessagesForum,
+              forumTopicTasks[id] == nil,
+              locationContextIsCurrent
         else { return }
-        forumTopicInfo = info
+        let client = client
+        let accountID = accountID
+        forumTopicTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            defer { forumTopicTasks[id] = nil }
+            let topic = try? await client.getForumTopic(
+                chatId: location.chatID,
+                forumTopicId: id,
+            )
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            guard let topic else { return }
+            forumTopicsByID[id] = topic
+            messagesDidChange.send()
+        }
     }
 
     func loadForumTopic() {
@@ -2194,6 +2230,66 @@ import UIKit
     func bufferPotentialVoiceMessageDeletions(_ messageIDs: [Int64]) {
         guard finalizingVoiceNote || !registeringVoiceMessageIDs.isEmpty else { return }
         bufferedDeletedMessageIDs.formUnion(messageIDs)
+    }
+
+    private func canonicalMessages(
+        merging existing: [CustomMessage],
+        with incoming: [CustomMessage],
+    ) -> [CustomMessage] {
+        var result = existing
+        for candidate in incoming {
+            guard let index = result.firstIndex(where: { $0.displayedID == candidate.displayedID }) else {
+                if case .album = candidate.displayedID {
+                    candidate.album = deduplicatedAlbumMessages(candidate.sourceMessages)
+                }
+                result.append(candidate)
+                continue
+            }
+            guard case .album = candidate.displayedID else { continue }
+            let current = result[index]
+            let combined = deduplicatedAlbumMessages(current.sourceMessages + candidate.sourceMessages)
+            let candidateNewest = candidate.newestSourceMessage
+            let currentNewest = current.newestSourceMessage
+            let candidateIsNewer = candidateNewest.date == currentNewest.date
+                ? candidateNewest.id > currentNewest.id
+                : candidateNewest.date > currentNewest.date
+            let representative = candidateIsNewer
+                ? candidate
+                : current
+            representative.album = combined
+            result[index] = representative
+        }
+        return result.sorted { lhs, rhs in
+            let left = lhs.newestSourceMessage
+            let right = rhs.newestSourceMessage
+            return left.date == right.date ? left.id > right.id : left.date > right.date
+        }
+    }
+
+    private func deduplicatedAlbumMessages(_ messages: [Message]) -> [Message] {
+        var seen = Set<Int64>()
+        return messages
+            .filter { seen.insert($0.id).inserted }
+            .sorted { lhs, rhs in
+                lhs.date == rhs.date ? lhs.id > rhs.id : lhs.date > rhs.date
+            }
+    }
+
+    private func refreshAllMessagesForumTopicsIfNeeded() {
+        guard isAllMessagesForum else { return }
+        let topicIDs = Set(messages.compactMap { message -> Int? in
+            if case .messageTopicForum(let topic) = message.message.topicId {
+                topic.forumTopicId
+            } else {
+                nil
+            }
+        })
+        for id in topicIDs where forumTopicsByID[id] == nil {
+            refreshForumTopic(id: id)
+        }
+        if forumTopicsByID[1] == nil {
+            refreshForumTopic(id: 1)
+        }
     }
 
     private func permissionAllows(_ kind: ChatSendContentKind) -> Bool {

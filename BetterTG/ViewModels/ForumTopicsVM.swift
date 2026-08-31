@@ -265,7 +265,7 @@ import TDLibKitDynamic
     }
 }
 
-private extension ForumTopic {
+extension ForumTopic {
     func replacing(info: ForumTopicInfo) -> ForumTopic {
         ForumTopic(
             draftMessage: draftMessage,

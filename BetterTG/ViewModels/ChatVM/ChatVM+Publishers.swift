@@ -210,19 +210,10 @@ extension ChatVM {
     }
 
     func updateMessageSendSucceeded(_ update: UpdateMessageSendSucceeded) {
-        if update.message.mediaAlbumId != 0 {
-            for outerMessage in messages {
-                guard let index = outerMessage.album.firstIndex(where: { $0.id == update.oldMessageId })
-                else { continue }
-                outerMessage.album[index] = update.message
-                return
-            }
-        }
         Task {
             let replacement = await self.getCustomMessage(from: update.message)
             await main {
-                guard let index = self.messages.firstIndex(where: { $0.id == update.oldMessageId }) else { return }
-                self.messages[index] = replacement
+                self.replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
             }
         }
     }
@@ -232,8 +223,7 @@ extension ChatVM {
             let replacement = await self.getCustomMessage(from: update.message)
             await main {
                 replacement.sendFailed = true
-                guard let index = self.messages.firstIndex(where: { $0.id == update.oldMessageId }) else { return }
-                self.messages[index] = replacement
+                self.replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
             }
         }
     }
@@ -242,22 +232,35 @@ extension ChatVM {
         guard !update.fromCache, update.isPermanent else { return }
         bufferPotentialVoiceMessageDeletions(update.messageIds)
         handlePotentialVideoMessageDeletions(update.messageIds)
-        messages.removeAll { update.messageIds.contains($0.id) }
+        let deletedIDs = Set(update.messageIds)
+        var promotedRepresentativeIDs = [Int64]()
+        messages = messages.compactMap { message in
+            let remaining = message.sourceMessages.filter { !deletedIDs.contains($0.id) }
+            guard !remaining.isEmpty else { return nil }
+            guard case .album = message.displayedID else { return message }
+            message.album = remaining.sorted { lhs, rhs in
+                lhs.date == rhs.date ? lhs.id > rhs.id : lhs.date > rhs.date
+            }
+            if deletedIDs.contains(message.message.id), let representative = message.album.first {
+                message.message = representative
+                message.formattedText = nil
+                message.replyPresentation = nil
+                message.forwardPresentation = nil
+                message.reactions = representative.interactionInfo?.reactions
+                message.unreadReactions = representative.unreadReactions
+                message.isPinned = representative.isPinned
+                promotedRepresentativeIDs.append(representative.id)
+            }
+            return message
+        }
+        promotedRepresentativeIDs.forEach { refreshMessage(id: $0) }
     }
 
     func updateNewMessage(_ update: UpdateNewMessage) {
         Task {
             let customMessage = await self.getCustomMessage(from: update.message)
             await main {
-                if update.message.mediaAlbumId == 0 {
-                    self.messages.add(customMessage)
-                } else if let existing = self.messages.first(where: {
-                    $0.message.mediaAlbumId == update.message.mediaAlbumId
-                }) {
-                    existing.album.append(update.message)
-                } else {
-                    self.messages.add(customMessage)
-                }
+                self.mergeIncomingMessages([customMessage])
             }
         }
     }
@@ -269,13 +272,8 @@ extension ChatVM {
     private func refreshMessage(id: Int64) {
         Task {
             let replacement = await getCustomMessage(fromId: id)
-            if let replacement,
-               let index = messages.firstIndex(where: { $0.id == id })
-            {
-                messages[index] = replacement
-                if replyMessage?.id == id {
-                    replyMessage = replacement
-                }
+            if let replacement {
+                replaceSourceMessage(oldID: id, with: replacement)
             }
         }
     }
