@@ -183,6 +183,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let mediaView = MessageMediaView()
     private let structuredContentView = MessageStructuredContentView()
     private let textView = MessageTextContentView()
+    private let reactionView = MessageReactionStripView()
     private let timestampLabel = UILabel()
     private let mediaTimestampLabel = UILabel()
     private let leadingSpacer = UIView()
@@ -253,6 +254,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaView.prepareForReuse()
         structuredContentView.prepareForReuse()
         textView.prepareForReuse()
+        reactionView.prepareForReuse()
         forwardView.prepareForReuse()
         replyView.prepareForReuse()
         forwardView.isHidden = true
@@ -260,6 +262,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         textView.isHidden = true
         mediaView.isHidden = true
         structuredContentView.isHidden = true
+        reactionView.isHidden = true
         timestampLabel.isHidden = true
         mediaTimestampLabel.isHidden = true
         onSwipeToReply = nil
@@ -299,6 +302,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         structuredContentView.setPlaybackVisible(isVisible)
         textView.setCustomEmojiPlaybackVisible(isVisible)
+        reactionView.setPlaybackVisible(isVisible)
     }
 
     func highlightQuote(_ quote: MessageQuoteHighlight) {
@@ -342,10 +346,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         client: TDLibClient,
         pollInteractionStore: MessagePollInteractionStore,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
+        canAddReactions: Bool,
         selectionActive: Bool,
         selected: Bool,
         onSwipeToReply: (() -> Void)?,
         onSelectionToggle: (() -> Void)?,
+        onReactionTap: @escaping (ReactionType) -> Void,
         onMetadataNavigate: @escaping (MessageMetadataNavigationTarget) -> Void,
         onReplyQuoteExpand: @escaping () -> Void,
         onContentAction: @escaping (MessageContentAction) -> Void,
@@ -361,6 +367,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
         swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil && !selectionActive
         let presentation = message.contentPresentation
+        let visibleReactions = message.message.topicId == nil
+            && message.message.selfDestructType == nil
+            && message.message.ephemeralMessageId == 0
+            ? MessageReactionStateReducer.visible(message.reactions)
+            : []
         configureAlignment(
             outgoing: message.message.isOutgoing,
             showsAvatar: chat.shouldShowProfileImage,
@@ -400,7 +411,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
         bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
-        bubbleBottomConstraint.constant = usesEdgeToEdgeContent ? 0 : -5
+        bubbleBottomConstraint.constant = usesEdgeToEdgeContent
+            ? (visibleReactions.isEmpty ? 0 : -2)
+            : -5
         if let forward = message.forwardPresentation {
             forwardView.isHidden = false
             forwardView.configure(
@@ -463,6 +476,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             textView.isHidden = true
         }
 
+        let hasReactions = reactionView.configure(
+            reactions: visibleReactions.isEmpty ? nil : message.reactions,
+            unreadReactions: visibleReactions.isEmpty ? [] : message.unreadReactions,
+            client: client,
+            canAddReactions: canAddReactions,
+            mutationInFlight: message.reactionMutationInFlight,
+            horizontalAlignment: presentation.isService
+                ? .center
+                : (message.message.isOutgoing ? .right : .left),
+            onTap: onReactionTap,
+        )
+        reactionView.isHidden = !hasReactions
+
         timestampLabel.text = timestampText
         timestampLabel.textColor = timestampColor
         mediaTimestampLabel.text = timestampText
@@ -494,6 +520,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             message.forwardPresentation?.accessibilityDescription,
             message.replyPresentation?.accessibilityDescription,
             accessibilityContent,
+            hasReactions ? reactionAccessibilityDescription(visibleReactions) : nil,
             timestampLabel.text,
         ]
             .compactMap(\.self)
@@ -519,6 +546,17 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                     onMetadataNavigate(target)
                     return true
                 })
+        }
+        for reaction in visibleReactions
+            where !message.reactionMutationInFlight && (canAddReactions || reaction.isChosen)
+        {
+            let actionName = reaction.isChosen
+                ? "Remove \(reaction.type.accessibilityName) reaction"
+                : "Add \(reaction.type.accessibilityName) reaction"
+            metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: actionName) { _ in
+                onReactionTap(reaction.type)
+                return true
+            })
         }
         if selectionActive {
             metadataAccessibilityActions.append(UIAccessibilityCustomAction(
@@ -612,10 +650,20 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             mediaTimestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
         ])
 
-        for view in [forwardView, replyView, mediaView, structuredContentView, textView, timestampLabel] {
+        for view in [
+            forwardView,
+            replyView,
+            mediaView,
+            structuredContentView,
+            textView,
+            reactionView,
+            timestampLabel,
+        ] {
             bubbleStack.addArrangedSubview(view)
         }
         bubbleStack.setCustomSpacing(6, after: replyView)
+        bubbleStack.setCustomSpacing(4, after: mediaView)
+        bubbleStack.setCustomSpacing(4, after: textView)
     }
 
     private func configureSwipeToReply() {
@@ -836,6 +884,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let maximumBubbleWidth = floor(cellWidth * 0.82)
         let maximumContentWidth = max(1, maximumBubbleWidth - 16)
         textView.setMaximumLayoutWidth(maximumContentWidth)
+        reactionView.setMaximumLayoutWidth(maximumContentWidth)
 
         let fittingSize = CGSize(
             width: maximumContentWidth,
@@ -862,6 +911,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         measuredCellWidth = cellWidth
         bubbleContentNeedsMeasurement = false
+    }
+
+    private func reactionAccessibilityDescription(_ reactions: [MessageReaction]) -> String {
+        reactions
+            .map { "\($0.type.accessibilityName), \($0.totalCount)" }
+            .joined(separator: ", ")
     }
 
     private func maximumTextWidth(for cellWidth: CGFloat) -> CGFloat {
