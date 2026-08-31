@@ -2,8 +2,11 @@
 
 import AVKit
 import Combine
+import ImageIO
+import Photos
 import TDLibKitDynamic
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - GalleryPlaybackCommand
 
@@ -512,6 +515,220 @@ private enum MediaGalleryOpenInChatError: LocalizedError {
     }
 }
 
+// MARK: - MediaGallerySaveKind
+
+private enum MediaGallerySaveKind: Equatable {
+    case photo
+    case video
+}
+
+// MARK: - MediaGalleryExportAction
+
+private enum MediaGalleryExportAction: Equatable {
+    case saveToPhotos
+    case share
+}
+
+// MARK: - MediaGalleryActionButton
+
+private enum MediaGalleryActionButton: Equatable {
+    case more
+    case share
+}
+
+// MARK: - MediaGalleryExportAsset
+
+private struct MediaGalleryExportAsset {
+    let completedLocalPath: String?
+    let creationDate: Foundation.Date
+    let fileID: Int
+    let isLivePhoto: Bool
+    let isSecretMedia: Bool
+    let mimeType: String
+    let originalFilename: String
+    let photosKind: MediaGallerySaveKind?
+    let requiresWebPStillConversion: Bool
+    let saveActionTitle: String?
+    let saveSuccessText: String?
+    let shareFileExtension: String?
+
+    init?(_ message: Message) {
+        let file: File
+        switch message.content {
+        case .messageAnimation(let content):
+            file = content.animation.animation
+            self.isLivePhoto = false
+            self.isSecretMedia = content.isSecret
+            self.mimeType = content.animation.mimeType.lowercased()
+            let filename = URL(filePath: content.animation.fileName).lastPathComponent
+            let fallbackExtension = mimeType == "image/gif" ? "gif" : "mp4"
+            self.originalFilename = filename.isEmpty
+                ? "bettertg-animation-\(message.id).\(fallbackExtension)"
+                : filename
+            switch mimeType {
+            case "image/gif":
+                self.shareFileExtension = "gif"
+                self.photosKind = .photo
+                self.saveActionTitle = "Save GIF"
+                self.saveSuccessText = "GIF saved"
+            case "video/mp4":
+                self.shareFileExtension = "mp4"
+                self.photosKind = .video
+                self.saveActionTitle = "Save Animation"
+                self.saveSuccessText = "Animation saved"
+            default:
+                self.shareFileExtension = nil
+                self.photosKind = nil
+                self.saveActionTitle = nil
+                self.saveSuccessText = nil
+            }
+            self.requiresWebPStillConversion = false
+        case .messagePhoto(let content):
+            guard let size = content.photo.sizes.max(by: { lhs, rhs in
+                let lhsPixels = Int64(lhs.width) * Int64(lhs.height)
+                let rhsPixels = Int64(rhs.width) * Int64(rhs.height)
+                if lhsPixels == rhsPixels {
+                    return max(lhs.photo.size, lhs.photo.expectedSize) < max(rhs.photo.size, rhs.photo.expectedSize)
+                }
+                return lhsPixels < rhsPixels
+            }) else { return nil }
+            file = size.photo
+            self.isLivePhoto = content.video != nil
+            self.isSecretMedia = content.isSecret
+            self.mimeType = "image/jpeg"
+            self.originalFilename = "bettertg-photo-\(message.id).jpg"
+            self.photosKind = .photo
+            self.requiresWebPStillConversion = false
+            self.saveActionTitle = content.video == nil ? "Save Photo" : "Save Still Photo"
+            self.saveSuccessText = content.video == nil ? "Photo saved" : "Still photo saved"
+            self.shareFileExtension = nil
+        case .messageSticker(let content):
+            file = content.sticker.sticker
+            self.isLivePhoto = false
+            self.isSecretMedia = false
+            let fileExtension: String
+            switch content.sticker.format {
+            case .stickerFormatTgs:
+                fileExtension = "tgs"
+                self.shareFileExtension = "tgs"
+                self.mimeType = "application/x-tgsticker"
+                self.photosKind = nil
+                self.requiresWebPStillConversion = false
+                self.saveActionTitle = nil
+                self.saveSuccessText = nil
+            case .stickerFormatWebm:
+                fileExtension = "webm"
+                self.shareFileExtension = "webm"
+                self.mimeType = "video/webm"
+                self.photosKind = nil
+                self.requiresWebPStillConversion = false
+                self.saveActionTitle = nil
+                self.saveSuccessText = nil
+            case .stickerFormatWebp:
+                fileExtension = "webp"
+                self.shareFileExtension = "webp"
+                self.mimeType = "image/webp"
+                self.photosKind = .photo
+                self.requiresWebPStillConversion = true
+                self.saveActionTitle = "Save Sticker Frame"
+                self.saveSuccessText = "Sticker frame saved"
+            }
+            self.originalFilename = "bettertg-sticker-\(message.id).\(fileExtension)"
+        case .messageVideo(let content):
+            file = content.video.video
+            self.isLivePhoto = false
+            self.isSecretMedia = content.isSecret
+            self.mimeType = content.video.mimeType.lowercased()
+            let filename = URL(filePath: content.video.fileName).lastPathComponent
+            self.originalFilename = filename.isEmpty ? "bettertg-video-\(message.id).mp4" : filename
+            self.photosKind = .video
+            self.requiresWebPStillConversion = false
+            self.saveActionTitle = "Save Video"
+            self.saveSuccessText = "Video saved"
+            switch mimeType {
+            case "video/mp4": self.shareFileExtension = "mp4"
+            case "video/quicktime": self.shareFileExtension = "mov"
+            case "video/webm": self.shareFileExtension = "webm"
+            case "video/x-m4v": self.shareFileExtension = "m4v"
+            default: self.shareFileExtension = nil
+            }
+        default:
+            return nil
+        }
+        self.fileID = file.id
+        self.completedLocalPath = file.local.isDownloadingCompleted && !file.local.path.isEmpty
+            ? file.local.path
+            : nil
+        self.creationDate = Foundation.Date(timeIntervalSince1970: TimeInterval(message.date))
+    }
+}
+
+// MARK: - MediaGallerySaveError
+
+private enum MediaGallerySaveError: LocalizedError {
+    case contextChanged
+    case downloadFailed
+    case messageUnavailable
+    case photosAccessDenied
+    case protectedContent
+    case unsupportedVideo
+
+    var errorDescription: String? {
+        switch self {
+        case .contextChanged:
+            "The active Telegram account or selected item changed."
+        case .downloadFailed:
+            "The original media couldn't be downloaded."
+        case .messageUnavailable:
+            "This media is no longer available in the original chat."
+        case .photosAccessDenied:
+            "Allow BetterTG to add media to Photos in Settings."
+        case .protectedContent:
+            "Telegram doesn't allow this media to be exported."
+        case .unsupportedVideo:
+            "This video format can't be added to Photos."
+        }
+    }
+
+    var shouldOfferSettings: Bool {
+        if case .photosAccessDenied = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// MARK: - MediaGalleryTemporaryFileLease
+
+private final class MediaGalleryTemporaryFileLease: @unchecked Sendable {
+    let fileURL: URL
+
+    private let directoryURL: URL
+    private let lock = NSLock()
+    private var cleanedUp = false
+
+    init(directoryURL: URL, fileURL: URL) {
+        self.directoryURL = directoryURL
+        self.fileURL = fileURL
+    }
+
+    deinit {
+        cleanup()
+    }
+
+    func cleanup() {
+        lock.lock()
+        guard !cleanedUp else {
+            lock.unlock()
+            return
+        }
+        cleanedUp = true
+        lock.unlock()
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+}
+
 // MARK: - MediaGalleryViewController
 
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
@@ -609,10 +826,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private let moreButton = UIButton(type: .system)
     private let moreActivityIndicator = UIActivityIndicatorView(style: .medium)
     private let shareButton = UIButton(type: .system)
+    private let shareActivityIndicator = UIActivityIndicatorView(style: .medium)
     private let counterLabel = UILabel()
+    private var activeShareLease: MediaGalleryTemporaryFileLease?
+    private var actionStatusText: String?
+    private var exportTask: Task<Void, Never>?
+    private var exportGeneration: UUID?
     private var openInChatTask: Task<Void, Never>?
     private var openInChatDismissalGeneration: UUID?
     private var openInChatGeneration: UUID?
+    private var statusResetTask: Task<Void, Never>?
     private var voiceOverCancellable: AnyCancellable?
     private var contentSizeCancellable: AnyCancellable?
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -649,6 +872,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var canBeginInteractiveDismissal: Bool {
         guard hasCurrentContext,
               !didReleasePlaybackOwners,
+              openInChatTask == nil,
+              exportTask == nil,
               !isBeingDismissed,
               presentedViewController == nil,
               transitionCoordinator == nil,
@@ -715,6 +940,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     deinit {
         openInChatTask?.cancel()
+        exportTask?.cancel()
+        statusResetTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -767,6 +994,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            cancelExport()
             if openInChatDismissalGeneration == nil {
                 cancelOpenInChat()
             }
@@ -923,6 +1151,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if deletedIndex == selectedIndex
             || GalleryPictureInPictureCoordinator.shared.isRetaining(owner)
         {
+            cancelExport()
             cancelOpenInChat()
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
@@ -1025,6 +1254,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let previousIDs = messages.map(\.id)
         let updatedIDs = updatedMessages.map(\.id)
         if previousIDs == updatedIDs {
+            if exportTask != nil,
+               let selectedMessageID,
+               let previous = messages.first(where: { $0.id == selectedMessageID }),
+               let updated = updatedMessages.first(where: { $0.id == selectedMessageID }),
+               previous != updated
+            {
+                cancelExport()
+            }
             messages = updatedMessages
             if isViewLoaded {
                 updateCounter()
@@ -1033,6 +1270,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         let selectedMessageID = selectedMessageID
         if let selectedMessageID, !updatedIDs.contains(selectedMessageID) {
+            cancelExport()
             cancelOpenInChat()
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
@@ -1107,6 +1345,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func invalidateForContextChange(completion: @escaping () -> Void) {
+        cancelExport()
         cancelOpenInChat()
         contextWasInvalidated = true
         contextInvalidationCompletion = completion
@@ -1202,6 +1441,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         shareButton.accessibilityIdentifier = "gallery-share"
         shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
         toolbar.contentView.addSubview(shareButton)
+        shareActivityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        shareActivityIndicator.color = .white
+        shareActivityIndicator.hidesWhenStopped = true
+        shareActivityIndicator.isUserInteractionEnabled = false
+        toolbar.contentView.addSubview(shareActivityIndicator)
         moreButton.translatesAutoresizingMaskIntoConstraints = false
         moreButton.setImage(
             UIImage(systemName: "ellipsis", withConfiguration: symbolConfiguration),
@@ -1245,6 +1489,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
             shareButton.widthAnchor.constraint(equalToConstant: 52),
             shareButton.heightAnchor.constraint(equalToConstant: 50),
+            shareActivityIndicator.centerXAnchor.constraint(equalTo: shareButton.centerXAnchor),
+            shareActivityIndicator.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
             moreButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
             moreButton.trailingAnchor.constraint(equalTo: shareButton.leadingAnchor),
             moreButton.widthAnchor.constraint(equalToConstant: 52),
@@ -1293,7 +1539,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func updateCounter() {
         let count = max(messages.count, totalMessageCount ?? messages.count)
-        counterLabel.text = count > 1 ? "\(selectedIndex + 1) of \(count)" : ""
+        counterLabel.text = actionStatusText ?? (count > 1 ? "\(selectedIndex + 1) of \(count)" : "")
         updateMoreMenu()
         updateCaption()
     }
@@ -1451,7 +1697,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             prunePlaybackOwners(around: selectedIndex)
             return
         }
+        cancelExport()
         cancelOpenInChat()
+        clearActionStatus()
         if let previousCell = collectionView.cellForItem(
             at: IndexPath(item: selectedIndex, section: 0),
         ) as? MediaGalleryCell {
@@ -1556,6 +1804,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func close() {
+        cancelExport()
         cancelOpenInChat()
         dismiss(animated: true)
     }
@@ -1682,39 +1931,72 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func share() {
-        guard hasCurrentContext,
-              !didReleasePlaybackOwners,
+        guard presentedViewController == nil,
               messages.indices.contains(selectedIndex),
-              let url = localURL(for: messages[selectedIndex])
+              let asset = MediaGalleryExportAsset(messages[selectedIndex])
         else { return }
-        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        present(activity, animated: true)
+        guard asset.isLivePhoto else {
+            exportSelectedMedia(.share)
+            return
+        }
+        let alert = UIAlertController(
+            title: "Share Still Photo?",
+            message: "The motion part of this Live Photo won't be included.",
+            preferredStyle: .actionSheet,
+        )
+        alert.addAction(UIAlertAction(title: "Share Still Photo", style: .default) { [weak self, weak alert] _ in
+            alert?.dismiss(animated: true) { [weak self] in
+                self?.exportSelectedMedia(.share)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.popoverPresentationController?.sourceView = shareButton
+        alert.popoverPresentationController?.sourceRect = shareButton.bounds
+        present(alert, animated: true)
     }
 
     private func updateMoreMenu() {
-        let canOpen = onOpenMessageID != nil
-            && actionAccountID != nil
+        let hasActionContext = actionAccountID != nil
             && actionClient != nil
             && actionChatID != nil
             && actionClientID != nil
             && messages.indices.contains(selectedIndex)
-        moreButton.isHidden = !canOpen
-        guard canOpen else {
+        shareButton.isHidden = !hasActionContext
+        let selectedAsset = messages.indices.contains(selectedIndex)
+            ? MediaGalleryExportAsset(messages[selectedIndex])
+            : nil
+        shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Still Photo" : "Share"
+        let canOpen = hasActionContext && onOpenMessageID != nil
+        let saveAsset = hasActionContext ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
+        let canSave = saveAsset?.photosKind != nil
+        moreButton.isHidden = !canOpen && !canSave
+        guard canOpen || canSave else {
             moreButton.menu = nil
             return
         }
-        moreButton.menu = UIMenu(children: [
-            UIAction(
+        var actions = [UIAction]()
+        if canOpen {
+            actions.append(UIAction(
                 title: "Open in Chat",
                 image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
             ) { [weak self] _ in
                 self?.openSelectedMessageInChat()
-            },
-        ])
+            })
+        }
+        if let saveAsset, saveAsset.photosKind != nil, let title = saveAsset.saveActionTitle {
+            actions.append(UIAction(
+                title: title,
+                image: UIImage(systemName: "square.and.arrow.down"),
+            ) { [weak self] _ in
+                self?.exportSelectedMedia(.saveToPhotos)
+            })
+        }
+        moreButton.menu = UIMenu(children: actions)
     }
 
     private func openSelectedMessageInChat() {
         guard openInChatTask == nil,
+              exportTask == nil,
               presentedViewController == nil,
               hasCurrentContext,
               messages.indices.contains(selectedIndex),
@@ -1729,7 +2011,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         guard selectedIdentity.chatID == chatID else { return }
         let generation = UUID()
         openInChatGeneration = generation
-        setOpenInChatBusy(true)
+        setActionBusy(true, source: .more)
         UIAccessibility.post(notification: .announcement, argument: "Opening message")
         openInChatTask = Task { [weak self] in
             guard let self else { return }
@@ -1752,7 +2034,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                       !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
                 else { throw MediaGalleryOpenInChatError.messageUnavailable }
                 openInChatTask = nil
-                setOpenInChatBusy(false)
+                setActionBusy(false)
                 openInChatDismissalGeneration = generation
                 forcesFadeDismissal = true
                 dismiss(animated: true) { [weak self] in
@@ -1786,13 +2068,512 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    private func exportSelectedMedia(_ action: MediaGalleryExportAction) {
+        guard exportTask == nil,
+              openInChatTask == nil,
+              openInChatDismissalGeneration == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              messages.indices.contains(selectedIndex),
+              let accountID = actionAccountID,
+              let client = actionClient,
+              let chatID = actionChatID,
+              let clientID = actionClientID,
+              client.id == clientID,
+              let selectedAsset = MediaGalleryExportAsset(messages[selectedIndex]),
+              action == .share || selectedAsset.photosKind != nil
+        else { return }
+        let selectedIdentity = MediaGalleryMessageIdentity(messages[selectedIndex])
+        guard selectedIdentity.chatID == chatID else { return }
+        let generation = UUID()
+        exportGeneration = generation
+        setActionBusy(true, source: action == .share ? .share : .more)
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: action == .share ? "Preparing media to share" : "Preparing media to save",
+        )
+        exportTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                async let messageRequest = client.getMessage(
+                    chatId: selectedIdentity.chatID,
+                    messageId: selectedIdentity.messageID,
+                )
+                async let propertiesRequest = client.getMessageProperties(
+                    chatId: selectedIdentity.chatID,
+                    messageId: selectedIdentity.messageID,
+                )
+                let (resolved, properties) = try await (messageRequest, propertiesRequest)
+                try Task.checkCancellation()
+                let resolvedIdentity = MediaGalleryMessageIdentity(resolved)
+                try validateExportContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: resolvedIdentity,
+                )
+                try validateExportPermission(message: resolved, properties: properties)
+                guard let asset = MediaGalleryExportAsset(resolved) else {
+                    throw MediaGallerySaveError.messageUnavailable
+                }
+                guard action == .share || asset.photosKind != nil else {
+                    throw MediaGallerySaveError.messageUnavailable
+                }
+                let localURL = try await resolvedExportURL(for: asset, client: client)
+                try Task.checkCancellation()
+                try validateExportContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: resolvedIdentity,
+                )
+                if action == .saveToPhotos {
+                    var authorization = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+                    if authorization == .notDetermined {
+                        authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+                    }
+                    guard authorization == .authorized || authorization == .limited else {
+                        throw MediaGallerySaveError.photosAccessDenied
+                    }
+                }
+                try Task.checkCancellation()
+                let (latestMessage, latestProperties) = try await (
+                    client.getMessage(
+                        chatId: selectedIdentity.chatID,
+                        messageId: selectedIdentity.messageID,
+                    ),
+                    client.getMessageProperties(
+                        chatId: selectedIdentity.chatID,
+                        messageId: selectedIdentity.messageID,
+                    ),
+                )
+                try Task.checkCancellation()
+                let latestIdentity = MediaGalleryMessageIdentity(latestMessage)
+                try validateExportContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: latestIdentity,
+                )
+                try validateExportPermission(message: latestMessage, properties: latestProperties)
+                guard let latestAsset = MediaGalleryExportAsset(latestMessage),
+                      latestAsset.fileID == asset.fileID
+                else { throw MediaGallerySaveError.messageUnavailable }
+                var completedShareLease: MediaGalleryTemporaryFileLease?
+                if action == .saveToPhotos {
+                    let convertedLease = latestAsset.requiresWebPStillConversion
+                        ? try await preparedWebPStillLease(sourceURL: localURL)
+                        : nil
+                    let photosURL = convertedLease?.fileURL ?? localURL
+                    let filename = try await validatedPhotosFilename(for: latestAsset, localURL: photosURL)
+                    try Task.checkCancellation()
+                    let (commitMessage, commitProperties) = try await (
+                        client.getMessage(
+                            chatId: selectedIdentity.chatID,
+                            messageId: selectedIdentity.messageID,
+                        ),
+                        client.getMessageProperties(
+                            chatId: selectedIdentity.chatID,
+                            messageId: selectedIdentity.messageID,
+                        ),
+                    )
+                    try Task.checkCancellation()
+                    let commitIdentity = MediaGalleryMessageIdentity(commitMessage)
+                    try validateExportContext(
+                        accountID: accountID,
+                        clientID: clientID,
+                        generation: generation,
+                        selectedIdentity: selectedIdentity,
+                        resolvedIdentity: commitIdentity,
+                    )
+                    try validateExportPermission(message: commitMessage, properties: commitProperties)
+                    guard let commitAsset = MediaGalleryExportAsset(commitMessage),
+                          commitAsset.fileID == latestAsset.fileID
+                    else { throw MediaGallerySaveError.messageUnavailable }
+                    try await saveToPhotos(asset: commitAsset, localURL: photosURL, filename: filename)
+                    convertedLease?.cleanup()
+                } else {
+                    let shareLease = try await preparedShareLease(asset: latestAsset, sourceURL: localURL)
+                    try Task.checkCancellation()
+                    let (commitMessage, commitProperties) = try await (
+                        client.getMessage(
+                            chatId: selectedIdentity.chatID,
+                            messageId: selectedIdentity.messageID,
+                        ),
+                        client.getMessageProperties(
+                            chatId: selectedIdentity.chatID,
+                            messageId: selectedIdentity.messageID,
+                        ),
+                    )
+                    try Task.checkCancellation()
+                    let commitIdentity = MediaGalleryMessageIdentity(commitMessage)
+                    try validateExportContext(
+                        accountID: accountID,
+                        clientID: clientID,
+                        generation: generation,
+                        selectedIdentity: selectedIdentity,
+                        resolvedIdentity: commitIdentity,
+                    )
+                    try validateExportPermission(message: commitMessage, properties: commitProperties)
+                    guard let commitAsset = MediaGalleryExportAsset(commitMessage),
+                          commitAsset.fileID == latestAsset.fileID
+                    else { throw MediaGallerySaveError.messageUnavailable }
+                    completedShareLease = shareLease
+                }
+                try Task.checkCancellation()
+                guard exportGeneration == generation, hasCurrentContext else {
+                    throw MediaGallerySaveError.contextChanged
+                }
+                finishExport(generation: generation)
+                if let completedShareLease {
+                    presentShareSheet(completedShareLease)
+                } else if let saveSuccessText = latestAsset.saveSuccessText {
+                    showActionStatus(saveSuccessText)
+                }
+            } catch is CancellationError {
+                finishExport(generation: generation)
+            } catch {
+                guard exportGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishExport(generation: generation)
+                let displayedError = error is MediaGallerySaveError
+                    ? error
+                    : MediaGallerySaveError.downloadFailed
+                presentExportError(displayedError, action: action)
+            }
+        }
+    }
+
+    private func validateExportContext(
+        accountID: UUID,
+        clientID: Int32,
+        generation: UUID,
+        selectedIdentity: MediaGalleryMessageIdentity,
+        resolvedIdentity: MediaGalleryMessageIdentity,
+    ) throws {
+        guard exportGeneration == generation,
+              hasCurrentContext,
+              !isBeingDismissed,
+              selectedMessageID == selectedIdentity.messageID,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == clientID
+        else { throw MediaGallerySaveError.contextChanged }
+        guard resolvedIdentity.chatID == selectedIdentity.chatID,
+              resolvedIdentity.messageID == selectedIdentity.messageID,
+              !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
+        else { throw MediaGallerySaveError.messageUnavailable }
+    }
+
+    private func validateExportPermission(
+        message: Message,
+        properties: MessageProperties,
+    ) throws {
+        if case .messagePaidMedia = message.content {
+            throw MediaGallerySaveError.protectedContent
+        }
+        guard properties.canBeSaved,
+              !properties.hasProtectedContentByCurrentUser,
+              !properties.hasProtectedContentByOtherUser,
+              message.selfDestructType == nil,
+              message.selfDestructIn == 0,
+              let asset = MediaGalleryExportAsset(message),
+              !asset.isSecretMedia
+        else { throw MediaGallerySaveError.protectedContent }
+    }
+
+    private func resolvedExportURL(
+        for asset: MediaGalleryExportAsset,
+        client: TDLibClient,
+    ) async throws -> URL {
+        if let path = asset.completedLocalPath,
+           FileManager.default.fileExists(atPath: path)
+        {
+            return URL(filePath: path)
+        }
+        let downloaded = try await client.downloadFile(
+            fileId: asset.fileID,
+            limit: 0,
+            offset: 0,
+            priority: 16,
+            synchronous: true,
+        )
+        try Task.checkCancellation()
+        guard downloaded.id == asset.fileID,
+              downloaded.local.isDownloadingCompleted,
+              !downloaded.local.path.isEmpty,
+              FileManager.default.fileExists(atPath: downloaded.local.path)
+        else { throw MediaGallerySaveError.downloadFailed }
+        return URL(filePath: downloaded.local.path)
+    }
+
+    private func preparedShareLease(
+        asset: MediaGalleryExportAsset,
+        sourceURL: URL,
+    ) async throws -> MediaGalleryTemporaryFileLease {
+        let fileExtension = await validatedShareFileExtension(for: asset, sourceURL: sourceURL)
+        let filename = sanitizedExportFilename(
+            asset.originalFilename,
+            fallbackStem: "bettertg-media",
+            fileExtension: fileExtension,
+        )
+        let directoryURL = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("bettertg-share-\(UUID().uuidString)", isDirectory: true)
+        let destinationURL = directoryURL.appendingPathComponent(filename, isDirectory: false)
+        return try await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            do {
+                try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                do {
+                    try fileManager.linkItem(at: sourceURL, to: destinationURL)
+                } catch {
+                    try fileManager.copyItem(at: sourceURL, to: destinationURL)
+                }
+                return MediaGalleryTemporaryFileLease(
+                    directoryURL: directoryURL,
+                    fileURL: destinationURL,
+                )
+            } catch {
+                try? fileManager.removeItem(at: directoryURL)
+                throw MediaGallerySaveError.downloadFailed
+            }
+        }.value
+    }
+
+    private func validatedShareFileExtension(
+        for asset: MediaGalleryExportAsset,
+        sourceURL: URL,
+    ) async -> String {
+        if let shareFileExtension = asset.shareFileExtension {
+            return shareFileExtension
+        }
+        if let imageExtension = await Task.detached(priority: .userInitiated, operation: { () -> String? in
+            guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
+                  CGImageSourceGetCount(source) > 0,
+                  let typeIdentifier = CGImageSourceGetType(source),
+                  let type = UTType(typeIdentifier as String),
+                  type.conforms(to: .image),
+                  let preferredExtension = type.preferredFilenameExtension
+            else { return nil }
+            return preferredExtension == "jpeg" ? "jpg" : preferredExtension
+        })
+        .value {
+            return imageExtension
+        }
+        if let type = UTType(mimeType: asset.mimeType),
+           let preferredExtension = type.preferredFilenameExtension
+        {
+            return preferredExtension == "jpeg" ? "jpg" : preferredExtension
+        }
+        return "bin"
+    }
+
+    private func preparedWebPStillLease(
+        sourceURL: URL,
+    ) async throws -> MediaGalleryTemporaryFileLease {
+        guard let pngData = await AnimatedWebPRepository.firstFramePNGData(at: sourceURL.path) else {
+            throw MediaGallerySaveError.messageUnavailable
+        }
+        try Task.checkCancellation()
+        let directoryURL = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("bettertg-sticker-export-\(UUID().uuidString)", isDirectory: true)
+        let destinationURL = directoryURL.appendingPathComponent("bettertg-sticker-frame.png")
+        return try await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            do {
+                try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                try pngData.write(to: destinationURL, options: .atomic)
+                return MediaGalleryTemporaryFileLease(
+                    directoryURL: directoryURL,
+                    fileURL: destinationURL,
+                )
+            } catch {
+                try? fileManager.removeItem(at: directoryURL)
+                throw MediaGallerySaveError.downloadFailed
+            }
+        }.value
+    }
+
+    private func validatedPhotosFilename(
+        for asset: MediaGalleryExportAsset,
+        localURL: URL,
+    ) async throws -> String {
+        switch asset.photosKind {
+        case .photo:
+            let fileExtension = try await Task.detached(priority: .userInitiated) {
+                guard let source = CGImageSourceCreateWithURL(localURL as CFURL, nil),
+                      CGImageSourceGetCount(source) > 0,
+                      let typeIdentifier = CGImageSourceGetType(source),
+                      let type = UTType(typeIdentifier as String),
+                      type.conforms(to: .image),
+                      let preferredExtension = type.preferredFilenameExtension
+                else { throw MediaGallerySaveError.messageUnavailable }
+                return preferredExtension == "jpeg" ? "jpg" : preferredExtension
+            }.value
+            return sanitizedExportFilename(
+                asset.originalFilename,
+                fallbackStem: "bettertg-photo",
+                fileExtension: fileExtension,
+            )
+        case .video:
+            let supportedMimeTypes: Set = ["video/mp4", "video/quicktime", "video/x-m4v"]
+            let supportedExtensions: Set = ["m4v", "mov", "mp4"]
+            let originalExtension = URL(filePath: asset.originalFilename).pathExtension.lowercased()
+            guard supportedMimeTypes.contains(asset.mimeType)
+                || asset.mimeType.isEmpty && supportedExtensions.contains(originalExtension)
+            else { throw MediaGallerySaveError.unsupportedVideo }
+            let videoAsset = AVURLAsset(url: localURL)
+            let isPlayable = try await videoAsset.load(.isPlayable)
+            let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
+            guard isPlayable, !videoTracks.isEmpty else { throw MediaGallerySaveError.unsupportedVideo }
+            let fileExtension =
+                switch asset.mimeType {
+                case "video/quicktime": "mov"
+                case "video/x-m4v": "m4v"
+                default: supportedExtensions.contains(originalExtension) ? originalExtension : "mp4"
+                }
+            return sanitizedExportFilename(
+                asset.originalFilename,
+                fallbackStem: "bettertg-video",
+                fileExtension: fileExtension,
+            )
+        case nil:
+            throw MediaGallerySaveError.messageUnavailable
+        }
+    }
+
+    private func sanitizedExportFilename(
+        _ filename: String,
+        fallbackStem: String,
+        fileExtension: String,
+    ) -> String {
+        let normalized = filename.replacingOccurrences(of: "\\", with: "/")
+        let lastComponent = URL(filePath: normalized).lastPathComponent
+        let rawStem = URL(filePath: lastComponent).deletingPathExtension().lastPathComponent
+        let sanitized = rawStem.filter { character in
+            character.unicodeScalars.allSatisfy { scalar in
+                !CharacterSet.controlCharacters.contains(scalar)
+                    && scalar != "/"
+                    && scalar != "\\"
+                    && scalar != ":"
+            }
+        }
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let stem = sanitized.isEmpty ? fallbackStem : String(sanitized.prefix(96))
+        return "\(stem).\(fileExtension.lowercased())"
+    }
+
+    private func saveToPhotos(
+        asset: MediaGalleryExportAsset,
+        localURL: URL,
+        filename: String,
+    ) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.originalFilename = filename
+            options.shouldMoveFile = false
+            request.addResource(
+                with: asset.photosKind == .photo ? .photo : .video,
+                fileURL: localURL,
+                options: options,
+            )
+            request.creationDate = asset.creationDate
+        }
+    }
+
+    private func presentShareSheet(_ lease: MediaGalleryTemporaryFileLease) {
+        guard hasCurrentContext, presentedViewController == nil else { return }
+        activeShareLease?.cleanup()
+        activeShareLease = lease
+        let activity = UIActivityViewController(activityItems: [lease.fileURL], applicationActivities: nil)
+        activity.popoverPresentationController?.sourceView = shareButton
+        activity.popoverPresentationController?.sourceRect = shareButton.bounds
+        activity.completionWithItemsHandler = { [weak self, lease] _, _, _, _ in
+            DispatchQueue.main.async {
+                if self?.activeShareLease === lease {
+                    self?.activeShareLease = nil
+                }
+                lease.cleanup()
+            }
+        }
+        present(activity, animated: true)
+    }
+
+    private func cancelExport() {
+        exportGeneration = nil
+        exportTask?.cancel()
+        exportTask = nil
+        if openInChatTask == nil, openInChatDismissalGeneration == nil, isViewLoaded {
+            setActionBusy(false)
+        }
+    }
+
+    private func finishExport(generation: UUID) {
+        guard exportGeneration == generation else { return }
+        exportGeneration = nil
+        exportTask = nil
+        setActionBusy(false)
+    }
+
+    private func showActionStatus(_ message: String) {
+        statusResetTask?.cancel()
+        actionStatusText = message
+        updateCounter()
+        UIAccessibility.post(notification: .announcement, argument: message)
+        statusResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled, actionStatusText == message else { return }
+            clearActionStatus()
+        }
+    }
+
+    private func clearActionStatus() {
+        statusResetTask?.cancel()
+        statusResetTask = nil
+        guard actionStatusText != nil else { return }
+        actionStatusText = nil
+        if isViewLoaded {
+            updateCounter()
+        }
+    }
+
+    private func presentExportError(
+        _ error: Swift.Error,
+        action: MediaGalleryExportAction,
+    ) {
+        let message = error.localizedDescription
+        UIAccessibility.post(notification: .announcement, argument: message)
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: action == .share ? "Couldn't Share Media" : "Couldn't Save Media",
+            message: message,
+            preferredStyle: .alert,
+        )
+        if (error as? MediaGallerySaveError)?.shouldOfferSettings == true,
+           let settingsURL = URL(string: UIApplication.openSettingsURLString)
+        {
+            alert.addAction(UIAlertAction(title: "Settings", style: .default) { _ in
+                UIApplication.shared.open(settingsURL)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+        present(alert, animated: true)
+    }
+
     private func cancelOpenInChat() {
         openInChatGeneration = nil
         openInChatDismissalGeneration = nil
         openInChatTask?.cancel()
         openInChatTask = nil
-        if isViewLoaded {
-            setOpenInChatBusy(false)
+        if exportTask == nil, isViewLoaded {
+            setActionBusy(false)
         }
     }
 
@@ -1803,16 +2584,27 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             openInChatDismissalGeneration = nil
         }
         openInChatTask = nil
-        setOpenInChatBusy(false)
+        setActionBusy(false)
     }
 
-    private func setOpenInChatBusy(_ busy: Bool) {
+    private func setActionBusy(
+        _ busy: Bool,
+        source: MediaGalleryActionButton? = nil,
+    ) {
         moreButton.isEnabled = !busy
-        moreButton.imageView?.alpha = busy ? 0 : 1
-        if busy {
+        shareButton.isEnabled = !busy
+        collectionView.isScrollEnabled = !busy
+        moreButton.imageView?.alpha = busy && source == .more ? 0 : 1
+        shareButton.imageView?.alpha = busy && source == .share ? 0 : 1
+        if busy, source == .more {
             moreActivityIndicator.startAnimating()
         } else {
             moreActivityIndicator.stopAnimating()
+        }
+        if busy, source == .share {
+            shareActivityIndicator.startAnimating()
+        } else {
+            shareActivityIndicator.stopAnimating()
         }
     }
 
@@ -1826,24 +2618,6 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         )
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
-    }
-
-    private func localURL(for message: Message) -> URL? {
-        let path: String? =
-            switch message.content {
-            case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox)?.photo.local.path
-            case .messageAnimation(let animation):
-                animation.animation.animation.local.path
-            case .messageSticker(let sticker):
-                sticker.sticker.sticker.local.path
-            case .messageVideo(let video):
-                video.video.video.local.path
-            default:
-                nil
-            }
-        guard let path, !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return nil }
-        return URL(filePath: path)
     }
 
     private func selectedGalleryCell() -> MediaGalleryCell? {

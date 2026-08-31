@@ -111,6 +111,24 @@ enum AnimatedWebPRepository {
         }
     }
 
+    static func firstFramePNGData(at path: String) async -> Data? {
+        let exportTask = Task.detached(priority: .userInitiated) { () -> Data? in
+            guard !Task.isCancelled,
+                  let data = NSData(contentsOfFile: path),
+                  data.length <= maximumInputSize,
+                  !Task.isCancelled,
+                  let image = decodeAsset(data: data)?.firstFrame,
+                  !Task.isCancelled
+            else { return nil }
+            return image.pngData()
+        }
+        return await withTaskCancellationHandler {
+            await exportTask.value
+        } onCancel: {
+            exportTask.cancel()
+        }
+    }
+
     static func frame(path: String, index: Int) -> UIImage? {
         frameCache.object(forKey: frameKey(path: path, index: index))
     }
