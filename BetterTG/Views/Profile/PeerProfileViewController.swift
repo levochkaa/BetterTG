@@ -36,6 +36,15 @@ import UIKit
         case messages
     }
 
+    private struct AvatarGalleryPayload {
+        let hasExtraCurrentPhoto: Bool
+        let historyRawOffset: Int
+        let historyTotalCount: Int
+        let items: [ProfileAvatarGalleryItem]
+        let totalCount: Int
+        let userID: Int64?
+    }
+
     var onOpenMessage: ((Message) -> Void)?
     var onSearch: (() -> Void)?
 
@@ -44,6 +53,7 @@ import UIKit
     private let customChat: CustomChat
     private let topic: MessageTopic?
     private let avatarView = ProfileAvatarView()
+    private let avatarLoadingIndicator = UIActivityIndicatorView(style: .medium)
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
     private let bioLabel = UILabel()
@@ -56,6 +66,8 @@ import UIKit
     private var messagesByID = [Int64: Message]()
     private var cancellables = Set<AnyCancellable>()
     private var infoTask: Task<Void, Never>?
+    private var avatarGalleryTask: Task<Void, Never>?
+    private var avatarHistoryTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var messageRefreshTasks = [Int64: Task<Void, Never>]()
     private var messageRefreshGenerations = [Int64: UUID]()
@@ -63,7 +75,14 @@ import UIKit
     private var hasMore = true
     private var historyError: String?
     private var sharedTotalMessageCount: Int?
+    private var currentProfilePhoto: ChatPhoto?
+    private var avatarHistoryRawOffset = 0
+    private var avatarHistoryTotalCount = 0
+    private var avatarHistoryHasExtraCurrentPhoto = false
+    private var avatarHistoryKnownPhotoIDs = Set<Int64>()
+    private var avatarHistoryUserID: Int64?
     private weak var activeMediaGallery: MediaGalleryViewController?
+    private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
 
     private var currentSharedTab: SharedTab {
         SharedTab(rawValue: segmentedControl.selectedSegmentIndex) ?? .media
@@ -93,6 +112,8 @@ import UIKit
 
     deinit {
         infoTask?.cancel()
+        avatarGalleryTask?.cancel()
+        avatarHistoryTask?.cancel()
         historyTask?.cancel()
         messageRefreshTasks.values.forEach { $0.cancel() }
     }
@@ -113,6 +134,14 @@ import UIKit
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        avatarGalleryTask?.cancel()
+        avatarHistoryTask?.cancel()
+        finishAvatarGalleryLoad()
     }
 
     override func viewDidLayoutSubviews() {
@@ -172,7 +201,19 @@ import UIKit
         )
         avatarView.layer.cornerRadius = 48
         avatarView.clipsToBounds = true
+        let avatarGalleryIsAvailable = !customChat.isSavedMessages && customChat.chat.photo != nil
+        avatarView.isAccessibilityElement = true
+        avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
+        avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
+        avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
+        if avatarGalleryIsAvailable {
+            avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(avatarPressed)))
+        }
         headerStack.addArrangedSubview(avatarView)
+        avatarLoadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        avatarLoadingIndicator.color = .white
+        avatarLoadingIndicator.hidesWhenStopped = true
+        avatarView.addSubview(avatarLoadingIndicator)
 
         titleLabel.font = .preferredFont(forTextStyle: .title2)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -225,6 +266,8 @@ import UIKit
             headerStack.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor, constant: -20),
             avatarView.widthAnchor.constraint(equalToConstant: 96),
             avatarView.heightAnchor.constraint(equalToConstant: 96),
+            avatarLoadingIndicator.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
+            avatarLoadingIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
             segmentedControl.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
@@ -483,7 +526,7 @@ import UIKit
         infoTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result: (bio: String?, details: [String], status: String?)
+                let result: (bio: String?, details: [String], status: String?, photo: ChatPhoto?)
                 switch customChat.type {
                 case .bot(let user), .user(let user):
                     let info = try await client.getUserFullInfo(userId: user.id)
@@ -492,15 +535,20 @@ import UIKit
                         details.append("+\(user.phoneNumber)")
                     }
                     let bio = info.bio?.text ?? info.botInfo?.description ?? info.botInfo?.shortDescription
-                    result = (bio, details, nil)
+                    result = (bio, details, nil, info.personalPhoto ?? info.photo ?? info.publicPhoto)
                 case .group(let group):
                     let info = try await client.getBasicGroupFullInfo(basicGroupId: group.id)
-                    result = (info.description, [], nil)
+                    result = (info.description, [], nil, info.photo)
                 case .supergroup(let group):
                     let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
                     let usernames = group.usernames?.activeUsernames.map { "@\($0)" } ?? []
                     let noun = group.isChannel ? "subscribers" : "members"
-                    result = (info.description, usernames, info.memberCount > 0 ? "\(info.memberCount) \(noun)" : nil)
+                    result = (
+                        info.description,
+                        usernames,
+                        info.memberCount > 0 ? "\(info.memberCount) \(noun)" : nil,
+                        info.photo,
+                    )
                 }
                 guard !Task.isCancelled, contextIsCurrent else { return }
                 if let status = result.status {
@@ -511,6 +559,7 @@ import UIKit
                 bioLabel.isHidden = bio.isEmpty
                 detailsLabel.text = result.details.joined(separator: " · ")
                 detailsLabel.isHidden = result.details.isEmpty
+                currentProfilePhoto = result.photo
                 infoTask = nil
                 view.setNeedsLayout()
             } catch {
@@ -637,6 +686,239 @@ import UIKit
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         return name.isEmpty ? customChat.displayTitle : name
+    }
+
+    @objc private func avatarPressed() {
+        guard !customChat.isSavedMessages,
+              customChat.chat.photo != nil,
+              avatarGalleryTask == nil,
+              contextIsCurrent,
+              presentedViewController == nil
+        else { return }
+        avatarLoadingIndicator.startAnimating()
+        avatarGalleryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let payload = try await loadAvatarGalleryPayload()
+                guard !Task.isCancelled,
+                      contextIsCurrent,
+                      view.window != nil,
+                      navigationController?.topViewController === self,
+                      presentedViewController == nil,
+                      let selectedItem = payload.items.first
+                else {
+                    finishAvatarGalleryLoad()
+                    return
+                }
+                let transitionSource = avatarTransitionTarget(itemID: selectedItem.id)
+                let gallery = ProfileAvatarGalleryViewController(
+                    accountID: accountID,
+                    client: client,
+                    items: payload.items,
+                    selection: selectedItem.id,
+                    totalCount: payload.totalCount,
+                    transitionSource: transitionSource,
+                    transitionSourceProvider: { [weak self] itemID in
+                        guard itemID == selectedItem.id else { return nil }
+                        return self?.avatarTransitionTarget(itemID: itemID)
+                    },
+                )
+                gallery.contextIsCurrent = { [weak self] in
+                    self?.contextIsCurrent == true
+                }
+                avatarHistoryRawOffset = payload.historyRawOffset
+                avatarHistoryTotalCount = payload.historyTotalCount
+                avatarHistoryHasExtraCurrentPhoto = payload.hasExtraCurrentPhoto
+                avatarHistoryKnownPhotoIDs = Set(payload.items.map(\.id))
+                avatarHistoryUserID = payload.userID
+                activeAvatarGallery = gallery
+                if payload.userID != nil {
+                    gallery.onRequestMoreItems = { [weak self] in
+                        self?.loadMoreAvatarHistory()
+                    }
+                }
+                finishAvatarGalleryLoad()
+                present(gallery, animated: true)
+            } catch {
+                guard !Task.isCancelled else { return }
+                let fallback = ProfileAvatarGalleryItem(current: customChat.chat.photo)
+                guard contextIsCurrent,
+                      view.window != nil,
+                      navigationController?.topViewController === self,
+                      presentedViewController == nil,
+                      let fallback
+                else {
+                    finishAvatarGalleryLoad()
+                    return
+                }
+                let transitionSource = avatarTransitionTarget(itemID: fallback.id)
+                let gallery = ProfileAvatarGalleryViewController(
+                    accountID: accountID,
+                    client: client,
+                    items: [fallback],
+                    selection: fallback.id,
+                    totalCount: 1,
+                    transitionSource: transitionSource,
+                    transitionSourceProvider: { [weak self] itemID in
+                        guard itemID == fallback.id else { return nil }
+                        return self?.avatarTransitionTarget(itemID: itemID)
+                    },
+                )
+                gallery.contextIsCurrent = { [weak self] in
+                    self?.contextIsCurrent == true
+                }
+                avatarHistoryRawOffset = 0
+                avatarHistoryTotalCount = 0
+                avatarHistoryHasExtraCurrentPhoto = false
+                avatarHistoryKnownPhotoIDs = [fallback.id]
+                avatarHistoryUserID = nil
+                activeAvatarGallery = gallery
+                finishAvatarGalleryLoad()
+                present(gallery, animated: true)
+            }
+        }
+    }
+
+    private func loadAvatarGalleryPayload() async throws -> AvatarGalleryPayload {
+        switch customChat.type {
+        case .bot(let user), .user(let user):
+            let info = try await client.getUserFullInfo(userId: user.id)
+            let currentPhoto = info.personalPhoto ?? info.photo ?? info.publicPhoto ?? currentProfilePhoto
+            let result = try await client.getUserProfilePhotos(limit: 100, offset: 0, userId: user.id)
+            var photos = result.photos
+            var totalCount = result.totalCount
+            let hasExtraCurrentPhoto: Bool
+            if let currentPhoto {
+                photos.removeAll(where: { $0.id == currentPhoto.id })
+                photos.insert(currentPhoto, at: 0)
+                hasExtraCurrentPhoto = !result.photos.contains(where: { $0.id == currentPhoto.id })
+                if hasExtraCurrentPhoto {
+                    totalCount += 1
+                }
+            } else {
+                hasExtraCurrentPhoto = false
+            }
+            var items = photos.map(ProfileAvatarGalleryItem.init(photo:))
+            if items.isEmpty, let fallback = ProfileAvatarGalleryItem(current: customChat.chat.photo) {
+                items = [fallback]
+                totalCount = max(totalCount, 1)
+            }
+            return AvatarGalleryPayload(
+                hasExtraCurrentPhoto: hasExtraCurrentPhoto,
+                historyRawOffset: result.photos.count,
+                historyTotalCount: result.totalCount,
+                items: items,
+                totalCount: totalCount,
+                userID: user.id,
+            )
+        case .group(let group):
+            let info = try await client.getBasicGroupFullInfo(basicGroupId: group.id)
+            let photo = info.photo ?? currentProfilePhoto
+            if let photo {
+                return AvatarGalleryPayload(
+                    hasExtraCurrentPhoto: false,
+                    historyRawOffset: 0,
+                    historyTotalCount: 0,
+                    items: [ProfileAvatarGalleryItem(photo: photo)],
+                    totalCount: 1,
+                    userID: nil,
+                )
+            }
+        case .supergroup(let group):
+            let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
+            let photo = info.photo ?? currentProfilePhoto
+            if let photo {
+                return AvatarGalleryPayload(
+                    hasExtraCurrentPhoto: false,
+                    historyRawOffset: 0,
+                    historyTotalCount: 0,
+                    items: [ProfileAvatarGalleryItem(photo: photo)],
+                    totalCount: 1,
+                    userID: nil,
+                )
+            }
+        }
+        if let fallback = ProfileAvatarGalleryItem(current: customChat.chat.photo) {
+            return AvatarGalleryPayload(
+                hasExtraCurrentPhoto: false,
+                historyRawOffset: 0,
+                historyTotalCount: 0,
+                items: [fallback],
+                totalCount: 1,
+                userID: nil,
+            )
+        }
+        return AvatarGalleryPayload(
+            hasExtraCurrentPhoto: false,
+            historyRawOffset: 0,
+            historyTotalCount: 0,
+            items: [],
+            totalCount: 0,
+            userID: nil,
+        )
+    }
+
+    private func loadMoreAvatarHistory() {
+        guard avatarHistoryTask == nil,
+              let userID = avatarHistoryUserID,
+              avatarHistoryRawOffset < avatarHistoryTotalCount,
+              let activeAvatarGallery,
+              contextIsCurrent
+        else { return }
+        let offset = avatarHistoryRawOffset
+        avatarHistoryTask = Task { [weak self, weak activeAvatarGallery] in
+            guard let self else { return }
+            do {
+                let result = try await client.getUserProfilePhotos(limit: 100, offset: offset, userId: userID)
+                avatarHistoryTask = nil
+                guard let activeAvatarGallery else {
+                    return
+                }
+                guard !Task.isCancelled,
+                      contextIsCurrent,
+                      self.activeAvatarGallery === activeAvatarGallery
+                else { return }
+                avatarHistoryRawOffset += result.photos.count
+                avatarHistoryTotalCount = result.totalCount
+                if result.photos.isEmpty {
+                    avatarHistoryRawOffset = result.totalCount
+                }
+                let newItems = result.photos.compactMap { photo -> ProfileAvatarGalleryItem? in
+                    let item = ProfileAvatarGalleryItem(photo: photo)
+                    return self.avatarHistoryKnownPhotoIDs.insert(item.id).inserted ? item : nil
+                }
+                activeAvatarGallery.appendItems(
+                    newItems,
+                    totalCount: result.totalCount + (avatarHistoryHasExtraCurrentPhoto ? 1 : 0),
+                )
+            } catch {
+                avatarHistoryTask = nil
+                guard let activeAvatarGallery else {
+                    return
+                }
+                guard self.activeAvatarGallery === activeAvatarGallery else { return }
+                activeAvatarGallery.showMoreItemsRetry()
+            }
+        }
+    }
+
+    private func avatarTransitionTarget(itemID: Int64) -> MediaGalleryTransitionTarget? {
+        guard contextIsCurrent,
+              avatarView.window != nil
+        else { return nil }
+        return MediaGalleryTransitionTarget(
+            messageID: itemID,
+            sourceView: avatarView,
+            validation: { [weak self, weak avatarView] in
+                guard let self, let avatarView else { return false }
+                return contextIsCurrent && self.avatarView === avatarView && avatarView.window != nil
+            },
+        )
+    }
+
+    private func finishAvatarGalleryLoad() {
+        avatarGalleryTask = nil
+        avatarLoadingIndicator.stopAnimating()
     }
 
     @objc private func tabChanged() {
