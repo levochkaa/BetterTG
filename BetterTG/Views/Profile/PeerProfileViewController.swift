@@ -406,13 +406,17 @@ import UIKit
 
     private func handleAccountChange() {
         guard !contextIsCurrent else { return }
-        activeMediaGallery?.invalidateForContextChange()
+        let leaveProfile: () -> Void = { [weak self] in
+            _ = self?.navigationController?.popViewController(animated: true)
+        }
+        if let activeMediaGallery {
+            activeMediaGallery.invalidateForContextChange(completion: leaveProfile)
+            return
+        }
         if presentedViewController != nil {
-            dismiss(animated: false) { [weak self] in
-                self?.navigationController?.popViewController(animated: true)
-            }
+            dismiss(animated: false, completion: leaveProfile)
         } else {
-            navigationController?.popViewController(animated: true)
+            leaveProfile()
         }
     }
 

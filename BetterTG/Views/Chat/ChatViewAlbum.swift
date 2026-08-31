@@ -302,9 +302,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var pendingMessageUpdate: [Message]?
     private var pendingDeletedPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
     private var contextWasInvalidated = false
+    private var contextInvalidationCompletion: (() -> Void)?
     private var forcedDismissalSnapshot: UIView?
     private var forcesFadeDismissal = false
     private var chromeIsVisible = true
+    private var interactiveDismissalProgress = CGFloat.zero
+    private var interactiveDismissalChromeWasVisible = true
     private let toolbar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let closeButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
@@ -314,6 +317,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private lazy var chromeTapGesture: UITapGestureRecognizer = {
         let gesture = UITapGestureRecognizer(target: self, action: #selector(toggleChromeVisibility))
         gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
+
+    private lazy var interactiveDismissPanGesture: UIPanGestureRecognizer = {
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleInteractiveDismissPan(_:)))
+        gesture.maximumNumberOfTouches = 1
+        gesture.cancelsTouchesInView = true
         gesture.delegate = self
         return gesture
     }()
@@ -331,6 +342,22 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private var hasCurrentContext: Bool {
         !contextWasInvalidated && (contextIsCurrent?() ?? true)
+    }
+
+    private var canBeginInteractiveDismissal: Bool {
+        guard hasCurrentContext,
+              !didReleasePlaybackOwners,
+              !isBeingDismissed,
+              presentedViewController == nil,
+              transitionCoordinator == nil,
+              mediaTransitionController?.isInteractiveDismissalInProgress != true,
+              !messageUpdateInProgress,
+              !isSelectedPictureInPictureRetained,
+              messages.indices.contains(selectedIndex),
+              collectionView.bounds.width > 0
+        else { return false }
+        let expectedOffset = CGFloat(selectedIndex) * collectionView.bounds.width
+        return abs(collectionView.contentOffset.x - expectedOffset) < 2
     }
 
     init(
@@ -357,11 +384,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalPresentationCapturesStatusBarAppearance = true
-        if transitionSource?.snapshotView != nil {
-            let transitionController = MediaGalleryTransitionController()
-            self.mediaTransitionController = transitionController
-            transitioningDelegate = transitionController
-        }
+        let transitionController = MediaGalleryTransitionController()
+        self.mediaTransitionController = transitionController
+        transitioningDelegate = transitionController
         let transferredOwners = transferredPlaybackOwners + [transferredPlaybackOwner].compactMap(\.self)
         for owner in transferredOwners where owner.tdlib === tdlib {
             guard self.messages.contains(where: { $0.id == owner.messageID }) else { continue }
@@ -377,6 +402,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        view.accessibilityViewIsModal = true
         configureCollectionView()
         configureToolbar()
         observeVoiceOver()
@@ -488,7 +514,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cell?.setPlaybackVisible(false)
     }
 
-    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var touchedView = touch.view
         while let view = touchedView {
             if view is UIControl {
@@ -499,7 +525,26 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             }
             touchedView = view.superview
         }
+        if gestureRecognizer === interactiveDismissPanGesture {
+            guard !UIAccessibility.isVoiceOverRunning,
+                  let cell = visibleSelectedGalleryCell()
+            else { return false }
+            return cell.canBeginInteractiveDismissal(at: touch.location(in: cell.contentView))
+        }
         return true
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === interactiveDismissPanGesture else { return true }
+        let velocity = interactiveDismissPanGesture.velocity(in: view)
+        guard velocity.y > 0,
+              abs(velocity.y) > abs(velocity.x) * 1.2,
+              canBeginInteractiveDismissal,
+              let cell = visibleSelectedGalleryCell()
+        else { return false }
+        return cell.canBeginInteractiveDismissal(
+            at: interactiveDismissPanGesture.location(in: cell.contentView),
+        )
     }
 
     func gestureRecognizer(
@@ -510,6 +555,17 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               let otherTap = otherGestureRecognizer as? UITapGestureRecognizer
         else { return false }
         return otherTap.numberOfTapsRequired > 1
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
+    ) -> Bool {
+        let otherGesture = gestureRecognizer === interactiveDismissPanGesture
+            ? otherGestureRecognizer
+            : (otherGestureRecognizer === interactiveDismissPanGesture ? gestureRecognizer : nil)
+        guard otherGesture is UIPanGestureRecognizer else { return false }
+        return otherGesture?.view is UIScrollView
     }
 
     func preparePictureInPicture(for owner: GalleryVideoPlaybackOwner) -> Bool {
@@ -523,7 +579,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func playbackOwnerWasDeleted(_ owner: GalleryVideoPlaybackOwner) {
         guard hasCurrentContext, !didReleasePlaybackOwners else { return }
-        if messageUpdateInProgress {
+        if messageUpdateInProgress || mediaTransitionController?.isInteractiveDismissalInProgress == true {
             pendingDeletedPlaybackOwners[owner.messageID] = owner
             return
         }
@@ -618,11 +674,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func updateMessages(_ updatedMessages: [Message]) {
-        guard hasCurrentContext, !isBeingDismissed, !didReleasePlaybackOwners else { return }
-        if messageUpdateInProgress {
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
+        if messageUpdateInProgress || mediaTransitionController?.isInteractiveDismissalInProgress == true {
             pendingMessageUpdate = updatedMessages
             return
         }
+        guard !isBeingDismissed else { return }
         let updatedMessages = updatedMessages.filter { message in
             switch message.content {
             case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
@@ -698,15 +755,22 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         paginationRequestedMessageCount = nil
     }
 
-    func invalidateForContextChange() {
+    func invalidateForContextChange(completion: @escaping () -> Void) {
         contextWasInvalidated = true
+        contextInvalidationCompletion = completion
         onRequestMoreMessages = nil
         paginationRequestedMessageCount = messages.count
         pendingMessageUpdate = nil
         pendingDeletedPlaybackOwners = [:]
         forcesFadeDismissal = true
         shouldReleasePlaybackOwnersAfterDisappearance = true
+        if mediaTransitionController?.isInteractiveDismissalInProgress == true {
+            mediaTransitionController?.finishInteractiveDismissal()
+            return
+        }
         releasePlaybackOwnersForDismissal()
+        let completion = takeContextInvalidationCompletion()
+        dismiss(animated: false, completion: completion)
     }
 
     fileprivate func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
@@ -760,6 +824,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         collectionView.delegate = self
         collectionView.dataSource = self
         collectionView.addGestureRecognizer(chromeTapGesture)
+        collectionView.addGestureRecognizer(interactiveDismissPanGesture)
         collectionView.register(MediaGalleryCell.self, forCellWithReuseIdentifier: MediaGalleryCell.reuseIdentifier)
         view.addSubview(collectionView)
     }
@@ -985,6 +1050,75 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         setChromeVisible(!chromeIsVisible, animated: !UIAccessibility.isReduceMotionEnabled)
     }
 
+    @objc private func handleInteractiveDismissPan(_ gesture: UIPanGestureRecognizer) {
+        guard let mediaTransitionController else { return }
+        switch gesture.state {
+        case .began:
+            guard canBeginInteractiveDismissal,
+                  let cell = visibleSelectedGalleryCell()
+            else { return }
+            interactiveDismissalProgress = 0
+            interactiveDismissalChromeWasVisible = chromeIsVisible
+            cell.setInteractiveDismissalActive(true)
+            collectionView.panGestureRecognizer.isEnabled = false
+            setChromeVisible(false, animated: !UIAccessibility.isReduceMotionEnabled)
+            let began = mediaTransitionController.beginInteractiveDismissal(from: self) { [weak self] completed in
+                self?.interactiveDismissalEnded(completed: completed)
+            }
+            if !began {
+                interactiveDismissalEnded(completed: false)
+            }
+        case .changed:
+            let translation = gesture.translation(in: view)
+            interactiveDismissalProgress = min(1, max(0, translation.y / max(view.bounds.height * 0.6, 1)))
+            mediaTransitionController.updateInteractiveDismissal(interactiveDismissalProgress)
+        case .ended:
+            let velocity = gesture.velocity(in: view)
+            if interactiveDismissalProgress >= 0.28 || velocity.y >= 900 {
+                mediaTransitionController.finishInteractiveDismissal()
+            } else {
+                mediaTransitionController.cancelInteractiveDismissal()
+            }
+        case .cancelled, .failed:
+            mediaTransitionController.cancelInteractiveDismissal()
+        case .possible:
+            break
+        @unknown default:
+            mediaTransitionController.cancelInteractiveDismissal()
+        }
+    }
+
+    private func interactiveDismissalEnded(completed: Bool) {
+        visibleSelectedGalleryCell()?.setInteractiveDismissalActive(false)
+        collectionView.panGestureRecognizer.isEnabled = true
+        interactiveDismissalProgress = 0
+        if contextWasInvalidated {
+            if completed {
+                takeContextInvalidationCompletion()?()
+            } else {
+                releasePlaybackOwnersForDismissal()
+                let completion = takeContextInvalidationCompletion()
+                dismiss(animated: false, completion: completion)
+            }
+            return
+        }
+        guard !completed, hasCurrentContext else { return }
+        view.accessibilityViewIsModal = true
+        shouldReleasePlaybackOwnersAfterDisappearance = false
+        setChromeVisible(
+            interactiveDismissalChromeWasVisible,
+            animated: !UIAccessibility.isReduceMotionEnabled,
+        )
+        bindSelectedCellChrome()
+        drainPendingMessageUpdates()
+    }
+
+    private func takeContextInvalidationCompletion() -> (() -> Void)? {
+        let completion = contextInvalidationCompletion
+        contextInvalidationCompletion = nil
+        return completion
+    }
+
     private func bindSelectedCellChrome() {
         guard messages.indices.contains(selectedIndex) else { return }
         let cell = collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? MediaGalleryCell
@@ -1066,6 +1200,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         return collectionView.cellForItem(at: indexPath) as? MediaGalleryCell
     }
+
+    private func visibleSelectedGalleryCell() -> MediaGalleryCell? {
+        guard messages.indices.contains(selectedIndex) else { return nil }
+        return collectionView.cellForItem(
+            at: IndexPath(item: selectedIndex, section: 0),
+        ) as? MediaGalleryCell
+    }
 }
 
 // MARK: UICollectionViewDataSource
@@ -1093,6 +1234,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
 // MARK: - MediaGalleryTransitionController
 
 private final class MediaGalleryTransitionController: NSObject, UIViewControllerTransitioningDelegate {
+    private(set) var isInteractiveDismissalInProgress = false
+
+    private var dismissalInteractionController: UIPercentDrivenInteractiveTransition?
+    private var interactiveDismissalCompletion: ((Bool) -> Void)?
+
     func animationController(
         forPresented presented: UIViewController,
         presenting _: UIViewController,
@@ -1106,7 +1252,56 @@ private final class MediaGalleryTransitionController: NSObject, UIViewController
         forDismissed dismissed: UIViewController,
     ) -> (any UIViewControllerAnimatedTransitioning)? {
         guard dismissed is MediaGalleryViewController else { return nil }
-        return MediaGalleryTransitionAnimator(isPresenting: false)
+        return MediaGalleryTransitionAnimator(isPresenting: false) { [weak self] completed in
+            self?.dismissalTransitionEnded(completed: completed)
+        }
+    }
+
+    func interactionControllerForDismissal(
+        using _: any UIViewControllerAnimatedTransitioning,
+    ) -> (any UIViewControllerInteractiveTransitioning)? {
+        isInteractiveDismissalInProgress ? dismissalInteractionController : nil
+    }
+
+    func beginInteractiveDismissal(
+        from gallery: MediaGalleryViewController,
+        completion: @escaping (Bool) -> Void,
+    ) -> Bool {
+        guard !isInteractiveDismissalInProgress,
+              gallery.presentingViewController != nil
+        else { return false }
+        let interactionController = UIPercentDrivenInteractiveTransition()
+        interactionController.completionCurve = .easeOut
+        interactionController.completionSpeed = 0.85
+        dismissalInteractionController = interactionController
+        interactiveDismissalCompletion = completion
+        isInteractiveDismissalInProgress = true
+        gallery.dismiss(animated: true)
+        return true
+    }
+
+    func updateInteractiveDismissal(_ progress: CGFloat) {
+        guard isInteractiveDismissalInProgress else { return }
+        dismissalInteractionController?.update(min(1, max(0, progress)))
+    }
+
+    func finishInteractiveDismissal() {
+        guard isInteractiveDismissalInProgress else { return }
+        dismissalInteractionController?.finish()
+    }
+
+    func cancelInteractiveDismissal() {
+        guard isInteractiveDismissalInProgress else { return }
+        dismissalInteractionController?.cancel()
+    }
+
+    private func dismissalTransitionEnded(completed: Bool) {
+        guard isInteractiveDismissalInProgress else { return }
+        isInteractiveDismissalInProgress = false
+        dismissalInteractionController = nil
+        let completion = interactiveDismissalCompletion
+        interactiveDismissalCompletion = nil
+        completion?(completed)
     }
 }
 
@@ -1135,9 +1330,11 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     private static let duration = TimeInterval(0.38)
 
     private let isPresenting: Bool
+    private let transitionEnded: ((Bool) -> Void)?
 
-    init(isPresenting: Bool) {
+    init(isPresenting: Bool, transitionEnded: ((Bool) -> Void)? = nil) {
         self.isPresenting = isPresenting
+        self.transitionEnded = transitionEnded
     }
 
     func transitionDuration(using _: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
@@ -1150,6 +1347,10 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         } else {
             animateDismissal(using: transitionContext)
         }
+    }
+
+    func animationEnded(_ transitionCompleted: Bool) {
+        transitionEnded?(transitionCompleted)
     }
 
     private func animatePresentation(using transitionContext: any UIViewControllerContextTransitioning) {
@@ -2273,6 +2474,19 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         mediaView.setGalleryChromeVisible(isVisible, animated: animated)
     }
 
+    func canBeginInteractiveDismissal(at point: CGPoint, in coordinateSpace: UIView) -> Bool {
+        guard !isInvalidated,
+              !isPictureInPictureRetained,
+              attachmentContext == .fullscreen
+        else { return false }
+        return mediaView.canBeginInteractiveDismissal(at: mediaView.convert(point, from: coordinateSpace))
+    }
+
+    func setInteractiveDismissalActive(_ isActive: Bool) {
+        guard !isInvalidated else { return }
+        mediaView.setInteractiveDismissalActive(isActive)
+    }
+
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
         mediaView.makeTransitionSnapshot(contentMode: contentMode)
     }
@@ -3264,6 +3478,24 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
+    func canBeginInteractiveDismissal(at point: CGPoint) -> Bool {
+        if let videoPlaybackOwner {
+            return videoPlaybackOwner.canBeginInteractiveDismissal(at: point, in: contentView)
+        }
+        guard let contentMediaView else { return false }
+        return contentMediaView.canBeginInteractiveDismissal(
+            at: contentMediaView.convert(point, from: contentView),
+        )
+    }
+
+    func setInteractiveDismissalActive(_ isActive: Bool) {
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.setInteractiveDismissalActive(isActive)
+        } else {
+            contentMediaView?.setInteractiveDismissalActive(isActive)
+        }
+    }
+
     func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
         guard let transitionMediaSize,
               transitionMediaSize.width > 0,
@@ -3292,17 +3524,21 @@ final class MediaGalleryCell: UICollectionViewCell {
 // MARK: - GalleryMediaView
 
 protocol GalleryMediaView: AnyObject {
+    func canBeginInteractiveDismissal(at point: CGPoint) -> Bool
     func performPlaybackCommand(_ command: GalleryPlaybackCommand)
     func prepareForReuse()
     func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?)
     func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool)
+    func setInteractiveDismissalActive(_ isActive: Bool)
     func setPlaybackVisible(_ isVisible: Bool)
 }
 
 extension GalleryMediaView {
+    func canBeginInteractiveDismissal(at _: CGPoint) -> Bool { true }
     func performPlaybackCommand(_: GalleryPlaybackCommand) {}
     func setGalleryChromeController(_: ((Bool) -> Void)?) {}
     func setGalleryChromeVisible(_: Bool, animated _: Bool) {}
+    func setInteractiveDismissalActive(_: Bool) {}
     func setPlaybackVisible(_: Bool) {}
 }
 
@@ -3362,6 +3598,18 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
 
     func viewForZooming(in _: UIScrollView) -> UIView? {
         imageView
+    }
+
+    func canBeginInteractiveDismissal(at _: CGPoint) -> Bool {
+        zoomScale <= minimumZoomScale + 0.001
+            && !isZooming
+            && !isZoomBouncing
+            && !isDecelerating
+    }
+
+    func setInteractiveDismissalActive(_ isActive: Bool) {
+        panGestureRecognizer.isEnabled = !isActive
+        pinchGestureRecognizer?.isEnabled = !isActive
     }
 
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
@@ -4060,6 +4308,24 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         if isVisible {
             scheduleControlsAutoHideIfNeeded()
         }
+    }
+
+    func canBeginInteractiveDismissal(at point: CGPoint) -> Bool {
+        guard !isSeeking,
+              !isPictureInPictureActive,
+              !isPictureInPictureRetainedByOwner,
+              deferredPictureInPictureFailureResolution == nil
+        else { return false }
+        if !retryButton.isHidden, retryButton.frame.contains(point) {
+            return false
+        }
+        if !controlsView.isHidden,
+           controlsView.alpha > 0.01,
+           controlsView.frame.contains(point)
+        {
+            return false
+        }
+        return true
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
