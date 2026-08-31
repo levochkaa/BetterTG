@@ -26,11 +26,14 @@ import UIKit
     private let accountID: UUID
     private let seedChats: [Chat]
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private let commentContainer = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let commentTextView = FormattedTextView(placeholder: "Add a comment…")
     private let actionToolbar = ForwardDestinationToolbar()
     private let searchBar = UISearchBar()
     private let optionsButton = UIButton(type: .system)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private var actionToolbarHeightConstraint: NSLayoutConstraint!
+    private var commentContainerHeightConstraint: NSLayoutConstraint!
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
     private var chatsByID = [Int64: Chat]()
     private var forumChatIDs = Set<Int64>()
@@ -47,7 +50,9 @@ import UIKit
     private var preparationTask: Task<Void, Never>?
     private var deliveryTask: Task<Void, Never>?
     private var accountCancellable: AnyCancellable?
+    private var contentSizeCancellable: AnyCancellable?
     private var isSending = false
+    private var deliveredCommentByDestination = [MessageForwardDestination: FormattedText]()
 
     private var contextIsCurrent: Bool {
         TDLib.shared.activeAccountID == accountID
@@ -84,6 +89,7 @@ import UIKit
         configureNavigation()
         configureTable()
         configureToolbar()
+        observeContentSizeCategory()
         observeAccount()
         for chat in seedChats {
             chatsByID[chat.id] = chat
@@ -99,15 +105,16 @@ import UIKit
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        actionToolbarHeightConstraint?.constant =
-            ForwardDestinationToolbar.contentHeight + view.safeAreaInsets.bottom
+        updateToolbarKeyboardAttachment()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard abs(searchBar.frame.width - tableView.bounds.width) > 0.5 else { return }
-        searchBar.frame.size.width = tableView.bounds.width
-        tableView.tableHeaderView = searchBar
+        if abs(searchBar.frame.width - tableView.bounds.width) > 0.5 {
+            searchBar.frame.size.width = tableView.bounds.width
+            tableView.tableHeaderView = searchBar
+        }
+        updateToolbarKeyboardAttachment()
     }
 
     func searchBar(_: UISearchBar, textDidChange searchText: String) {
@@ -215,6 +222,16 @@ import UIKit
     }
 
     private func configureToolbar() {
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        commentContainer.translatesAutoresizingMaskIntoConstraints = false
+        commentTextView.translatesAutoresizingMaskIntoConstraints = false
+        commentTextView.onTextChange = { [weak self] _ in
+            self?.updateCommentHeight()
+        }
+        commentContainer.contentView.addSubview(commentTextView)
+        view.addSubview(commentContainer)
+        commentContainerHeightConstraint = commentContainer.heightAnchor.constraint(equalToConstant: 52)
+
         actionToolbar.translatesAutoresizingMaskIntoConstraints = false
         actionToolbar.onSend = { [weak self] in
             self?.sendSelected()
@@ -227,13 +244,31 @@ import UIKit
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: actionToolbar.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: commentContainer.topAnchor),
+            commentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            commentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            commentContainer.bottomAnchor.constraint(equalTo: actionToolbar.topAnchor),
+            commentContainerHeightConstraint,
+            commentTextView.topAnchor.constraint(equalTo: commentContainer.contentView.topAnchor, constant: 6),
+            commentTextView.leadingAnchor.constraint(equalTo: commentContainer.contentView.leadingAnchor, constant: 12),
+            commentTextView.trailingAnchor.constraint(
+                equalTo: commentContainer.contentView.trailingAnchor,
+                constant: -12,
+            ),
+            commentTextView.bottomAnchor.constraint(equalTo: commentContainer.contentView.bottomAnchor, constant: -6),
             actionToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             actionToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            actionToolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            actionToolbar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             actionToolbarHeightConstraint,
         ])
         updateToolbar()
+    }
+
+    private func updateCommentHeight() {
+        let desiredHeight = min(132, max(52, commentTextView.intrinsicContentSize.height + 12))
+        guard abs(commentContainerHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        commentContainerHeightConstraint.constant = desiredHeight
+        view.setNeedsLayout()
     }
 
     private func observeAccount() {
@@ -244,6 +279,23 @@ import UIKit
                 guard let self, !contextIsCurrent else { return }
                 abortForAccountChange()
             }
+    }
+
+    private func observeContentSizeCategory() {
+        contentSizeCancellable = NotificationCenter.default
+            .publisher(for: UIContentSizeCategory.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateCommentHeight() }
+            }
+    }
+
+    private func updateToolbarKeyboardAttachment() {
+        guard actionToolbarHeightConstraint != nil else { return }
+        let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
+            < view.bounds.maxY - view.safeAreaInsets.bottom - 1
+        actionToolbarHeightConstraint.constant = ForwardDestinationToolbar.contentHeight
+            + (keyboardAttached ? 0 : view.safeAreaInsets.bottom)
     }
 
     private func prepareMessages() {
@@ -439,9 +491,20 @@ import UIKit
               !selectedDestinations.isEmpty,
               contextIsCurrent
         else { return }
+        let attributedComment = AttributedString(commentTextView.attributedText)
+        let comment: FormattedText? = attributedComment.string
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+            ? nil
+            : FormattedText(
+                entities: getEntities(from: attributedComment),
+                text: attributedComment.string,
+            )
         isSending = true
         isModalInPresentation = true
         searchBar.isUserInteractionEnabled = false
+        commentTextView.isEditable = false
+        commentTextView.isSelectable = false
         navigationItem.leftBarButtonItem?.isEnabled = false
         configureOptionsMenu()
         updateToolbar()
@@ -466,6 +529,16 @@ import UIKit
                     continue
                 }
                 do {
+                    if let comment, deliveredCommentByDestination[destination] != comment {
+                        _ = try await MessageForwardingService.sendComment(
+                            comment,
+                            prepared: preparedForward,
+                            to: destination,
+                            client: client,
+                            accountID: accountID,
+                        )
+                        deliveredCommentByDestination[destination] = comment
+                    }
                     _ = try await MessageForwardingService.send(
                         preparedForward,
                         to: destination,
@@ -475,8 +548,10 @@ import UIKit
                     )
                     completedCount += 1
                     selectedDestinations.remove(destination)
+                    deliveredCommentByDestination[destination] = nil
                 } catch is DecodingError {
                     selectedDestinations.remove(destination)
+                    deliveredCommentByDestination[destination] = nil
                     failures.append(DeliveryFailure(
                         destination: destination,
                         description: "TDLib returned an ambiguous partial result.",
@@ -487,6 +562,7 @@ import UIKit
                     if case .partialDelivery = error {
                         retryable = false
                         selectedDestinations.remove(destination)
+                        deliveredCommentByDestination[destination] = nil
                     } else {
                         retryable = true
                     }
@@ -519,6 +595,8 @@ import UIKit
         isSending = false
         isModalInPresentation = false
         searchBar.isUserInteractionEnabled = true
+        commentTextView.isEditable = true
+        commentTextView.isSelectable = true
         navigationItem.leftBarButtonItem?.isEnabled = true
         configureOptionsMenu()
         reconfigure(chatIDs: visibleChatIDs)

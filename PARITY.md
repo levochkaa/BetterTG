@@ -41,8 +41,9 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   clean. PID `71701` passed frozen-destination voice/video recording/send/relaunch probes with no crash/assert; PID `67526` and the date
   smoke stayed alive. Simulator remains booted.
 - Proof blocker: current simulator data has no safe reachable forum with `viewAsTopics == false`, so real topic-header tap and live
-  General/reply send remain unmutated/unproved. Software keyboard also remains hidden after first-responder taps. Next slice: forward
-  comment/draft state, then public inline-GIF search/custom-emoji authoring polish.
+  General/reply send remain unmutated/unproved. Software keyboard also remains hidden after first-responder taps, and idb omits context
+  menu actions. Next slice: profiles/shared-media pagination; forward comment is implemented, while public inline-GIF search and
+  custom-emoji authoring remain composer polish.
 
 ### Forum notification quick-reply slice
 
@@ -147,6 +148,20 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   PID `90585` proved the UIKit sheet, exact three segments, 64 enabled emoji buttons, 16 non-Premium sticker buttons, 16 saved-GIF
   buttons, offscreen-safe navigation and Done return. Evidence: `.build/ui-probe-evidence/composer-media-picker-final-*`; no
   emoji/sticker/GIF was selected or sent.
+
+### Forward comment/draft slice
+
+- **P0 flow:** pre-Liquid/current forward destination comment state, adapted to the existing UIKit multi-recipient/topic picker and
+  TDLib `sendMessage(InputMessageText)` followed by `forwardMessages`.
+- Implemented: expanding formatted Add a comment field retained across topic drill-down/search/retry; keyboard-layout-guide attachment
+  with interactive dismissal and safe-area toolbar switching; Dynamic Type height refresh; comment snapshot at delivery start; exact
+  basic-message/private/paid/forum/closed/admin eligibility; account/client checks immediately before mutation; exact returned topic.
+  Each destination records the delivered `FormattedText`, so a failed forward retries without duplicating an unchanged successful
+  comment, while an edited comment is a new intent. Comment failure blocks that destination's forward; ambiguous/partial forwarding keeps
+  the existing nonretry policy, and controls re-enable with the comment intact.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-102642-93175-2531.log`; focused source/delta review clean. PID `93577`
+  reached the real message context menu, but idb omitted its Forward overlay action, so safe navigation to the comment field was blocked.
+  Evidence: `.build/ui-probe-evidence/forward-comment-final-*`; no comment or forward mutation occurred.
 
 ### Date and topic boundary slice
 
