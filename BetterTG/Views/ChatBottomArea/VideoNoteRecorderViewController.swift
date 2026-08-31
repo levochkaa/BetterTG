@@ -30,7 +30,7 @@ enum VideoNoteComposerState: Equatable {
 // MARK: - VideoNoteSubmissionResult
 
 enum VideoNoteSubmissionResult {
-    case enqueued
+    case enqueued(messageID: Int64?)
     case retained(VideoNoteAsset, originConsumed: Bool, message: String)
 }
 

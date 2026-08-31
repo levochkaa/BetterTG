@@ -735,19 +735,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         recorder.onSubmit = {
-            [weak chatVM] asset,
+            [weak self, weak chatVM] asset,
             thumbnail,
             originRecordingDraftID,
             storedReplyMessageID,
             storedReplyTo in
-            guard let chatVM else {
+            guard let self, let chatVM else {
                 return .retained(
                     asset,
                     originConsumed: false,
                     message: "The chat was closed before the video message could be sent.",
                 )
             }
-            return await chatVM.submitVideoNote(
+            let transitionID = UUID()
+            prepareComposerSendTransition(ComposerSendTransitionRequest(
+                id: transitionID,
+                kind: .videoNote,
+            ))
+            let result = await chatVM.submitVideoNote(
                 asset,
                 thumbnail: thumbnail,
                 originRecordingDraftID: originRecordingDraftID,
@@ -756,6 +761,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 storedReplyTo: storedReplyTo,
                 storedSendTopic: sendTopic,
             )
+            switch result {
+            case .enqueued(let messageID):
+                if let messageID {
+                    acceptComposerSendTransition(ComposerSendTransitionAcceptance(
+                        id: transitionID,
+                        messageIDs: [messageID],
+                    ))
+                } else {
+                    cancelComposerSendTransition(id: transitionID)
+                }
+            case .retained:
+                cancelComposerSendTransition(id: transitionID)
+            }
+            return result
         }
         recorder.onDismiss = { [weak self, weak recorder] in
             guard let self, let recorder, videoNoteRecorder === recorder else { return }

@@ -139,6 +139,7 @@ import UIKit
     private var outgoingVideoNotes = [Int64: VideoNoteSendDraft]()
     private var videoRetryAvailabilityTask: Task<Void, Never>?
     private var videoRetryTask: Task<Void, Never>?
+    private var videoSendTransitionIDs = [UUID: UUID]()
     private var registeringVideoMessageIDs = Set<Int64>()
     private var submittingVideoDraftIDs = Set<UUID>()
     private var bufferedVideoResolutions = [Int64: VideoNoteDraftResolution]()
@@ -172,6 +173,7 @@ import UIKit
     private var bufferedVoiceOutcomes = [Int64: VoiceNoteDraftResolution]()
     private var bufferedDeletedMessageIDs = Set<Int64>()
     private var voiceRetryAvailabilityTask: Task<Void, Never>?
+    private var voiceSendTransitionIDs = [UUID: UUID]()
     private var hasMoreMessages = true
     private var oldestHistoryMessageID: Int64?
 
@@ -1666,7 +1668,7 @@ import UIKit
             if let temporaryMessageID = draft.temporaryMessageID {
                 outgoingVideoNotes[temporaryMessageID] = draft
             }
-            return .enqueued
+            return .enqueued(messageID: draft.temporaryMessageID)
         }
         guard didBeginEnqueue else {
             return .retained(
@@ -1776,7 +1778,7 @@ import UIKit
                 )
             }
             await clearRouteDraftAfterMediaSend(draft.destination)
-            return .enqueued
+            return .enqueued(messageID: message.id)
         } catch is CancellationError {
             if didBeginEnqueue {
                 submittingVideoDraftIDs.remove(draft.id)
@@ -1818,6 +1820,7 @@ import UIKit
               let draft = pendingVideoNote,
               canRetryPendingVideoNote
         else { return }
+        beginVideoSendTransition(for: draft.id)
         retryingVideoNote = true
         videoRetryTask = Task { [weak self] in
             guard let self else { return }
@@ -1833,7 +1836,15 @@ import UIKit
                 storedReplyTo: draft.replyTo,
                 storedSendTopic: draft.sendTopic,
             )
-            if case .retained(_, _, let message) = result {
+            switch result {
+            case .enqueued(let messageID):
+                if let messageID {
+                    acceptVideoSendTransition(for: draft.id, messageID: messageID)
+                } else {
+                    cancelVideoSendTransition(for: draft.id)
+                }
+            case .retained(_, _, let message):
+                cancelVideoSendTransition(for: draft.id)
                 videoNoteErrorMessage = message
             }
         }
@@ -1845,6 +1856,7 @@ import UIKit
             return
         }
         guard let draft = pendingVideoNote else { return }
+        cancelVideoSendTransition(for: draft.id)
         pendingVideoNote = nil
         hasPendingVideoNote = false
         let knownReply = pendingVideoReplyMessage
@@ -1865,6 +1877,7 @@ import UIKit
             await VideoNoteFileStore.shared.discardAsset(at: asset.url)
             return
         }
+        cancelVideoSendTransition(for: draft.id)
         let knownReply = pendingVideoReplyMessage
         pendingVideoNote = nil
         pendingVideoReplyMessage = nil
@@ -2371,6 +2384,9 @@ import UIKit
         }
         recordingVoiceNoteURL = nil
         let recordingDraftID = voiceRecordingDraftID ?? activeVoiceRecordingDraft?.id
+        if let recordingDraftID {
+            cancelVoiceSendTransition(for: recordingDraftID)
+        }
         let recordingReply = pendingVoiceReplyMessage
         let recordingReplyTo = activeVoiceRecordingDraft?.replyTo ?? activeVoiceRecordingContext?.replyTo
         activeVoiceRecordingDraft = nil
@@ -2394,7 +2410,12 @@ import UIKit
     }
 
     func retryPendingVoiceNote() {
-        guard !loadingVoiceDraft, !finalizingVoiceNote, canRetryPendingVoiceNote else { return }
+        guard !loadingVoiceDraft,
+              !finalizingVoiceNote,
+              canRetryPendingVoiceNote,
+              let pendingVoiceNote
+        else { return }
+        beginVoiceSendTransition(for: pendingVoiceNote.id)
         startVoiceFinalization()
     }
 
@@ -2403,6 +2424,9 @@ import UIKit
         voiceFinalizeTask = nil
         finalizingVoiceNote = false
         let discardedDraft = pendingVoiceNote
+        if let discardedDraft {
+            cancelVoiceSendTransition(for: discardedDraft.id)
+        }
         let discardedReply = pendingVoiceReplyMessage
         pendingVoiceNote = nil
         pendingVoiceReplyMessage = nil
@@ -3402,6 +3426,7 @@ import UIKit
             materializeVoiceRecordingTrim(draft, continuation: .send)
             return
         }
+        beginVoiceSendTransition(for: draft.id)
         stopVoiceRecordingPreviewPlayback()
         voiceRecordingInteractionState = .pausing
         voiceRecordingDraftGeneration &+= 1
@@ -3465,6 +3490,7 @@ import UIKit
                     await VoiceNoteDraftStore.shared.remove(adoptedSendDraft)
                 }
                 guard voiceRecordingDraftGeneration == generation else { return }
+                cancelVoiceSendTransition(for: draft.id)
                 voiceRecordingDraftTask = nil
                 voiceRecordingInteractionState = .preview
                 voiceNoteErrorMessage = "Couldn’t prepare the voice preview for sending."
@@ -3649,8 +3675,12 @@ import UIKit
             Task { [weak self] in await self?.promoteNextPendingVoiceDraft() }
             return
         }
+        let draftID = UUID()
+        if sendWhenReady {
+            beginVoiceSendTransition(for: draftID)
+        }
         pendingVoiceNote = VoiceNoteSendDraft(
-            id: UUID(),
+            id: draftID,
             chatID: chatID,
             caption: FormattedText(entities: getEntities(from: text), text: text.string),
             createdAt: Foundation.Date(),
@@ -3748,6 +3778,7 @@ import UIKit
                     pendingVoiceNote = draft
                 }
                 guard sendWhenReady else {
+                    cancelVoiceSendTransition(for: draft.id)
                     activatePendingVoiceDraft(draft)
                     voiceNoteErrorMessage = pendingMessage ?? "Voice recording stopped before it could be sent."
                     #if DEBUG
@@ -3829,6 +3860,8 @@ import UIKit
                 pendingVoiceReplyMessage = nil
                 voiceRetryAvailabilityTask?.cancel()
                 hasPendingVoiceNote = false
+                await Task.yield()
+                acceptVoiceSendTransition(for: draft.id, messageID: message.id)
                 let registrationResolution = registration.flatMap { registration -> VoiceNoteDraftResolution? in
                     guard let outcome = registration.outcome else { return nil }
                     return VoiceNoteDraftResolution(
@@ -3851,8 +3884,10 @@ import UIKit
                     await clearRouteDraftAfterMediaSend(draft.destination)
                 }
             } catch is CancellationError {
+                cancelVoiceSendTransition(for: draft.id)
                 hasPendingVoiceNote = pendingVoiceNote != nil
             } catch {
+                cancelVoiceSendTransition(for: draft.id)
                 log("Voice note finalization failed: \(error)")
                 if draft.enqueueStartedAt != nil {
                     draft = await (try? VoiceNoteDraftStore.shared.markPending(
@@ -3870,6 +3905,44 @@ import UIKit
                 )
             }
         }
+    }
+
+    private func beginVoiceSendTransition(for draftID: UUID) {
+        if let previous = voiceSendTransitionIDs[draftID] {
+            sendTransitionCancelled.send(previous)
+        }
+        let id = UUID()
+        voiceSendTransitionIDs[draftID] = id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: id, kind: .voiceNote))
+    }
+
+    private func acceptVoiceSendTransition(for draftID: UUID, messageID: Int64) {
+        guard let id = voiceSendTransitionIDs.removeValue(forKey: draftID) else { return }
+        sendTransitionAccepted.send(ComposerSendTransitionAcceptance(id: id, messageIDs: [messageID]))
+    }
+
+    private func cancelVoiceSendTransition(for draftID: UUID) {
+        guard let id = voiceSendTransitionIDs.removeValue(forKey: draftID) else { return }
+        sendTransitionCancelled.send(id)
+    }
+
+    private func beginVideoSendTransition(for draftID: UUID) {
+        if let previous = videoSendTransitionIDs[draftID] {
+            sendTransitionCancelled.send(previous)
+        }
+        let id = UUID()
+        videoSendTransitionIDs[draftID] = id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: id, kind: .videoNote))
+    }
+
+    private func acceptVideoSendTransition(for draftID: UUID, messageID: Int64) {
+        guard let id = videoSendTransitionIDs.removeValue(forKey: draftID) else { return }
+        sendTransitionAccepted.send(ComposerSendTransitionAcceptance(id: id, messageIDs: [messageID]))
+    }
+
+    private func cancelVideoSendTransition(for draftID: UUID) {
+        guard let id = videoSendTransitionIDs.removeValue(forKey: draftID) else { return }
+        sendTransitionCancelled.send(id)
     }
 
     private func activatePendingVoiceDraft(_ draft: VoiceNoteSendDraft) {

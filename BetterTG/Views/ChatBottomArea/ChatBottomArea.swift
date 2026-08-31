@@ -171,6 +171,8 @@ final class ChatComposerView: UIView {
         case .videoNote, .voiceNote:
             if !recordingRow.isHidden {
                 sources.append(recordingRow)
+            } else if !actionButton.isHidden {
+                sources.append(actionButton)
             }
         }
         return sources.compactMap { source in
