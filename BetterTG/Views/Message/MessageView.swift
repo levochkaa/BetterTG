@@ -188,6 +188,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
     private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
+    private let selectionControl = UIControl()
+    private let selectionIndicatorView = MessageSelectionIndicatorView()
     private var bubbleWidthConstraint: NSLayoutConstraint!
     private lazy var bubbleTopConstraint = bubbleStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6)
     private lazy var bubbleLeadingConstraint = bubbleStack.leadingAnchor.constraint(
@@ -207,12 +209,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var centeredSpacerConstraint: NSLayoutConstraint?
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
+    private var onSelectionToggle: (() -> Void)?
     private var representedGalleryMessageIDs = Set<Int64>()
     private var mediaTransitionGeneration = UUID()
     private var swipeReplyThreshold: CGFloat = 45
     private var swipeReplyFeedbackArmed = true
     private var swipeReplyFeedback: UIImpactFeedbackGenerator?
     private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
+    private var selectionActive = false
+    private var selectionOutgoing = false
+    private var selectionCentered = false
     private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
         target: self,
         action: #selector(swipeToReply(_:)),
@@ -221,6 +227,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     var contextPreviewView: UIView { bubbleContainerView }
 
     private var bubbleView: UIView { bubbleContainerView.extractedContentView }
+
+    private var selectionRowTransform: CGAffineTransform {
+        selectionActive && !selectionOutgoing && !selectionCentered
+            ? CGAffineTransform(translationX: 42, y: 0)
+            : .identity
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -252,9 +264,17 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaTimestampLabel.isHidden = true
         onSwipeToReply = nil
         onMediaTap = nil
+        onSelectionToggle = nil
         representedGalleryMessageIDs.removeAll()
         mediaTransitionGeneration = UUID()
         swipeToReplyRecognizer.isEnabled = false
+        selectionActive = false
+        selectionOutgoing = false
+        selectionCentered = false
+        selectionControl.isHidden = true
+        selectionIndicatorView.isHidden = true
+        selectionIndicatorView.setSelected(false)
+        accessibilityTraits.remove(.selected)
         accessibilityCustomActions = nil
         resetSwipeToReply(animated: false)
         bubbleContentNeedsMeasurement = true
@@ -322,7 +342,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         client: TDLibClient,
         pollInteractionStore: MessagePollInteractionStore,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
+        selectionActive: Bool,
+        selected: Bool,
         onSwipeToReply: (() -> Void)?,
+        onSelectionToggle: (() -> Void)?,
         onMetadataNavigate: @escaping (MessageMetadataNavigationTarget) -> Void,
         onReplyQuoteExpand: @escaping () -> Void,
         onContentAction: @escaping (MessageContentAction) -> Void,
@@ -330,16 +353,23 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     ) {
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
+        self.onSelectionToggle = onSelectionToggle
         mediaTransitionGeneration = UUID()
         representedGalleryMessageIDs = message.album.isEmpty
             ? [message.id]
             : Set(message.album.map(\.id))
         swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
-        swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil
+        swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil && !selectionActive
         let presentation = message.contentPresentation
         configureAlignment(
             outgoing: message.message.isOutgoing,
             showsAvatar: chat.shouldShowProfileImage,
+            centered: presentation.isService,
+        )
+        configureSelection(
+            active: selectionActive,
+            selected: selected,
+            outgoing: message.message.isOutgoing,
             centered: presentation.isService,
         )
 
@@ -490,6 +520,23 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                     return true
                 })
         }
+        if selectionActive {
+            metadataAccessibilityActions.append(UIAccessibilityCustomAction(
+                name: selected ? "Deselect Message" : "Select Message",
+            ) { [weak self] _ in
+                self?.onSelectionToggle?()
+                return true
+            })
+            if selected {
+                accessibilityTraits.insert(.selected)
+            } else {
+                accessibilityTraits.remove(.selected)
+            }
+            accessibilityValue = selected ? "Selected" : "Not selected"
+        } else {
+            accessibilityTraits.remove(.selected)
+            accessibilityValue = nil
+        }
         accessibilityCustomActions = metadataAccessibilityActions
 
         bubbleContentNeedsMeasurement = true
@@ -512,6 +559,17 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         rowStack.alignment = .bottom
         rowStack.spacing = 5
         contentView.addSubview(rowStack)
+
+        selectionControl.translatesAutoresizingMaskIntoConstraints = false
+        selectionControl.isHidden = true
+        selectionControl.accessibilityIdentifier = "message-selection-control"
+        selectionControl.addTarget(self, action: #selector(selectionPressed), for: .touchUpInside)
+        contentView.addSubview(selectionControl)
+
+        selectionIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        selectionIndicatorView.isHidden = true
+        selectionIndicatorView.accessibilityIdentifier = "message-selection-indicator"
+        contentView.addSubview(selectionIndicatorView)
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -624,7 +682,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private func resetSwipeToReply(animated: Bool) {
         let changes = {
-            self.rowStack.transform = .identity
+            self.rowStack.transform = self.selectionRowTransform
             self.swipeToReplyIndicator.update(progress: 0)
         }
         guard animated else {
@@ -680,7 +738,63 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             bubbleLeadingConstraint,
             bubbleTrailingConstraint,
             bubbleBottomConstraint,
+            selectionControl.topAnchor.constraint(equalTo: contentView.topAnchor),
+            selectionControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            selectionControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            selectionControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            selectionIndicatorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6),
+            selectionIndicatorView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            selectionIndicatorView.widthAnchor.constraint(equalToConstant: 28),
+            selectionIndicatorView.heightAnchor.constraint(equalToConstant: 28),
         ])
+    }
+
+    private func configureSelection(
+        active: Bool,
+        selected: Bool,
+        outgoing: Bool,
+        centered: Bool,
+    ) {
+        let wasActive = selectionActive
+        selectionActive = active
+        selectionOutgoing = outgoing
+        selectionCentered = centered
+        selectionControl.isHidden = !active
+        selectionIndicatorView.setSelected(selected)
+        let targetTransform = selectionRowTransform
+        guard wasActive != active, window != nil else {
+            selectionIndicatorView.isHidden = !active
+            selectionIndicatorView.alpha = active ? 1 : 0
+            selectionIndicatorView.transform = .identity
+            rowStack.transform = targetTransform
+            return
+        }
+        selectionIndicatorView.isHidden = false
+        if active {
+            selectionIndicatorView.alpha = 0
+            selectionIndicatorView.transform = CGAffineTransform(translationX: -20, y: 0)
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+        ) {
+            self.selectionIndicatorView.alpha = active ? 1 : 0
+            self.selectionIndicatorView.transform = active
+                ? .identity
+                : CGAffineTransform(translationX: -20, y: 0)
+            self.rowStack.transform = targetTransform
+        } completion: { [weak self] _ in
+            guard let self, selectionActive == active else { return }
+            selectionIndicatorView.isHidden = !active
+            if !active {
+                selectionIndicatorView.transform = .identity
+            }
+        }
+    }
+
+    @objc private func selectionPressed() {
+        onSelectionToggle?()
     }
 
     private func configureAlignment(outgoing: Bool, showsAvatar: Bool, centered: Bool) {

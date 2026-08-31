@@ -568,6 +568,12 @@ import UIKit
     func deleteMessage(id: Int64, deleteForBoth: Bool) {
         guard let customMessage = messages.first(where: { $0.message.id == id }) else { return }
         let ids = customMessage.album.isEmpty ? [id] : customMessage.album.map(\.id)
+        deleteMessages(ids: ids, deleteForBoth: deleteForBoth)
+    }
+
+    func deleteMessages(ids rawIDs: [Int64], deleteForBoth: Bool) {
+        let ids = Array(Set(rawIDs)).sorted()
+        guard !ids.isEmpty else { return }
         for messageID in ids {
             outgoingVoiceNotes.removeValue(forKey: messageID)
             outgoingVideoNotes.removeValue(forKey: messageID)
@@ -589,7 +595,7 @@ import UIKit
             await promoteNextPendingVoiceDraft()
             await VideoNoteFileStore.shared.discardMessages(chatID: chatID, messageIDs: ids)
             await promoteNextPendingVideoDraft()
-            _ = try? await td.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
+            _ = try? await client.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
         }
     }
 

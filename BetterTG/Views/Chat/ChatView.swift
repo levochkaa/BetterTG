@@ -57,6 +57,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let customNavigationBar = TelegramChatNavigationBar()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
+    private let messageSelectionToolbar = MessageSelectionToolbar()
+    private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
     private let scrollToLatestButton = UIButton(type: .system)
     private let unreadBadgeLabel = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 11)
     private var scrollToLatestButtonVisible = false
@@ -85,11 +87,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var videoNoteReplyInput: InputMessageReplyTo?
     private var videoNoteChatActionActive = false
     private var restoredVideoRecordingDraftIDHandled: UUID?
+    private var selectedDisplayedMessageIDs = Set<Int64>()
+    private var isSelectingMessages = false
+    private var selectionCapabilityTask: Task<Void, Never>?
+    private var selectionCapabilityGeneration: UUID?
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
         let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
         gesture.onPressingChanged = { [weak self, weak gesture] pressing in
             guard let self, let gesture else { return }
+            guard !isSelectingMessages else {
+                restorePressedMessageSource()
+                return
+            }
             if pressing {
                 let point = gesture.location(in: collectionView)
                 guard let indexPath = collectionView.indexPathForItem(at: point),
@@ -123,6 +133,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 100
     }
 
+    private var selectedDisplayedMessages: [CustomMessage] {
+        chatVM.messages.filter { selectedDisplayedMessageIDs.contains($0.id) }
+    }
+
+    private var selectedSourceMessageIDs: [Int64] {
+        sourceMessageIDs(forDisplayedMessageIDs: selectedDisplayedMessageIDs)
+    }
+
+    private var selectionAccessibilityAnnouncement: String {
+        let bubbleCount = selectedDisplayedMessageIDs.count
+        let sourceCount = selectedSourceMessageIDs.count
+        if bubbleCount == sourceCount {
+            return sourceCount == 1 ? "1 message selected" : "\(sourceCount) messages selected"
+        }
+        return "\(bubbleCount) conversations selected, \(sourceCount) messages"
+    }
+
     init(
         customChat: CustomChat,
         presentationMode: PresentationMode = .full,
@@ -150,6 +177,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageNavigationTask?.cancel()
         metadataNavigationTask?.cancel()
         messageHighlightTask?.cancel()
+        selectionCapabilityTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -173,6 +201,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         guard presentationMode == .full else { return }
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        endMessageSelection()
         isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
         composerView.cancelActiveRecordingGesture()
@@ -215,6 +244,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight
+        messageSelectionToolbarHeightConstraint?.constant =
+            MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -350,6 +381,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func configureNavigationBar() {
         customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
         customNavigationBar.onBack = presentationMode == .full ? { NavigationStorage.shared.pop() } : nil
+        customNavigationBar.onSelectionCancel = { [weak self] in
+            self?.endMessageSelection()
+        }
         customNavigationBar.onSearchQueryChange = { [weak self] query in
             self?.searchMessages(query: query)
         }
@@ -476,8 +510,31 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             configureScrollToLatestButton(bottomAnchor: showsComposer
                 ? composerView.topAnchor
                 : view.safeAreaLayoutGuide.bottomAnchor)
+            configureMessageSelectionToolbar()
         }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    private func configureMessageSelectionToolbar() {
+        messageSelectionToolbar.translatesAutoresizingMaskIntoConstraints = false
+        messageSelectionToolbar.isHidden = true
+        messageSelectionToolbar.alpha = 0
+        messageSelectionToolbar.onDelete = { [weak self] in
+            self?.prepareSelectedMessagesForDeletion()
+        }
+        messageSelectionToolbar.onForward = { [weak self] in
+            self?.forwardSelectedMessages()
+        }
+        view.addSubview(messageSelectionToolbar)
+        messageSelectionToolbarHeightConstraint = messageSelectionToolbar.heightAnchor.constraint(
+            equalToConstant: MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom,
+        )
+        NSLayoutConstraint.activate([
+            messageSelectionToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            messageSelectionToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            messageSelectionToolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            messageSelectionToolbarHeightConstraint,
+        ])
     }
 
     private func confirmVoiceTrimAndResume() {
@@ -718,7 +775,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateScrollToLatestButtonVisibility(animated: Bool) {
         let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top > 160
-        let visible = isAwayFromLatest && !messageSearchActive
+        let visible = isAwayFromLatest && !messageSearchActive && !isSelectingMessages
         guard scrollToLatestButtonVisible != visible else { return }
         scrollToLatestButtonVisible = visible
         let changes = {
@@ -752,6 +809,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   ) as? MessageCell,
                   let message = message(for: messageID)
             else { return UICollectionViewCell() }
+            let messageSelectable = canSelectMessage(message)
             cell.configure(
                 message: message,
                 chat: chatVM.customChat,
@@ -759,22 +817,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 client: chatVM.client,
                 pollInteractionStore: chatVM.pollInteractionStore,
                 videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
-                onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
+                selectionActive: isSelectingMessages && messageSelectable,
+                selected: selectedDisplayedMessageIDs.contains(messageID),
+                onSwipeToReply: presentationMode == .full
+                    && !isSelectingMessages
+                    && message.properties.canBeReplied
                     ? { [weak self] in self?.chatVM.beginReply(to: message) }
                     : nil,
+                onSelectionToggle: isSelectingMessages && messageSelectable
+                    ? { [weak self] in self?.toggleMessageSelection(displayedMessageID: messageID) }
+                    : nil,
                 onMetadataNavigate: { [weak self] target in
-                    guard self?.presentationMode == .full else { return }
+                    guard self?.presentationMode == .full,
+                          self?.isSelectingMessages == false
+                    else { return }
                     self?.navigate(to: target)
                 },
                 onReplyQuoteExpand: { [weak self] in
                     self?.expandReplyQuote(for: message)
                 },
                 onContentAction: { [weak self] action in
-                    guard self?.presentationMode == .full else { return }
+                    guard self?.presentationMode == .full,
+                          self?.isSelectingMessages == false
+                    else { return }
                     self?.performContentAction(action)
                 },
                 onMediaTap: { [weak self] messages, selection in
-                    guard self?.presentationMode == .full else { return }
+                    guard self?.presentationMode == .full,
+                          self?.isSelectingMessages == false
+                    else { return }
                     self?.showMedia(messages, selection: selection)
                 },
             )
@@ -870,6 +941,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateSnapshot(animated: Bool) {
         guard isViewLoaded else { return }
         subscribeToMessages()
+        if isSelectingMessages {
+            let displayedIDs = Set(chatVM.messages.map(\.id))
+            selectedDisplayedMessageIDs.formIntersection(displayedIDs)
+            if selectedDisplayedMessageIDs.isEmpty {
+                endMessageSelection(reconfigure: false)
+            } else {
+                updateMessageSelectionChrome(reconfigureIDs: [])
+            }
+        }
         let shouldKeepLatestVisible = !didPerformInitialScroll || isNearLatest
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.messages])
@@ -924,7 +1004,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateHistoryInsets() {
         let visualBottomInset: CGFloat =
-            if messageSearchActive {
+            if isSelectingMessages, messageSelectionToolbar.frame.minY > 0 {
+                view.bounds.maxY - messageSelectionToolbar.frame.minY + 8
+            } else if messageSearchActive {
                 max(
                     view.safeAreaInsets.bottom,
                     view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
@@ -1505,7 +1587,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     @objc private func messageLongPressed(_ gesture: TelegramContextGestureRecognizer) {
-        guard gesture.state == .began else { return }
+        guard gesture.state == .began, !isSelectingMessages else { return }
         cancelHistoryPanGesture()
         let point = gesture.location(in: collectionView)
         guard let indexPath = collectionView.indexPathForItem(at: point),
@@ -1580,11 +1662,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.chatVM.setEditMessageText(from: message.message)
             })
         }
-        if let text = formattedText(from: message.message.content) {
+        if message.properties.canBeCopied,
+           let text = formattedText(from: message.message.content)
+        {
             elements.append(TelegramContextMenuAction(
                 title: "Copy",
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
             ) { UIPasteboard.setFormattedText(text) })
+        }
+        if canForwardMessageContent(message),
+           message.properties.canBeForwarded || message.properties.canBeCopied
+        {
+            elements.append(TelegramContextMenuAction(
+                title: "Forward",
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+                startsNewSection: true,
+            ) { [weak self] in
+                self?.presentForwardPicker(forDisplayedMessageIDs: [message.id])
+            })
+        }
+        if canSelectMessage(message) {
+            elements.append(TelegramContextMenuAction(
+                title: "Select",
+                image: UIImage(systemName: "checkmark.circle"),
+            ) { [weak self] in
+                self?.beginMessageSelection(with: message.id)
+            })
         }
 
         let deleteSelf = TelegramContextMenuAction(
@@ -1612,6 +1715,332 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             elements.append(deleteSelf)
         }
         return elements
+    }
+
+    private func beginMessageSelection(with displayedMessageID: Int64) {
+        guard presentationMode == .full,
+              let message = message(for: displayedMessageID),
+              canSelectMessage(message)
+        else { return }
+        view.endEditing(true)
+        isSelectingMessages = true
+        selectedDisplayedMessageIDs = [displayedMessageID]
+        messageContextGesture.isEnabled = false
+        composerView.setHiddenForSearch(true)
+        updateScrollToLatestButtonVisibility(animated: true)
+        messageSelectionToolbar.isHidden = false
+        messageSelectionToolbar.alpha = 0
+        messageSelectionToolbar.transform = CGAffineTransform(
+            translationX: 0,
+            y: MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom,
+        )
+        updateMessageSelectionChrome()
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+        ) {
+            self.messageSelectionToolbar.alpha = 1
+            self.messageSelectionToolbar.transform = .identity
+            self.view.layoutIfNeeded()
+        }
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: selectionAccessibilityAnnouncement,
+        )
+    }
+
+    private func toggleMessageSelection(displayedMessageID: Int64) {
+        guard isSelectingMessages,
+              let selectedMessage = message(for: displayedMessageID),
+              canSelectMessage(selectedMessage)
+        else { return }
+        selectionCapabilityTask?.cancel()
+        selectionCapabilityTask = nil
+        selectionCapabilityGeneration = nil
+        if selectedDisplayedMessageIDs.contains(displayedMessageID) {
+            selectedDisplayedMessageIDs.remove(displayedMessageID)
+        } else {
+            let proposedIDs = selectedDisplayedMessageIDs.union([displayedMessageID])
+            if sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count > 100 {
+                let alert = UIAlertController(
+                    title: "Selection Limit",
+                    message: MessageForwardingError.tooManyMessages(
+                        sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count,
+                    )
+                    .localizedDescription,
+                    preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                present(alert, animated: true)
+                return
+            }
+            selectedDisplayedMessageIDs.insert(selectedMessage.id)
+        }
+        if selectedDisplayedMessageIDs.isEmpty {
+            endMessageSelection()
+        } else {
+            updateMessageSelectionChrome(reconfigureIDs: [displayedMessageID])
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: selectionAccessibilityAnnouncement,
+            )
+        }
+    }
+
+    private func endMessageSelection(reconfigure: Bool = true) {
+        guard isSelectingMessages else { return }
+        selectionCapabilityTask?.cancel()
+        selectionCapabilityTask = nil
+        selectionCapabilityGeneration = nil
+        let previouslySelected = selectedDisplayedMessageIDs
+        isSelectingMessages = false
+        selectedDisplayedMessageIDs.removeAll()
+        messageContextGesture.isEnabled = presentationMode == .full
+        customNavigationBar.setSelectionCount(nil)
+        composerView.setHiddenForSearch(messageSearchActive)
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+        ) {
+            self.messageSelectionToolbar.alpha = 0
+            self.messageSelectionToolbar.transform = CGAffineTransform(
+                translationX: 0,
+                y: MessageSelectionToolbar.contentHeight + self.view.safeAreaInsets.bottom,
+            )
+        } completion: { [weak self] _ in
+            guard let self, !isSelectingMessages else { return }
+            messageSelectionToolbar.isHidden = true
+            messageSelectionToolbar.transform = .identity
+            view.setNeedsLayout()
+        }
+        if reconfigure {
+            reconfigureMessages(ids: Array(previouslySelected))
+        }
+        updateScrollToLatestButtonVisibility(animated: false)
+        view.setNeedsLayout()
+    }
+
+    private func updateMessageSelectionChrome(
+        reconfigureIDs: [Int64]? = nil,
+        isBusy: Bool = false,
+    ) {
+        guard isSelectingMessages else { return }
+        let sourceIDs = selectedSourceMessageIDs
+        let messages = selectedDisplayedMessages
+        let canForward = sourceIDs.count <= 100
+            && messages.allSatisfy { canForwardMessageContent($0) }
+            && (messages.allSatisfy(\.properties.canBeForwarded)
+                || messages.allSatisfy(\.properties.canBeCopied))
+        let canDelete = messages.allSatisfy {
+            $0.properties.canBeDeletedOnlyForSelf || $0.properties.canBeDeletedForAllUsers
+        }
+        customNavigationBar.setSelectionCount(sourceIDs.count)
+        messageSelectionToolbar.update(
+            selectedCount: sourceIDs.count,
+            canDelete: canDelete,
+            canForward: canForward,
+            isBusy: isBusy,
+        )
+        if let reconfigureIDs {
+            reconfigureMessages(ids: reconfigureIDs)
+        } else {
+            reconfigureMessages(ids: dataSource.snapshot().itemIdentifiers)
+        }
+        view.setNeedsLayout()
+    }
+
+    private func sourceMessageIDs(forDisplayedMessageIDs displayedIDs: Set<Int64>) -> [Int64] {
+        let sourceIDs = chatVM.messages
+            .filter { displayedIDs.contains($0.id) }
+            .flatMap { message in
+                message.album.isEmpty ? [message.id] : message.album.map(\.id)
+            }
+        return Array(Set(sourceIDs)).sorted()
+    }
+
+    private func canSelectMessage(_ message: CustomMessage) -> Bool {
+        !message.contentPresentation.isService && message.message.selfDestructType == nil
+    }
+
+    private func canForwardMessageContent(_ message: CustomMessage) -> Bool {
+        if case .messagePaidMedia = message.message.content {
+            false
+        } else {
+            true
+        }
+    }
+
+    private func reconfigureMessages(ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        var snapshot = dataSource.snapshot()
+        let existing = ids.filter { snapshot.indexOfItem($0) != nil }
+        guard !existing.isEmpty else { return }
+        snapshot.reconfigureItems(existing)
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
+    private func forwardSelectedMessages() {
+        presentForwardPicker(forDisplayedMessageIDs: selectedDisplayedMessageIDs)
+    }
+
+    private func presentForwardPicker(forDisplayedMessageIDs displayedIDs: Set<Int64>) {
+        guard presentationMode == .full,
+              presentedViewController == nil,
+              let accountID = TDLib.shared.activeAccountID,
+              TDLib.shared.activeClient.id == chatVM.client.id
+        else { return }
+        do {
+            let request = try MessageForwardRequest(
+                sourceChatID: chatVM.chatID,
+                messageIDs: sourceMessageIDs(forDisplayedMessageIDs: displayedIDs),
+            )
+            var seen = Set<Int64>()
+            let seedChats = RootVM.shared
+                .allFolders
+                .flatMap(\.chats)
+                .map(\.chat)
+                .filter { seen.insert($0.id).inserted }
+            let picker = ForwardMessagesViewController(
+                request: request,
+                client: chatVM.client,
+                accountID: accountID,
+                seedChats: seedChats,
+            )
+            picker.onFinished = { [weak self] _ in
+                self?.endMessageSelection()
+            }
+            let navigationController = UINavigationController(rootViewController: picker)
+            navigationController.modalPresentationStyle = .fullScreen
+            present(navigationController, animated: true)
+        } catch {
+            let alert = UIAlertController(
+                title: "Can't Forward",
+                message: (error as? LocalizedError)?.errorDescription
+                    ?? "The selected messages couldn't be forwarded.",
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+        }
+    }
+
+    private func prepareSelectedMessagesForDeletion() {
+        let sourceIDs = selectedSourceMessageIDs
+        guard isSelectingMessages,
+              !sourceIDs.isEmpty,
+              selectionCapabilityTask == nil
+        else { return }
+        updateMessageSelectionChrome(isBusy: true)
+        let client = chatVM.client
+        let accountID = TDLib.shared.activeAccountID
+        let generation = UUID()
+        selectionCapabilityGeneration = generation
+        selectionCapabilityTask = Task { [weak self] in
+            guard let self else { return }
+            var canDeleteForSelf = true
+            var canDeleteForAll = true
+            do {
+                for messageID in sourceIDs {
+                    try Task.checkCancellation()
+                    let properties = try await client.getMessageProperties(
+                        chatId: chatVM.chatID,
+                        messageId: messageID,
+                    )
+                    canDeleteForSelf = canDeleteForSelf && properties.canBeDeletedOnlyForSelf
+                    canDeleteForAll = canDeleteForAll && properties.canBeDeletedForAllUsers
+                }
+                guard selectedSourceMessageIDs == sourceIDs,
+                      selectionCapabilityGeneration == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else {
+                    throw MessageForwardingError.accountChanged
+                }
+                selectionCapabilityTask = nil
+                selectionCapabilityGeneration = nil
+                updateMessageSelectionChrome()
+                presentDeleteSelectedConfirmation(
+                    messageIDs: sourceIDs,
+                    canDeleteForSelf: canDeleteForSelf,
+                    canDeleteForAll: canDeleteForAll,
+                    accountID: accountID,
+                )
+            } catch is CancellationError {
+                guard selectionCapabilityGeneration == generation else { return }
+                selectionCapabilityTask = nil
+                selectionCapabilityGeneration = nil
+                updateMessageSelectionChrome()
+            } catch {
+                guard selectionCapabilityGeneration == generation else { return }
+                selectionCapabilityTask = nil
+                selectionCapabilityGeneration = nil
+                updateMessageSelectionChrome()
+                let alert = UIAlertController(
+                    title: "Can't Delete",
+                    message: "The selected messages couldn't be checked.",
+                    preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    private func presentDeleteSelectedConfirmation(
+        messageIDs: [Int64],
+        canDeleteForSelf: Bool,
+        canDeleteForAll: Bool,
+        accountID: UUID?,
+    ) {
+        guard canDeleteForSelf || canDeleteForAll else {
+            let alert = UIAlertController(
+                title: "Can't Delete",
+                message: "The selected messages can't be deleted together.",
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        let count = messageIDs.count
+        let alert = UIAlertController(
+            title: count == 1 ? "Delete Message?" : "Delete \(count) Messages?",
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
+        if canDeleteForSelf {
+            alert.addAction(UIAlertAction(title: "Delete for Me", style: .destructive) { [weak self] _ in
+                self?.deleteSelectedMessages(messageIDs, forBoth: false, accountID: accountID)
+            })
+        }
+        if canDeleteForAll {
+            alert.addAction(UIAlertAction(title: "Delete for Everyone", style: .destructive) { [weak self] _ in
+                self?.deleteSelectedMessages(messageIDs, forBoth: true, accountID: accountID)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = messageSelectionToolbar
+            popover.sourceRect = messageSelectionToolbar.bounds
+        }
+        present(alert, animated: true)
+    }
+
+    private func deleteSelectedMessages(
+        _ messageIDs: [Int64],
+        forBoth: Bool,
+        accountID: UUID?,
+    ) {
+        guard TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == chatVM.client.id
+        else {
+            endMessageSelection()
+            return
+        }
+        chatVM.deleteMessages(ids: messageIDs, deleteForBoth: forBoth)
+        endMessageSelection()
     }
 
     private func formattedText(from content: MessageContent) -> FormattedText? {

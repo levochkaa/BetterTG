@@ -173,6 +173,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     static let contentHeight: CGFloat = 44
 
     var onBack: (() -> Void)?
+    var onSelectionCancel: (() -> Void)?
     var onSearchQueryChange: ((String) -> Void)?
     var onSearchActiveChange: ((Bool) -> Void)?
 
@@ -187,7 +188,17 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let avatarView = ProfileAvatarView()
     private let searchField = UISearchTextField()
     private let closeButton = UIButton(type: .system)
+    private let selectionCancelButton = UIButton(type: .system)
     private var searchActive = false
+    private var selectionCount: Int?
+    private var backButtonExplicitlyHidden = false
+    private var regularTitleLeadingConstraint: NSLayoutConstraint!
+    private var regularTitleTrailingConstraint: NSLayoutConstraint!
+    private var selectionTitleLeadingConstraint: NSLayoutConstraint!
+    private var selectionTitleTrailingConstraint: NSLayoutConstraint!
+    private var configuredTitle = ""
+    private var configuredStatus = ""
+    private var configuredStatusColor = UIColor.secondaryLabel
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -199,11 +210,47 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     func configure(title: String, status: String, statusColor: UIColor) {
-        titleLabel.text = title
-        statusLabel.text = status
-        statusLabel.textColor = statusColor
-        statusLabel.isHidden = status.isEmpty
-        titleControl.accessibilityLabel = status.isEmpty ? title : "\(title), \(status)"
+        configuredTitle = title
+        configuredStatus = status
+        configuredStatusColor = statusColor
+        guard selectionCount == nil else { return }
+        applyTitle(title: title, status: status, statusColor: statusColor)
+    }
+
+    func setSelectionCount(_ count: Int?) {
+        if count != nil, searchActive {
+            endSearch()
+        }
+        selectionCount = count
+        if let count {
+            regularTitleLeadingConstraint.isActive = false
+            regularTitleTrailingConstraint.isActive = false
+            selectionTitleLeadingConstraint.isActive = true
+            selectionTitleTrailingConstraint.isActive = true
+            backButton.isHidden = true
+            selectionCancelButton.isHidden = false
+            avatarView.isHidden = true
+            titleControl.isUserInteractionEnabled = false
+            applyTitle(
+                title: count == 1 ? "1 Message Selected" : "\(count) Messages Selected",
+                status: "",
+                statusColor: .secondaryLabel,
+            )
+        } else {
+            selectionTitleLeadingConstraint.isActive = false
+            selectionTitleTrailingConstraint.isActive = false
+            regularTitleLeadingConstraint.isActive = true
+            regularTitleTrailingConstraint.isActive = true
+            backButton.isHidden = backButtonExplicitlyHidden
+            selectionCancelButton.isHidden = true
+            avatarView.isHidden = false
+            titleControl.isUserInteractionEnabled = true
+            applyTitle(
+                title: configuredTitle,
+                status: configuredStatus,
+                statusColor: configuredStatusColor,
+            )
+        }
     }
 
     func configureAvatar(
@@ -219,7 +266,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     func setBackButtonHidden(_ hidden: Bool) {
-        backButton.isHidden = hidden
+        backButtonExplicitlyHidden = hidden
+        if selectionCount == nil {
+            backButton.isHidden = hidden
+        }
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -228,7 +278,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     @objc func beginSearch() {
-        guard !searchActive else { return }
+        guard !searchActive, selectionCount == nil else { return }
         searchActive = true
         searchField.isHidden = false
         closeButton.isHidden = false
@@ -242,6 +292,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             self.searchField.alpha = 1
             self.closeButton.alpha = 1
         }
+    }
+
+    private func applyTitle(title: String, status: String, statusColor: UIColor) {
+        titleLabel.text = title
+        statusLabel.text = status
+        statusLabel.textColor = statusColor
+        statusLabel.isHidden = status.isEmpty
+        titleControl.accessibilityLabel = status.isEmpty ? title : "\(title), \(status)"
     }
 
     private func configureViews() {
@@ -307,11 +365,29 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         closeButton.addTarget(self, action: #selector(endSearch), for: .touchUpInside)
         addSubview(closeButton)
 
+        selectionCancelButton.translatesAutoresizingMaskIntoConstraints = false
+        selectionCancelButton.setTitle("Cancel", for: .normal)
+        selectionCancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        selectionCancelButton.accessibilityLabel = "Cancel Selection"
+        selectionCancelButton.isHidden = true
+        selectionCancelButton.addTarget(self, action: #selector(selectionCancelPressed), for: .touchUpInside)
+        addSubview(selectionCancelButton)
+
         let separator = UIView()
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.backgroundColor = .separator
         addSubview(separator)
 
+        regularTitleLeadingConstraint = titleControl.leadingAnchor.constraint(equalTo: backButton.trailingAnchor)
+        regularTitleTrailingConstraint = titleControl.trailingAnchor.constraint(equalTo: avatarView.leadingAnchor)
+        selectionTitleLeadingConstraint = titleControl.leadingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.leadingAnchor,
+            constant: 12,
+        )
+        selectionTitleTrailingConstraint = titleControl.trailingAnchor.constraint(
+            equalTo: selectionCancelButton.leadingAnchor,
+            constant: -4,
+        )
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -328,8 +404,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             avatarView.widthAnchor.constraint(equalToConstant: 34),
             avatarView.heightAnchor.constraint(equalToConstant: 34),
 
-            titleControl.leadingAnchor.constraint(equalTo: backButton.trailingAnchor),
-            titleControl.trailingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            regularTitleLeadingConstraint,
+            regularTitleTrailingConstraint,
             titleControl.topAnchor.constraint(equalTo: backButton.topAnchor),
             titleControl.bottomAnchor.constraint(equalTo: backButton.bottomAnchor),
             titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: titleControl.leadingAnchor, constant: 4),
@@ -341,6 +417,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             closeButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 38),
             closeButton.heightAnchor.constraint(equalToConstant: 38),
+            selectionCancelButton.trailingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.trailingAnchor,
+                constant: -4,
+            ),
+            selectionCancelButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            selectionCancelButton.widthAnchor.constraint(equalToConstant: 72),
+            selectionCancelButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
             searchField.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
@@ -353,7 +436,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         ])
     }
 
-    @objc private func backPressed() { onBack?() }
+    @objc private func backPressed() {
+        onBack?()
+    }
+
+    @objc private func selectionCancelPressed() {
+        onSelectionCancel?()
+    }
 
     @objc private func titleLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
