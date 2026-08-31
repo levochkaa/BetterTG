@@ -70,6 +70,7 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
     }
 
     private let accountID: UUID
+    private let accountUserID: Int64?
     private let client: TDLibClient
     private let source: Source
     private var basicGroupMembers: [ChatMember]
@@ -83,6 +84,7 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
     private var loadTask: Task<Void, Never>?
     private var resolutionTask: Task<Void, Never>?
     private var reloadTask: Task<Void, Never>?
+    private var tagPreparationTask: Task<Void, Never>?
     private var loadGeneration = UInt64.zero
     private var pendingAnchor: TableAnchor?
     private var snapshotApplyInProgress = false
@@ -101,8 +103,9 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
         }
     }
 
-    init(accountID: UUID, client: TDLibClient, source: Source, title: String) {
+    init(accountID: UUID, accountUserID: Int64?, client: TDLibClient, source: Source, title: String) {
         self.accountID = accountID
+        self.accountUserID = accountUserID
         self.client = client
         self.source = source
         self.basicGroupMembers =
@@ -126,6 +129,7 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
         loadTask?.cancel()
         resolutionTask?.cancel()
         reloadTask?.cancel()
+        tagPreparationTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -181,6 +185,54 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
         loadMore()
     }
 
+    override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard tagPreparationTask == nil,
+              contextIsCurrent,
+              let accountUserID,
+              let memberID = dataSource.itemIdentifier(for: indexPath),
+              case .user(let targetUserID) = memberID,
+              let title = rows[memberID]?.title
+        else { return }
+        tableView.isUserInteractionEnabled = false
+        tagPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let authority = try await PeerProfileMemberTagAuthority.resolve(
+                    accountID: accountID,
+                    accountUserID: accountUserID,
+                    chatID: source.chatID,
+                    targetUserID: targetUserID,
+                    client: client,
+                )
+                guard !Task.isCancelled, contextIsCurrent else { return }
+                tagPreparationTask = nil
+                tableView.isUserInteractionEnabled = true
+                let editor = PeerProfileMemberTagViewController(
+                    accountID: accountID,
+                    accountUserID: accountUserID,
+                    chatID: source.chatID,
+                    client: client,
+                    initialAuthority: authority,
+                    targetTitle: title,
+                    targetUserID: targetUserID,
+                )
+                editor.onSaved = { [weak self] in
+                    self?.scheduleReload()
+                }
+                navigationController?.pushViewController(editor, animated: true)
+            } catch is CancellationError {
+                tagPreparationTask = nil
+                tableView.isUserInteractionEnabled = true
+            } catch {
+                guard contextIsCurrent else { return }
+                tagPreparationTask = nil
+                tableView.isUserInteractionEnabled = true
+                presentTagError(error)
+            }
+        }
+    }
+
     private static func seed(for member: ChatMember) -> Seed {
         Seed(id: MemberID(member.memberId), role: role(for: member))
     }
@@ -227,9 +279,18 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
             content.secondaryTextProperties.color = .secondaryLabel
             content.prefersSideBySideTextAndSecondaryText = false
             cell.contentConfiguration = content
-            cell.selectionStyle = .none
+            let canInspectTag = accountUserID != nil && {
+                if case .user = id {
+                    true
+                } else {
+                    false
+                }
+            }()
+            cell.selectionStyle = canInspectTag ? .default : .none
+            cell.accessoryType = canInspectTag ? .disclosureIndicator : .none
             cell.isAccessibilityElement = true
             cell.accessibilityLabel = row.accessibilityLabel
+            cell.accessibilityHint = canInspectTag ? "Shows member tag controls" : nil
             return cell
         }
     }
@@ -458,10 +519,21 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
         loadTask?.cancel()
         resolutionTask?.cancel()
         reloadTask?.cancel()
+        tagPreparationTask?.cancel()
         loadTask = nil
         resolutionTask = nil
         reloadTask = nil
+        tagPreparationTask = nil
         tableView.isUserInteractionEnabled = false
+    }
+
+    private func presentTagError(_ error: Swift.Error) {
+        guard presentedViewController == nil else { return }
+        let message = (error as? LocalizedError)?.errorDescription
+            ?? "This member's tag can't be edited right now."
+        let alert = UIAlertController(title: "Can't Edit Tag", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 
     private func resetAndReload() {
@@ -505,6 +577,327 @@ func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
         )
         tableView.setContentOffset(CGPoint(x: 0, y: min(maximumY, max(minimumY, targetY))), animated: false)
         pendingAnchor = nil
+    }
+}
+
+// MARK: - PeerProfileMemberTagAuthority
+
+private struct PeerProfileMemberTagAuthority {
+    let baselineTag: String
+    let editorTitle: String
+
+    @MainActor static func resolve(
+        accountID: UUID,
+        accountUserID: Int64,
+        chatID: Int64,
+        targetUserID: Int64,
+        client: TDLibClient,
+    ) async throws -> Self {
+        guard TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { throw PeerProfileMemberTagError.accountChanged }
+        async let chatRequest = client.getChat(chatId: chatID)
+        async let actorRequest = client.getChatMember(
+            chatId: chatID,
+            memberId: .messageSenderUser(.init(userId: accountUserID)),
+        )
+        async let targetRequest = client.getChatMember(
+            chatId: chatID,
+            memberId: .messageSenderUser(.init(userId: targetUserID)),
+        )
+        let (chat, actor, target) = try await (chatRequest, actorRequest, targetRequest)
+        try Task.checkCancellation()
+        guard TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id,
+              chat.id == chatID,
+              target.memberId == .messageSenderUser(.init(userId: targetUserID))
+        else { throw PeerProfileMemberTagError.accountChanged }
+        switch chat.type {
+        case .chatTypeBasicGroup:
+            break
+        case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
+            break
+        case .chatTypePrivate, .chatTypeSecret, .chatTypeSupergroup:
+            throw PeerProfileMemberTagError.unsupportedChat
+        }
+        guard targetIsActive(target.status) else {
+            throw PeerProfileMemberTagError.inactiveMember
+        }
+        if targetUserID == accountUserID {
+            guard chat.permissions.canEditTag else { throw PeerProfileMemberTagError.permissionDenied }
+        } else {
+            let actorIsCreator: Bool
+            let actorCanManageTags: Bool
+            switch actor.status {
+            case .chatMemberStatusCreator:
+                actorIsCreator = true
+                actorCanManageTags = true
+            case .chatMemberStatusAdministrator(let administrator):
+                actorIsCreator = false
+                actorCanManageTags = administrator.rights.canManageTags
+            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
+                 .chatMemberStatusRestricted:
+                actorIsCreator = false
+                actorCanManageTags = false
+            }
+            guard actorCanManageTags else { throw PeerProfileMemberTagError.permissionDenied }
+            switch target.status {
+            case .chatMemberStatusCreator:
+                throw PeerProfileMemberTagError.permissionDenied
+            case .chatMemberStatusAdministrator(let administrator):
+                guard actorIsCreator || administrator.canBeEdited else {
+                    throw PeerProfileMemberTagError.permissionDenied
+                }
+            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
+                 .chatMemberStatusRestricted:
+                break
+            }
+        }
+        let editorTitle =
+            switch target.status {
+            case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+                "Edit Admin Title"
+            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
+                 .chatMemberStatusRestricted:
+                target.tag.isEmpty ? "Add Member Tag" : "Edit Member Tag"
+            }
+        return Self(baselineTag: target.tag, editorTitle: editorTitle)
+    }
+
+    private static func targetIsActive(_ status: ChatMemberStatus) -> Bool {
+        switch status {
+        case .chatMemberStatusAdministrator, .chatMemberStatusCreator, .chatMemberStatusMember:
+            true
+        case .chatMemberStatusRestricted(let restricted):
+            restricted.isMember
+        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+            false
+        }
+    }
+}
+
+// MARK: - PeerProfileMemberTagError
+
+private enum PeerProfileMemberTagError: LocalizedError {
+    case accountChanged
+    case inactiveMember
+    case invalidTag
+    case permissionDenied
+    case staleTag
+    case unsupportedChat
+
+    var errorDescription: String? {
+        switch self {
+        case .accountChanged:
+            "The active Telegram account changed."
+        case .inactiveMember:
+            "This user is no longer an active member."
+        case .invalidTag:
+            "Tags can contain up to 16 characters and can't contain emoji or line breaks."
+        case .permissionDenied:
+            "You no longer have permission to edit this member's tag."
+        case .staleTag:
+            "The tag changed elsewhere. Close this editor and try again."
+        case .unsupportedChat:
+            "Member tags are available only in groups and supergroups, not channels."
+        }
+    }
+}
+
+// MARK: - PeerProfileMemberTagViewController
+
+@MainActor private final class PeerProfileMemberTagViewController: UIViewController, UITextFieldDelegate {
+    var onSaved: (() -> Void)?
+
+    private let accountID: UUID
+    private let accountUserID: Int64
+    private let baselineTag: String
+    private let chatID: Int64
+    private let client: TDLibClient
+    private let targetUserID: Int64
+    private let targetTitle: String
+    private let textField = UITextField()
+    private let countLabel = UILabel()
+    private let errorLabel = UILabel()
+    private var saveTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
+
+    private var contextIsCurrent: Bool {
+        TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
+    }
+
+    init(
+        accountID: UUID,
+        accountUserID: Int64,
+        chatID: Int64,
+        client: TDLibClient,
+        initialAuthority: PeerProfileMemberTagAuthority,
+        targetTitle: String,
+        targetUserID: Int64,
+    ) {
+        self.accountID = accountID
+        self.accountUserID = accountUserID
+        self.baselineTag = initialAuthority.baselineTag
+        self.chatID = chatID
+        self.client = client
+        self.targetTitle = targetTitle
+        self.targetUserID = targetUserID
+        super.init(nibName: nil, bundle: nil)
+        title = initialAuthority.editorTitle
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    deinit { saveTask?.cancel() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "Save",
+            style: .plain,
+            target: self,
+            action: #selector(save),
+        )
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 12
+        view.addSubview(stack)
+        let targetLabel = UILabel()
+        targetLabel.font = .preferredFont(forTextStyle: .headline)
+        targetLabel.adjustsFontForContentSizeCategory = true
+        targetLabel.numberOfLines = 2
+        targetLabel.text = targetTitle
+        stack.addArrangedSubview(targetLabel)
+        textField.borderStyle = .roundedRect
+        textField.font = .preferredFont(forTextStyle: .body)
+        textField.adjustsFontForContentSizeCategory = true
+        textField.autocapitalizationType = .sentences
+        textField.autocorrectionType = .no
+        textField.clearButtonMode = .whileEditing
+        textField.placeholder = "Tag"
+        textField.text = baselineTag
+        textField.delegate = self
+        textField.addTarget(self, action: #selector(textChanged), for: .editingChanged)
+        stack.addArrangedSubview(textField)
+        countLabel.font = .preferredFont(forTextStyle: .footnote)
+        countLabel.adjustsFontForContentSizeCategory = true
+        countLabel.textColor = .secondaryLabel
+        countLabel.textAlignment = .right
+        stack.addArrangedSubview(countLabel)
+        errorLabel.font = .preferredFont(forTextStyle: .footnote)
+        errorLabel.adjustsFontForContentSizeCategory = true
+        errorLabel.textColor = .systemRed
+        errorLabel.numberOfLines = 0
+        errorLabel.isHidden = true
+        stack.addArrangedSubview(errorLabel)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+        ])
+        nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
+            guard let self, !contextIsCurrent else { return }
+            saveTask?.cancel()
+            saveTask = nil
+            view.isUserInteractionEnabled = false
+            navigationItem.rightBarButtonItem?.isEnabled = false
+        }
+        updateValidation()
+    }
+
+    private static func isValid(_ tag: String) -> Bool {
+        guard tag.count <= 16 else { return false }
+        return !tag.unicodeScalars.contains { scalar in
+            CharacterSet.controlCharacters.contains(scalar)
+                || scalar.properties.isEmojiPresentation
+                || scalar.value == 0x200D
+                || scalar.value == 0x20E3
+                || scalar.value == 0xFE0F
+                || 0x1F1E6...0x1F1FF ~= scalar.value
+                || scalar.properties.isEmoji && scalar.value > 0x7F
+        }
+    }
+
+    func textFieldShouldReturn(_: UITextField) -> Bool {
+        save()
+        return true
+    }
+
+    @objc private func textChanged() {
+        errorLabel.isHidden = true
+        updateValidation()
+    }
+
+    @objc private func save() {
+        let tag = textField.text ?? ""
+        guard saveTask == nil, contextIsCurrent, Self.isValid(tag) else {
+            if !Self.isValid(tag) {
+                showError(PeerProfileMemberTagError.invalidTag.localizedDescription)
+            }
+            return
+        }
+        if tag == baselineTag {
+            _ = navigationController?.popViewController(animated: true)
+            return
+        }
+        navigationItem.rightBarButtonItem?.isEnabled = false
+        view.endEditing(true)
+        errorLabel.isHidden = true
+        saveTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let authority = try await PeerProfileMemberTagAuthority.resolve(
+                    accountID: accountID,
+                    accountUserID: accountUserID,
+                    chatID: chatID,
+                    targetUserID: targetUserID,
+                    client: client,
+                )
+                guard authority.baselineTag == baselineTag else {
+                    throw PeerProfileMemberTagError.staleTag
+                }
+                guard !Task.isCancelled, contextIsCurrent else {
+                    throw PeerProfileMemberTagError.accountChanged
+                }
+                _ = try await client.setChatMemberTag(
+                    chatId: chatID,
+                    tag: tag,
+                    userId: targetUserID,
+                )
+                try Task.checkCancellation()
+                guard contextIsCurrent else { return }
+                saveTask = nil
+                navigationItem.rightBarButtonItem?.isEnabled = true
+                onSaved?()
+                _ = navigationController?.popViewController(animated: true)
+            } catch is CancellationError {
+                saveTask = nil
+                navigationItem.rightBarButtonItem?.isEnabled = true
+            } catch {
+                guard contextIsCurrent else { return }
+                saveTask = nil
+                navigationItem.rightBarButtonItem?.isEnabled = true
+                showError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func updateValidation() {
+        let tag = textField.text ?? ""
+        let count = tag.count
+        let valid = Self.isValid(tag)
+        countLabel.text = "\(count)/16"
+        countLabel.textColor = valid ? .secondaryLabel : .systemRed
+        navigationItem.rightBarButtonItem?.isEnabled = valid && saveTask == nil
+        textField.accessibilityValue = "\(count) of 16 characters"
+    }
+
+    private func showError(_ message: String) {
+        errorLabel.text = message
+        errorLabel.isHidden = false
+        UIAccessibility.post(notification: .announcement, argument: message)
     }
 }
 

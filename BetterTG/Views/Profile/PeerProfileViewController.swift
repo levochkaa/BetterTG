@@ -1529,6 +1529,7 @@ import UIKit
         }
         navigationController?.pushViewController(PeerProfileMembersViewController(
             accountID: accountID,
+            accountUserID: accountUserID,
             client: client,
             source: source,
             title: profileTitle(),
@@ -1541,6 +1542,7 @@ import UIKit
         case .group, .supergroup:
             navigationController?.pushViewController(PeerProfileMembersViewController(
                 accountID: accountID,
+                accountUserID: accountUserID,
                 client: client,
                 source: .administrators(chatID: customChat.id),
                 title: profileTitle(),
