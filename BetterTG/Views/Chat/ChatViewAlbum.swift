@@ -797,6 +797,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private let actionClient: TDLibClient?
     private let actionChatID: Int64?
     private let actionClientID: Int32?
+    private let actionSourceLocation: ChatLocation?
     private let requiredActionTopic: MediaGalleryTopicIdentity?
     private let actionRequiresTopicMatch: Bool
     private var selectedIndex: Int
@@ -832,6 +833,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var actionStatusText: String?
     private var exportTask: Task<Void, Never>?
     private var exportGeneration: UUID?
+    private var forwardTask: Task<Void, Never>?
+    private var forwardGeneration: UUID?
     private var openInChatTask: Task<Void, Never>?
     private var openInChatDismissalGeneration: UUID?
     private var openInChatGeneration: UUID?
@@ -874,6 +877,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               !didReleasePlaybackOwners,
               openInChatTask == nil,
               exportTask == nil,
+              forwardTask == nil,
               !isBeingDismissed,
               presentedViewController == nil,
               transitionCoordinator == nil,
@@ -905,6 +909,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         self.actionClient = actionClient
         self.actionChatID = sourceLocation?.chatID
         self.actionClientID = sourceLocation?.clientID
+        self.actionSourceLocation = sourceLocation
         self.requiredActionTopic = sourceLocation?.topic.map(MediaGalleryTopicIdentity.init)
         self.actionRequiresTopicMatch = sourceLocation?.topic != nil
         self.transitionSource = transitionSource
@@ -941,6 +946,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     deinit {
         openInChatTask?.cancel()
         exportTask?.cancel()
+        forwardTask?.cancel()
         statusResetTask?.cancel()
     }
 
@@ -995,6 +1001,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         super.viewWillDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
             cancelExport()
+            cancelForward()
             if openInChatDismissalGeneration == nil {
                 cancelOpenInChat()
             }
@@ -1152,6 +1159,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             || GalleryPictureInPictureCoordinator.shared.isRetaining(owner)
         {
             cancelExport()
+            cancelForward()
             cancelOpenInChat()
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
@@ -1254,13 +1262,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let previousIDs = messages.map(\.id)
         let updatedIDs = updatedMessages.map(\.id)
         if previousIDs == updatedIDs {
-            if exportTask != nil,
+            if exportTask != nil || forwardTask != nil,
                let selectedMessageID,
                let previous = messages.first(where: { $0.id == selectedMessageID }),
                let updated = updatedMessages.first(where: { $0.id == selectedMessageID }),
                previous != updated
             {
                 cancelExport()
+                cancelForward()
             }
             messages = updatedMessages
             if isViewLoaded {
@@ -1271,6 +1280,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let selectedMessageID = selectedMessageID
         if let selectedMessageID, !updatedIDs.contains(selectedMessageID) {
             cancelExport()
+            cancelForward()
             cancelOpenInChat()
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
@@ -1346,6 +1356,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func invalidateForContextChange(completion: @escaping () -> Void) {
         cancelExport()
+        cancelForward()
         cancelOpenInChat()
         contextWasInvalidated = true
         contextInvalidationCompletion = completion
@@ -1698,6 +1709,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             return
         }
         cancelExport()
+        cancelForward()
         cancelOpenInChat()
         clearActionStatus()
         if let previousCell = collectionView.cellForItem(
@@ -1805,6 +1817,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     @objc private func close() {
         cancelExport()
+        cancelForward()
         cancelOpenInChat()
         dismiss(animated: true)
     }
@@ -1967,10 +1980,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             : nil
         shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Still Photo" : "Share"
         let canOpen = hasActionContext && onOpenMessageID != nil
+        let canForward = hasActionContext && actionSourceLocation != nil
         let saveAsset = hasActionContext ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
         let canSave = saveAsset?.photosKind != nil
-        moreButton.isHidden = !canOpen && !canSave
-        guard canOpen || canSave else {
+        moreButton.isHidden = !canOpen && !canForward && !canSave
+        guard canOpen || canForward || canSave else {
             moreButton.menu = nil
             return
         }
@@ -1981,6 +1995,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
             ) { [weak self] _ in
                 self?.openSelectedMessageInChat()
+            })
+        }
+        if canForward {
+            actions.append(UIAction(
+                title: "Forward",
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+            ) { [weak self] _ in
+                self?.forwardSelectedMedia()
             })
         }
         if let saveAsset, saveAsset.photosKind != nil, let title = saveAsset.saveActionTitle {
@@ -1997,6 +2019,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func openSelectedMessageInChat() {
         guard openInChatTask == nil,
               exportTask == nil,
+              forwardTask == nil,
               presentedViewController == nil,
               hasCurrentContext,
               messages.indices.contains(selectedIndex),
@@ -2068,10 +2091,341 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    private func forwardSelectedMedia() {
+        guard forwardTask == nil,
+              exportTask == nil,
+              openInChatTask == nil,
+              openInChatDismissalGeneration == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              messages.indices.contains(selectedIndex),
+              let accountID = actionAccountID,
+              let client = actionClient,
+              let clientID = actionClientID,
+              let sourceLocation = actionSourceLocation,
+              sourceLocation.accountID == accountID,
+              sourceLocation.clientID == clientID,
+              client.id == clientID
+        else { return }
+        let selectedIdentity = MediaGalleryMessageIdentity(messages[selectedIndex])
+        guard selectedIdentity.chatID == sourceLocation.chatID else { return }
+        let generation = UUID()
+        forwardGeneration = generation
+        setActionBusy(true, source: .more)
+        UIAccessibility.post(notification: .announcement, argument: "Preparing media to forward")
+        forwardTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let selectedMessage = try await client.getMessage(
+                    chatId: selectedIdentity.chatID,
+                    messageId: selectedIdentity.messageID,
+                )
+                try Task.checkCancellation()
+                let resolvedIdentity = MediaGalleryMessageIdentity(selectedMessage)
+                try validateForwardContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: resolvedIdentity,
+                )
+                guard sourceLocation.matches(message: selectedMessage) else {
+                    throw MessageForwardingError.sourceMismatch
+                }
+                let albumMessageIDs = try await resolvedAlbumMessageIDs(
+                    selectedMessage: selectedMessage,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                )
+                try Task.checkCancellation()
+                try validateForwardContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: resolvedIdentity,
+                )
+                finishForward(generation: generation)
+                if albumMessageIDs.count > 1 {
+                    presentForwardChoice(
+                        selectedMessageID: selectedMessage.id,
+                        albumMessageIDs: albumMessageIDs,
+                        sourceLocation: sourceLocation,
+                        client: client,
+                        accountID: accountID,
+                    )
+                } else {
+                    presentForwardPicker(
+                        messageIDs: [selectedMessage.id],
+                        sourceLocation: sourceLocation,
+                        client: client,
+                        accountID: accountID,
+                    )
+                }
+            } catch is CancellationError {
+                finishForward(generation: generation)
+            } catch {
+                guard forwardGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishForward(generation: generation)
+                presentForwardError(error)
+            }
+        }
+    }
+
+    private func validateForwardContext(
+        accountID: UUID,
+        clientID: Int32,
+        generation: UUID,
+        selectedIdentity: MediaGalleryMessageIdentity,
+        resolvedIdentity: MediaGalleryMessageIdentity,
+    ) throws {
+        guard forwardGeneration == generation,
+              hasCurrentContext,
+              !isBeingDismissed,
+              selectedMessageID == selectedIdentity.messageID,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == clientID
+        else { throw MessageForwardingError.accountChanged }
+        guard resolvedIdentity == selectedIdentity || !actionRequiresTopicMatch,
+              resolvedIdentity.chatID == selectedIdentity.chatID,
+              resolvedIdentity.messageID == selectedIdentity.messageID,
+              !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
+        else { throw MessageForwardingError.sourceMismatch }
+    }
+
+    private func resolvedAlbumMessageIDs(
+        selectedMessage: Message,
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+    ) async throws -> [Int64] {
+        guard selectedMessage.mediaAlbumId != 0 else { return [selectedMessage.id] }
+        let windows = [(limit: 20, offset: -9), (limit: 40, offset: -19), (limit: 100, offset: -49)]
+        for window in windows {
+            let history: [Message]
+            do {
+                history = try await forwardHistoryWindow(
+                    sourceLocation: sourceLocation,
+                    fromMessageID: selectedMessage.id,
+                    limit: window.limit,
+                    offset: window.offset,
+                    client: client,
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
+            }
+            try Task.checkCancellation()
+            guard let selectedIndex = history.firstIndex(where: { $0.id == selectedMessage.id }) else { continue }
+            var lowerBound = selectedIndex
+            while lowerBound > history.startIndex {
+                let candidateIndex = history.index(before: lowerBound)
+                guard history[candidateIndex].mediaAlbumId == selectedMessage.mediaAlbumId else { break }
+                lowerBound = candidateIndex
+            }
+            var upperBound = selectedIndex
+            while upperBound < history.index(before: history.endIndex) {
+                let candidateIndex = history.index(after: upperBound)
+                guard history[candidateIndex].mediaAlbumId == selectedMessage.mediaAlbumId else { break }
+                upperBound = candidateIndex
+            }
+            let group = Array(history[lowerBound...upperBound])
+            guard group.allSatisfy({ sourceLocation.matches(message: $0) }) else { continue }
+            let hasNewerBoundary = lowerBound > history.startIndex
+            let hasOlderBoundary = upperBound < history.index(before: history.endIndex)
+            guard group.count == 10 || hasNewerBoundary && hasOlderBoundary else { continue }
+            let messageIDs = Array(Set(group.map(\.id))).sorted()
+            guard messageIDs.contains(selectedMessage.id), messageIDs.count <= 10 else { continue }
+            return messageIDs
+        }
+        return [selectedMessage.id]
+    }
+
+    private func forwardHistoryWindow(
+        sourceLocation: ChatLocation,
+        fromMessageID: Int64,
+        limit: Int,
+        offset: Int,
+        client: TDLibClient,
+    ) async throws -> [Message] {
+        let loaded: [Message] =
+            switch sourceLocation.topic {
+            case .messageTopicDirectMessages(let topic):
+                try await client.getDirectMessagesChatTopicHistory(
+                    chatId: sourceLocation.chatID,
+                    fromMessageId: fromMessageID,
+                    limit: limit,
+                    offset: offset,
+                    topicId: topic.directMessagesChatTopicId,
+                )
+                .messages ?? []
+            case .messageTopicForum(let topic):
+                try await client.getForumTopicHistory(
+                    chatId: sourceLocation.chatID,
+                    forumTopicId: topic.forumTopicId,
+                    fromMessageId: fromMessageID,
+                    limit: limit,
+                    offset: offset,
+                )
+                .messages ?? []
+            case .messageTopicSavedMessages(let topic):
+                try await client.getSavedMessagesTopicHistory(
+                    fromMessageId: fromMessageID,
+                    limit: limit,
+                    offset: offset,
+                    savedMessagesTopicId: topic.savedMessagesTopicId,
+                )
+                .messages ?? []
+            case .messageTopicThread(let topic):
+                try await client.getMessageThreadHistory(
+                    chatId: sourceLocation.chatID,
+                    fromMessageId: fromMessageID,
+                    limit: limit,
+                    messageId: topic.messageThreadId,
+                    offset: offset,
+                )
+                .messages ?? []
+            case nil:
+                try await client.getChatHistory(
+                    chatId: sourceLocation.chatID,
+                    fromMessageId: fromMessageID,
+                    limit: limit,
+                    offset: offset,
+                    onlyLocal: false,
+                )
+                .messages ?? []
+            }
+        return loaded.filter { sourceLocation.matches(message: $0) }
+    }
+
+    private func presentForwardChoice(
+        selectedMessageID: Int64,
+        albumMessageIDs: [Int64],
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+    ) {
+        guard hasCurrentContext,
+              presentedViewController == nil,
+              self.selectedMessageID == selectedMessageID,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        let alert = UIAlertController(
+            title: "Forward Media",
+            message: "Choose whether to forward only this item or all \(albumMessageIDs.count) items in the album.",
+            preferredStyle: .actionSheet,
+        )
+        alert.addAction(UIAlertAction(title: "This Item", style: .default) { [weak self, weak alert] _ in
+            alert?.dismiss(animated: true) { [weak self] in
+                self?.presentForwardPicker(
+                    messageIDs: [selectedMessageID],
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                )
+            }
+        })
+        alert.addAction(UIAlertAction(title: "All \(albumMessageIDs.count) Items", style: .default) { [
+            weak self,
+            weak alert,
+        ] _ in
+            alert?.dismiss(animated: true) { [weak self] in
+                self?.presentForwardPicker(
+                    messageIDs: albumMessageIDs,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                )
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.popoverPresentationController?.sourceView = moreButton
+        alert.popoverPresentationController?.sourceRect = moreButton.bounds
+        present(alert, animated: true)
+    }
+
+    private func presentForwardPicker(
+        messageIDs: [Int64],
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+    ) {
+        guard hasCurrentContext,
+              presentedViewController == nil,
+              messageIDs.contains(selectedMessageID ?? 0),
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        do {
+            let request = try MessageForwardRequest(
+                sourceLocation: sourceLocation,
+                messageIDs: messageIDs,
+            )
+            var seenChatIDs = Set<Int64>()
+            let seedChats = RootVM.shared
+                .allFolders
+                .flatMap(\.chats)
+                .map(\.chat)
+                .filter { seenChatIDs.insert($0.id).inserted }
+            visibleSelectedGalleryCell()?.setPlaybackVisible(false)
+            let picker = ForwardMessagesViewController(
+                request: request,
+                client: client,
+                accountID: accountID,
+                seedChats: seedChats,
+            )
+            picker.onFinished = { [weak self] destinationCount in
+                self?.showActionStatus(
+                    destinationCount == 1 ? "Forwarded to 1 chat" : "Forwarded to \(destinationCount) chats",
+                )
+            }
+            let navigationController = UINavigationController(rootViewController: picker)
+            navigationController.modalPresentationStyle = .fullScreen
+            present(navigationController, animated: true)
+        } catch {
+            presentForwardError(error)
+        }
+    }
+
+    private func cancelForward() {
+        forwardGeneration = nil
+        forwardTask?.cancel()
+        forwardTask = nil
+        if exportTask == nil,
+           openInChatTask == nil,
+           openInChatDismissalGeneration == nil,
+           isViewLoaded
+        {
+            setActionBusy(false)
+        }
+    }
+
+    private func finishForward(generation: UUID) {
+        guard forwardGeneration == generation else { return }
+        forwardGeneration = nil
+        forwardTask = nil
+        setActionBusy(false)
+    }
+
+    private func presentForwardError(_ error: Swift.Error) {
+        let message = (error as? LocalizedError)?.errorDescription
+            ?? "The selected media couldn't be prepared for forwarding."
+        UIAccessibility.post(notification: .announcement, argument: message)
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: "Can't Forward", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
     private func exportSelectedMedia(_ action: MediaGalleryExportAction) {
         guard exportTask == nil,
               openInChatTask == nil,
               openInChatDismissalGeneration == nil,
+              forwardTask == nil,
               presentedViewController == nil,
               hasCurrentContext,
               messages.indices.contains(selectedIndex),
@@ -2510,7 +2864,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         exportGeneration = nil
         exportTask?.cancel()
         exportTask = nil
-        if openInChatTask == nil, openInChatDismissalGeneration == nil, isViewLoaded {
+        if openInChatTask == nil,
+           openInChatDismissalGeneration == nil,
+           forwardTask == nil,
+           isViewLoaded
+        {
             setActionBusy(false)
         }
     }
@@ -2572,7 +2930,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         openInChatDismissalGeneration = nil
         openInChatTask?.cancel()
         openInChatTask = nil
-        if exportTask == nil, isViewLoaded {
+        if exportTask == nil, forwardTask == nil, isViewLoaded {
             setActionBusy(false)
         }
     }
