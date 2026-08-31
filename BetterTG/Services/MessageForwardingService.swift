@@ -186,6 +186,19 @@ enum MessageForwardingError: LocalizedError, Equatable {
             return localEligibility
         }
 
+        if case .chatTypeSupergroup(let supergroupChat) = chat.type {
+            do {
+                let supergroup = try await client.getSupergroup(
+                    supergroupId: supergroupChat.supergroupId,
+                )
+                if supergroup.isForum {
+                    return unavailable("Choose a forum topic before forwarding.")
+                }
+            } catch {
+                return unavailable("This chat couldn't be checked.")
+            }
+        }
+
         if case .chatTypePrivate(let privateChat) = chat.type {
             do {
                 switch try await client.canSendMessageToUser(onlyLocal: false, userId: privateChat.userId) {
@@ -209,6 +222,9 @@ enum MessageForwardingError: LocalizedError, Equatable {
         of chat: Chat,
         for prepared: PreparedMessageForward,
     ) -> MessageForwardDestinationEligibility {
+        if chat.viewAsTopics {
+            return unavailable("Choose a topic before forwarding.")
+        }
         if case .chatTypeSecret = chat.type {
             guard prepared.canCopyToSecretChat else {
                 return unavailable("One or more selected messages can't be copied to a Secret Chat.")

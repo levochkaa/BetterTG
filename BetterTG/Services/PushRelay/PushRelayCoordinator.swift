@@ -559,15 +559,47 @@ import UserNotifications
         }
 
         do {
-            let client = td
+            let client = TDLib.shared.activeClient
+            let accountID = TDLib.shared.activeAccountID
             let currentUser = try await client.getMe()
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
             guard route.accountId == nil || route.accountId == currentUser.id else {
                 log("Unable to send quick reply: notification belongs to another Telegram account")
                 return
             }
 
             let chat = try await chat(for: route, using: client)
-            guard await QuickReplyNotification.canSendText(to: chat, using: client) else {
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            if chat.viewAsTopics {
+                log("Unable to send quick reply: choose a forum topic in the app")
+                return
+            }
+            if case .chatTypeSupergroup(let supergroupChat) = chat.type {
+                let supergroup: Supergroup
+                do {
+                    supergroup = try await client.getSupergroup(
+                        supergroupId: supergroupChat.supergroupId,
+                    )
+                } catch {
+                    log("Unable to send quick reply: supergroup couldn't be checked")
+                    return
+                }
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                if supergroup.isForum {
+                    log("Unable to send quick reply: forum quick replies aren't topic-scoped yet")
+                    return
+                }
+            }
+            guard await QuickReplyNotification.canSendText(to: chat, using: client),
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else {
                 log("Unable to send quick reply: sending messages is no longer allowed")
                 return
             }
@@ -596,6 +628,9 @@ import UserNotifications
                 replyTo: replyTo,
                 topicId: nil,
             )
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
             if let messageId = route.tdlibMessageId {
                 _ = try? await client.viewMessages(
                     chatId: chat.id,
@@ -637,26 +672,43 @@ import UserNotifications
     private func open(route: PushNotificationRoute) {
         guard lastOpenedRoute != route else { return }
         lastOpenedRoute = route
+        let client = TDLib.shared.activeClient
+        let accountID = TDLib.shared.activeAccountID
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard self?.lastOpenedRoute == route else { return }
             self?.lastOpenedRoute = nil
         }
         Task {
             do {
-                let currentUser = try await td.getMe()
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                let currentUser = try await client.getMe()
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
                 guard route.accountId == nil || route.accountId == currentUser.id else { return }
-                let chat = try await chat(for: route, using: td)
-                let position = chat.positions.first ?? ChatPosition(
-                    isPinned: false,
-                    list: .chatListMain,
-                    order: 0,
-                    source: nil,
-                )
-                guard let customChat = await RootVM.shared.getCustomChat(from: chat, position: position) else {
-                    return
-                }
+                let chat = try await chat(for: route, using: client)
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id,
+                      let customChat = await RootVM.shared.getCustomChatForNavigation(
+                          from: chat.id,
+                          client: client,
+                      ),
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
                 NavigationStorage.shared.push(
-                    .customChat(customChat, targetMessageID: route.tdlibMessageId),
+                    .customChat(
+                        customChat,
+                        location: ChatLocation(
+                            accountID: accountID,
+                            chatID: chat.id,
+                            clientID: client.id,
+                            topic: nil,
+                        ),
+                        targetMessageID: route.tdlibMessageId,
+                    ),
                 )
             } catch {
                 log("Unable to open push route: \(error.localizedDescription)")

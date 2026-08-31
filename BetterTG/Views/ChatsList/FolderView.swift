@@ -227,15 +227,29 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     func tableView(_: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
-            guard let id = dataSource.itemIdentifier(for: indexPath), prefetchTasks[id] == nil else { continue }
+            guard let id = dataSource.itemIdentifier(for: indexPath),
+                  let chat = chat(for: id),
+                  prefetchTasks[id] == nil
+            else { continue }
             prefetchTasks[id] = Task { [weak self] in
-                _ = try? await td.getChatHistory(
-                    chatId: id,
-                    fromMessageId: 0,
-                    limit: 30,
-                    offset: 0,
-                    onlyLocal: false,
-                )
+                if chat.chat.viewAsTopics {
+                    let _: ForumTopics? = try? await td.getForumTopics(
+                        chatId: id,
+                        limit: 30,
+                        offsetDate: 0,
+                        offsetForumTopicId: 0,
+                        offsetMessageId: 0,
+                        query: "",
+                    )
+                } else {
+                    let _: Messages? = try? await td.getChatHistory(
+                        chatId: id,
+                        fromMessageId: 0,
+                        limit: 30,
+                        offset: 0,
+                        onlyLocal: false,
+                    )
+                }
                 await MainActor.run { self?.prefetchTasks[id] = nil }
             }
         }
@@ -498,7 +512,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
               let chat = chat(for: chatID),
               let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
         else { return }
-        let previewController = ChatViewController(customChat: chat, presentationMode: .contextPreview)
+        let previewController = chat.chat.viewAsTopics
+            ? nil
+            : ChatViewController(customChat: chat, presentationMode: .contextPreview)
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: menu(for: chat),

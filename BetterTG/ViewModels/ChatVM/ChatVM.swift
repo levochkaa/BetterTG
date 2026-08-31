@@ -50,6 +50,7 @@ import UIKit
     let customChat: CustomChat
     nonisolated let chatID: Int64
     nonisolated let accountID: UUID?
+    nonisolated let location: ChatLocation
     let client: TDLibClient
     let metadataResolver: MessageMetadataResolver
     let pollInteractionStore = MessagePollInteractionStore()
@@ -88,8 +89,9 @@ import UIKit
     @Published private(set) var pinnedMessage: Message?
     @Published private(set) var locallyHiddenPinnedMessageID: Int64?
     @Published var pinErrorMessage: String?
+    @Published private(set) var forumTopic: ForumTopic?
+    @Published private(set) var forumTopicInfo: ForumTopicInfo?
     @Published var errorShown = false
-
     var loadingMessagesTask: Task<Void, Never>?
     var cancellables = Set<AnyCancellable>()
     var timer: Timer?
@@ -103,6 +105,8 @@ import UIKit
     }
 
     var metadataRefreshGenerations = [Int64: UUID]()
+
+    private let chatOpenLease: ChatOpenLease
 
     private var voiceRecordingTimerBaseline = 0.0
     private var voiceRecordingLastRecorderTime = 0.0
@@ -134,6 +138,7 @@ import UIKit
     private var pinMutationGenerations = [Int64: UUID]()
     private var pinAuthoritativeRevisions = [Int64: UInt64]()
     private var pinnedMessageAuthoritativeRevision = UInt64.zero
+    private var forumTopicTask: Task<Void, Never>?
     private let previewing: Bool
 
     private var pendingVoiceNote: VoiceNoteSendDraft?
@@ -154,9 +159,20 @@ import UIKit
 
     var supportsPinnedMessages: Bool {
         !previewing
+            && !location.isTopicScoped
             && customChat.supergroup?.isForum != true
             && customChat.supergroup?.isDirectMessagesGroup != true
             && !customChat.chat.viewAsTopics
+    }
+
+    var isReadOnlyTopic: Bool {
+        location.isTopicScoped
+    }
+
+    var locationContextIsCurrent: Bool {
+        TDLib.shared.activeAccountID == location.accountID
+            && TDLib.shared.activeClient.id == location.clientID
+            && client.id == location.clientID
     }
 
     var pendingVoiceReplyMessageID: Int64? {
@@ -325,14 +341,30 @@ import UIKit
         return nil
     }
 
-    init(customChat: CustomChat, previewing: Bool = false) {
+    init(
+        customChat: CustomChat,
+        location: ChatLocation? = nil,
+        forumTopic: ForumTopic? = nil,
+        previewing: Bool = false,
+    ) {
         let client = td
+        let resolvedLocation = location ?? ChatLocation.current(
+            chatID: customChat.id,
+            client: client,
+        )
         self.customChat = customChat
-        self.chatID = customChat.id
-        self.accountID = TDLib.shared.activeAccountID
+        self.chatID = resolvedLocation.chatID
+        self.accountID = resolvedLocation.accountID
+        self.location = resolvedLocation
         self.client = client
+        self.chatOpenLease = ChatOpenLeaseCoordinator.shared.acquire(
+            location: resolvedLocation,
+            client: client,
+        )
         self.metadataResolver = MessageMetadataResolver(client: client)
         self.previewing = previewing
+        self.forumTopic = forumTopic
+        self.forumTopicInfo = forumTopic?.info
         self.canAddReactions = customChat.chat.permissions.canReactToMessages
         self.maximumChosenReactionCount =
             customChat.chat.availableReactions.maximumChosenReactionCount
@@ -341,11 +373,13 @@ import UIKit
             self.onlineStatus = getOnlineStatus(from: user.status)
         }
 
-        try? client.openChat(chatId: customChat.chat.id) { _ in }
         setPublishers()
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
+        if isReadOnlyTopic, forumTopicInfo == nil {
+            loadForumTopic()
+        }
         if supportsPinnedMessages {
             refreshPinnedMessages()
         }
@@ -354,13 +388,14 @@ import UIKit
         }
 
         if !previewing,
+           !isReadOnlyTopic,
            let draftMessage = customChat.draftMessage,
            case .draftMessageContentText(let draftMessageContentText) = draftMessage.content
         {
             self.text = getAttributedString(from: draftMessageContentText.text)
         }
 
-        let draftMessage = previewing ? nil : customChat.draftMessage
+        let draftMessage = previewing || isReadOnlyTopic ? nil : customChat.draftMessage
         Task { [weak self] in
             guard let self, let draftMessage else { return }
             let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
@@ -368,7 +403,7 @@ import UIKit
         }
         Task { [weak self] in
             guard let self else { return }
-            guard !previewing else {
+            guard !previewing, !isReadOnlyTopic else {
                 self.loadingVoiceDraft = false
                 return
             }
@@ -439,6 +474,7 @@ import UIKit
         videoRetryTask?.cancel()
         reactionMutationTasks.values.forEach { $0.cancel() }
         pinnedMessageTask?.cancel()
+        forumTopicTask?.cancel()
         pinMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
@@ -452,7 +488,7 @@ import UIKit
         if let recordingVoiceNoteURL {
             try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
         }
-        try? td.closeChat(chatId: chatID) { _ in }
+        chatOpenLease.invalidate()
         if !previewing {
             Media.shared.onChatDismiss()
         }
@@ -504,14 +540,15 @@ import UIKit
     }
 
     func _loadMessages(fromMessageID: Int64) async {
-        guard let chatHistory = try? await td.getChatHistory(
-            chatId: customChat.chat.id,
+        guard locationContextIsCurrent else {
+            loadingMessagesTask = nil
+            return
+        }
+        guard let chatHistory = await loadHistory(
             fromMessageId: fromMessageID,
             limit: 30,
             offset: 0,
-            onlyLocal: false,
-        )
-        .messages else {
+        ) else {
             await main { self.loadingMessagesTask = nil }
             return
         }
@@ -544,9 +581,14 @@ import UIKit
         }
         
         await main { [savedMessages] in
+            guard self.locationContextIsCurrent else {
+                self.loadingMessagesTask = nil
+                return
+            }
             let existingIDs = Set(self.messages.map(\.id))
-            self.messages.append(contentsOf: savedMessages.filter { !existingIDs.contains($0.id) })
-            self.hasMoreMessages = chatHistory.count == 30
+            let newMessages = savedMessages.filter { !existingIDs.contains($0.id) }
+            self.messages.append(contentsOf: newMessages)
+            self.hasMoreMessages = !chatHistory.isEmpty && !newMessages.isEmpty
             self.loadingMessagesTask = nil
         }
     }
@@ -558,25 +600,24 @@ import UIKit
     }
 
     func prepareMessageWindow(around id: Int64) async -> PreparedMessageWindow? {
+        guard locationContextIsCurrent else { return nil }
         let windowSize = 50
-        var history = await (try? td.getChatHistory(
-            chatId: chatID,
+        var history = await loadHistory(
             fromMessageId: id,
             limit: windowSize,
             offset: -(windowSize / 2),
-            onlyLocal: false,
-        )
-        .messages) ?? []
-        guard !Task.isCancelled else { return nil }
+        ) ?? []
+        guard !Task.isCancelled, locationContextIsCurrent else { return nil }
         if !history.contains(where: { $0.id == id }),
-           let target = try? await td.getMessage(chatId: chatID, messageId: id)
+           let target = try? await client.getMessage(chatId: chatID, messageId: id),
+           location.matches(message: target)
         {
             history.append(target)
         }
-        guard !history.isEmpty else { return nil }
+        guard !history.isEmpty, locationContextIsCurrent else { return nil }
 
         let loaded = await history.asyncMap { await getCustomMessage(from: $0) }
-        guard !Task.isCancelled else { return nil }
+        guard !Task.isCancelled, locationContextIsCurrent else { return nil }
         var grouped = [CustomMessage]()
         for message in loaded {
             let albumID = message.message.mediaAlbumId
@@ -622,6 +663,7 @@ import UIKit
     }
 
     func deleteMessages(ids rawIDs: [Int64], deleteForBoth: Bool) {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         let ids = Array(Set(rawIDs)).sorted()
         guard !ids.isEmpty else { return }
         for messageID in ids {
@@ -645,6 +687,7 @@ import UIKit
             await promoteNextPendingVoiceDraft()
             await VideoNoteFileStore.shared.discardMessages(chatID: chatID, messageIDs: ids)
             await promoteNextPendingVideoDraft()
+            guard locationContextIsCurrent else { return }
             _ = try? await client.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
         }
     }
@@ -672,14 +715,24 @@ import UIKit
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            _ = try? await client.readAllChatReactions(chatId: chatID)
+            _ =
+                if let forumTopicID = location.forumTopicID {
+                    try? await client.readAllForumTopicReactions(
+                        chatId: chatID,
+                        forumTopicId: forumTopicID,
+                    )
+                } else {
+                    try? await client.readAllChatReactions(chatId: chatID)
+                }
         }
     }
 
     func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         let client = client
         Task {
             do {
+                guard locationContextIsCurrent else { return }
                 _ = try await client.setPollAnswer(
                     chatId: chatID,
                     messageId: messageID,
@@ -812,6 +865,42 @@ import UIKit
         maximumChosenReactionCount = availableReactions.maximumChosenReactionCount
     }
 
+    func updateForumTopicInfo(_ info: ForumTopicInfo) {
+        guard info.chatId == location.chatID,
+              info.forumTopicId == location.forumTopicID
+        else { return }
+        forumTopicInfo = info
+    }
+
+    func loadForumTopic() {
+        guard let forumTopicID = location.forumTopicID else { return }
+        forumTopicTask?.cancel()
+        let client = client
+        let accountID = accountID
+        forumTopicTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let topic = try await client.getForumTopic(
+                    chatId: location.chatID,
+                    forumTopicId: forumTopicID,
+                )
+                guard !Task.isCancelled,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                forumTopic = topic
+                forumTopicInfo = topic.info
+                forumTopicTask = nil
+            } catch {
+                guard !Task.isCancelled,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                forumTopicTask = nil
+            }
+        }
+    }
+
     func refreshPinnedMessages() {
         guard supportsPinnedMessages else { return }
         pinnedMessageGeneration &+= 1
@@ -938,7 +1027,9 @@ import UIKit
     }
     
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
-        guard let message = try? await client.getMessage(chatId: customChat.chat.id, messageId: id) else { return nil }
+        guard let message = try? await client.getMessage(chatId: customChat.chat.id, messageId: id),
+              location.matches(message: message)
+        else { return nil }
         return await getCustomMessage(from: message)
     }
     
@@ -982,6 +1073,7 @@ import UIKit
     }
 
     func sendMessage() async {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         if !displayedImages.isEmpty {
             await sendMessagePhotos()
         } else if canEditMessage {
@@ -1002,10 +1094,12 @@ import UIKit
     }
     
     func sendMessagePhotos() async {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         try? await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
         
         if displayedImages.count == 1, let photo = displayedImages.first {
-            _ = try? await td.sendMessage(
+            guard locationContextIsCurrent else { return }
+            _ = try? await client.sendMessage(
                 chatId: customChat.chat.id,
                 inputMessageContent: makeInputMessageContent(for: photo.url),
                 options: nil,
@@ -1018,7 +1112,8 @@ import UIKit
             for image in displayedImages {
                 await messageContents.append(makeInputMessageContent(for: image.url))
             }
-            _ = try? await td.sendMessageAlbum(
+            guard locationContextIsCurrent else { return }
+            _ = try? await client.sendMessageAlbum(
                 chatId: customChat.chat.id,
                 inputMessageContents: messageContents,
                 options: nil,
@@ -1065,7 +1160,8 @@ import UIKit
     }
     
     func sendMessageText() async {
-        _ = try? await td.sendMessage(
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
+        _ = try? await client.sendMessage(
             chatId: customChat.chat.id,
             inputMessageContent: .inputMessageText(
                 .init(
@@ -1094,6 +1190,13 @@ import UIKit
         storedReplyMessageID: Int64? = nil,
         storedReplyTo: InputMessageReplyTo? = nil,
     ) async -> VideoNoteSubmissionResult {
+        guard !isReadOnlyTopic, locationContextIsCurrent else {
+            return .retained(
+                asset,
+                originConsumed: false,
+                message: "This topic is read-only.",
+            )
+        }
         var draft: VideoNoteSendDraft
         var alreadyEnqueued = false
         var didBeginEnqueue = false
@@ -1142,13 +1245,15 @@ import UIKit
 
         do {
             try Task.checkCancellation()
+            guard locationContextIsCurrent else { throw CancellationError() }
             try? await tdSendChatAction(.chatActionUploadingVideoNote(.init(progress: 0)))
             pendingVideoNote = draft
             submittingVideoDraftIDs.insert(draft.id)
             let message: Message
             if let failedSendState = draft.failedSendState {
                 guard failedSendState.canRetryNow else { throw CancellationError() }
-                let resent = try await td.resendMessages(
+                guard locationContextIsCurrent else { throw CancellationError() }
+                let resent = try await client.resendMessages(
                     chatId: chatID,
                     messageIds: [failedSendState.messageID],
                     paidMessageStarCount: 0,
@@ -1372,11 +1477,12 @@ import UIKit
     }
 
     func editMessage() async {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         guard let message = editCustomMessage?.message else { return }
         
         switch message.content {
         case .messageText:
-            _ = try? await td.editMessageText(
+            _ = try? await client.editMessageText(
                 chatId: customChat.chat.id,
                 inputMessageContent:
                 .inputMessageText(
@@ -1393,7 +1499,7 @@ import UIKit
                 replyMarkup: nil,
             )
         case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
-            _ = try? await td.editMessageCaption(
+            _ = try? await client.editMessageCaption(
                 caption: FormattedText(
                     entities: getEntities(from: editMessageText),
                     text: editMessageText.string,
@@ -1409,6 +1515,7 @@ import UIKit
     }
     
     func updateDraft() async {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         let draftMessage = DraftMessage(
             content: .draftMessageContentText(
                 .init(
@@ -1424,7 +1531,7 @@ import UIKit
             replyTo: getMessageReplyTo(from: replyMessage),
             suggestedPostInfo: nil,
         )
-        _ = try? await td.setChatDraftMessage(
+        _ = try? await client.setChatDraftMessage(
             chatId: customChat.chat.id,
             draftMessage: draftMessage,
             topicId: nil,
@@ -1485,7 +1592,8 @@ import UIKit
     }
     
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
-        try await td.sendChatAction(
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
+        try await client.sendChatAction(
             action: chatAction,
             businessConnectionId: nil,
             chatId: customChat.chat.id,
@@ -1494,6 +1602,7 @@ import UIKit
     }
     
     @MainActor func mediaStartRecordingVoice() async -> Bool {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return false }
         guard !loadingVoiceDraft,
               !startingVoiceNote,
               !recordingVoiceNote,
@@ -1782,6 +1891,36 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func loadHistory(
+        fromMessageId: Int64,
+        limit: Int,
+        offset: Int,
+    ) async -> [Message]? {
+        guard locationContextIsCurrent else { return nil }
+        let loaded: [Message]? =
+            if let forumTopicID = location.forumTopicID {
+                try? await client.getForumTopicHistory(
+                    chatId: location.chatID,
+                    forumTopicId: forumTopicID,
+                    fromMessageId: fromMessageId,
+                    limit: limit,
+                    offset: offset,
+                )
+                .messages
+            } else {
+                try? await client.getChatHistory(
+                    chatId: location.chatID,
+                    fromMessageId: fromMessageId,
+                    limit: limit,
+                    offset: offset,
+                    onlyLocal: false,
+                )
+                .messages
+            }
+        guard locationContextIsCurrent else { return nil }
+        return loaded?.filter { location.matches(message: $0) }
+    }
+
     private func setMessagePinned(
         _ message: CustomMessage,
         pinned: Bool,
@@ -2003,14 +2142,16 @@ import UIKit
     }
 
     private func sendMessageVideoNote(_ draft: VideoNoteSendDraft) async throws -> Message {
+        guard locationContextIsCurrent else { throw CancellationError() }
         let thumbnail = await VideoNoteFileStore.shared.inputThumbnail(for: draft)
+        guard locationContextIsCurrent else { throw CancellationError() }
         let inputVideoNote = InputVideoNote(
             duration: min(60, max(1, Int(draft.duration))),
             length: min(640, max(1, draft.length)),
             thumbnail: thumbnail,
             videoNote: .inputFileLocal(.init(path: draft.fileURL.path(percentEncoded: false))),
         )
-        return try await td.sendMessage(
+        return try await client.sendMessage(
             chatId: chatID,
             inputMessageContent: .inputMessageVideoNote(
                 .init(selfDestructType: nil, videoNote: inputVideoNote),
@@ -2563,7 +2704,8 @@ import UIKit
     }
 
     private func sendMessageVoiceNote(fileURL: URL, draft: VoiceNoteSendDraft) async throws -> Message {
-        let message = try await td.sendMessage(
+        guard locationContextIsCurrent else { throw CancellationError() }
+        let message = try await client.sendMessage(
             chatId: customChat.chat.id,
             inputMessageContent: .inputMessageVoiceNote(
                 .init(
@@ -2630,7 +2772,8 @@ import UIKit
                     guard failedSendState.canRetryNow else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
-                    let resentMessages = try await td.resendMessages(
+                    guard locationContextIsCurrent else { throw CancellationError() }
+                    let resentMessages = try await client.resendMessages(
                         chatId: chatID,
                         messageIds: [failedSendState.messageID],
                         paidMessageStarCount: 0,

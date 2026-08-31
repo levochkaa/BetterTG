@@ -9,6 +9,8 @@ import TDLibKitDynamic
 enum Route {
     case customChat(
         CustomChat,
+        location: ChatLocation? = nil,
+        forumTopic: ForumTopic? = nil,
         targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil,
     )

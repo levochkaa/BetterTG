@@ -7,15 +7,18 @@ import TDLibKitDynamic
 extension ChatVM {
     func setPublishers() {
         nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             customChat.unreadCount = update.unreadCount
         }
         nc.publisher(&cancellables, for: .updateNewMessage) { [weak self] update in
-            guard let self, update.message.chatId == customChat.id else { return }
+            guard let self,
+                  locationContextIsCurrent,
+                  location.matches(message: update.message)
+            else { return }
             updateNewMessage(update)
         }
         nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
-            guard let self else { return }
+            guard let self, locationContextIsCurrent else { return }
             if update.chatId == customChat.id {
                 updateDeleteMessages(update)
                 if !update.fromCache,
@@ -35,7 +38,7 @@ extension ChatVM {
             }
         }
         nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
-            guard let self else { return }
+            guard let self, locationContextIsCurrent else { return }
             if update.chatId == customChat.id {
                 updateMessageEdited(update)
                 if TDLib.shared.activeAccountID == accountID,
@@ -48,7 +51,7 @@ extension ChatVM {
             refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
         }
         nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
-            guard let self else { return }
+            guard let self, locationContextIsCurrent else { return }
             if update.chatId == customChat.id {
                 refreshMessage(id: update.messageId)
                 if TDLib.shared.activeAccountID == accountID,
@@ -97,16 +100,39 @@ extension ChatVM {
             else { return }
             updateAvailableReactions(update.availableReactions)
         }
+        nc.publisher(&cancellables, for: .updateForumTopicInfo) { [weak self] update in
+            guard let self,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            updateForumTopicInfo(update.info)
+        }
+        nc.publisher(&cancellables, for: .updateForumTopic) { [weak self] update in
+            guard let self,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id,
+                  update.chatId == location.chatID,
+                  update.forumTopicId == location.forumTopicID
+            else { return }
+            loadForumTopic()
+        }
         nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
-            guard let self, update.message.chatId == customChat.id else { return }
+            guard let self,
+                  locationContextIsCurrent,
+                  location.matches(message: update.message)
+            else { return }
             updateMessageSendSucceeded(update)
         }
         nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
-            guard let self, update.message.chatId == customChat.id else { return }
+            guard let self,
+                  locationContextIsCurrent,
+                  location.matches(message: update.message)
+            else { return }
             updateMessageSendFailed(update)
         }
         nc.publisher(&cancellables, for: .voiceNoteDraftResolved) { [weak self] notification in
             guard let self,
+                  locationContextIsCurrent,
                   let resolution = notification.object as? VoiceNoteDraftResolution,
                   resolution.chatID == customChat.id
             else { return }
@@ -114,17 +140,18 @@ extension ChatVM {
         }
         nc.publisher(&cancellables, for: .videoNoteDraftResolved) { [weak self] notification in
             guard let self,
+                  locationContextIsCurrent,
                   let resolution = notification.object as? VideoNoteDraftResolution,
                   resolution.chatID == customChat.id
             else { return }
             handleVideoNoteDraftResolution(resolution)
         }
         nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
-            guard let self, update.userId == customChat.user?.id else { return }
+            guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }
             onlineStatus = getOnlineStatus(from: update.status)
         }
         nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
-            guard let self else { return }
+            guard let self, locationContextIsCurrent else { return }
             metadataResolver.update(user: update.user)
             for message in messages {
                 if message.senderUser?.id == update.user.id {
@@ -134,17 +161,21 @@ extension ChatVM {
             refreshReferencedMetadata(userID: update.user.id)
         }
         nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
-            guard let self else { return }
+            guard let self, locationContextIsCurrent else { return }
             metadataResolver.invalidateChat(id: update.chatId)
             refreshReferencedMetadata(chatID: update.chatId)
         }
         nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
-            guard let self else { return }
+            guard let self, locationContextIsCurrent else { return }
             metadataResolver.invalidateChat(id: update.chatId)
             refreshReferencedMetadata(chatID: update.chatId)
         }
         nc.publisher(&cancellables, for: .updateChatAction) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
+            guard let self,
+                  locationContextIsCurrent,
+                  update.chatId == customChat.id,
+                  location.topic == nil || update.topicId == location.topic
+            else { return }
             updateChatAction(update)
         }
     }

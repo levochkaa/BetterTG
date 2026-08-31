@@ -44,6 +44,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let presentationMode: PresentationMode
     private let targetMessageID: Int64?
     private let targetQuote: MessageQuoteHighlight?
+    private let location: ChatLocation
     private let chatVM: ChatVM
     private let tdlib: TDLib
     private let historyContainerView = UIView()
@@ -133,7 +134,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pressedMessageSourceTransform = CGAffineTransform.identity
 
     private var showsComposer: Bool {
-        presentationMode == .full && chatVM.customChat.canPostMessages
+        presentationMode == .full
+            && !location.isTopicScoped
+            && chatVM.customChat.canPostMessages
     }
 
     private var isNearLatest: Bool {
@@ -159,13 +162,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     init(
         customChat: CustomChat,
+        location: ChatLocation? = nil,
+        forumTopic: ForumTopic? = nil,
         presentationMode: PresentationMode = .full,
         targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil,
         tdlib: TDLib = .shared,
     ) {
+        let resolvedLocation = location ?? ChatLocation.current(
+            chatID: customChat.id,
+            client: tdlib.activeClient,
+        )
         self.presentationMode = presentationMode
-        self.chatVM = ChatVM(customChat: customChat, previewing: presentationMode == .contextPreview)
+        self.location = resolvedLocation
+        self.chatVM = ChatVM(
+            customChat: customChat,
+            location: resolvedLocation,
+            forumTopic: forumTopic,
+            previewing: presentationMode == .contextPreview,
+        )
         self.targetMessageID = targetMessageID
         self.targetQuote = targetQuote
         self.tdlib = tdlib
@@ -213,7 +228,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
         composerView.cancelActiveRecordingGesture()
-        Task { [chatVM] in await chatVM.updateDraft() }
+        if !chatVM.isReadOnlyTopic {
+            Task { [chatVM] in await chatVM.updateDraft() }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -849,6 +866,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 selected: selectedDisplayedMessageIDs.contains(messageID),
                 onSwipeToReply: presentationMode == .full
                     && !isSelectingMessages
+                    && !chatVM.isReadOnlyTopic
                     && message.properties.canBeReplied
                     ? { [weak self] in self?.chatVM.beginReply(to: message) }
                     : nil,
@@ -858,7 +876,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 onReactionTap: { [weak self] type in
                     guard let self,
                           presentationMode == .full,
-                          !isSelectingMessages
+                          !isSelectingMessages,
+                          !chatVM.isReadOnlyTopic
                     else { return }
                     chatVM.toggleReaction(on: message, type: type, isBig: false)
                 },
@@ -896,7 +915,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     updateStatus()
-                    composerView.update(from: chatVM)
+                    if showsComposer {
+                        composerView.update(from: chatVM)
+                    }
                     updateHighlightState()
                     updatePinnedMessageBanner(animated: true)
                     presentMicrophoneErrorIfNeeded()
@@ -936,10 +957,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
-        let status = chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
+        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        let status =
+            if chatVM.isReadOnlyTopic {
+                chatVM.forumTopicInfo?.isClosed == true
+                    ? "Closed topic · Read-only"
+                    : "\(chatVM.customChat.displayTitle) · Read-only"
+            } else {
+                chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
+            }
         let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: chatVM.customChat.displayTitle,
+            title: title,
             status: status,
             statusColor: statusColor,
         )
@@ -963,14 +992,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateStatus() {
-        let status = chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
+        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        let status =
+            if chatVM.isReadOnlyTopic {
+                chatVM.forumTopicInfo?.isClosed == true
+                    ? "Closed topic · Read-only"
+                    : "\(chatVM.customChat.displayTitle) · Read-only"
+            } else {
+                chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
+            }
         let statusColor: UIColor = !chatVM.actionStatus.isEmpty || status == "online" ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: chatVM.customChat.displayTitle,
+            title: title,
             status: status,
             statusColor: statusColor,
         )
-        let unreadCount = chatVM.customChat.unreadCount
+        let unreadCount = chatVM.isReadOnlyTopic
+            ? (chatVM.forumTopic?.unreadCount ?? 0)
+            : chatVM.customChat.unreadCount
         unreadBadgeLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
         unreadBadgeLabel.isHidden = unreadCount == 0
         scrollToLatestButton.accessibilityValue = unreadCount == 0 ? nil : "\(unreadCount) unread"
@@ -1276,7 +1315,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         pendingQuoteDestination = nil
         switch target {
         case .message(let chatID, let messageID, let quote) where chatID == chatVM.chatID:
-            scrollToMessage(id: messageID, quote: quote)
+            if location.isTopicScoped {
+                navigateToMessageInCurrentChat(messageID: messageID, quote: quote)
+            } else {
+                scrollToMessage(id: messageID, quote: quote)
+            }
         case .message(let chatID, let messageID, let quote):
             openMetadataChat(chatID: chatID, targetMessageID: messageID, quote: quote)
         case .chat(let chatID) where chatID == chatVM.chatID:
@@ -1307,6 +1350,48 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 NavigationStorage.shared.push(.customChat(customChat))
                 metadataNavigationTask = nil
             }
+        }
+    }
+
+    private func navigateToMessageInCurrentChat(
+        messageID: Int64,
+        quote: MessageQuoteHighlight?,
+    ) {
+        let client = chatVM.client
+        let currentLocation = location
+        metadataNavigationTask = Task { [weak self] in
+            guard let self else { return }
+            let message = try? await client.getMessage(
+                chatId: currentLocation.chatID,
+                messageId: messageID,
+            )
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == currentLocation.accountID,
+                  TDLib.shared.activeClient.id == currentLocation.clientID,
+                  let message
+            else { return }
+            if currentLocation.matches(message: message) {
+                scrollToMessage(id: messageID, quote: quote)
+                metadataNavigationTask = nil
+                return
+            }
+            guard case .messageTopicForum(let forumTopic) = message.topicId,
+                  let topic = try? await client.getForumTopic(
+                      chatId: currentLocation.chatID,
+                      forumTopicId: forumTopic.forumTopicId,
+                  )
+            else {
+                presentMetadataUnavailable()
+                return
+            }
+            NavigationStorage.shared.push(.customChat(
+                chatVM.customChat,
+                location: currentLocation.withForumTopic(id: forumTopic.forumTopicId),
+                forumTopic: topic,
+                targetMessageID: messageID,
+                targetQuote: quote,
+            ))
+            metadataNavigationTask = nil
         }
     }
 
@@ -1570,18 +1655,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
             guard let self, !Task.isCancelled else { return }
-            let result = try? await td.searchChatMessages(
-                chatId: chatVM.customChat.id,
+            let client = chatVM.client
+            let location = chatVM.location
+            let result = try? await client.searchChatMessages(
+                chatId: location.chatID,
                 filter: nil,
                 fromMessageId: 0,
                 limit: 50,
                 offset: 0,
                 query: normalizedQuery,
                 senderId: nil,
-                topicId: nil,
+                topicId: location.topic,
             )
-            guard !Task.isCancelled else { return }
-            let firstID = result?.messages.first?.id
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == location.accountID,
+                  TDLib.shared.activeClient.id == location.clientID
+            else { return }
+            let firstID = result?.messages.first(where: { location.matches(message: $0) })?.id
             customNavigationBar.setSearchResultFound(firstID != nil)
             if let firstID {
                 scrollToMessage(id: firstID)
@@ -1768,6 +1858,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func menu(for message: CustomMessage) -> [TelegramContextMenuAction] {
+        if chatVM.isReadOnlyTopic {
+            var readOnlyActions = [TelegramContextMenuAction]()
+            if message.properties.canBeCopied,
+               let text = formattedText(from: message.message.content)
+            {
+                readOnlyActions.append(TelegramContextMenuAction(
+                    title: "Copy",
+                    image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+                ) { UIPasteboard.setFormattedText(text) })
+            }
+            return readOnlyActions
+        }
         var elements = [TelegramContextMenuAction]()
         if message.properties.canBeReplied {
             elements
