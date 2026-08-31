@@ -19,7 +19,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
 
     // MARK: Private
 
-    private let placeholder: String
+    private var placeholder: String
     private let placeholderLabel = UILabel()
     private var lastWidth = CGFloat.zero
     private var isPastingText = false
@@ -115,6 +115,12 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         isApplyingValue = false
         updatePlaceholder()
         invalidateIntrinsicContentSize()
+    }
+
+    func setPlaceholder(_ value: String) {
+        guard placeholder != value else { return }
+        placeholder = value
+        updatePlaceholder()
     }
 
     func textViewDidChange(_: UITextView) {

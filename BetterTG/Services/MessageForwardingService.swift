@@ -6,10 +6,36 @@ import TDLibKitDynamic
 // MARK: - MessageForwardRequest
 
 struct MessageForwardRequest: Equatable {
-    let sourceChatID: Int64
+    let sourceLocation: ChatLocation?
     let messageIDs: [Int64]
 
+    private let legacySourceChatID: Int64
+
+    var sourceChatID: Int64 {
+        sourceLocation?.chatID ?? legacySourceChatID
+    }
+
     init(sourceChatID: Int64, messageIDs: [Int64]) throws {
+        try self.init(
+            sourceLocation: nil,
+            legacySourceChatID: sourceChatID,
+            messageIDs: messageIDs,
+        )
+    }
+
+    init(sourceLocation: ChatLocation, messageIDs: [Int64]) throws {
+        try self.init(
+            sourceLocation: sourceLocation,
+            legacySourceChatID: sourceLocation.chatID,
+            messageIDs: messageIDs,
+        )
+    }
+
+    private init(
+        sourceLocation: ChatLocation?,
+        legacySourceChatID: Int64,
+        messageIDs: [Int64],
+    ) throws {
         let normalizedIDs = Array(Set(messageIDs)).sorted()
         guard !normalizedIDs.isEmpty else {
             throw MessageForwardingError.emptySelection
@@ -17,7 +43,8 @@ struct MessageForwardRequest: Equatable {
         guard normalizedIDs.count <= 100 else {
             throw MessageForwardingError.tooManyMessages(normalizedIDs.count)
         }
-        self.sourceChatID = sourceChatID
+        self.sourceLocation = sourceLocation
+        self.legacySourceChatID = legacySourceChatID
         self.messageIDs = normalizedIDs
     }
 }
@@ -106,6 +133,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
     case excludedProduct
     case partialDelivery(sent: Int, expected: Int)
     case protectedMessages
+    case sourceMismatch
     case tooManyMessages(Int)
     case unsupportedMode
 
@@ -123,6 +151,8 @@ enum MessageForwardingError: LocalizedError, Equatable {
             "TDLib forwarded \(sent) of \(expected) selected messages."
         case .protectedMessages:
             "One or more selected messages can't be forwarded or copied."
+        case .sourceMismatch:
+            "One or more selected messages no longer belong to this topic."
         case .tooManyMessages(let count):
             "Select no more than 100 messages. \(count) are currently selected."
         case .unsupportedMode:
@@ -138,6 +168,12 @@ enum MessageForwardingError: LocalizedError, Equatable {
         request: MessageForwardRequest,
         client: TDLibClient,
     ) async throws -> PreparedMessageForward {
+        if let sourceLocation = request.sourceLocation {
+            guard TDLib.shared.activeAccountID == sourceLocation.accountID,
+                  TDLib.shared.activeClient.id == sourceLocation.clientID,
+                  client.id == sourceLocation.clientID
+            else { throw MessageForwardingError.accountChanged }
+        }
         var canForward = true
         var canCopy = true
         var canCopyToSecretChat = true
@@ -154,6 +190,15 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 messageId: messageID,
             )
             let (resolvedProperties, resolvedMessage) = try await (properties, message)
+            if let sourceLocation = request.sourceLocation {
+                guard TDLib.shared.activeAccountID == sourceLocation.accountID,
+                      TDLib.shared.activeClient.id == sourceLocation.clientID,
+                      client.id == sourceLocation.clientID
+                else { throw MessageForwardingError.accountChanged }
+                guard sourceLocation.matches(message: resolvedMessage) else {
+                    throw MessageForwardingError.sourceMismatch
+                }
+            }
             if case .messagePaidMedia = resolvedMessage.content {
                 throw MessageForwardingError.excludedProduct
             }

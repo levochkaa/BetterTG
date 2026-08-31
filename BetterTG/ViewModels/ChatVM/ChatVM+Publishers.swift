@@ -91,7 +91,7 @@ extension ChatVM {
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            updateReactionPermission(update.permissions.canReactToMessages)
+            updateChatPermissions(update.permissions)
         }
         nc.publisher(&cancellables, for: .updateChatAvailableReactions) { [weak self] update in
             guard let self, update.chatId == customChat.id,
@@ -99,6 +99,14 @@ extension ChatVM {
                   TDLib.shared.activeClient.id == client.id
             else { return }
             updateAvailableReactions(update.availableReactions)
+        }
+        nc.publisher(&cancellables, for: .updateSupergroup) { [weak self] update in
+            guard let self,
+                  locationContextIsCurrent,
+                  update.supergroup.id == customChat.supergroup?.id
+            else { return }
+            customChat.type = .supergroup(update.supergroup)
+            objectWillChange.send()
         }
         nc.publisher(&cancellables, for: .updateForumTopicInfo) { [weak self] update in
             guard let self,

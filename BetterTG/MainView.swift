@@ -146,6 +146,77 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureAutomatedSmokeRoute() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-smoke-forum-topic-write") {
+            let client = TDLib.shared.activeClient
+            let accountID = TDLib.shared.activeAccountID
+            rootVM.$folders
+                .compactMap { folders -> [CustomChat]? in
+                    let chats = folders.lazy.flatMap(\.chats)
+                    var seen = Set<Int64>()
+                    let forums = Array(chats.filter { chat in
+                        seen.insert(chat.id).inserted && chat.supergroup?.isForum == true
+                    })
+                    return forums.isEmpty ? nil : forums
+                }
+                .first()
+                .receive(on: DispatchQueue.main)
+                .sink { forums in
+                    Task { @MainActor in
+                        for chat in forums {
+                            guard TDLib.shared.activeAccountID == accountID,
+                                  TDLib.shared.activeClient.id == client.id
+                            else { return }
+                            guard let page = try? await client.getForumTopics(
+                                chatId: chat.id,
+                                limit: 100,
+                                offsetDate: 0,
+                                offsetForumTopicId: 0,
+                                offsetMessageId: 0,
+                                query: "",
+                            ) else { continue }
+                            let canManageTopics = chat.adminRights?.canManageTopics == true
+                                || {
+                                    if case .chatMemberStatusCreator = chat.supergroup?.status {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }()
+                            guard chat.chat.permissions.canSendBasicMessages,
+                                  let topic = page.topics.first(where: { topic in
+                                      let restricted = topic.info.isClosed || topic.info.isHidden
+                                      return !restricted || topic.info.isOutgoing || canManageTopics
+                                  })
+                            else { continue }
+                            guard TDLib.shared.activeAccountID == accountID,
+                                  TDLib.shared.activeClient.id == client.id
+                            else { return }
+                            NavigationStorage.shared.push(
+                                .customChat(
+                                    chat,
+                                    location: ChatLocation.current(
+                                        chatID: chat.id,
+                                        topic: .messageTopicForum(.init(
+                                            forumTopicId: topic.info.forumTopicId,
+                                        )),
+                                        client: client,
+                                    ),
+                                    forumTopic: topic,
+                                ),
+                                animated: false,
+                            )
+                            self.writeForumTopicWriteProbe(
+                                "Forum topic write route: writable=true, topic=\(topic.info.forumTopicId), "
+                                    + "draft-scoped=true, uikit=true",
+                            )
+                            return
+                        }
+                        self.writeForumTopicWriteProbe("Forum topic write route: unavailable")
+                    }
+                }
+                .store(in: &cancellables)
+            return
+        }
         guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-chat") else { return }
         rootVM.$folders
             .compactMap { folders in folders.lazy.flatMap(\.chats).first }
@@ -159,6 +230,23 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .store(in: &cancellables)
         #endif
     }
+
+    #if DEBUG
+        private func writeForumTopicWriteProbe(_ result: String) {
+            log(result)
+            guard let documents = FileManager.default
+.urls(
+    for: .documentDirectory,
+    in: .userDomainMask,
+)
+.first else { return }
+            try? result.write(
+                to: documents.appendingPathComponent("forum-topic-write-route-probe.txt"),
+                atomically: true,
+                encoding: .utf8,
+            )
+        }
+    #endif
 
     private func configurePageController() {
         pageController.dataSource = self

@@ -50,6 +50,7 @@ final class ChatComposerView: UIView {
     private let attachmentButton = UIButton(type: .system)
     private let textView = FormattedTextView(placeholder: "Message…")
     private let actionButton = UIButton(type: .system)
+    private let restrictionLabel = UILabel()
     private let recordingRow = UIStackView()
     private let cancelRecordingButton = UIButton(type: .system)
     private let recordingPauseResumeButton = UIButton(type: .system)
@@ -126,6 +127,12 @@ final class ChatComposerView: UIView {
         configureViews()
         configureActions()
         update(from: chatVM)
+    }
+
+    deinit {
+        draftTask?.cancel()
+        typingTask?.cancel()
+        voiceGestureArmTask?.cancel()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -236,6 +243,25 @@ final class ChatComposerView: UIView {
         lastReplyID = chatVM.replyMessage?.id
         lastEditID = chatVM.editCustomMessage?.id
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
+        let canWrite = chatVM.canWriteAnyMessage
+        let canWriteText = chatVM.canWriteBasicMessages
+        textView.isEditable = canWriteText
+        textView.isSelectable = canWriteText
+        textView.alpha = canWriteText ? 1 : 0.5
+        attachmentButton.isHidden = !chatVM.canAttachPhotos
+        attachmentButton.isEnabled = chatVM.canAttachPhotos
+        if selectedMediaRecordingMode == .voice,
+           !chatVM.canRecordVoiceNote,
+           chatVM.canRecordVideoNote
+        {
+            selectedMediaRecordingMode = .video
+        } else if selectedMediaRecordingMode == .video,
+                  !chatVM.canRecordVideoNote,
+                  chatVM.canRecordVoiceNote
+        {
+            selectedMediaRecordingMode = .voice
+        }
+        textView.setPlaceholder(chatVM.composerPlaceholder)
         textView.setAttributedText(targetText)
 
         let showsReplyPreview: Bool
@@ -335,19 +361,20 @@ final class ChatComposerView: UIView {
             showsReplyPreview = false
             closeReplyButton.isHidden = false
         }
-        setReplyPreviewVisible(showsReplyPreview, animated: window != nil)
+        setReplyPreviewVisible(canWrite && showsReplyPreview, animated: window != nil)
 
         let imageIDs = chatVM.displayedImages.map(\.id)
         if displayedImageIDs != imageIDs {
             displayedImageIDs = imageIDs
             rebuildPhotos()
         }
-        photosScroll.isHidden = chatVM.displayedImages.isEmpty
-
+        restrictionLabel.text = chatVM.composerRestrictionText
+        restrictionLabel.isHidden = canWrite
         let isRecordingVideoNote = videoNoteState.isActive
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
-        inputRow.isHidden = isRecordingMedia
-        recordingRow.isHidden = !isRecordingMedia
+        photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
+        inputRow.isHidden = !canWrite || isRecordingMedia
+        recordingRow.isHidden = !canWrite || !isRecordingMedia
         if isRecordingVideoNote {
             setVoiceGestureDeferral(
                 isHoldingVideoNote
@@ -490,6 +517,12 @@ final class ChatComposerView: UIView {
             actionButton.heightAnchor.constraint(equalToConstant: 36),
         ])
 
+        restrictionLabel.textColor = .secondaryLabel
+        restrictionLabel.font = .preferredFont(forTextStyle: .subheadline)
+        restrictionLabel.numberOfLines = 2
+        restrictionLabel.textAlignment = .center
+        restrictionLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
         recordingRow.spacing = 8
@@ -603,6 +636,7 @@ final class ChatComposerView: UIView {
         rootStack.addArrangedSubview(photosScroll)
         rootStack.addArrangedSubview(inputRow)
         rootStack.addArrangedSubview(recordingRow)
+        rootStack.addArrangedSubview(restrictionLabel)
         rootStack.setCustomSpacing(6, after: photosScroll)
     }
 
@@ -704,7 +738,7 @@ final class ChatComposerView: UIView {
     private func textChanged(_ text: AttributedString) {
         guard !isApplyingState else { return }
         if chatVM.editCustomMessage == nil {
-            chatVM.text = text
+            chatVM.updateComposerTextFromUser(text)
         } else {
             chatVM.editMessageText = text
         }
@@ -736,6 +770,9 @@ final class ChatComposerView: UIView {
         let isRetryingVideo = chatVM.canRetryPendingVideoNote && !hasContent
         let isUncertainVideo = chatVM.hasPendingVideoNote && !chatVM.canRetryPendingVideoNote && !hasContent
         let isRecordingMedia = chatVM.recordingVoiceNote || videoNoteState.isActive
+        let canRecordSelectedMode = selectedMediaRecordingMode == .voice
+            ? chatVM.canRecordVoiceNote
+            : chatVM.canRecordVideoNote
         let symbol =
             if isFinalizingVoice || isFinalizingVideo {
                 "clock.circle"
@@ -753,6 +790,8 @@ final class ChatComposerView: UIView {
                 selectedMediaRecordingMode == .video ? "video.fill" : "mic.fill"
             }
         actionButton.setImage(UIImage(systemName: symbol), for: .normal)
+        actionButton.isHidden = !hasContent && !canRecordSelectedMode
+        actionButton.isEnabled = hasContent || canRecordSelectedMode
         actionButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: isRecordingMedia || hasContent ? 28 : 20,
@@ -1063,6 +1102,10 @@ final class ChatComposerView: UIView {
             return
         }
         chatVM.sendMessageTask?.cancel()
+        draftTask?.cancel()
+        draftTask = nil
+        typingTask?.cancel()
+        typingTask = nil
         chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage() }
     }
 
@@ -1094,6 +1137,7 @@ final class ChatComposerView: UIView {
 
     private func toggleMediaRecordingMode() {
         guard !videoNoteState.isActive, !chatVM.recordingVoiceNote else { return }
+        guard chatVM.canRecordVoiceNote, chatVM.canRecordVideoNote else { return }
         selectedMediaRecordingMode = selectedMediaRecordingMode == .voice ? .video : .voice
         UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.55)
         updateActionButton()

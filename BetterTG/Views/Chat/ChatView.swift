@@ -72,6 +72,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPresentVideoNoteError = false
     private var didPresentReactionError = false
     private var didPresentPinError = false
+    private var didPresentSendError = false
+    private var didPresentDraftError = false
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
@@ -135,8 +137,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private var showsComposer: Bool {
         presentationMode == .full
-            && !location.isTopicScoped
-            && chatVM.customChat.canPostMessages
+            && (location.isTopicScoped || chatVM.canShowComposer)
     }
 
     private var isNearLatest: Bool {
@@ -228,7 +229,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
         composerView.cancelActiveRecordingGesture()
-        if !chatVM.isReadOnlyTopic {
+        if chatVM.canWriteBasicMessages {
             Task { [chatVM] in await chatVM.updateDraft() }
         }
     }
@@ -596,6 +597,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func beginVideoNoteRecording() async -> Bool {
+        guard chatVM.canRecordVideoNote else { return false }
         let recorder: VideoNoteRecorderViewController
         if let videoNoteRecorder {
             recorder = videoNoteRecorder
@@ -917,6 +919,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     guard let self else { return }
                     updateStatus()
                     if showsComposer {
+                        if !chatVM.canWriteAnyMessage {
+                            composerView.cancelActiveRecordingGesture()
+                        }
                         composerView.update(from: chatVM)
                     }
                     updateHighlightState()
@@ -924,6 +929,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     presentMicrophoneErrorIfNeeded()
                     presentVoiceNoteErrorIfNeeded()
                     presentVideoNoteSendErrorIfNeeded()
+                    presentSendErrorIfNeeded()
+                    presentDraftErrorIfNeeded()
                     presentReactionErrorIfNeeded()
                     presentPinErrorIfNeeded()
                     restoreVideoRecordingIfNeeded()
@@ -960,10 +967,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let chat = chatVM.customChat.chat
         let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
         let status =
-            if chatVM.isReadOnlyTopic {
-                chatVM.forumTopicInfo?.isClosed == true
-                    ? "Closed topic · Read-only"
-                    : "\(chatVM.customChat.displayTitle) · Read-only"
+            if location.isTopicScoped {
+                chatVM.isReadOnlyTopic
+                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
+                        ? "Closed topic · Read-only"
+                        : "\(chatVM.customChat.displayTitle) · Read-only")
+                    : chatVM.customChat.displayTitle
             } else {
                 chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
             }
@@ -995,10 +1004,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateStatus() {
         let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
         let status =
-            if chatVM.isReadOnlyTopic {
-                chatVM.forumTopicInfo?.isClosed == true
-                    ? "Closed topic · Read-only"
-                    : "\(chatVM.customChat.displayTitle) · Read-only"
+            if location.isTopicScoped {
+                chatVM.isReadOnlyTopic
+                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
+                        ? "Closed topic · Read-only"
+                        : "\(chatVM.customChat.displayTitle) · Read-only")
+                    : chatVM.customChat.displayTitle
             } else {
                 chatVM.actionStatus.isEmpty ? chatVM.onlineStatus : chatVM.actionStatus
             }
@@ -1008,7 +1019,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             status: status,
             statusColor: statusColor,
         )
-        let unreadCount = chatVM.isReadOnlyTopic
+        let unreadCount = location.isTopicScoped
             ? (chatVM.forumTopic?.unreadCount ?? 0)
             : chatVM.customChat.unreadCount
         unreadBadgeLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
@@ -1796,6 +1807,34 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
+    private func presentSendErrorIfNeeded() {
+        guard let message = chatVM.sendErrorMessage,
+              !didPresentSendError,
+              presentedViewController == nil
+        else { return }
+        didPresentSendError = true
+        chatVM.sendErrorMessage = nil
+        let alert = UIAlertController(title: "Message", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.didPresentSendError = false
+        })
+        present(alert, animated: true)
+    }
+
+    private func presentDraftErrorIfNeeded() {
+        guard let message = chatVM.draftErrorMessage,
+              !didPresentDraftError,
+              presentedViewController == nil
+        else { return }
+        didPresentDraftError = true
+        chatVM.draftErrorMessage = nil
+        let alert = UIAlertController(title: "Draft", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.didPresentDraftError = false
+        })
+        present(alert, animated: true)
+    }
+
     private func presentPinErrorIfNeeded() {
         guard let message = chatVM.pinErrorMessage,
               !didPresentPinError,
@@ -2133,7 +2172,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func canOfferReactionPicker(for message: CustomMessage) -> Bool {
-        message.message.topicId == nil
+        chatVM.location.matches(message: message.message)
             && !message.contentPresentation.isService
             && message.message.selfDestructType == nil
             && message.message.ephemeralMessageId == 0
@@ -2355,7 +2394,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         do {
             let request = try MessageForwardRequest(
-                sourceChatID: chatVM.chatID,
+                sourceLocation: chatVM.location,
                 messageIDs: sourceMessageIDs(forDisplayedMessageIDs: displayedIDs),
             )
             var seen = Set<Int64>()

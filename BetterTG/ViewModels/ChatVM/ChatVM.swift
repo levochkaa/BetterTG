@@ -84,6 +84,8 @@ import UIKit
     @Published var voiceNoteErrorMessage: String?
     @Published var videoNoteErrorMessage: String?
     @Published var reactionErrorMessage: String?
+    @Published var sendErrorMessage: String?
+    @Published var draftErrorMessage: String?
     @Published private(set) var canAddReactions = false
     @Published private(set) var maximumChosenReactionCount = 1
     @Published private(set) var pinnedMessage: Message?
@@ -107,6 +109,7 @@ import UIKit
     var metadataRefreshGenerations = [Int64: UUID]()
 
     private let chatOpenLease: ChatOpenLease
+    private var currentChatPermissions: ChatPermissions
 
     private var voiceRecordingTimerBaseline = 0.0
     private var voiceRecordingLastRecorderTime = 0.0
@@ -139,6 +142,11 @@ import UIKit
     private var pinAuthoritativeRevisions = [Int64: UInt64]()
     private var pinnedMessageAuthoritativeRevision = UInt64.zero
     private var forumTopicTask: Task<Void, Never>?
+    private var composerRevision = UInt64.zero
+    private var composerIsDirty = false
+    private var awaitingAuthoritativeDraftClear = false
+    private var draftClearGeneration = UInt64.zero
+    private var draftClearTask: Task<Void, Never>?
     private let previewing: Bool
 
     private var pendingVoiceNote: VoiceNoteSendDraft?
@@ -166,7 +174,55 @@ import UIKit
     }
 
     var isReadOnlyTopic: Bool {
-        location.isTopicScoped
+        location.isTopicScoped && !canWriteAnyMessage
+    }
+
+    var canWriteBasicMessages: Bool {
+        (try? resolveSendContext(for: .text, replyingTo: nil)) != nil
+    }
+
+    var canAttachPhotos: Bool {
+        (try? resolveSendContext(for: .photo, replyingTo: replyMessage)) != nil
+    }
+
+    var canWriteAnyMessage: Bool {
+        canWriteBasicMessages || canAttachPhotos || canRecordVoiceNote || canRecordVideoNote
+    }
+
+    var canShowComposer: Bool {
+        !previewing && canWriteAnyMessage
+    }
+
+    var canRecordVoiceNote: Bool {
+        (try? resolveSendContext(
+            for: .voiceNote,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
+    var canRecordVideoNote: Bool {
+        (try? resolveSendContext(
+            for: .videoNote,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
+    var composerPlaceholder: String {
+        guard let topicName = forumTopicInfo?.name, location.isTopicScoped else {
+            return "Message…"
+        }
+        return replyMessage == nil
+            ? "Message in \(topicName)"
+            : "Reply in \(topicName)"
+    }
+
+    var composerRestrictionText: String {
+        if forumTopicInfo?.isClosed == true || forumTopicInfo?.isHidden == true {
+            return "Only the topic creator or an administrator can post here."
+        }
+        return "You can't send messages in this topic."
     }
 
     var locationContextIsCurrent: Bool {
@@ -180,12 +236,16 @@ import UIKit
     }
 
     var canRetryPendingVoiceNote: Bool {
-        guard let pendingVoiceNote, pendingVoiceNote.enqueueStartedAt == nil else { return false }
+        guard canRecordVoiceNote,
+              let pendingVoiceNote,
+              pendingVoiceNote.enqueueStartedAt == nil
+        else { return false }
         return pendingVoiceNote.failedSendState?.canRetryNow ?? true
     }
 
     var canRetryPendingVideoNote: Bool {
-        guard !retryingVideoNote,
+        guard canRecordVideoNote,
+              !retryingVideoNote,
               let pendingVideoNote,
               pendingVideoNote.enqueueStartedAt == nil
         else { return false }
@@ -362,6 +422,7 @@ import UIKit
             client: client,
         )
         self.metadataResolver = MessageMetadataResolver(client: client)
+        self.currentChatPermissions = customChat.chat.permissions
         self.previewing = previewing
         self.forumTopic = forumTopic
         self.forumTopicInfo = forumTopic?.info
@@ -387,20 +448,10 @@ import UIKit
             Media.shared.onChatOpen(title: customChat.displayTitle)
         }
 
-        if !previewing,
-           !isReadOnlyTopic,
-           let draftMessage = customChat.draftMessage,
-           case .draftMessageContentText(let draftMessageContentText) = draftMessage.content
-        {
-            self.text = getAttributedString(from: draftMessageContentText.text)
-        }
-
-        let draftMessage = previewing || isReadOnlyTopic ? nil : customChat.draftMessage
-        Task { [weak self] in
-            guard let self, let draftMessage else { return }
-            let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
-            restoreReplyState(message: replyMessage, input: draftMessage.replyTo)
-        }
+        let routeDraftMessage = previewing || !canWriteBasicMessages
+            ? nil
+            : (resolvedLocation.isTopicScoped ? forumTopic?.draftMessage : customChat.draftMessage)
+        applyAuthoritativeDraft(routeDraftMessage, expectedRevision: composerRevision)
         Task { [weak self] in
             guard let self else { return }
             guard !previewing, !isReadOnlyTopic else {
@@ -502,6 +553,7 @@ import UIKit
         reactionMutationTasks.values.forEach { $0.cancel() }
         pinnedMessageTask?.cancel()
         forumTopicTask?.cancel()
+        draftClearTask?.cancel()
         pinMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
@@ -519,6 +571,71 @@ import UIKit
         if !previewing {
             Media.shared.onChatDismiss()
         }
+    }
+
+    func resolveSendContext(
+        for kind: ChatSendContentKind,
+        replyingTo reply: CustomMessage?,
+        useCurrentReplyOverride: Bool = false,
+    ) throws -> ResolvedSendContext {
+        guard let accountID = location.accountID,
+              locationContextIsCurrent
+        else { throw ChatSendContextError.accountUnavailable }
+        guard permissionAllows(kind) else {
+            throw ChatSendContextError.chatPermissionDenied
+        }
+
+        if location.topic == nil,
+           customChat.chat.viewAsTopics || customChat.supergroup?.isForum == true
+        {
+            throw ChatSendContextError.forumTopicRequired
+        }
+        if case .messageTopicForum = location.topic {
+            guard let info = forumTopicInfo,
+                  info.chatId == location.chatID,
+                  info.forumTopicId == location.forumTopicID
+            else { throw ChatSendContextError.topicMetadataUnavailable }
+            let topicIsRestricted = info.isClosed || info.isHidden
+            let canManageTopics = customChat.adminRights?.canManageTopics == true
+                || {
+                    if case .chatMemberStatusCreator = customChat.supergroup?.status {
+                        true
+                    } else {
+                        false
+                    }
+                }()
+            guard !topicIsRestricted || info.isOutgoing || canManageTopics else {
+                throw ChatSendContextError.topicReadOnly
+            }
+        }
+        if let reply,
+           reply.message.chatId == location.chatID,
+           reply.message.topicId != location.topic
+        {
+            throw ChatSendContextError.crossTopicReply
+        }
+        if reply == nil,
+           useCurrentReplyOverride,
+           case .inputMessageReplyToMessage = replyInputOverride
+        {
+            throw ChatSendContextError.crossTopicReply
+        }
+        let resolvedReplyTo: InputMessageReplyTo? =
+            if let reply {
+                getMessageReplyTo(from: reply)
+            } else if useCurrentReplyOverride {
+                replyInputOverride
+            } else {
+                nil
+            }
+        return ResolvedSendContext(
+            accountID: accountID,
+            chatID: location.chatID,
+            clientID: location.clientID,
+            destinationTopic: location.topic,
+            draftTopic: location.topic,
+            replyTo: resolvedReplyTo,
+        )
     }
 
     func consumeRestoredVideoRecordingDraft(id: UUID) {
@@ -692,7 +809,10 @@ import UIKit
     func deleteMessages(ids rawIDs: [Int64], deleteForBoth: Bool) {
         guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         let ids = Array(Set(rawIDs)).sorted()
-        guard !ids.isEmpty else { return }
+        let availableIDs = Set(messages.flatMap { message in
+            message.album.isEmpty ? [message.id] : message.album.map(\.id)
+        })
+        guard !ids.isEmpty, ids.allSatisfy(availableIDs.contains) else { return }
         for messageID in ids {
             outgoingVoiceNotes.removeValue(forKey: messageID)
             outgoingVideoNotes.removeValue(forKey: messageID)
@@ -755,7 +875,12 @@ import UIKit
     }
 
     func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
+        guard !isReadOnlyTopic,
+              locationContextIsCurrent,
+              messages.contains(where: { message in
+                  message.id == messageID || message.album.contains(where: { $0.id == messageID })
+              })
+        else { return }
         let client = client
         Task {
             do {
@@ -779,7 +904,7 @@ import UIKit
     ) {
         guard !type.isPaid,
               !message.reactionMutationInFlight,
-              message.message.topicId == nil,
+              location.matches(message: message.message),
               message.message.selfDestructType == nil,
               message.message.ephemeralMessageId == 0,
               TDLib.shared.activeAccountID == accountID,
@@ -883,8 +1008,10 @@ import UIKit
         }
     }
 
-    func updateReactionPermission(_ canAddReactions: Bool) {
-        self.canAddReactions = canAddReactions
+    func updateChatPermissions(_ permissions: ChatPermissions) {
+        currentChatPermissions = permissions
+        canAddReactions = permissions.canReactToMessages
+        objectWillChange.send()
         messagesDidChange.send()
     }
 
@@ -904,6 +1031,7 @@ import UIKit
         forumTopicTask?.cancel()
         let client = client
         let accountID = accountID
+        let expectedComposerRevision = composerRevision
         forumTopicTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -917,6 +1045,15 @@ import UIKit
                 else { return }
                 forumTopic = topic
                 forumTopicInfo = topic.info
+                if awaitingAuthoritativeDraftClear, topic.draftMessage == nil {
+                    awaitingAuthoritativeDraftClear = false
+                    composerIsDirty = false
+                } else if !awaitingAuthoritativeDraftClear, canWriteBasicMessages {
+                    applyAuthoritativeDraft(
+                        topic.draftMessage,
+                        expectedRevision: expectedComposerRevision,
+                    )
+                }
                 forumTopicTask = nil
             } catch {
                 guard !Task.isCancelled,
@@ -1008,6 +1145,8 @@ import UIKit
     }
 
     func beginReply(to message: CustomMessage) {
+        guard location.matches(message: message.message) else { return }
+        markComposerDirty()
         replySelectionGeneration &+= 1
         replyMessage = message
         replyQuote = nil
@@ -1016,10 +1155,12 @@ import UIKit
     }
 
     func beginQuoteReply(to message: CustomMessage) {
+        guard location.matches(message: message.message) else { return }
         guard let formattedText = message.formattedText, !formattedText.text.isEmpty else {
             beginReply(to: message)
             return
         }
+        markComposerDirty()
         replySelectionGeneration &+= 1
         let generation = replySelectionGeneration
         replyMessage = message
@@ -1045,21 +1186,29 @@ import UIKit
         }
     }
 
-    func cancelReply() {
+    func cancelReply(markDirty: Bool = true) {
+        if markDirty {
+            markComposerDirty()
+        }
         replySelectionGeneration &+= 1
         replyMessage = nil
         replyQuote = nil
         replyInputOverride = nil
         replyFallbackPresentation = nil
     }
-    
+
+    func updateComposerTextFromUser(_ value: AttributedString) {
+        markComposerDirty()
+        text = value
+    }
+
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
         guard let message = try? await client.getMessage(chatId: customChat.chat.id, messageId: id),
               location.matches(message: message)
         else { return nil }
         return await getCustomMessage(from: message)
     }
-    
+
     func getCustomMessage(from message: Message) async -> CustomMessage {
         async let replyPresentation = metadataResolver.replyPresentation(for: message)
         async let forwardPresentation = metadataResolver.forwardPresentation(for: message.forwardInfo)
@@ -1083,11 +1232,12 @@ import UIKit
         
         return customMessage
     }
-    
+
     func getInputReplyToMessage(_ inputMessageReplyTo: InputMessageReplyTo?) async -> CustomMessage? {
         switch inputMessageReplyTo {
         case .inputMessageReplyToMessage(let message):
-            guard let target = try? await client.getMessage(chatId: chatID, messageId: message.messageId)
+            guard let target = try? await client.getMessage(chatId: chatID, messageId: message.messageId),
+                  location.matches(message: target)
             else { return nil }
             return await getCustomMessage(from: target)
         case .inputMessageReplyToExternalMessage(let message):
@@ -1100,59 +1250,127 @@ import UIKit
     }
 
     func sendMessage() async {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
-        if !displayedImages.isEmpty {
-            await sendMessagePhotos()
-        } else if canEditMessage {
-            await editMessage()
-        } else if !text.characters.isEmpty {
-            await sendMessageText()
-        } else {
+        if canEditMessage {
+            let sentEditID = editCustomMessage?.id
+            do {
+                _ = try await editMessage()
+                guard locationContextIsCurrent else { return }
+                if editCustomMessage?.id == sentEditID {
+                    editMessageText = ""
+                    editCustomMessage = nil
+                }
+                sendErrorMessage = nil
+            } catch {
+                sendErrorMessage = error.localizedDescription
+            }
             return
         }
-        
-        await main {
-            self.displayedImages.removeAll()
-            self.editMessageText = ""
-            self.text = ""
-            self.cancelReply()
-            self.editCustomMessage = nil
-        }
-    }
-    
-    func sendMessagePhotos() async {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
-        try? await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
-        
-        if displayedImages.count == 1, let photo = displayedImages.first {
-            guard locationContextIsCurrent else { return }
-            _ = try? await client.sendMessage(
-                chatId: customChat.chat.id,
-                inputMessageContent: makeInputMessageContent(for: photo.url),
-                options: nil,
-                replyMarkup: nil,
-                replyTo: getMessageReplyTo(from: replyMessage),
-                topicId: nil,
-            )
-        } else {
-            var messageContents = [InputMessageContent]()
-            for image in displayedImages {
-                await messageContents.append(makeInputMessageContent(for: image.url))
+        let sentText = text
+        let sentImageIDs = Set(displayedImages.map(\.id))
+        let sentReplyID = replyMessage?.id
+        do {
+            let context: ResolvedSendContext
+            if !displayedImages.isEmpty {
+                context = try await sendMessagePhotos()
+            } else if !text.characters.isEmpty {
+                context = try await sendMessageText()
+            } else {
+                return
             }
+            let draftClearSucceeded = await clearRouteDraft(context)
             guard locationContextIsCurrent else { return }
-            _ = try? await client.sendMessageAlbum(
-                chatId: customChat.chat.id,
-                inputMessageContents: messageContents,
-                options: nil,
-                replyTo: getMessageReplyTo(from: replyMessage),
-                topicId: nil,
-            )
+            displayedImages.removeAll { sentImageIDs.contains($0.id) }
+            if text == sentText {
+                text = ""
+            }
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+            }
+            composerRevision &+= 1
+            let hasNewComposerState = !text.characters.isEmpty
+                || replyMessage != nil
+                || !displayedImages.isEmpty
+                || editCustomMessage != nil
+            awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
+            composerIsDirty = awaitingAuthoritativeDraftClear
+                || hasNewComposerState
+                || !draftClearSucceeded
+            sendErrorMessage = nil
+            if hasNewComposerState {
+                cancelPendingDraftClearRetry()
+                await updateDraft()
+            } else if location.isTopicScoped {
+                loadForumTopic()
+            }
+        } catch {
+            sendErrorMessage = error.localizedDescription
         }
-        
-        try? await tdSendChatAction(.chatActionCancel)
     }
-    
-    func makeInputMessageContent(for url: URL) async -> InputMessageContent {
+
+    func sendMessagePhotos() async throws -> ResolvedSendContext {
+        let context = try resolveSendContext(
+            for: .photo,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        let images = displayedImages
+        guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
+        let caption = FormattedText(entities: getEntities(from: text), text: text.string)
+        try await client.sendChatAction(
+            action: .chatActionUploadingPhoto(.init(progress: 0)),
+            businessConnectionId: nil,
+            chatId: context.chatID,
+            topicId: context.destinationTopic,
+        )
+        do {
+            var messageContents = [InputMessageContent]()
+            for image in images {
+                await messageContents.append(makeInputMessageContent(for: image.url, caption: caption))
+            }
+            guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
+            if messageContents.count == 1, let content = messageContents.first {
+                let message = try await client.sendMessage(
+                    chatId: context.chatID,
+                    inputMessageContent: content,
+                    options: nil,
+                    replyMarkup: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                guard context.matches(message: message) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
+            } else {
+                let result = try await client.sendMessageAlbum(
+                    chatId: context.chatID,
+                    inputMessageContents: messageContents,
+                    options: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                let messages = result.messages ?? []
+                guard messages.count == messageContents.count else {
+                    throw ChatSendContextError.partialAlbum(
+                        sent: messages.count,
+                        expected: messageContents.count,
+                    )
+                }
+                guard messages.allSatisfy({ context.matches(message: $0) }) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
+            }
+            try? await cancelChatAction(in: context)
+            return context
+        } catch {
+            try? await cancelChatAction(in: context)
+            throw error
+        }
+    }
+
+    func makeInputMessageContent(
+        for url: URL,
+        caption: FormattedText,
+    ) async -> InputMessageContent {
         let path = url.path()
         let dimensions = await Task.detached(priority: .userInitiated) {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -1177,7 +1395,7 @@ import UIKit
         )
         return .inputMessagePhoto(
             InputMessagePhoto(
-                caption: FormattedText(entities: getEntities(from: text), text: text.string),
+                caption: caption,
                 hasSpoiler: false,
                 photo: photo,
                 selfDestructType: nil,
@@ -1185,14 +1403,18 @@ import UIKit
             ),
         )
     }
-    
-    func sendMessageText() async {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
-        _ = try? await client.sendMessage(
-            chatId: customChat.chat.id,
+
+    func sendMessageText() async throws -> ResolvedSendContext {
+        let context = try resolveSendContext(
+            for: .text,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        let message = try await client.sendMessage(
+            chatId: context.chatID,
             inputMessageContent: .inputMessageText(
                 .init(
-                    clearDraft: true,
+                    clearDraft: false,
                     linkPreviewOptions: nil,
                     text: FormattedText(
                         entities: getEntities(from: text),
@@ -1202,11 +1424,14 @@ import UIKit
             ),
             options: nil,
             replyMarkup: nil,
-            replyTo: getMessageReplyTo(from: replyMessage),
-            topicId: nil,
+            replyTo: context.replyTo,
+            topicId: context.destinationTopic,
         )
-        
-        try? await tdSendChatAction(.chatActionCancel)
+        guard context.matches(message: message) else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        try? await cancelChatAction(in: context)
+        return context
     }
 
     func submitVideoNote(
@@ -1217,11 +1442,14 @@ import UIKit
         storedReplyMessageID: Int64? = nil,
         storedReplyTo: InputMessageReplyTo? = nil,
     ) async -> VideoNoteSubmissionResult {
-        guard !isReadOnlyTopic, locationContextIsCurrent else {
+        let sendContext: ResolvedSendContext
+        do {
+            sendContext = try resolveSendContext(for: .videoNote, replyingTo: reply)
+        } catch {
             return .retained(
                 asset,
                 originConsumed: false,
-                message: "This topic is read-only.",
+                message: error.localizedDescription,
             )
         }
         var draft: VideoNoteSendDraft
@@ -1235,7 +1463,7 @@ import UIKit
                 draftKey: location.draftKey,
                 originRecordingDraftID: originRecordingDraftID,
                 replyMessageID: reply?.id ?? storedReplyMessageID,
-                replyTo: getMessageReplyTo(from: reply) ?? storedReplyTo,
+                replyTo: sendContext.replyTo ?? storedReplyTo,
             )
             switch preparation {
             case .alreadyEnqueued(let preparedDraft):
@@ -1246,6 +1474,9 @@ import UIKit
                 didBeginEnqueue = true
             case .retained(let preparedDraft):
                 draft = preparedDraft
+            }
+            guard draft.destination == sendContext.draftKey else {
+                throw ChatSendContextError.unexpectedDestination
             }
         } catch {
             return .retained(
@@ -1273,14 +1504,16 @@ import UIKit
 
         do {
             try Task.checkCancellation()
-            guard locationContextIsCurrent else { throw CancellationError() }
+            let activeSendContext = try resolveSendContext(for: .videoNote, replyingTo: nil)
+            guard draft.destination == activeSendContext.draftKey else {
+                throw ChatSendContextError.unexpectedDestination
+            }
             try? await tdSendChatAction(.chatActionUploadingVideoNote(.init(progress: 0)))
             pendingVideoNote = draft
             submittingVideoDraftIDs.insert(draft.id)
             let message: Message
             if let failedSendState = draft.failedSendState {
                 guard failedSendState.canRetryNow else { throw CancellationError() }
-                guard locationContextIsCurrent else { throw CancellationError() }
                 let resent = try await client.resendMessages(
                     chatId: chatID,
                     messageIds: [failedSendState.messageID],
@@ -1288,6 +1521,9 @@ import UIKit
                     quote: nil,
                 )
                 guard let resentMessage = resent.messages?.first else { throw CancellationError() }
+                guard activeSendContext.matches(message: resentMessage) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
                 message = resentMessage
                 draft.failedSendState = nil
             } else {
@@ -1360,6 +1596,7 @@ import UIKit
                     message: "Couldn’t upload the video message. You can retry without recording again.",
                 )
             }
+            await clearRouteDraftAfterMediaSend(draft.destination)
             return .enqueued
         } catch is CancellationError {
             if didBeginEnqueue {
@@ -1504,18 +1741,20 @@ import UIKit
         }
     }
 
-    func editMessage() async {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
-        guard let message = editCustomMessage?.message else { return }
+    func editMessage() async throws -> ResolvedSendContext {
+        let context = try resolveSendContext(for: .text, replyingTo: nil)
+        guard let message = editCustomMessage?.message,
+              context.matches(message: message)
+        else { throw ChatSendContextError.unexpectedDestination }
         
         switch message.content {
         case .messageText:
-            _ = try? await client.editMessageText(
+            _ = try await client.editMessageText(
                 chatId: customChat.chat.id,
                 inputMessageContent:
                 .inputMessageText(
                     .init(
-                        clearDraft: true,
+                        clearDraft: false,
                         linkPreviewOptions: nil,
                         text: FormattedText(
                             entities: getEntities(from: editMessageText),
@@ -1527,7 +1766,7 @@ import UIKit
                 replyMarkup: nil,
             )
         case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
-            _ = try? await client.editMessageCaption(
+            _ = try await client.editMessageCaption(
                 caption: FormattedText(
                     entities: getEntities(from: editMessageText),
                     text: editMessageText.string,
@@ -1538,32 +1777,49 @@ import UIKit
                 showCaptionAboveMedia: false,
             )
         default:
-            log("Unsupported edit message type")
+            throw ChatSendContextError.chatPermissionDenied
         }
+        return context
     }
-    
+
     func updateDraft() async {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
-        let draftMessage = DraftMessage(
-            content: .draftMessageContentText(
-                .init(
-                    linkPreviewOptions: nil,
-                    text: FormattedText(
-                        entities: getEntities(from: text),
-                        text: text.string,
-                    ),
-                ),
-            ),
-            date: Int(Date.now.timeIntervalSince1970),
-            effectId: 0,
-            replyTo: getMessageReplyTo(from: replyMessage),
-            suggestedPostInfo: nil,
-        )
-        _ = try? await client.setChatDraftMessage(
-            chatId: customChat.chat.id,
-            draftMessage: draftMessage,
-            topicId: nil,
-        )
+        guard editCustomMessage == nil else { return }
+        do {
+            let context = try resolveSendContext(
+                for: .text,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            let draftMessage: DraftMessage? =
+                if text.characters.isEmpty, context.replyTo == nil {
+                    nil
+                } else {
+                    DraftMessage(
+                        content: .draftMessageContentText(
+                            .init(
+                                linkPreviewOptions: nil,
+                                text: FormattedText(
+                                    entities: getEntities(from: text),
+                                    text: text.string,
+                                ),
+                            ),
+                        ),
+                        date: Int(Date.now.timeIntervalSince1970),
+                        effectId: 0,
+                        replyTo: context.replyTo,
+                        suggestedPostInfo: nil,
+                    )
+                }
+            try await client.setChatDraftMessage(
+                chatId: context.chatID,
+                draftMessage: draftMessage,
+                topicId: context.draftTopic,
+            )
+        } catch {
+            if !(error is CancellationError) {
+                log("Chat draft update failed: \(error)")
+            }
+        }
     }
     
     func setEditMessageText(from message: Message?) {
@@ -1620,17 +1876,38 @@ import UIKit
     }
     
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return }
+        guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
+        if case .chatActionCancel = chatAction {
+            try await client.sendChatAction(
+                action: chatAction,
+                businessConnectionId: nil,
+                chatId: location.chatID,
+                topicId: location.topic,
+            )
+            return
+        }
+        let kind: ChatSendContentKind =
+            switch chatAction {
+            case .chatActionRecordingVoiceNote, .chatActionUploadingVoiceNote:
+                .voiceNote
+            case .chatActionRecordingVideoNote, .chatActionUploadingVideoNote:
+                .videoNote
+            case .chatActionUploadingPhoto:
+                .photo
+            default:
+                .text
+            }
+        let context = try resolveSendContext(for: kind, replyingTo: nil)
         try await client.sendChatAction(
             action: chatAction,
             businessConnectionId: nil,
-            chatId: customChat.chat.id,
-            topicId: nil,
+            chatId: context.chatID,
+            topicId: context.destinationTopic,
         )
     }
-    
+
     @MainActor func mediaStartRecordingVoice() async -> Bool {
-        guard !isReadOnlyTopic, locationContextIsCurrent else { return false }
+        guard canRecordVoiceNote, locationContextIsCurrent else { return false }
         guard !loadingVoiceDraft,
               !startingVoiceNote,
               !recordingVoiceNote,
@@ -1919,6 +2196,87 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func permissionAllows(_ kind: ChatSendContentKind) -> Bool {
+        guard customChat.canPostMessages else { return false }
+        let permissions = currentChatPermissions
+        return switch kind {
+        case .photo:
+            permissions.canSendPhotos
+        case .text:
+            permissions.canSendBasicMessages
+        case .videoNote:
+            permissions.canSendVideoNotes
+        case .voiceNote:
+            permissions.canSendVoiceNotes
+        }
+    }
+
+    private func markComposerDirty() {
+        composerRevision &+= 1
+        composerIsDirty = true
+        awaitingAuthoritativeDraftClear = false
+        cancelPendingDraftClearRetry()
+    }
+
+    private func applyAuthoritativeDraft(
+        _ draft: DraftMessage?,
+        expectedRevision: UInt64,
+    ) {
+        guard !composerIsDirty, composerRevision == expectedRevision else { return }
+        text =
+            if let draft,
+            case .draftMessageContentText(let content) = draft.content {
+                getAttributedString(from: content.text)
+            } else {
+                ""
+            }
+        let replyTo = draft?.replyTo
+        replySelectionGeneration &+= 1
+        let generation = replySelectionGeneration
+        guard let replyTo else {
+            restoreReplyState(message: nil, input: nil)
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            let replyMessage = await getInputReplyToMessage(replyTo)
+            guard !composerIsDirty,
+                  composerRevision == expectedRevision,
+                  replySelectionGeneration == generation
+            else { return }
+            if case .inputMessageReplyToMessage = replyTo, replyMessage == nil {
+                restoreReplyState(message: nil, input: nil)
+            } else {
+                restoreReplyState(message: replyMessage, input: replyTo)
+            }
+        }
+    }
+
+    private func validateStoredReply(
+        _ replyTo: InputMessageReplyTo?,
+        in context: ResolvedSendContext,
+    ) async throws {
+        guard case .inputMessageReplyToMessage(let reply) = replyTo else { return }
+        guard let target = try? await client.getMessage(
+            chatId: context.chatID,
+            messageId: reply.messageId,
+        ),
+            context.matches(message: target)
+        else { throw ChatSendContextError.crossTopicReply }
+    }
+
+    private func cancelChatAction(in context: ResolvedSendContext) async throws {
+        guard TDLib.shared.activeAccountID == context.accountID,
+              TDLib.shared.activeClient.id == context.clientID
+        else { throw ChatSendContextError.accountUnavailable }
+        try await client.sendChatAction(
+            action: .chatActionCancel,
+            businessConnectionId: nil,
+            chatId: context.chatID,
+            topicId: context.destinationTopic,
+        )
+    }
+
     private func loadHistory(
         fromMessageId: Int64,
         limit: Int,
@@ -2172,7 +2530,11 @@ import UIKit
     }
 
     private func sendMessageVideoNote(_ draft: VideoNoteSendDraft) async throws -> Message {
-        guard locationContextIsCurrent else { throw CancellationError() }
+        let context = try resolveSendContext(for: .videoNote, replyingTo: nil)
+        guard draft.destination == context.draftKey else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        try await validateStoredReply(draft.replyTo, in: context)
         let thumbnail = await VideoNoteFileStore.shared.inputThumbnail(for: draft)
         guard locationContextIsCurrent else { throw CancellationError() }
         let inputVideoNote = InputVideoNote(
@@ -2181,16 +2543,20 @@ import UIKit
             thumbnail: thumbnail,
             videoNote: .inputFileLocal(.init(path: draft.fileURL.path(percentEncoded: false))),
         )
-        return try await client.sendMessage(
-            chatId: chatID,
+        let message = try await client.sendMessage(
+            chatId: context.chatID,
             inputMessageContent: .inputMessageVideoNote(
                 .init(selfDestructType: nil, videoNote: inputVideoNote),
             ),
             options: nil,
             replyMarkup: nil,
             replyTo: draft.replyTo,
-            topicId: nil,
+            topicId: context.destinationTopic,
         )
+        guard context.matches(message: message) else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        return message
     }
 
     private func beginVoiceRecordingResume(_ draft: VoiceRecordingDraft) {
@@ -2738,9 +3104,13 @@ import UIKit
     }
 
     private func sendMessageVoiceNote(fileURL: URL, draft: VoiceNoteSendDraft) async throws -> Message {
-        guard locationContextIsCurrent else { throw CancellationError() }
+        let context = try resolveSendContext(for: .voiceNote, replyingTo: nil)
+        guard draft.destination == context.draftKey else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        try await validateStoredReply(draft.replyTo, in: context)
         let message = try await client.sendMessage(
-            chatId: customChat.chat.id,
+            chatId: context.chatID,
             inputMessageContent: .inputMessageVoiceNote(
                 .init(
                     caption: draft.caption,
@@ -2755,8 +3125,11 @@ import UIKit
             options: nil,
             replyMarkup: nil,
             replyTo: draft.replyTo,
-            topicId: nil,
+            topicId: context.destinationTopic,
         )
+        guard context.matches(message: message) else {
+            throw ChatSendContextError.unexpectedDestination
+        }
         try? await tdSendChatAction(.chatActionCancel)
         return message
     }
@@ -2806,7 +3179,10 @@ import UIKit
                     guard failedSendState.canRetryNow else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
-                    guard locationContextIsCurrent else { throw CancellationError() }
+                    let context = try resolveSendContext(for: .voiceNote, replyingTo: nil)
+                    guard draft.destination == context.draftKey else {
+                        throw ChatSendContextError.unexpectedDestination
+                    }
                     let resentMessages = try await client.resendMessages(
                         chatId: chatID,
                         messageIds: [failedSendState.messageID],
@@ -2816,6 +3192,8 @@ import UIKit
                     guard let resentMessage = resentMessages.messages?.first else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
+                    guard context.matches(message: resentMessage)
+                    else { throw ChatSendContextError.unexpectedDestination }
                     message = resentMessage
                     draft.failedSendState = nil
                 } else {
@@ -2869,13 +3247,17 @@ import UIKit
                         temporaryMessageID: message.id,
                     )
                 }
-                if let resolution = bufferedResolution ?? registrationResolution ?? deletionResolution {
+                let resolution = bufferedResolution ?? registrationResolution ?? deletionResolution
+                if let resolution {
                     applyVoiceNoteDraftResolution(resolution)
                 } else {
                     outgoingVoiceNotes[message.id] = registration?.draft ?? draft
                     if registration != nil {
                         await promoteNextPendingVoiceDraft()
                     }
+                }
+                if resolution?.outcome != .failed {
+                    await clearRouteDraftAfterMediaSend(draft.destination)
                 }
             } catch is CancellationError {
                 hasPendingVoiceNote = pendingVoiceNote != nil
@@ -2919,6 +3301,104 @@ import UIKit
             let reply = await resolveStoredReply(replyTo: draft.replyTo, legacyMessageID: draft.replyMessageID)
             guard pendingVoiceNote?.id == draft.id else { return }
             pendingVoiceReplyMessage = reply
+        }
+    }
+
+    private func clearRouteDraftAfterMediaSend(_ destination: ChatDraftKey?) async {
+        guard let accountID = destination?.accountID,
+              destination == location.draftKey,
+              locationContextIsCurrent
+        else { return }
+        let context = ResolvedSendContext(
+            accountID: accountID,
+            chatID: location.chatID,
+            clientID: location.clientID,
+            destinationTopic: location.topic,
+            draftTopic: location.topic,
+            replyTo: nil,
+        )
+        let draftClearSucceeded = await clearRouteDraft(context)
+        guard locationContextIsCurrent else { return }
+        composerRevision &+= 1
+        let hasNewComposerState = !text.characters.isEmpty || replyMessage != nil || !displayedImages.isEmpty
+        if hasNewComposerState {
+            composerIsDirty = true
+            awaitingAuthoritativeDraftClear = false
+            cancelPendingDraftClearRetry()
+            await updateDraft()
+        } else {
+            awaitingAuthoritativeDraftClear = location.isTopicScoped
+            composerIsDirty = awaitingAuthoritativeDraftClear || !draftClearSucceeded
+            if location.isTopicScoped {
+                loadForumTopic()
+            }
+        }
+    }
+
+    private func clearRouteDraft(_ context: ResolvedSendContext) async -> Bool {
+        draftClearGeneration &+= 1
+        let generation = draftClearGeneration
+        draftClearTask?.cancel()
+        do {
+            try await client.setChatDraftMessage(
+                chatId: context.chatID,
+                draftMessage: nil,
+                topicId: context.draftTopic,
+            )
+            guard draftClearGeneration == generation else { return false }
+            draftErrorMessage = nil
+            draftClearTask = nil
+            return true
+        } catch {
+            scheduleDraftClearRetry(context, generation: generation)
+            return false
+        }
+    }
+
+    private func cancelPendingDraftClearRetry() {
+        draftClearGeneration &+= 1
+        draftClearTask?.cancel()
+        draftClearTask = nil
+    }
+
+    private func scheduleDraftClearRetry(
+        _ context: ResolvedSendContext,
+        generation: UInt64,
+    ) {
+        draftClearTask = Task { [weak self] in
+            guard let self else { return }
+            for delay in [0.4, 1.0, 2.0] {
+                try? await Task<Never, Never>.sleep(for: .seconds(delay))
+                guard !Task.isCancelled,
+                      draftClearGeneration == generation,
+                      TDLib.shared.activeAccountID == context.accountID,
+                      TDLib.shared.activeClient.id == context.clientID,
+                      location.draftKey == context.draftKey
+                else { return }
+                do {
+                    try await client.setChatDraftMessage(
+                        chatId: context.chatID,
+                        draftMessage: nil,
+                        topicId: context.draftTopic,
+                    )
+                    guard draftClearGeneration == generation else { return }
+                    draftClearTask = nil
+                    draftErrorMessage = nil
+                    if awaitingAuthoritativeDraftClear, location.isTopicScoped {
+                        composerIsDirty = true
+                        loadForumTopic()
+                    } else {
+                        awaitingAuthoritativeDraftClear = false
+                        composerIsDirty = false
+                    }
+                    return
+                } catch {
+                    continue
+                }
+            }
+            guard draftClearGeneration == generation else { return }
+            draftClearTask = nil
+            draftErrorMessage = "The sent message is safe, but its old draft couldn't be cleared."
         }
     }
 

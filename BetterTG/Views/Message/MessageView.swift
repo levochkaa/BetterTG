@@ -367,8 +367,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
         swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil && !selectionActive
         let presentation = message.contentPresentation
-        let visibleReactions = message.message.topicId == nil
-            && message.message.selfDestructType == nil
+        let visibleReactions = message.message.selfDestructType == nil
             && message.message.ephemeralMessageId == 0
             ? MessageReactionStateReducer.visible(message.reactions)
             : []
