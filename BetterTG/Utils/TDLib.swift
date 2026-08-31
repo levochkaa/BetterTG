@@ -340,7 +340,6 @@ final class TDLib: @unchecked Sendable {
             do {
                 let client = try await manager.createClient()
                 setActiveClient(client)
-                try await client.executeSetLogVerbosityLevel(0)
 
                 if notify {
                     nc.post(name: .activeTelegramAccountChanged, object: account.id)
@@ -414,7 +413,7 @@ final class TDLib: @unchecked Sendable {
         Task {
             do {
                 let directory = try registry.databaseDirectory(for: accountID)
-                try await AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
+                // TDLib defers pre-authentication setOption responses until it receives these parameters.
                 _ = try await client.setTdlibParameters(
                     useTestDc: false,
                     databaseDirectory: directory.path,
@@ -431,6 +430,7 @@ final class TDLib: @unchecked Sendable {
                     systemVersion: UIDevice.current.systemVersion,
                     applicationVersion: Utils.applicationVersion,
                 )
+                try await AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
                 AppLocalization.shared.clientDidConfigure(client)
                 let state = try await client.getAuthorizationState()
                 DispatchQueue.main.async { [weak self] in
