@@ -487,9 +487,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             client: chatVM.client,
             accountID: accountID,
         )
-        profile.onOpenMessage = { [weak self, weak profile] message in
+        profile.onOpenMessage = { [weak self, weak profile] messageID in
             profile?.navigationController?.popViewController(animated: true)
-            DispatchQueue.main.async { self?.scrollToMessage(id: message.id) }
+            DispatchQueue.main.async { self?.scrollToMessage(id: messageID) }
         }
         profile.onSearch = { [weak self, weak profile] in
             profile?.navigationController?.popViewController(animated: true)
@@ -1834,20 +1834,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let transferredOwners = messages.compactMap { inlineVideoPlaybackOwners[$0.id] }
         let transitionSource = galleryTransitionTarget(for: selection)
         pauseInlineVideoPlayback(excluding: transferredOwner?.messageID)
-        present(
-            MediaGalleryViewController(
-                messages: messages,
-                selection: selection,
-                tdlib: tdlib,
-                transferredPlaybackOwner: transferredOwner,
-                transferredPlaybackOwners: transferredOwners,
-                transitionSource: transitionSource,
-                transitionSourceProvider: { [weak self] messageID in
-                    self?.galleryTransitionTarget(for: messageID)
-                },
-            ),
-            animated: true,
+        let gallery = MediaGalleryViewController(
+            messages: messages,
+            selection: selection,
+            tdlib: tdlib,
+            actionClient: chatVM.client,
+            sourceLocation: location,
+            transferredPlaybackOwner: transferredOwner,
+            transferredPlaybackOwners: transferredOwners,
+            transitionSource: transitionSource,
+            transitionSourceProvider: { [weak self] messageID in
+                self?.galleryTransitionTarget(for: messageID)
+            },
         )
+        gallery.contextIsCurrent = { [weak self] in
+            guard let self else { return false }
+            return TDLib.shared.activeAccountID == location.accountID
+                && TDLib.shared.activeClient.id == chatVM.client.id
+        }
+        gallery.onOpenMessageID = { [weak self] messageID in
+            self?.navigateToMessageInCurrentChat(messageID: messageID, quote: nil)
+        }
+        present(gallery, animated: true)
     }
 
     private func navigate(to target: MessageMetadataNavigationTarget) {

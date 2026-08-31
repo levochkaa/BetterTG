@@ -459,6 +459,59 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
     }
 }
 
+// MARK: - MediaGalleryTopicIdentity
+
+private enum MediaGalleryTopicIdentity: Equatable {
+    case directMessages(Int64)
+    case forum(Int)
+    case savedMessages(Int64)
+    case thread(Int64)
+
+    init(_ topic: MessageTopic) {
+        self =
+            switch topic {
+            case .messageTopicDirectMessages(let topic):
+                .directMessages(topic.directMessagesChatTopicId)
+            case .messageTopicForum(let topic):
+                .forum(topic.forumTopicId)
+            case .messageTopicSavedMessages(let topic):
+                .savedMessages(topic.savedMessagesTopicId)
+            case .messageTopicThread(let topic):
+                .thread(topic.messageThreadId)
+            }
+    }
+}
+
+// MARK: - MediaGalleryMessageIdentity
+
+private struct MediaGalleryMessageIdentity: Equatable {
+    let chatID: Int64
+    let messageID: Int64
+    let topic: MediaGalleryTopicIdentity?
+
+    init(_ message: Message) {
+        self.chatID = message.chatId
+        self.messageID = message.id
+        self.topic = message.topicId.map(MediaGalleryTopicIdentity.init)
+    }
+}
+
+// MARK: - MediaGalleryOpenInChatError
+
+private enum MediaGalleryOpenInChatError: LocalizedError {
+    case contextChanged
+    case messageUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .contextChanged:
+            "The active Telegram account changed."
+        case .messageUnavailable:
+            "This message is no longer available in the original chat."
+        }
+    }
+}
+
 // MARK: - MediaGalleryViewController
 
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
@@ -509,6 +562,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     var onRequestMoreMessages: (() -> Void)?
     var contextIsCurrent: (() -> Bool)?
+    var onOpenMessageID: ((Int64) -> Void)? {
+        didSet {
+            if isViewLoaded {
+                updateMoreMenu()
+            }
+        }
+    }
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
@@ -516,6 +576,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var messages: [Message]
     private var totalMessageCount: Int?
     private let tdlib: TDLib
+    private let actionAccountID: UUID?
+    private let actionClient: TDLibClient?
+    private let actionChatID: Int64?
+    private let actionClientID: Int32?
+    private let requiredActionTopic: MediaGalleryTopicIdentity?
+    private let actionRequiresTopicMatch: Bool
     private var selectedIndex: Int
     private var didSetInitialPosition = false
     private var videoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
@@ -540,8 +606,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private let captionTextView = GalleryCaptionTextView()
     private var captionHeightConstraint: NSLayoutConstraint!
     private let closeButton = UIButton(type: .system)
+    private let moreButton = UIButton(type: .system)
+    private let moreActivityIndicator = UIActivityIndicatorView(style: .medium)
     private let shareButton = UIButton(type: .system)
     private let counterLabel = UILabel()
+    private var openInChatTask: Task<Void, Never>?
+    private var openInChatDismissalGeneration: UUID?
+    private var openInChatGeneration: UUID?
     private var voiceOverCancellable: AnyCancellable?
     private var contentSizeCancellable: AnyCancellable?
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -597,12 +668,20 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         selection: Int64,
         totalMessageCount: Int? = nil,
         tdlib: TDLib = .shared,
+        actionClient: TDLibClient? = nil,
+        sourceLocation: ChatLocation? = nil,
         transferredPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
         transferredPlaybackOwners: [GalleryVideoPlaybackOwner] = [],
         transitionSource: MediaGalleryTransitionTarget? = nil,
         transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)? = nil,
     ) {
         self.tdlib = tdlib
+        self.actionAccountID = sourceLocation?.accountID
+        self.actionClient = actionClient
+        self.actionChatID = sourceLocation?.chatID
+        self.actionClientID = sourceLocation?.clientID
+        self.requiredActionTopic = sourceLocation?.topic.map(MediaGalleryTopicIdentity.init)
+        self.actionRequiresTopicMatch = sourceLocation?.topic != nil
         self.transitionSource = transitionSource
         self.transitionSourceProvider = transitionSourceProvider
         let galleryMessages = messages.filter { message in
@@ -632,6 +711,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        openInChatTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -668,6 +751,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        if messages.indices.contains(selectedIndex) {
+            collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
+                .flatMap { $0 as? MediaGalleryCell }?
+                .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
+        }
         bindSelectedCellChrome()
     }
 
@@ -679,6 +767,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            if openInChatDismissalGeneration == nil {
+                cancelOpenInChat()
+            }
             shouldReleasePlaybackOwnersAfterDisappearance = true
         }
     }
@@ -832,6 +923,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if deletedIndex == selectedIndex
             || GalleryPictureInPictureCoordinator.shared.isRetaining(owner)
         {
+            cancelOpenInChat()
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
             shouldReleasePlaybackOwnersAfterDisappearance = true
@@ -941,6 +1033,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         let selectedMessageID = selectedMessageID
         if let selectedMessageID, !updatedIDs.contains(selectedMessageID) {
+            cancelOpenInChat()
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
             shouldReleasePlaybackOwnersAfterDisappearance = true
@@ -1014,6 +1107,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func invalidateForContextChange(completion: @escaping () -> Void) {
+        cancelOpenInChat()
         contextWasInvalidated = true
         contextInvalidationCompletion = completion
         onRequestMoreMessages = nil
@@ -1108,6 +1202,21 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         shareButton.accessibilityIdentifier = "gallery-share"
         shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
         toolbar.contentView.addSubview(shareButton)
+        moreButton.translatesAutoresizingMaskIntoConstraints = false
+        moreButton.setImage(
+            UIImage(systemName: "ellipsis", withConfiguration: symbolConfiguration),
+            for: .normal,
+        )
+        moreButton.tintColor = .white
+        moreButton.accessibilityLabel = "More actions"
+        moreButton.accessibilityIdentifier = "gallery-more-actions"
+        moreButton.showsMenuAsPrimaryAction = true
+        toolbar.contentView.addSubview(moreButton)
+        moreActivityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        moreActivityIndicator.color = .white
+        moreActivityIndicator.hidesWhenStopped = true
+        moreActivityIndicator.isUserInteractionEnabled = false
+        toolbar.contentView.addSubview(moreActivityIndicator)
         counterLabel.translatesAutoresizingMaskIntoConstraints = false
         counterLabel.textColor = .white
         counterLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -1136,11 +1245,18 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
             shareButton.widthAnchor.constraint(equalToConstant: 52),
             shareButton.heightAnchor.constraint(equalToConstant: 50),
+            moreButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
+            moreButton.trailingAnchor.constraint(equalTo: shareButton.leadingAnchor),
+            moreButton.widthAnchor.constraint(equalToConstant: 52),
+            moreButton.heightAnchor.constraint(equalToConstant: 50),
+            moreActivityIndicator.centerXAnchor.constraint(equalTo: moreButton.centerXAnchor),
+            moreActivityIndicator.centerYAnchor.constraint(equalTo: moreButton.centerYAnchor),
             counterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 8),
-            counterLabel.trailingAnchor.constraint(lessThanOrEqualTo: shareButton.leadingAnchor, constant: -8),
+            counterLabel.trailingAnchor.constraint(lessThanOrEqualTo: moreButton.leadingAnchor, constant: -8),
             counterLabel.centerXAnchor.constraint(equalTo: toolbar.contentView.centerXAnchor),
             counterLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
         ])
+        updateMoreMenu()
     }
 
     private func configureCaption() {
@@ -1178,6 +1294,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func updateCounter() {
         let count = max(messages.count, totalMessageCount ?? messages.count)
         counterLabel.text = count > 1 ? "\(selectedIndex + 1) of \(count)" : ""
+        updateMoreMenu()
         updateCaption()
     }
 
@@ -1334,6 +1451,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             prunePlaybackOwners(around: selectedIndex)
             return
         }
+        cancelOpenInChat()
         if let previousCell = collectionView.cellForItem(
             at: IndexPath(item: selectedIndex, section: 0),
         ) as? MediaGalleryCell {
@@ -1438,6 +1556,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func close() {
+        cancelOpenInChat()
         dismiss(animated: true)
     }
 
@@ -1570,6 +1689,143 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         else { return }
         let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         present(activity, animated: true)
+    }
+
+    private func updateMoreMenu() {
+        let canOpen = onOpenMessageID != nil
+            && actionAccountID != nil
+            && actionClient != nil
+            && actionChatID != nil
+            && actionClientID != nil
+            && messages.indices.contains(selectedIndex)
+        moreButton.isHidden = !canOpen
+        guard canOpen else {
+            moreButton.menu = nil
+            return
+        }
+        moreButton.menu = UIMenu(children: [
+            UIAction(
+                title: "Open in Chat",
+                image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
+            ) { [weak self] _ in
+                self?.openSelectedMessageInChat()
+            },
+        ])
+    }
+
+    private func openSelectedMessageInChat() {
+        guard openInChatTask == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              messages.indices.contains(selectedIndex),
+              let accountID = actionAccountID,
+              let client = actionClient,
+              let chatID = actionChatID,
+              let clientID = actionClientID,
+              client.id == clientID,
+              let onOpenMessageID
+        else { return }
+        let selectedIdentity = MediaGalleryMessageIdentity(messages[selectedIndex])
+        guard selectedIdentity.chatID == chatID else { return }
+        let generation = UUID()
+        openInChatGeneration = generation
+        setOpenInChatBusy(true)
+        UIAccessibility.post(notification: .announcement, argument: "Opening message")
+        openInChatTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let resolved = try await client.getMessage(
+                    chatId: selectedIdentity.chatID,
+                    messageId: selectedIdentity.messageID,
+                )
+                try Task.checkCancellation()
+                let resolvedIdentity = MediaGalleryMessageIdentity(resolved)
+                guard openInChatGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed,
+                      selectedMessageID == selectedIdentity.messageID,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == clientID
+                else { throw MediaGalleryOpenInChatError.contextChanged }
+                guard resolvedIdentity.chatID == selectedIdentity.chatID,
+                      resolvedIdentity.messageID == selectedIdentity.messageID,
+                      !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
+                else { throw MediaGalleryOpenInChatError.messageUnavailable }
+                openInChatTask = nil
+                setOpenInChatBusy(false)
+                openInChatDismissalGeneration = generation
+                forcesFadeDismissal = true
+                dismiss(animated: true) { [weak self] in
+                    guard let self,
+                          openInChatGeneration == generation,
+                          openInChatDismissalGeneration == generation,
+                          hasCurrentContext,
+                          TDLib.shared.activeAccountID == accountID,
+                          TDLib.shared.activeClient.id == clientID
+                    else {
+                        self?.finishOpenInChat(generation: generation)
+                        return
+                    }
+                    openInChatGeneration = nil
+                    openInChatDismissalGeneration = nil
+                    onOpenMessageID(resolvedIdentity.messageID)
+                }
+            } catch is CancellationError {
+                finishOpenInChat(generation: generation)
+            } catch {
+                guard openInChatGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishOpenInChat(generation: generation)
+                let displayedError = error is MediaGalleryOpenInChatError
+                    ? error
+                    : MediaGalleryOpenInChatError.messageUnavailable
+                presentOpenInChatError(displayedError.localizedDescription)
+            }
+        }
+    }
+
+    private func cancelOpenInChat() {
+        openInChatGeneration = nil
+        openInChatDismissalGeneration = nil
+        openInChatTask?.cancel()
+        openInChatTask = nil
+        if isViewLoaded {
+            setOpenInChatBusy(false)
+        }
+    }
+
+    private func finishOpenInChat(generation: UUID) {
+        guard openInChatGeneration == generation else { return }
+        openInChatGeneration = nil
+        if openInChatDismissalGeneration == generation {
+            openInChatDismissalGeneration = nil
+        }
+        openInChatTask = nil
+        setOpenInChatBusy(false)
+    }
+
+    private func setOpenInChatBusy(_ busy: Bool) {
+        moreButton.isEnabled = !busy
+        moreButton.imageView?.alpha = busy ? 0 : 1
+        if busy {
+            moreActivityIndicator.startAnimating()
+        } else {
+            moreActivityIndicator.stopAnimating()
+        }
+    }
+
+    private func presentOpenInChatError(_ message: String) {
+        UIAccessibility.post(notification: .announcement, argument: message)
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "Message Unavailable",
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 
     private func localURL(for message: Message) -> URL? {

@@ -45,7 +45,7 @@ import UIKit
         let userID: Int64?
     }
 
-    var onOpenMessage: ((Message) -> Void)?
+    var onOpenMessage: ((Int64) -> Void)?
     var onSearch: (() -> Void)?
 
     private let accountID: UUID
@@ -229,7 +229,7 @@ import UIKit
             openMediaGallery(selectedMessage: message)
             return
         }
-        onOpenMessage?(message)
+        onOpenMessage?(message.id)
     }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -477,6 +477,13 @@ import UIKit
             selection: selectedMessage.id,
             totalMessageCount: sharedTotalMessageCount,
             tdlib: .shared,
+            actionClient: client,
+            sourceLocation: ChatLocation(
+                accountID: accountID,
+                chatID: customChat.id,
+                clientID: client.id,
+                topic: topic,
+            ),
             transitionSource: transitionSource,
             transitionSourceProvider: { [weak self] messageID in
                 self?.mediaTransitionTarget(for: messageID)
@@ -488,6 +495,9 @@ import UIKit
         }
         gallery.contextIsCurrent = { [weak self] in
             self?.contextIsCurrent == true
+        }
+        gallery.onOpenMessageID = { [weak self] messageID in
+            self?.onOpenMessage?(messageID)
         }
         activeMediaGallery = gallery
         present(gallery, animated: true)
