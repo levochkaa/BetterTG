@@ -279,6 +279,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         ]
     }
 
+    var onRequestMoreMessages: (() -> Void)?
+    var contextIsCurrent: (() -> Bool)?
+
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
@@ -290,9 +293,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var mediaTransitionController: MediaGalleryTransitionController?
     private var shouldReleasePlaybackOwnersAfterDisappearance = false
     private var didReleasePlaybackOwners = false
+    private var paginationRequestedMessageCount: Int?
+    private var messageUpdateInProgress = false
+    private var pendingMessageUpdate: [Message]?
+    private var pendingDeletedPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    private var contextWasInvalidated = false
     private var forcedDismissalSnapshot: UIView?
     private var forcesFadeDismissal = false
-    private let toolbar = UIToolbar()
+    private let toolbar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let closeButton = UIButton(type: .system)
+    private let shareButton = UIButton(type: .system)
     private let counterLabel = UILabel()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
 
@@ -305,6 +315,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               let owner = videoPlaybackOwners[selectedMessageID]
         else { return false }
         return owner.isPictureInPictureRetained
+    }
+
+    private var hasCurrentContext: Bool {
+        !contextWasInvalidated && (contextIsCurrent?() ?? true)
     }
 
     init(
@@ -437,6 +451,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         forItemAt indexPath: IndexPath,
     ) {
         (cell as? MediaGalleryCell)?.setPlaybackVisible(shouldPlayItem(at: indexPath.item))
+        requestMoreMessagesIfNeeded(near: indexPath.item)
     }
 
     func collectionView(
@@ -448,7 +463,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func preparePictureInPicture(for owner: GalleryVideoPlaybackOwner) -> Bool {
-        GalleryPictureInPictureCoordinator.shared.prepare(
+        guard hasCurrentContext else { return false }
+        return GalleryPictureInPictureCoordinator.shared.prepare(
             owner: owner,
             gallery: self,
             messages: messages,
@@ -456,9 +472,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func playbackOwnerWasDeleted(_ owner: GalleryVideoPlaybackOwner) {
-        guard let deletedIndex = messages.firstIndex(where: {
-            $0.chatId == owner.chatID && $0.id == owner.messageID
-        }) else { return }
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
+        if messageUpdateInProgress {
+            pendingDeletedPlaybackOwners[owner.messageID] = owner
+            return
+        }
+        guard !isBeingDismissed,
+              let deletedIndex = messages.firstIndex(where: {
+                  $0.chatId == owner.chatID && $0.id == owner.messageID
+              }) else { return }
         if deletedIndex == selectedIndex
             || GalleryPictureInPictureCoordinator.shared.isRetaining(owner)
         {
@@ -504,6 +526,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         owner: GalleryVideoPlaybackOwner,
         completion: @escaping (Bool) -> Void,
     ) {
+        guard hasCurrentContext else {
+            completion(false)
+            return
+        }
         guard let index = messages.firstIndex(where: { $0.id == owner.messageID }) else {
             completion(false)
             return
@@ -539,12 +565,104 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    func updateMessages(_ updatedMessages: [Message]) {
+        guard hasCurrentContext, !isBeingDismissed, !didReleasePlaybackOwners else { return }
+        if messageUpdateInProgress {
+            pendingMessageUpdate = updatedMessages
+            return
+        }
+        let updatedMessages = updatedMessages.filter { message in
+            switch message.content {
+            case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+                true
+            default:
+                false
+            }
+        }
+        let previousIDs = messages.map(\.id)
+        let updatedIDs = updatedMessages.map(\.id)
+        guard previousIDs != updatedIDs else { return }
+        let selectedMessageID = selectedMessageID
+        if let selectedMessageID, !updatedIDs.contains(selectedMessageID) {
+            forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
+            forcesFadeDismissal = true
+            shouldReleasePlaybackOwnersAfterDisappearance = true
+            dismiss(animated: true)
+            return
+        }
+        let appendsOnly = updatedIDs.count > previousIDs.count
+            && updatedIDs.starts(with: previousIDs)
+        let previousCount = messages.count
+        messages = updatedMessages
+        selectedIndex =
+            if let selectedMessageID,
+            let preservedIndex = messages.firstIndex(where: { $0.id == selectedMessageID }) {
+                preservedIndex
+            } else {
+                min(selectedIndex, max(0, messages.count - 1))
+            }
+        if messages.count > previousCount {
+            paginationRequestedMessageCount = nil
+        }
+        guard isViewLoaded else { return }
+        let finishUpdate = { [weak self] in
+            guard let self else { return }
+            updateCounter()
+            guard didSetInitialPosition, messages.indices.contains(selectedIndex) else { return }
+            collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
+                .flatMap { $0 as? MediaGalleryCell }?
+                .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
+            prunePlaybackOwners(around: selectedIndex)
+        }
+        if appendsOnly {
+            let indexPaths = (previousCount..<messages.count).map { IndexPath(item: $0, section: 0) }
+            messageUpdateInProgress = true
+            collectionView.performBatchUpdates {
+                collectionView.insertItems(at: indexPaths)
+            } completion: { [weak self] _ in
+                guard let self else { return }
+                messageUpdateInProgress = false
+                guard hasCurrentContext, !didReleasePlaybackOwners else { return }
+                finishUpdate()
+                drainPendingMessageUpdates()
+                requestMoreMessagesIfNeeded(near: selectedIndex)
+            }
+        } else {
+            collectionView.reloadData()
+            if didSetInitialPosition, messages.indices.contains(selectedIndex) {
+                collectionView.layoutIfNeeded()
+                collectionView.scrollToItem(
+                    at: IndexPath(item: selectedIndex, section: 0),
+                    at: .centeredHorizontally,
+                    animated: false,
+                )
+            }
+            finishUpdate()
+        }
+    }
+
+    func allowMoreMessagesRetry() {
+        paginationRequestedMessageCount = nil
+    }
+
+    func invalidateForContextChange() {
+        contextWasInvalidated = true
+        onRequestMoreMessages = nil
+        paginationRequestedMessageCount = messages.count
+        pendingMessageUpdate = nil
+        pendingDeletedPlaybackOwners = [:]
+        forcesFadeDismissal = true
+        shouldReleasePlaybackOwnersAfterDisappearance = true
+        releasePlaybackOwnersForDismissal()
+    }
+
     fileprivate func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
         selectedGalleryCell()?.transitionContentFrame(in: coordinateSpace)
     }
 
     fileprivate func makeTransitionSnapshot() -> UIView? {
-        forcedDismissalSnapshot ?? selectedGalleryCell()?.makeTransitionSnapshot()
+        guard hasCurrentContext else { return forcedDismissalSnapshot }
+        return forcedDismissalSnapshot ?? selectedGalleryCell()?.makeTransitionSnapshot()
     }
 
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
@@ -594,28 +712,57 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func configureToolbar() {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
-        toolbar.barStyle = .black
-        toolbar.isTranslucent = true
+        toolbar.accessibilityIdentifier = "gallery-footer"
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .regular)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: symbolConfiguration), for: .normal)
+        closeButton.tintColor = .white
+        closeButton.accessibilityLabel = "Close"
+        closeButton.accessibilityIdentifier = "gallery-close"
+        closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
+        toolbar.contentView.addSubview(closeButton)
+        shareButton.translatesAutoresizingMaskIntoConstraints = false
+        shareButton.setImage(
+            UIImage(systemName: "square.and.arrow.up", withConfiguration: symbolConfiguration),
+            for: .normal,
+        )
+        shareButton.tintColor = .white
+        shareButton.accessibilityLabel = "Share"
+        shareButton.accessibilityIdentifier = "gallery-share"
+        shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
+        toolbar.contentView.addSubview(shareButton)
+        counterLabel.translatesAutoresizingMaskIntoConstraints = false
         counterLabel.textColor = .white
         counterLabel.font = .preferredFont(forTextStyle: .subheadline)
+        counterLabel.adjustsFontForContentSizeCategory = true
+        counterLabel.adjustsFontSizeToFitWidth = true
+        counterLabel.minimumScaleFactor = 0.75
         counterLabel.textAlignment = .center
-        toolbar.setItems([
-            UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(close)),
-            UIBarButtonItem.flexibleSpace(),
-            UIBarButtonItem(customView: counterLabel),
-            UIBarButtonItem.flexibleSpace(),
-            UIBarButtonItem(barButtonSystemItem: .action, target: self, action: #selector(share)),
-        ], animated: false)
+        counterLabel.accessibilityIdentifier = "gallery-counter"
+        counterLabel.accessibilityTraits = [.staticText, .updatesFrequently]
+        toolbar.contentView.addSubview(counterLabel)
         view.addSubview(toolbar)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -50),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 50),
+            closeButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
+            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
+            closeButton.widthAnchor.constraint(equalToConstant: 52),
+            closeButton.heightAnchor.constraint(equalToConstant: 50),
+            shareButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
+            shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
+            shareButton.widthAnchor.constraint(equalToConstant: 52),
+            shareButton.heightAnchor.constraint(equalToConstant: 50),
+            counterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 8),
+            counterLabel.trailingAnchor.constraint(lessThanOrEqualTo: shareButton.leadingAnchor, constant: -8),
+            counterLabel.centerXAnchor.constraint(equalTo: toolbar.contentView.centerXAnchor),
+            counterLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
         ])
     }
 
@@ -629,6 +776,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             messages.count - 1,
             max(0, Int(round(scrollView.contentOffset.x / max(scrollView.bounds.width, 1)))),
         )
+        requestMoreMessagesIfNeeded(near: updatedIndex)
         guard updatedIndex != selectedIndex else {
             collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
                 .flatMap { $0 as? MediaGalleryCell }?
@@ -647,8 +795,37 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         prunePlaybackOwners(around: selectedIndex)
     }
 
+    private func requestMoreMessagesIfNeeded(near index: Int) {
+        guard hasCurrentContext,
+              !isBeingDismissed,
+              !didReleasePlaybackOwners,
+              !messageUpdateInProgress,
+              index >= max(0, messages.count - 3),
+              paginationRequestedMessageCount != messages.count,
+              let onRequestMoreMessages
+        else { return }
+        paginationRequestedMessageCount = messages.count
+        onRequestMoreMessages()
+    }
+
+    private func drainPendingMessageUpdates() {
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
+        let deletedOwners = Array(pendingDeletedPlaybackOwners.values)
+        pendingDeletedPlaybackOwners = [:]
+        for owner in deletedOwners {
+            playbackOwnerWasDeleted(owner)
+            guard !isBeingDismissed else { return }
+        }
+        guard let pendingMessageUpdate else { return }
+        self.pendingMessageUpdate = nil
+        updateMessages(pendingMessageUpdate)
+    }
+
     private func playbackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
-        guard case .messageVideo = message.content else { return nil }
+        guard hasCurrentContext,
+              !didReleasePlaybackOwners,
+              case .messageVideo = message.content
+        else { return nil }
         if let owner = videoPlaybackOwners[message.id] {
             owner.galleryController = self
             return owner
@@ -723,6 +900,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func performOnSelectedItem(_ command: GalleryPlaybackCommand) {
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
         if command == .togglePictureInPicture,
            let activeOwner = GalleryPictureInPictureCoordinator.shared.activeOwner
         {
@@ -736,7 +914,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func share() {
-        guard messages.indices.contains(selectedIndex), let url = localURL(for: messages[selectedIndex]) else { return }
+        guard hasCurrentContext,
+              !didReleasePlaybackOwners,
+              messages.indices.contains(selectedIndex),
+              let url = localURL(for: messages[selectedIndex])
+        else { return }
         let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         present(activity, animated: true)
     }
@@ -787,6 +969,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             withReuseIdentifier: MediaGalleryCell.reuseIdentifier,
             for: indexPath,
         ) as? MediaGalleryCell else { return UICollectionViewCell() }
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return cell }
         let message = messages[indexPath.item]
         cell.configure(message: message, videoPlaybackOwner: playbackOwner(for: message))
         return cell

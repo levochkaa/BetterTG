@@ -60,6 +60,7 @@ import UIKit
     private var oldestMessageID: Int64?
     private var hasMore = true
     private var historyError: String?
+    private weak var activeMediaGallery: MediaGalleryViewController?
 
     private var currentSharedTab: SharedTab {
         SharedTab(rawValue: segmentedControl.selectedSegmentIndex) ?? .media
@@ -67,6 +68,12 @@ import UIKit
 
     private var contextIsCurrent: Bool {
         TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
+    }
+
+    private var sortedSharedMessages: [Message] {
+        messagesByID.values.sorted {
+            $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date
+        }
     }
 
     init(customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID) {
@@ -113,6 +120,10 @@ import UIKit
         guard let id = dataSource.itemIdentifier(for: indexPath),
               let message = messagesByID[id]
         else { return }
+        if currentSharedTab == .media {
+            openMediaGallery(selectedMessage: message)
+            return
+        }
         onOpenMessage?(message)
     }
 
@@ -323,15 +334,86 @@ import UIKit
         }
     }
 
+    private func openMediaGallery(selectedMessage: Message) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        let messages = sortedSharedMessages.filter { message in
+            switch message.content {
+            case .messagePhoto, .messageVideo:
+                true
+            default:
+                false
+            }
+        }
+        guard messages.contains(where: { $0.id == selectedMessage.id }) else { return }
+        let transitionSource = mediaTransitionTarget(for: selectedMessage.id)
+        let gallery = MediaGalleryViewController(
+            messages: messages,
+            selection: selectedMessage.id,
+            tdlib: .shared,
+            transitionSource: transitionSource,
+            transitionSourceProvider: { [weak self] messageID in
+                self?.mediaTransitionTarget(for: messageID)
+            },
+        )
+        gallery.onRequestMoreMessages = { [weak self] in
+            guard let self, contextIsCurrent else { return }
+            loadMore()
+        }
+        gallery.contextIsCurrent = { [weak self] in
+            self?.contextIsCurrent == true
+        }
+        activeMediaGallery = gallery
+        present(gallery, animated: true)
+    }
+
+    private func mediaTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
+        guard let indexPath = dataSource.indexPath(for: messageID),
+              let cell = collectionView.cellForItem(at: indexPath) as? SharedMediaGridCell
+        else { return nil }
+        return cell.transitionTarget(for: messageID) { [weak self, weak cell] in
+            guard let self, let cell, contextIsCurrent,
+                  let currentIndexPath = dataSource.indexPath(for: messageID)
+            else { return false }
+            return collectionView.cellForItem(at: currentIndexPath) === cell
+        }
+    }
+
     private func observeAccount() {
-        NotificationCenter.default
-            .publisher(for: .telegramAccountsChanged)
+        nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
+            self?.handleAccountChange()
+        }
+        TDLib.shared
+            .deleteMessageUpdates
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self, !contextIsCurrent else { return }
-                navigationController?.popViewController(animated: true)
+            .sink { [weak self] update in
+                guard let self,
+                      contextIsCurrent,
+                      !update.fromCache,
+                      update.isPermanent,
+                      update.chatId == customChat.id
+                else { return }
+                let deletedIDs = Set(update.messageIds)
+                let previousCount = messagesByID.count
+                messagesByID = messagesByID.filter { !deletedIDs.contains($0.key) }
+                guard messagesByID.count != previousCount else { return }
+                if let oldestMessageID, deletedIDs.contains(oldestMessageID) {
+                    self.oldestMessageID = sortedSharedMessages.last?.id
+                }
+                applySnapshot()
             }
             .store(in: &cancellables)
+    }
+
+    private func handleAccountChange() {
+        guard !contextIsCurrent else { return }
+        activeMediaGallery?.invalidateForContextChange()
+        if presentedViewController != nil {
+            dismiss(animated: false) { [weak self] in
+                self?.navigationController?.popViewController(animated: true)
+            }
+        } else {
+            navigationController?.popViewController(animated: true)
+        }
     }
 
     private func loadProfileInfo() {
@@ -421,6 +503,7 @@ import UIKit
                 guard contextIsCurrent, currentSharedTab == requestedTab else { return }
                 historyError = "Couldn't load shared \(requestedTab.title.lowercased())."
                 historyTask = nil
+                activeMediaGallery?.allowMoreMessagesRetry()
                 applySnapshot()
             }
         }
@@ -430,13 +513,14 @@ import UIKit
     }
 
     private func applySnapshot() {
-        let messages = messagesByID.values.sorted {
-            $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date
-        }
+        let messages = sortedSharedMessages
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.messages])
         snapshot.appendItems(messages.map(\.id))
         dataSource.apply(snapshot, animatingDifferences: true)
+        if currentSharedTab == .media {
+            activeMediaGallery?.updateMessages(messages)
+        }
         guard messages.isEmpty else {
             collectionView.backgroundView = nil
             return
@@ -578,6 +662,25 @@ private final class SharedMediaGridCell: UICollectionViewCell {
         guard loadingIsPaused, let representedMessage else { return }
         loadingIsPaused = false
         loadThumbnail(for: representedMessage)
+    }
+
+    func transitionTarget(
+        for messageID: Int64,
+        validation additionalValidation: @escaping () -> Bool,
+    ) -> MediaGalleryTransitionTarget? {
+        guard representedMessage?.id == messageID else { return nil }
+        return MediaGalleryTransitionTarget(
+            messageID: messageID,
+            sourceView: imageView,
+            snapshotFactory: { [weak imageView] in
+                imageView?.makeImageSnapshot(contentMode: .scaleAspectFill)
+            },
+            validation: { [weak self] in
+                self?.representedMessage?.id == messageID
+                    && self?.window != nil
+                    && additionalValidation()
+            },
+        )
     }
 
     private func loadThumbnail(for message: Message) {
