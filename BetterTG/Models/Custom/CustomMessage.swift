@@ -18,6 +18,7 @@ import TDLibKitDynamic
     @Published var reactions: MessageReactions?
     @Published var unreadReactions: [UnreadReaction]
     @Published var reactionMutationInFlight = false
+    @Published var isPinned: Bool
 
     var isReplyQuoteExpanded = false
 
@@ -41,6 +42,7 @@ import TDLibKitDynamic
         properties: MessageProperties,
         reactions: MessageReactions? = nil,
         unreadReactions: [UnreadReaction]? = nil,
+        isPinned: Bool? = nil,
     ) {
         self.message = message
         self.senderUser = senderUser
@@ -52,5 +54,6 @@ import TDLibKitDynamic
         self.properties = properties
         self.reactions = reactions ?? message.interactionInfo?.reactions
         self.unreadReactions = unreadReactions ?? message.unreadReactions
+        self.isPinned = isPinned ?? message.isPinned
     }
 }

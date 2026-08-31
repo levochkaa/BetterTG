@@ -132,6 +132,58 @@ struct MessageReplyThumbnail {
     let file: File
     let isRound: Bool
     let minithumbnailData: Data?
+
+    static func make(for content: MessageContent) -> MessageReplyThumbnail? {
+        switch content {
+        case .messagePhoto(let message) where !message.isSecret && !message.hasSpoiler:
+            guard let size = message.photo.sizes.getSize(.sBox) ?? message.photo.sizes.first else { return nil }
+            return MessageReplyThumbnail(
+                file: size.photo,
+                isRound: false,
+                minithumbnailData: message.photo.minithumbnail?.data,
+            )
+        case .messageAnimation(let message) where !message.isSecret && !message.hasSpoiler:
+            guard let thumbnail = message.animation.thumbnail else { return nil }
+            return MessageReplyThumbnail(
+                file: thumbnail.file,
+                isRound: false,
+                minithumbnailData: message.animation.minithumbnail?.data,
+            )
+        case .messageAudio(let message):
+            guard let thumbnail = message.audio.albumCoverThumbnail else { return nil }
+            return MessageReplyThumbnail(
+                file: thumbnail.file,
+                isRound: false,
+                minithumbnailData: message.audio.albumCoverMinithumbnail?.data,
+            )
+        case .messageDocument(let message):
+            guard let thumbnail = message.document.thumbnail else { return nil }
+            return MessageReplyThumbnail(
+                file: thumbnail.file,
+                isRound: false,
+                minithumbnailData: message.document.minithumbnail?.data,
+            )
+        case .messageSticker(let message):
+            guard let thumbnail = message.sticker.thumbnail else { return nil }
+            return MessageReplyThumbnail(file: thumbnail.file, isRound: false, minithumbnailData: nil)
+        case .messageVideo(let message) where !message.isSecret && !message.hasSpoiler:
+            guard let thumbnail = message.video.thumbnail else { return nil }
+            return MessageReplyThumbnail(
+                file: thumbnail.file,
+                isRound: false,
+                minithumbnailData: message.video.minithumbnail?.data,
+            )
+        case .messageVideoNote(let message) where !message.isSecret:
+            guard let thumbnail = message.videoNote.thumbnail else { return nil }
+            return MessageReplyThumbnail(
+                file: thumbnail.file,
+                isRound: true,
+                minithumbnailData: message.videoNote.minithumbnail?.data,
+            )
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - MessageReplyAvailability
@@ -415,7 +467,7 @@ struct MessageForwardPresentation {
             referencedUserID: authorPeer?.userID,
             targetChatID: targetChatID,
             targetMessageID: targetMessageID,
-            thumbnail: content.flatMap(replyThumbnail(for:)),
+            thumbnail: content.flatMap(MessageReplyThumbnail.make(for:)),
             title: title,
         )
     }
@@ -659,58 +711,6 @@ struct MessageForwardPresentation {
             message.caption.text
         default:
             nil
-        }
-    }
-
-    private func replyThumbnail(for content: MessageContent) -> MessageReplyThumbnail? {
-        switch content {
-        case .messagePhoto(let message) where !message.isSecret:
-            guard let size = message.photo.sizes.getSize(.sBox) ?? message.photo.sizes.first else { return nil }
-            return MessageReplyThumbnail(
-                file: size.photo,
-                isRound: false,
-                minithumbnailData: message.photo.minithumbnail?.data,
-            )
-        case .messageAnimation(let message) where !message.isSecret:
-            guard let thumbnail = message.animation.thumbnail else { return nil }
-            return MessageReplyThumbnail(
-                file: thumbnail.file,
-                isRound: false,
-                minithumbnailData: message.animation.minithumbnail?.data,
-            )
-        case .messageAudio(let message):
-            guard let thumbnail = message.audio.albumCoverThumbnail else { return nil }
-            return MessageReplyThumbnail(
-                file: thumbnail.file,
-                isRound: false,
-                minithumbnailData: message.audio.albumCoverMinithumbnail?.data,
-            )
-        case .messageDocument(let message):
-            guard let thumbnail = message.document.thumbnail else { return nil }
-            return MessageReplyThumbnail(
-                file: thumbnail.file,
-                isRound: false,
-                minithumbnailData: message.document.minithumbnail?.data,
-            )
-        case .messageSticker(let message):
-            guard let thumbnail = message.sticker.thumbnail else { return nil }
-            return MessageReplyThumbnail(file: thumbnail.file, isRound: false, minithumbnailData: nil)
-        case .messageVideo(let message) where !message.isSecret:
-            guard let thumbnail = message.video.thumbnail else { return nil }
-            return MessageReplyThumbnail(
-                file: thumbnail.file,
-                isRound: false,
-                minithumbnailData: message.video.minithumbnail?.data,
-            )
-        case .messageVideoNote(let message) where !message.isSecret:
-            guard let thumbnail = message.videoNote.thumbnail else { return nil }
-            return MessageReplyThumbnail(
-                file: thumbnail.file,
-                isRound: true,
-                minithumbnailData: message.videoNote.minithumbnail?.data,
-            )
-        default:
-            return nil
         }
     }
 

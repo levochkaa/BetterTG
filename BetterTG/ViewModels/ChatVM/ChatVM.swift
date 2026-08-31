@@ -35,6 +35,11 @@ import UIKit
         case unavailable
     }
 
+    private enum PinMutationFailure: Swift.Error {
+        case accountChanged
+        case unavailable
+    }
+
     private enum VoiceRecordingTrimContinuation {
         case resume
         case send
@@ -80,6 +85,9 @@ import UIKit
     @Published var reactionErrorMessage: String?
     @Published private(set) var canAddReactions = false
     @Published private(set) var maximumChosenReactionCount = 1
+    @Published private(set) var pinnedMessage: Message?
+    @Published private(set) var locallyHiddenPinnedMessageID: Int64?
+    @Published var pinErrorMessage: String?
     @Published var errorShown = false
 
     var loadingMessagesTask: Task<Void, Never>?
@@ -120,6 +128,12 @@ import UIKit
     private var replySelectionGeneration = UInt64.zero
     private var reactionMutationTasks = [Int64: Task<Void, Never>]()
     private var reactionMutationGenerations = [Int64: UUID]()
+    private var pinnedMessageTask: Task<Void, Never>?
+    private var pinnedMessageGeneration = UInt64.zero
+    private var pinMutationTasks = [Int64: Task<Void, Never>]()
+    private var pinMutationGenerations = [Int64: UUID]()
+    private var pinAuthoritativeRevisions = [Int64: UInt64]()
+    private var pinnedMessageAuthoritativeRevision = UInt64.zero
     private let previewing: Bool
 
     private var pendingVoiceNote: VoiceNoteSendDraft?
@@ -129,6 +143,21 @@ import UIKit
     private var bufferedDeletedMessageIDs = Set<Int64>()
     private var voiceRetryAvailabilityTask: Task<Void, Never>?
     private var hasMoreMessages = true
+
+    var visiblePinnedMessage: Message? {
+        PinnedMessageState.visibleMessage(
+            newest: pinnedMessage,
+            locallyHiddenMessageID: locallyHiddenPinnedMessageID,
+            supported: supportsPinnedMessages,
+        )
+    }
+
+    var supportsPinnedMessages: Bool {
+        !previewing
+            && customChat.supergroup?.isForum != true
+            && customChat.supergroup?.isDirectMessagesGroup != true
+            && !customChat.chat.viewAsTopics
+    }
 
     var pendingVoiceReplyMessageID: Int64? {
         activeVoiceRecordingDraft?.replyMessageID ?? pendingVoiceNote?.replyMessageID
@@ -317,6 +346,9 @@ import UIKit
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
+        if supportsPinnedMessages {
+            refreshPinnedMessages()
+        }
         if !previewing {
             Media.shared.onChatOpen(title: customChat.displayTitle)
         }
@@ -406,6 +438,8 @@ import UIKit
         videoRetryAvailabilityTask?.cancel()
         videoRetryTask?.cancel()
         reactionMutationTasks.values.forEach { $0.cancel() }
+        pinnedMessageTask?.cancel()
+        pinMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
         if audioRecorder != nil {
@@ -776,6 +810,85 @@ import UIKit
 
     func updateAvailableReactions(_ availableReactions: ChatAvailableReactions) {
         maximumChosenReactionCount = availableReactions.maximumChosenReactionCount
+    }
+
+    func refreshPinnedMessages() {
+        guard supportsPinnedMessages else { return }
+        pinnedMessageGeneration &+= 1
+        let generation = pinnedMessageGeneration
+        pinnedMessageTask?.cancel()
+        let client = client
+        let accountID = accountID
+        pinnedMessageTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let message = try await client.getChatPinnedMessage(chatId: chatID)
+                guard !Task.isCancelled,
+                      pinnedMessageGeneration == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                pinnedMessageAuthoritativeRevision &+= 1
+                pinnedMessage = message.topicId == nil ? message : nil
+                pinnedMessageTask = nil
+            } catch is CancellationError {
+                guard pinnedMessageGeneration == generation else { return }
+                pinnedMessageTask = nil
+            } catch {
+                guard !Task.isCancelled,
+                      pinnedMessageGeneration == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                if PinnedMessageState.fetchErrorMeansNoPinnedMessage(error) {
+                    pinnedMessageAuthoritativeRevision &+= 1
+                    pinnedMessage = nil
+                }
+                pinnedMessageTask = nil
+            }
+        }
+    }
+
+    func hidePinnedMessageBanner() {
+        locallyHiddenPinnedMessageID = pinnedMessage?.id
+    }
+
+    func applyPinnedMessageUpdate(messageID: Int64, isPinned: Bool) {
+        pinnedMessageAuthoritativeRevision &+= 1
+        pinAuthoritativeRevisions[messageID, default: 0] &+= 1
+        messages.first(where: { $0.id == messageID })?.isPinned = isPinned
+        if !isPinned, pinnedMessage?.id == messageID {
+            pinnedMessage = nil
+        }
+        refreshPinnedMessages()
+    }
+
+    func applyPermanentPinnedMessageDeletion(_ messageIDs: [Int64]) {
+        guard pinnedMessage.map({ messageIDs.contains($0.id) }) == true else { return }
+        pinnedMessageAuthoritativeRevision &+= 1
+        pinnedMessage = nil
+        refreshPinnedMessages()
+    }
+
+    func pinMessage(
+        _ message: CustomMessage,
+        mode: MessagePinMode,
+    ) {
+        setMessagePinned(
+            message,
+            pinned: true,
+            disableNotification: mode.disableNotification,
+            onlyForSelf: mode.onlyForSelf,
+        )
+    }
+
+    func unpinMessage(_ message: CustomMessage) {
+        setMessagePinned(
+            message,
+            pinned: false,
+            disableNotification: true,
+            onlyForSelf: false,
+        )
     }
 
     func beginReply(to message: CustomMessage) {
@@ -1667,6 +1780,122 @@ import UIKit
     func bufferPotentialVoiceMessageDeletions(_ messageIDs: [Int64]) {
         guard finalizingVoiceNote || !registeringVoiceMessageIDs.isEmpty else { return }
         bufferedDeletedMessageIDs.formUnion(messageIDs)
+    }
+
+    private func setMessagePinned(
+        _ message: CustomMessage,
+        pinned: Bool,
+        disableNotification: Bool,
+        onlyForSelf: Bool,
+    ) {
+        guard supportsPinnedMessages,
+              message.album.isEmpty,
+              message.message.topicId == nil,
+              pinMutationTasks.isEmpty,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id,
+              messages.contains(where: { $0 === message })
+        else { return }
+        let generation = UUID()
+        let messageID = message.id
+        pinnedMessageGeneration &+= 1
+        pinnedMessageTask?.cancel()
+        pinnedMessageTask = nil
+        let previousPinnedState = message.isPinned
+        let previousPinnedMessage = pinnedMessage
+        let authoritativeRevision = pinAuthoritativeRevisions[messageID, default: 0]
+        let bannerRevision = pinnedMessageAuthoritativeRevision
+        pinMutationGenerations[messageID] = generation
+        let client = client
+        pinMutationTasks[messageID] = Task { [weak self, weak message] in
+            guard let self else { return }
+            guard let message else {
+                pinMutationTasks[messageID] = nil
+                pinMutationGenerations[messageID] = nil
+                return
+            }
+            do {
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else {
+                    throw PinMutationFailure.accountChanged
+                }
+                let properties = try await client.getMessageProperties(
+                    chatId: chatID,
+                    messageId: messageID,
+                )
+                guard properties.canBePinned else {
+                    throw PinMutationFailure.unavailable
+                }
+                guard pinMutationGenerations[messageID] == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else {
+                    throw PinMutationFailure.accountChanged
+                }
+                message.properties = properties
+                message.isPinned = pinned
+                if pinned {
+                    pinnedMessage = message.message
+                } else if pinnedMessage?.id == messageID {
+                    pinnedMessage = nil
+                }
+                _ =
+                    if pinned {
+                        try await client.pinChatMessage(
+                            chatId: chatID,
+                            disableNotification: disableNotification,
+                            messageId: messageID,
+                            onlyForSelf: onlyForSelf,
+                        )
+                    } else {
+                        try await client.unpinChatMessage(
+                            chatId: chatID,
+                            messageId: messageID,
+                        )
+                    }
+                guard pinMutationGenerations[messageID] == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else {
+                    throw PinMutationFailure.accountChanged
+                }
+                pinMutationTasks[messageID] = nil
+                pinMutationGenerations[messageID] = nil
+                refreshPinnedMessages()
+            } catch is CancellationError {
+                guard pinMutationGenerations[messageID] == generation else { return }
+                pinMutationTasks[messageID] = nil
+                pinMutationGenerations[messageID] = nil
+            } catch {
+                guard pinMutationGenerations[messageID] == generation else { return }
+                pinMutationTasks[messageID] = nil
+                pinMutationGenerations[messageID] = nil
+                if pinAuthoritativeRevisions[messageID, default: 0] == authoritativeRevision,
+                   pinnedMessageAuthoritativeRevision == bannerRevision,
+                   message.isPinned == pinned
+                {
+                    message.isPinned = previousPinnedState
+                    pinnedMessage = previousPinnedMessage
+                }
+                pinErrorMessage =
+                    switch error as? PinMutationFailure {
+                    case .accountChanged:
+                        "The active Telegram account changed."
+                    case .unavailable:
+                        "This message can no longer be pinned."
+                    case nil:
+                        pinned
+                            ? "The message couldn't be pinned."
+                            : "The message couldn't be unpinned."
+                    }
+                if TDLib.shared.activeAccountID == accountID,
+                   TDLib.shared.activeClient.id == client.id
+                {
+                    refreshPinnedMessages()
+                }
+            }
+        }
     }
 
     private func resolveStoredReply(

@@ -18,6 +18,15 @@ extension ChatVM {
             guard let self else { return }
             if update.chatId == customChat.id {
                 updateDeleteMessages(update)
+                if !update.fromCache,
+                   update.isPermanent,
+                   supportsPinnedMessages,
+                   TDLib.shared.activeAccountID == accountID,
+                   TDLib.shared.activeClient.id == client.id,
+                   pinnedMessage.map({ update.messageIds.contains($0.id) }) == true
+                {
+                    applyPermanentPinnedMessageDeletion(update.messageIds)
+                }
             }
             guard !update.fromCache else { return }
             refreshReferencedMetadata(chatID: update.chatId, messageIDs: Set(update.messageIds))
@@ -29,6 +38,12 @@ extension ChatVM {
             guard let self else { return }
             if update.chatId == customChat.id {
                 updateMessageEdited(update)
+                if TDLib.shared.activeAccountID == accountID,
+                   TDLib.shared.activeClient.id == client.id,
+                   pinnedMessage?.id == update.messageId
+                {
+                    refreshPinnedMessages()
+                }
             }
             refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
         }
@@ -36,6 +51,12 @@ extension ChatVM {
             guard let self else { return }
             if update.chatId == customChat.id {
                 refreshMessage(id: update.messageId)
+                if TDLib.shared.activeAccountID == accountID,
+                   TDLib.shared.activeClient.id == client.id,
+                   pinnedMessage?.id == update.messageId
+                {
+                    refreshPinnedMessages()
+                }
             }
             refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
         }
@@ -54,6 +75,13 @@ extension ChatVM {
                   let message = messages.first(where: { $0.id == update.messageId })
             else { return }
             message.unreadReactions = update.unreadReactions
+        }
+        nc.publisher(&cancellables, for: .updateMessageIsPinned) { [weak self] update in
+            guard let self, update.chatId == customChat.id,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            applyPinnedMessageUpdate(messageID: update.messageId, isPinned: update.isPinned)
         }
         nc.publisher(&cancellables, for: .updateChatPermissions) { [weak self] update in
             guard let self, update.chatId == customChat.id,
