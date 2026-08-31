@@ -49,6 +49,21 @@ struct MessageForwardRequest: Equatable {
     }
 }
 
+// MARK: - MessageForwardDestination
+
+struct MessageForwardDestination: Hashable {
+    let chatID: Int64
+    let topic: MessageTopic?
+
+    var forumTopicID: Int? {
+        if case .messageTopicForum(let topic) = topic {
+            topic.forumTopicId
+        } else {
+            nil
+        }
+    }
+}
+
 // MARK: - MessageForwardMode
 
 enum MessageForwardMode: Equatable {
@@ -221,55 +236,10 @@ enum MessageForwardingError: LocalizedError, Equatable {
         )
     }
 
-    static func eligibility(
-        of chat: Chat,
-        for prepared: PreparedMessageForward,
-        client: TDLibClient,
-    ) async -> MessageForwardDestinationEligibility {
-        let localEligibility = localEligibility(of: chat, for: prepared)
-        guard localEligibility.isAllowed else {
-            return localEligibility
-        }
-
-        if case .chatTypeSupergroup(let supergroupChat) = chat.type {
-            do {
-                let supergroup = try await client.getSupergroup(
-                    supergroupId: supergroupChat.supergroupId,
-                )
-                if supergroup.isForum {
-                    return unavailable("Choose a forum topic before forwarding.")
-                }
-            } catch {
-                return unavailable("This chat couldn't be checked.")
-            }
-        }
-
-        if case .chatTypePrivate(let privateChat) = chat.type {
-            do {
-                switch try await client.canSendMessageToUser(onlyLocal: false, userId: privateChat.userId) {
-                case .canSendMessageToUserResultOk:
-                    break
-                case .canSendMessageToUserResultUserHasPaidMessages:
-                    return unavailable("Paid messages aren't supported.")
-                case .canSendMessageToUserResultUserIsDeleted:
-                    return unavailable("This user is no longer available.")
-                case .canSendMessageToUserResultUserRestrictsNewChats:
-                    return unavailable("This user doesn't accept new chats.")
-                }
-            } catch {
-                return unavailable("This chat couldn't be checked.")
-            }
-        }
-        return localEligibility
-    }
-
     static func localEligibility(
         of chat: Chat,
         for prepared: PreparedMessageForward,
     ) -> MessageForwardDestinationEligibility {
-        if chat.viewAsTopics {
-            return unavailable("Choose a topic before forwarding.")
-        }
         if case .chatTypeSecret = chat.type {
             guard prepared.canCopyToSecretChat else {
                 return unavailable("One or more selected messages can't be copied to a Secret Chat.")
@@ -303,7 +273,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
 
     @discardableResult static func send(
         _ prepared: PreparedMessageForward,
-        to destinationChatID: Int64,
+        to destination: MessageForwardDestination,
         mode: MessageForwardMode,
         client: TDLibClient,
         accountID: UUID,
@@ -317,8 +287,13 @@ enum MessageForwardingError: LocalizedError, Equatable {
             throw MessageForwardingError.accountChanged
         }
         try Task.checkCancellation()
-        let destination = try await client.getChat(chatId: destinationChatID)
-        let eligibility = await eligibility(of: destination, for: prepared, client: client)
+        let destinationChat = try await client.getChat(chatId: destination.chatID)
+        let eligibility = await eligibility(
+            of: destinationChat,
+            topic: destination.topic,
+            for: prepared,
+            client: client,
+        )
         guard eligibility.isAllowed else {
             throw MessageForwardingError.destinationUnavailable(
                 eligibility.reason ?? "This chat can't receive the selected messages.",
@@ -331,7 +306,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 mode
             }
         let supportsEffectiveMode =
-            if case .chatTypeSecret = destination.type {
+            if case .chatTypeSecret = destinationChat.type {
                 prepared.canCopyToSecretChat
             } else {
                 prepared.supports(effectiveMode)
@@ -344,23 +319,106 @@ enum MessageForwardingError: LocalizedError, Equatable {
         else {
             throw MessageForwardingError.accountChanged
         }
+        if let sourceLocation = prepared.request.sourceLocation {
+            for messageID in prepared.request.messageIDs {
+                let message = try await client.getMessage(
+                    chatId: sourceLocation.chatID,
+                    messageId: messageID,
+                )
+                guard TDLib.shared.activeAccountID == sourceLocation.accountID,
+                      TDLib.shared.activeClient.id == sourceLocation.clientID,
+                      client.id == sourceLocation.clientID
+                else { throw MessageForwardingError.accountChanged }
+                guard sourceLocation.matches(message: message) else {
+                    throw MessageForwardingError.sourceMismatch
+                }
+            }
+        }
         let result = try await client.forwardMessages(
-            chatId: destinationChatID,
+            chatId: destination.chatID,
             fromChatId: prepared.request.sourceChatID,
             messageIds: prepared.request.messageIDs,
             options: nil,
             removeCaption: effectiveMode.removesCaption,
             sendCopy: effectiveMode.removesSender,
-            topicId: nil,
+            topicId: destination.topic,
         )
-        let sentCount = result.messages?.count ?? 0
+        let messages = result.messages ?? []
+        let sentCount = messages.count
         guard sentCount == prepared.request.messageIDs.count else {
             throw MessageForwardingError.partialDelivery(
                 sent: sentCount,
                 expected: prepared.request.messageIDs.count,
             )
         }
+        guard messages.allSatisfy({ message in
+            message.chatId == destination.chatID && message.topicId == destination.topic
+        }) else { throw MessageForwardingError.destinationUnavailable("Telegram returned a different topic.") }
         return sentCount
+    }
+
+    static func eligibility(
+        of chat: Chat,
+        topic: MessageTopic?,
+        for prepared: PreparedMessageForward,
+        client: TDLibClient,
+    ) async -> MessageForwardDestinationEligibility {
+        let localEligibility = localEligibility(of: chat, for: prepared)
+        guard localEligibility.isAllowed else { return localEligibility }
+
+        if case .chatTypeSupergroup(let supergroupChat) = chat.type {
+            do {
+                let supergroup = try await client.getSupergroup(
+                    supergroupId: supergroupChat.supergroupId,
+                )
+                if supergroup.isForum {
+                    guard case .messageTopicForum(let forumTopic) = topic else {
+                        return unavailable("Choose a forum topic before forwarding.")
+                    }
+                    let resolvedTopic = try await client.getForumTopic(
+                        chatId: chat.id,
+                        forumTopicId: forumTopic.forumTopicId,
+                    )
+                    let canManageTopics: Bool =
+                        switch supergroup.status {
+                        case .chatMemberStatusCreator:
+                            true
+                        case .chatMemberStatusAdministrator(let administrator):
+                            administrator.rights.canManageTopics
+                        default:
+                            false
+                        }
+                    let restricted = resolvedTopic.info.isClosed || resolvedTopic.info.isHidden
+                    guard !restricted || resolvedTopic.info.isOutgoing || canManageTopics else {
+                        return unavailable("This topic is closed.")
+                    }
+                } else if topic != nil {
+                    return unavailable("This chat doesn't support forum topics.")
+                }
+            } catch {
+                return unavailable("This chat couldn't be checked.")
+            }
+        } else if topic != nil {
+            return unavailable("This chat doesn't support forum topics.")
+        }
+
+        if case .chatTypePrivate(let privateChat) = chat.type {
+            do {
+                switch try await client.canSendMessageToUser(onlyLocal: false, userId: privateChat.userId) {
+                case .canSendMessageToUserResultOk:
+                    break
+                case .canSendMessageToUserResultUserHasPaidMessages:
+                    return unavailable("Paid messages aren't supported.")
+                case .canSendMessageToUserResultUserIsDeleted:
+                    return unavailable("This user is no longer available.")
+                case .canSendMessageToUserResultUserRestrictsNewChats:
+                    return unavailable("This user doesn't accept new chats.")
+                }
+            } catch {
+                return unavailable("This chat couldn't be checked.")
+            }
+        }
+        return localEligibility
     }
 
     private static func unavailable(_ reason: String) -> MessageForwardDestinationEligibility {

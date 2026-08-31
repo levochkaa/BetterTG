@@ -7,14 +7,14 @@ import UIKit
 // MARK: - ForwardMessagesViewController
 
 @MainActor final class ForwardMessagesViewController: UIViewController, UITableViewDelegate,
-    UISearchResultsUpdating
+    UISearchBarDelegate
 {
     private enum Section {
         case chats
     }
 
     private struct DeliveryFailure {
-        let chatID: Int64
+        let destination: MessageForwardDestination
         let description: String
         let retryable: Bool
     }
@@ -27,14 +27,19 @@ import UIKit
     private let seedChats: [Chat]
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let actionToolbar = ForwardDestinationToolbar()
-    private let searchController = UISearchController(searchResultsController: nil)
+    private let searchBar = UISearchBar()
+    private let optionsButton = UIButton(type: .system)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private var actionToolbarHeightConstraint: NSLayoutConstraint!
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
     private var chatsByID = [Int64: Chat]()
+    private var forumChatIDs = Set<Int64>()
+    private var checkedSupergroupChatIDs = Set<Int64>()
+    private var forumLookupFailedChatIDs = Set<Int64>()
+    private var topicNames = [MessageForwardDestination: String]()
     private var eligibilityByChatID = [Int64: MessageForwardDestinationEligibility]()
     private var visibleChatIDs = [Int64]()
-    private var selectedChatIDs = Set<Int64>()
+    private var selectedDestinations = Set<MessageForwardDestination>()
     private var preparedForward: PreparedMessageForward?
     private var mode = MessageForwardMode.forward
     private var queryGeneration = UInt64.zero
@@ -87,51 +92,91 @@ import UIKit
         loadChats(query: "")
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         actionToolbarHeightConstraint?.constant =
             ForwardDestinationToolbar.contentHeight + view.safeAreaInsets.bottom
     }
 
-    func updateSearchResults(for searchController: UISearchController) {
-        loadChats(query: searchController.searchBar.text ?? "")
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard abs(searchBar.frame.width - tableView.bounds.width) > 0.5 else { return }
+        searchBar.frame.size.width = tableView.bounds.width
+        tableView.tableHeaderView = searchBar
+    }
+
+    func searchBar(_: UISearchBar, textDidChange searchText: String) {
+        loadChats(query: searchText)
     }
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard !isSending,
-              preparedForward != nil,
+              let preparedForward,
               let chatID = dataSource.itemIdentifier(for: indexPath),
               eligibilityByChatID[chatID]?.isAllowed == true
         else { return }
-        if selectedChatIDs.contains(chatID) {
-            selectedChatIDs.remove(chatID)
+        if forumChatIDs.contains(chatID), let chat = chatsByID[chatID] {
+            let selectedTopicIDs = Set(selectedDestinations.compactMap { destination in
+                destination.chatID == chatID ? destination.forumTopicID : nil
+            })
+            let picker = ForwardForumTopicsViewController(
+                chat: chat,
+                preparedForward: preparedForward,
+                client: client,
+                accountID: accountID,
+                selectedTopicIDs: selectedTopicIDs,
+            )
+            picker.onToggle = { [weak self] topic, selected in
+                guard let self else { return }
+                let destination = MessageForwardDestination(
+                    chatID: chatID,
+                    topic: .messageTopicForum(.init(forumTopicId: topic.info.forumTopicId)),
+                )
+                if selected {
+                    selectedDestinations.insert(destination)
+                    topicNames[destination] = topic.info.name
+                } else {
+                    selectedDestinations.remove(destination)
+                    topicNames[destination] = nil
+                }
+                reconfigure(chatIDs: [chatID])
+                updateToolbar()
+            }
+            navigationController?.pushViewController(picker, animated: true)
+            return
+        }
+        let destination = MessageForwardDestination(chatID: chatID, topic: nil)
+        if selectedDestinations.contains(destination) {
+            selectedDestinations.remove(destination)
         } else {
-            selectedChatIDs.insert(chatID)
+            selectedDestinations.insert(destination)
         }
         reconfigure(chatIDs: [chatID])
         updateToolbar()
     }
 
     private func configureNavigation() {
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .cancel,
-            target: self,
-            action: #selector(cancelPressed),
-        )
+        applyClassicNavigationAppearance()
+        let cancelButton = UIButton(type: .system)
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        cancelButton.addTarget(self, action: #selector(cancelPressed), for: .touchUpInside)
+        navigationItem.leftBarButtonItem = UIBarButtonItem(customView: cancelButton)
+        optionsButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        optionsButton.accessibilityLabel = "Forward Options"
+        optionsButton.showsMenuAsPrimaryAction = true
+        optionsButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        optionsButton.heightAnchor.constraint(equalToConstant: 44).isActive = true
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Options",
-            image: UIImage(systemName: "ellipsis.circle"),
-            primaryAction: nil,
-            menu: UIMenu(children: []),
+            customView: optionsButton,
         )
-        navigationItem.rightBarButtonItem?.isEnabled = false
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchResultsUpdater = self
-        searchController.searchBar.placeholder = "Search Chats"
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
-        definesPresentationContext = true
+        optionsButton.isEnabled = false
     }
 
     private func configureTable() {
@@ -141,6 +186,11 @@ import UIKit
         tableView.rowHeight = 62
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 72, bottom: 0, right: 0)
         tableView.register(ForwardDestinationCell.self, forCellReuseIdentifier: ForwardDestinationCell.reuseID)
+        searchBar.delegate = self
+        searchBar.placeholder = "Search Chats"
+        searchBar.autocapitalizationType = .none
+        searchBar.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 56)
+        tableView.tableHeaderView = searchBar
         view.addSubview(tableView)
         dataSource = UITableViewDiffableDataSource<Section, Int64>(
             tableView: tableView,
@@ -156,7 +206,7 @@ import UIKit
             cell.configure(
                 chat: chat,
                 subtitle: subtitle(for: chat, eligibility: eligibility),
-                selected: selectedChatIDs.contains(chatID),
+                selected: selectedDestinations.contains(where: { $0.chatID == chatID }),
                 enabled: eligibility?.isAllowed == true,
                 client: client,
             )
@@ -273,10 +323,30 @@ import UIKit
         generation: UInt64,
     ) async {
         let uniqueIDs = deduplicated(ids)
-        for chatID in uniqueIDs where chatsByID[chatID] == nil {
+        for chatID in uniqueIDs {
             guard !Task.isCancelled else { return }
-            if let chat = try? await client.getChat(chatId: chatID) {
+            if chatsByID[chatID] == nil,
+               let chat = try? await client.getChat(chatId: chatID)
+            {
                 chatsByID[chatID] = chat
+            }
+            if let chat = chatsByID[chatID],
+               case .chatTypeSupergroup(let type) = chat.type,
+               !checkedSupergroupChatIDs.contains(chatID)
+            {
+                if chat.viewAsTopics {
+                    forumChatIDs.insert(chatID)
+                    checkedSupergroupChatIDs.insert(chatID)
+                    forumLookupFailedChatIDs.remove(chatID)
+                } else if let supergroup = try? await client.getSupergroup(supergroupId: type.supergroupId) {
+                    checkedSupergroupChatIDs.insert(chatID)
+                    forumLookupFailedChatIDs.remove(chatID)
+                    if supergroup.isForum {
+                        forumChatIDs.insert(chatID)
+                    }
+                } else {
+                    forumLookupFailedChatIDs.insert(chatID)
+                }
             }
         }
         guard !Task.isCancelled,
@@ -302,14 +372,23 @@ import UIKit
         var updated = [Int64: MessageForwardDestinationEligibility]()
         for chatID in visibleChatIDs {
             guard let chat = chatsByID[chatID] else { continue }
-            updated[chatID] = MessageForwardingService.localEligibility(
-                of: chat,
-                for: preparedForward,
-            )
+            updated[chatID] =
+                if forumLookupFailedChatIDs.contains(chatID) {
+                    MessageForwardDestinationEligibility(
+                        isAllowed: false,
+                        reason: "This forum couldn't be checked. Search again to retry.",
+                        forcedMode: nil,
+                    )
+                } else {
+                    MessageForwardingService.localEligibility(
+                        of: chat,
+                        for: preparedForward,
+                    )
+                }
         }
         eligibilityByChatID.merge(updated, uniquingKeysWith: { _, new in new })
-        let invalidSelection = selectedChatIDs.filter { updated[$0]?.isAllowed == false }
-        selectedChatIDs.subtract(invalidSelection)
+        let invalidSelection = selectedDestinations.filter { updated[$0.chatID]?.isAllowed == false }
+        selectedDestinations.subtract(invalidSelection)
         reconfigure(chatIDs: visibleChatIDs)
     }
 
@@ -343,8 +422,8 @@ import UIKit
                 })
             }
         }
-        navigationItem.rightBarButtonItem?.menu = UIMenu(title: "Forward Options", children: actions)
-        navigationItem.rightBarButtonItem?.isEnabled = actions.count > 1 && !isSending
+        optionsButton.menu = UIMenu(title: "Forward Options", children: actions)
+        optionsButton.isEnabled = actions.count > 1 && !isSending
     }
 
     private func setMode(_ mode: MessageForwardMode) {
@@ -357,25 +436,30 @@ import UIKit
     private func sendSelected() {
         guard !isSending,
               let preparedForward,
-              !selectedChatIDs.isEmpty,
+              !selectedDestinations.isEmpty,
               contextIsCurrent
         else { return }
         isSending = true
         isModalInPresentation = true
-        searchController.searchBar.isUserInteractionEnabled = false
+        searchBar.isUserInteractionEnabled = false
         navigationItem.leftBarButtonItem?.isEnabled = false
         configureOptionsMenu()
         updateToolbar()
-        let destinations = selectedChatIDs.sorted()
+        let destinations = selectedDestinations.sorted { lhs, rhs in
+            if lhs.chatID != rhs.chatID {
+                return lhs.chatID < rhs.chatID
+            }
+            return (lhs.forumTopicID ?? 0) < (rhs.forumTopicID ?? 0)
+        }
         deliveryTask = Task { [weak self] in
             guard let self else { return }
             var failures = [DeliveryFailure]()
             var completedCount = 0
-            for chatID in destinations {
+            for destination in destinations {
                 guard !Task.isCancelled else { break }
                 guard contextIsCurrent else {
                     failures.append(DeliveryFailure(
-                        chatID: chatID,
+                        destination: destination,
                         description: MessageForwardingError.accountChanged.localizedDescription,
                         retryable: true,
                     ))
@@ -384,17 +468,17 @@ import UIKit
                 do {
                     _ = try await MessageForwardingService.send(
                         preparedForward,
-                        to: chatID,
+                        to: destination,
                         mode: mode,
                         client: client,
                         accountID: accountID,
                     )
                     completedCount += 1
-                    selectedChatIDs.remove(chatID)
+                    selectedDestinations.remove(destination)
                 } catch is DecodingError {
-                    selectedChatIDs.remove(chatID)
+                    selectedDestinations.remove(destination)
                     failures.append(DeliveryFailure(
-                        chatID: chatID,
+                        destination: destination,
                         description: "TDLib returned an ambiguous partial result.",
                         retryable: false,
                     ))
@@ -402,18 +486,18 @@ import UIKit
                     let retryable: Bool
                     if case .partialDelivery = error {
                         retryable = false
-                        selectedChatIDs.remove(chatID)
+                        selectedDestinations.remove(destination)
                     } else {
                         retryable = true
                     }
                     failures.append(DeliveryFailure(
-                        chatID: chatID,
+                        destination: destination,
                         description: error.localizedDescription,
                         retryable: retryable,
                     ))
                 } catch {
                     failures.append(DeliveryFailure(
-                        chatID: chatID,
+                        destination: destination,
                         description: "Couldn't forward messages. Try again.",
                         retryable: true,
                     ))
@@ -434,7 +518,7 @@ import UIKit
     ) {
         isSending = false
         isModalInPresentation = false
-        searchController.searchBar.isUserInteractionEnabled = true
+        searchBar.isUserInteractionEnabled = true
         navigationItem.leftBarButtonItem?.isEnabled = true
         configureOptionsMenu()
         reconfigure(chatIDs: visibleChatIDs)
@@ -447,7 +531,8 @@ import UIKit
         }
 
         let descriptions = failures.prefix(3).map { failure in
-            let title = chatsByID[failure.chatID]?.title ?? "Chat"
+            let chatTitle = chatsByID[failure.destination.chatID]?.title ?? "Chat"
+            let title = topicNames[failure.destination].map { "\(chatTitle) › \($0)" } ?? chatTitle
             let retry = failure.retryable ? "" : " It won't be retried automatically."
             return "\(title): \(failure.description)\(retry)"
         }
@@ -464,7 +549,7 @@ import UIKit
 
     private func updateToolbar() {
         actionToolbar.update(
-            selectedCount: selectedChatIDs.count,
+            selectedCount: selectedDestinations.count,
             messageCount: request.messageIDs.count,
             isSending: isSending,
         )
@@ -527,6 +612,19 @@ import UIKit
         if let reason = eligibility?.reason {
             return reason
         }
+        if forumChatIDs.contains(chat.id) {
+            let names = selectedDestinations
+                .filter { $0.chatID == chat.id }
+                .compactMap { topicNames[$0] }
+                .sorted()
+            if names.isEmpty {
+                return "Forum · Choose a topic"
+            }
+            if names.count == 1, let name = names.first {
+                return name
+            }
+            return "\(names.count) topics selected"
+        }
         switch chat.type {
         case .chatTypeBasicGroup:
             return "Group"
@@ -572,6 +670,18 @@ import UIKit
             self?.dismiss(animated: true)
         })
         present(alert, animated: true)
+    }
+
+    private func applyClassicNavigationAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
+        appearance.backgroundColor = .clear
+        appearance.shadowColor = .separator
+        navigationController?.navigationBar.standardAppearance = appearance
+        navigationController?.navigationBar.scrollEdgeAppearance = appearance
+        navigationController?.navigationBar.compactAppearance = appearance
+        navigationController?.navigationBar.isTranslucent = true
     }
 
     @objc private func cancelPressed() {
