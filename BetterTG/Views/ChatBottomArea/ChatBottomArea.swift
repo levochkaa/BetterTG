@@ -32,6 +32,7 @@ final class ChatComposerView: UIView {
 
     var onPickPhotos: (() -> Void)?
     var onPickFiles: (() -> Void)?
+    var onPickEmojiMedia: (() -> Void)?
     var onTakePhoto: (() -> Void)?
     var onNavigateToMessage: ((MessageMetadataNavigationTarget) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
@@ -312,7 +313,9 @@ final class ChatComposerView: UIView {
         textView.isEditable = canWriteText
         textView.isSelectable = canWriteText
         textView.alpha = canWriteText ? 1 : 0.5
-        let canAttach = chatVM.canAttachPhotos || chatVM.canAttachDocuments
+        let canAttach = chatVM.canAttachPhotos
+            || chatVM.canAttachDocuments
+            || chatVM.canSendStickersAndAnimations
         attachmentButton.isHidden = !canAttach
         attachmentButton.isEnabled = canAttach
         if selectedMediaRecordingMode == .voice,
@@ -740,6 +743,9 @@ final class ChatComposerView: UIView {
             },
             UIAction(title: "Attach Files", image: UIImage(systemName: "doc.fill")) { [weak self] _ in
                 self?.onPickFiles?()
+            },
+            UIAction(title: "Emoji, Stickers & GIFs", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
+                self?.onPickEmojiMedia?()
             },
         ])
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)

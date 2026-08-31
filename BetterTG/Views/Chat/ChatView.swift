@@ -590,6 +590,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onPickFiles = { [weak self] in self?.showDocumentPicker() }
+            composerView.onPickEmojiMedia = { [weak self] in self?.showComposerMediaPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
@@ -2246,6 +2247,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         picker.allowsMultipleSelection = true
         picker.delegate = self
         present(picker, animated: true)
+    }
+
+    private func showComposerMediaPicker() {
+        guard chatVM.canSendStickersAndAnimations,
+              let accountID = chatVM.accountID
+        else { return }
+        let picker = ComposerMediaPickerViewController(
+            accountID: accountID,
+            chatID: chatVM.chatID,
+            client: chatVM.client,
+        )
+        picker.onEmoji = { [weak chatVM] emoji in
+            chatVM?.appendComposerEmoji(emoji)
+        }
+        picker.onSticker = { [weak picker, weak chatVM] sticker in
+            picker?.navigationController?.dismiss(animated: true) {
+                Task { await chatVM?.sendSticker(sticker) }
+            }
+        }
+        picker.onAnimation = { [weak picker, weak chatVM] animation in
+            picker?.navigationController?.dismiss(animated: true) {
+                Task { await chatVM?.sendAnimation(animation) }
+            }
+        }
+        let navigation = UINavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .pageSheet
+        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        navigation.sheetPresentationController?.prefersGrabberVisible = false
+        present(navigation, animated: true)
     }
 
     private func showCamera() {

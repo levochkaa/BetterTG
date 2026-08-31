@@ -166,6 +166,7 @@ import UIKit
     private var desiredChatAction: ChatAction?
     private var desiredChatActionContext: ResolvedSendContext?
     private var composerRevision = UInt64.zero
+    private var composerMediaDraftTask: Task<Void, Never>?
     private var composerIsDirty = false
     private var awaitingAuthoritativeDraftClear = false
     private var draftClearGeneration = UInt64.zero
@@ -241,8 +242,17 @@ import UIKit
         )) != nil
     }
 
+    var canSendStickersAndAnimations: Bool {
+        (try? resolveSendContext(
+            for: .sticker,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
     var canWriteAnyMessage: Bool {
-        canWriteBasicMessages || canAttachPhotos || canAttachDocuments || canRecordVoiceNote || canRecordVideoNote
+        canWriteBasicMessages || canAttachPhotos || canAttachDocuments || canSendStickersAndAnimations
+            || canRecordVoiceNote || canRecordVideoNote
     }
 
     var canShowComposer: Bool {
@@ -665,6 +675,7 @@ import UIKit
         forumTopicTask?.cancel()
         forumTopicTasks.values.forEach { $0.cancel() }
         draftClearTask?.cancel()
+        composerMediaDraftTask?.cancel()
         pinMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
@@ -1372,6 +1383,23 @@ import UIKit
         text = value
     }
 
+    func appendComposerEmoji(_ emoji: String) {
+        guard !emoji.isEmpty else { return }
+        markComposerDirty()
+        if editCustomMessage == nil {
+            text.append(AttributedString(emoji))
+        } else {
+            editMessageText.append(AttributedString(emoji))
+        }
+        composerMediaDraftTask?.cancel()
+        composerMediaDraftTask = Task { [weak self] in
+            try? await Task<Never, Never>.sleep(for: .milliseconds(350))
+            guard let self, !Task.isCancelled else { return }
+            await updateDraft()
+            composerMediaDraftTask = nil
+        }
+    }
+
     func replaceDisplayedDocuments(_ documents: [SelectedDocument]) {
         let previousURLs = displayedDocuments.map(\.url)
         displayedDocuments = documents
@@ -1636,6 +1664,128 @@ import UIKit
             }
             try? await cancelChatAction(in: context)
             throw error
+        }
+    }
+
+    func sendSticker(_ sticker: Sticker) async {
+        guard !sendingComposerMessage else { return }
+        sendingComposerMessage = true
+        let transitionID = UUID()
+        let sentReplyID = replyMessage?.id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(
+                for: .sticker,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            guard case .stickerFullTypeRegular(let regular) = sticker.fullType,
+                  regular.premiumAnimation == nil
+            else { throw ChatSendContextError.chatPermissionDenied }
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageSticker(.init(
+                    emoji: sticker.emoji,
+                    sticker: InputSticker(
+                        height: sticker.height,
+                        sticker: .inputFileId(.init(id: sticker.sticker.id)),
+                        thumbnail: nil,
+                        width: sticker.width,
+                    ),
+                )),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+            guard locationContextIsCurrent,
+                  context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+                do {
+                    try await updateDraft(in: context, replyTo: nil)
+                    draftErrorMessage = nil
+                } catch {
+                    composerIsDirty = true
+                    scheduleDraftUpdateRetry(context, replyTo: nil)
+                }
+            }
+            sendErrorMessage = nil
+            await Task.yield()
+            sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
+        } catch {
+            sendTransitionCancelled.send(transitionID)
+            sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    func sendAnimation(_ animation: Animation) async {
+        guard !sendingComposerMessage else { return }
+        sendingComposerMessage = true
+        let transitionID = UUID()
+        let sentText = text
+        let sentReplyID = replyMessage?.id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(
+                for: .animation,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            let caption: FormattedText? = sentText.characters.isEmpty
+                ? nil
+                : FormattedText(entities: getEntities(from: sentText), text: sentText.string)
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageAnimation(.init(
+                    animation: InputAnimation(
+                        addedStickerFileIds: [],
+                        animation: .inputFileId(.init(id: animation.animation.id)),
+                        duration: animation.duration,
+                        height: animation.height,
+                        thumbnail: nil,
+                        width: animation.width,
+                    ),
+                    caption: caption,
+                    hasSpoiler: false,
+                    showCaptionAboveMedia: false,
+                )),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+            guard locationContextIsCurrent,
+                  context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            let draftClearSucceeded = await clearRouteDraft(context)
+            if text == sentText {
+                text = ""
+            }
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+            }
+            composerRevision &+= 1
+            let hasNewComposerState = !text.characters.isEmpty
+                || replyMessage != nil
+                || !displayedImages.isEmpty
+                || !displayedDocuments.isEmpty
+            awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
+            composerIsDirty = awaitingAuthoritativeDraftClear || hasNewComposerState || !draftClearSucceeded
+            if hasNewComposerState {
+                await updateDraft()
+            } else if location.isTopicScoped {
+                loadForumTopic()
+            }
+            sendErrorMessage = nil
+            await Task.yield()
+            sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
+        } catch {
+            sendTransitionCancelled.send(transitionID)
+            sendErrorMessage = error.localizedDescription
         }
     }
 
@@ -2196,38 +2346,14 @@ import UIKit
                 replyingTo: replyMessage,
                 useCurrentReplyOverride: true,
             )
-            let draftMessage: DraftMessage? =
-                if text.characters.isEmpty, context.replyTo == nil {
-                    nil
-                } else {
-                    DraftMessage(
-                        content: .draftMessageContentText(
-                            .init(
-                                linkPreviewOptions: nil,
-                                text: FormattedText(
-                                    entities: getEntities(from: text),
-                                    text: text.string,
-                                ),
-                            ),
-                        ),
-                        date: Int(Date.now.timeIntervalSince1970),
-                        effectId: 0,
-                        replyTo: context.replyTo,
-                        suggestedPostInfo: nil,
-                    )
-                }
-            try await client.setChatDraftMessage(
-                chatId: context.chatID,
-                draftMessage: draftMessage,
-                topicId: context.draftTopic,
-            )
+            try await updateDraft(in: context, replyTo: context.replyTo)
         } catch {
             if !(error is CancellationError) {
                 log("Chat draft update failed: \(error)")
             }
         }
     }
-    
+
     func setEditMessageText(from message: Message?) {
         switch message?.content {
         case .messageText(let messageText):
@@ -2248,7 +2374,7 @@ import UIKit
             break
         }
     }
-    
+
     func getMessageReplyTo(from customMessage: CustomMessage?) -> InputMessageReplyTo? {
         guard let customMessage else { return replyInputOverride }
         return MessageReplyInputBuilder.make(
@@ -2272,7 +2398,7 @@ import UIKit
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
-    
+
     func stopTimer() {
         timer?.invalidate()
         timer = nil
@@ -2665,6 +2791,37 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func updateDraft(
+        in context: ResolvedSendContext,
+        replyTo: InputMessageReplyTo?,
+    ) async throws {
+        let draftMessage: DraftMessage? =
+            if text.characters.isEmpty, replyTo == nil {
+                nil
+            } else {
+                DraftMessage(
+                    content: .draftMessageContentText(
+                        .init(
+                            linkPreviewOptions: nil,
+                            text: FormattedText(
+                                entities: getEntities(from: text),
+                                text: text.string,
+                            ),
+                        ),
+                    ),
+                    date: Int(Date.now.timeIntervalSince1970),
+                    effectId: 0,
+                    replyTo: replyTo,
+                    suggestedPostInfo: nil,
+                )
+            }
+        try await client.setChatDraftMessage(
+            chatId: context.chatID,
+            draftMessage: draftMessage,
+            topicId: context.draftTopic,
+        )
+    }
+
     private func retainOutgoingDocumentFiles(
         messages: [Message],
         documents: [SelectedDocument],
@@ -2960,6 +3117,8 @@ import UIKit
         guard customChat.canPostMessages else { return false }
         let permissions = currentChatPermissions
         return switch kind {
+        case .animation, .sticker:
+            permissions.canSendOtherMessages
         case .document:
             permissions.canSendDocuments
         case .photo:
@@ -4271,6 +4430,40 @@ import UIKit
         draftClearGeneration &+= 1
         draftClearTask?.cancel()
         draftClearTask = nil
+    }
+
+    private func scheduleDraftUpdateRetry(
+        _ context: ResolvedSendContext,
+        replyTo: InputMessageReplyTo?,
+    ) {
+        draftClearGeneration &+= 1
+        let generation = draftClearGeneration
+        draftClearTask?.cancel()
+        draftClearTask = Task { [weak self] in
+            guard let self else { return }
+            for delay in [0.4, 1.0, 2.0] {
+                try? await Task<Never, Never>.sleep(for: .seconds(delay))
+                guard !Task.isCancelled,
+                      draftClearGeneration == generation,
+                      TDLib.shared.activeAccountID == context.accountID,
+                      TDLib.shared.activeClient.id == context.clientID,
+                      location.draftKey == context.draftKey
+                else { return }
+                do {
+                    try await updateDraft(in: context, replyTo: replyTo)
+                    guard draftClearGeneration == generation else { return }
+                    draftClearTask = nil
+                    draftErrorMessage = nil
+                    composerIsDirty = false
+                    return
+                } catch {
+                    continue
+                }
+            }
+            guard draftClearGeneration == generation else { return }
+            draftClearTask = nil
+            draftErrorMessage = "The sticker was sent, but the reply draft couldn't be updated."
+        }
     }
 
     private func scheduleDraftClearRetry(

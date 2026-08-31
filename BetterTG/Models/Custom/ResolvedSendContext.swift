@@ -6,8 +6,10 @@ import TDLibKitDynamic
 // MARK: - ChatSendContentKind
 
 enum ChatSendContentKind {
+    case animation
     case document
     case photo
+    case sticker
     case text
     case videoNote
     case voiceNote
