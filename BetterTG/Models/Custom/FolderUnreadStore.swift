@@ -1,7 +1,7 @@
 // FolderUnreadStore.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - FolderUnreadState
 
@@ -31,7 +31,7 @@ struct FolderUnreadState: Equatable {
 
     func update(_ update: UpdateUnreadChatCount, clientID: Int32) {
         let state = FolderUnreadState(
-            count: update.unreadCount,
+            count: Int(update.unreadCount),
             hasUnmuted: update.unreadUnmutedCount > 0,
         )
         guard statesByClient[clientID]?[update.chatList] != state else { return }

@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 import UserNotifications
 
@@ -245,14 +245,14 @@ import UserNotifications
     nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter,
         willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void,
+        withCompletionHandler completionHandler: @escaping @Sendable (Int) -> Void,
     ) {
         if let route = PushNotificationRoute(userInfo: notification.request.content.userInfo) {
             log("Foreground push received: event=\(route.event ?? "unknown")")
         } else {
             log("Foreground push received without a recognized route")
         }
-        completionHandler([.banner, .list, .sound])
+        completionHandler(Int(UNNotificationPresentationOptions([.banner, .list, .sound]).rawValue))
     }
 
     nonisolated func userNotificationCenter(
@@ -449,10 +449,10 @@ import UserNotifications
         )
         state.lastTDLibRegistrationAt = Date()
         state.registeredTelegramUserId = currentUser.id
-        state.pushReceiverId = receiver.id.rawValue
+        state.pushReceiverId = receiver.id
         try await stateStore.save(state)
         registeredAuthorizationEpoch = authorizationEpoch
-        log("TDLib Web Push endpoint registered: receiverId=\(receiver.id.rawValue)")
+        log("TDLib Web Push endpoint registered: receiverId=\(receiver.id)")
         scheduleRegistrationRefresh(after: 24 * 60 * 60)
     }
 
@@ -470,7 +470,7 @@ import UserNotifications
             ),
             otherUserIds: [],
         )
-        log("TDLib Web Push endpoint deregistered: receiverId=\(receiver.id.rawValue)")
+        log("TDLib Web Push endpoint deregistered: receiverId=\(receiver.id)")
     }
 
     private func openPendingRouteIfPossible() {

@@ -4,13 +4,9 @@
 // Any modifications will be overwritten
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
-func update(
-    _ update: Update,
-    source: TdUpdateSource? = nil,
-    notificationCenter: NotificationCenter = nc
-) {
+func update(_ update: TDNativeUpdate) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
             notificationCenter.postTdUpdate(name: .updateAuthorizationState, object: updateAuthorizationState, source: source)
@@ -23,7 +19,9 @@ func update(
         case .updateMessageSendFailed(let updateMessageSendFailed):
             notificationCenter.postTdUpdate(name: .updateMessageSendFailed, object: updateMessageSendFailed, source: source)
         case .updateMessageContent(let updateMessageContent):
-            notificationCenter.postTdUpdate(name: .updateMessageContent, object: updateMessageContent, source: source)
+            nc.post(name: .updateMessageContent, object: updateMessageContent)
+        case .updateMessageEphemeralContent(let updateMessageEphemeralContent):
+            nc.post(name: .updateMessageEphemeralContent, object: updateMessageEphemeralContent)
         case .updateMessageEdited(let updateMessageEdited):
             notificationCenter.postTdUpdate(name: .updateMessageEdited, object: updateMessageEdited, source: source)
         case .updateMessageIsPinned(let updateMessageIsPinned):
@@ -113,7 +111,9 @@ func update(
         case .updateChatBlockList(let updateChatBlockList):
             notificationCenter.postTdUpdate(name: .updateChatBlockList, object: updateChatBlockList, source: source)
         case .updateChatHasScheduledMessages(let updateChatHasScheduledMessages):
-            notificationCenter.postTdUpdate(name: .updateChatHasScheduledMessages, object: updateChatHasScheduledMessages, source: source)
+            nc.post(name: .updateChatHasScheduledMessages, object: updateChatHasScheduledMessages)
+        case .updateChatHasWelcomeMessages(let updateChatHasWelcomeMessages):
+            nc.post(name: .updateChatHasWelcomeMessages, object: updateChatHasWelcomeMessages)
         case .updateChatFolders(let updateChatFolders):
             notificationCenter.postTdUpdate(name: .updateChatFolders, object: updateChatFolders, source: source)
         case .updateChatOnlineMemberCount(let updateChatOnlineMemberCount):
@@ -133,7 +133,9 @@ func update(
         case .updateQuickReplyShortcuts(let updateQuickReplyShortcuts):
             notificationCenter.postTdUpdate(name: .updateQuickReplyShortcuts, object: updateQuickReplyShortcuts, source: source)
         case .updateQuickReplyShortcutMessages(let updateQuickReplyShortcutMessages):
-            notificationCenter.postTdUpdate(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages, source: source)
+            nc.post(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages)
+        case .updateChatWelcomeMessages(let updateChatWelcomeMessages):
+            nc.post(name: .updateChatWelcomeMessages, object: updateChatWelcomeMessages)
         case .updateForumTopicInfo(let updateForumTopicInfo):
             notificationCenter.postTdUpdate(name: .updateForumTopicInfo, object: updateForumTopicInfo, source: source)
         case .updateForumTopic(let updateForumTopic):
@@ -155,7 +157,9 @@ func update(
         case .updateChatAction(let updateChatAction):
             notificationCenter.postTdUpdate(name: .updateChatAction, object: updateChatAction, source: source)
         case .updatePendingMessage(let updatePendingMessage):
-            notificationCenter.postTdUpdate(name: .updatePendingMessage, object: updatePendingMessage, source: source)
+            nc.post(name: .updatePendingMessage, object: updatePendingMessage)
+        case .updateStopMessageDraft(let updateStopMessageDraft):
+            nc.post(name: .updateStopMessageDraft, object: updateStopMessageDraft)
         case .updateCommunity(let updateCommunity):
             notificationCenter.postTdUpdate(name: .updateCommunity, object: updateCommunity, source: source)
         case .updateUserStatus(let updateUserStatus):
@@ -173,7 +177,9 @@ func update(
         case .updateBasicGroupFullInfo(let updateBasicGroupFullInfo):
             notificationCenter.postTdUpdate(name: .updateBasicGroupFullInfo, object: updateBasicGroupFullInfo, source: source)
         case .updateSupergroupFullInfo(let updateSupergroupFullInfo):
-            notificationCenter.postTdUpdate(name: .updateSupergroupFullInfo, object: updateSupergroupFullInfo, source: source)
+            nc.post(name: .updateSupergroupFullInfo, object: updateSupergroupFullInfo)
+        case .updateCommunityFullInfo(let updateCommunityFullInfo):
+            nc.post(name: .updateCommunityFullInfo, object: updateCommunityFullInfo)
         case .updateServiceNotification(let updateServiceNotification):
             notificationCenter.postTdUpdate(name: .updateServiceNotification, object: updateServiceNotification, source: source)
         case .updateNewOauthRequest(let updateNewOauthRequest):
@@ -384,190 +390,195 @@ func update(
 }
 
 extension TdNotification {
-    static var updateAuthorizationState: TdNotification<UpdateAuthorizationState> { .init(.updateAuthorizationState) }
-    static var updateNewMessage: TdNotification<UpdateNewMessage> { .init(.updateNewMessage) }
-    static var updateMessageSendAcknowledged: TdNotification<UpdateMessageSendAcknowledged> { .init(.updateMessageSendAcknowledged) }
-    static var updateMessageSendSucceeded: TdNotification<UpdateMessageSendSucceeded> { .init(.updateMessageSendSucceeded) }
-    static var updateMessageSendFailed: TdNotification<UpdateMessageSendFailed> { .init(.updateMessageSendFailed) }
-    static var updateMessageContent: TdNotification<UpdateMessageContent> { .init(.updateMessageContent) }
-    static var updateMessageEdited: TdNotification<UpdateMessageEdited> { .init(.updateMessageEdited) }
-    static var updateMessageIsPinned: TdNotification<UpdateMessageIsPinned> { .init(.updateMessageIsPinned) }
-    static var updateMessageInteractionInfo: TdNotification<UpdateMessageInteractionInfo> { .init(.updateMessageInteractionInfo) }
-    static var updateMessageContentOpened: TdNotification<UpdateMessageContentOpened> { .init(.updateMessageContentOpened) }
-    static var updateMessageMentionRead: TdNotification<UpdateMessageMentionRead> { .init(.updateMessageMentionRead) }
-    static var updateMessageUnreadReactions: TdNotification<UpdateMessageUnreadReactions> { .init(.updateMessageUnreadReactions) }
-    static var updateMessageContainsUnreadPollVotes: TdNotification<UpdateMessageContainsUnreadPollVotes> { .init(.updateMessageContainsUnreadPollVotes) }
-    static var updateMessageFactCheck: TdNotification<UpdateMessageFactCheck> { .init(.updateMessageFactCheck) }
-    static var updateMessageSuggestedPostInfo: TdNotification<UpdateMessageSuggestedPostInfo> { .init(.updateMessageSuggestedPostInfo) }
-    static var updateMessageLiveLocationViewed: TdNotification<UpdateMessageLiveLocationViewed> { .init(.updateMessageLiveLocationViewed) }
-    static var updateVideoPublished: TdNotification<UpdateVideoPublished> { .init(.updateVideoPublished) }
-    static var updateNewChat: TdNotification<UpdateNewChat> { .init(.updateNewChat) }
-    static var updateChatTitle: TdNotification<UpdateChatTitle> { .init(.updateChatTitle) }
-    static var updateChatPhoto: TdNotification<UpdateChatPhoto> { .init(.updateChatPhoto) }
-    static var updateChatAccentColors: TdNotification<UpdateChatAccentColors> { .init(.updateChatAccentColors) }
-    static var updateChatPermissions: TdNotification<UpdateChatPermissions> { .init(.updateChatPermissions) }
-    static var updateChatLastMessage: TdNotification<UpdateChatLastMessage> { .init(.updateChatLastMessage) }
-    static var updateChatPosition: TdNotification<UpdateChatPosition> { .init(.updateChatPosition) }
-    static var updateChatAddedToList: TdNotification<UpdateChatAddedToList> { .init(.updateChatAddedToList) }
-    static var updateChatRemovedFromList: TdNotification<UpdateChatRemovedFromList> { .init(.updateChatRemovedFromList) }
-    static var updateChatReadInbox: TdNotification<UpdateChatReadInbox> { .init(.updateChatReadInbox) }
-    static var updateChatReadOutbox: TdNotification<UpdateChatReadOutbox> { .init(.updateChatReadOutbox) }
-    static var updateChatActionBar: TdNotification<UpdateChatActionBar> { .init(.updateChatActionBar) }
-    static var updateChatBusinessBotManageBar: TdNotification<UpdateChatBusinessBotManageBar> { .init(.updateChatBusinessBotManageBar) }
-    static var updateChatAvailableReactions: TdNotification<UpdateChatAvailableReactions> { .init(.updateChatAvailableReactions) }
-    static var updateChatDraftMessage: TdNotification<UpdateChatDraftMessage> { .init(.updateChatDraftMessage) }
-    static var updateChatEmojiStatus: TdNotification<UpdateChatEmojiStatus> { .init(.updateChatEmojiStatus) }
-    static var updateChatMessageSender: TdNotification<UpdateChatMessageSender> { .init(.updateChatMessageSender) }
-    static var updateChatMessageAutoDeleteTime: TdNotification<UpdateChatMessageAutoDeleteTime> { .init(.updateChatMessageAutoDeleteTime) }
-    static var updateChatNotificationSettings: TdNotification<UpdateChatNotificationSettings> { .init(.updateChatNotificationSettings) }
-    static var updateChatPendingJoinRequests: TdNotification<UpdateChatPendingJoinRequests> { .init(.updateChatPendingJoinRequests) }
-    static var updateChatReplyMarkup: TdNotification<UpdateChatReplyMarkup> { .init(.updateChatReplyMarkup) }
-    static var updateChatBackground: TdNotification<UpdateChatBackground> { .init(.updateChatBackground) }
-    static var updateChatTheme: TdNotification<UpdateChatTheme> { .init(.updateChatTheme) }
-    static var updateChatUnreadMentionCount: TdNotification<UpdateChatUnreadMentionCount> { .init(.updateChatUnreadMentionCount) }
-    static var updateChatUnreadReactionCount: TdNotification<UpdateChatUnreadReactionCount> { .init(.updateChatUnreadReactionCount) }
-    static var updateChatUnreadPollVoteCount: TdNotification<UpdateChatUnreadPollVoteCount> { .init(.updateChatUnreadPollVoteCount) }
-    static var updateChatVideoChat: TdNotification<UpdateChatVideoChat> { .init(.updateChatVideoChat) }
-    static var updateChatDefaultDisableNotification: TdNotification<UpdateChatDefaultDisableNotification> { .init(.updateChatDefaultDisableNotification) }
-    static var updateChatHasProtectedContent: TdNotification<UpdateChatHasProtectedContent> { .init(.updateChatHasProtectedContent) }
-    static var updateChatIsTranslatable: TdNotification<UpdateChatIsTranslatable> { .init(.updateChatIsTranslatable) }
-    static var updateChatIsMarkedAsUnread: TdNotification<UpdateChatIsMarkedAsUnread> { .init(.updateChatIsMarkedAsUnread) }
-    static var updateChatViewAsTopics: TdNotification<UpdateChatViewAsTopics> { .init(.updateChatViewAsTopics) }
-    static var updateChatBlockList: TdNotification<UpdateChatBlockList> { .init(.updateChatBlockList) }
-    static var updateChatHasScheduledMessages: TdNotification<UpdateChatHasScheduledMessages> { .init(.updateChatHasScheduledMessages) }
-    static var updateChatFolders: TdNotification<UpdateChatFolders> { .init(.updateChatFolders) }
-    static var updateChatOnlineMemberCount: TdNotification<UpdateChatOnlineMemberCount> { .init(.updateChatOnlineMemberCount) }
-    static var updateSavedMessagesTopic: TdNotification<UpdateSavedMessagesTopic> { .init(.updateSavedMessagesTopic) }
-    static var updateSavedMessagesTopicCount: TdNotification<UpdateSavedMessagesTopicCount> { .init(.updateSavedMessagesTopicCount) }
-    static var updateDirectMessagesChatTopic: TdNotification<UpdateDirectMessagesChatTopic> { .init(.updateDirectMessagesChatTopic) }
-    static var updateTopicMessageCount: TdNotification<UpdateTopicMessageCount> { .init(.updateTopicMessageCount) }
-    static var updateQuickReplyShortcut: TdNotification<UpdateQuickReplyShortcut> { .init(.updateQuickReplyShortcut) }
-    static var updateQuickReplyShortcutDeleted: TdNotification<UpdateQuickReplyShortcutDeleted> { .init(.updateQuickReplyShortcutDeleted) }
-    static var updateQuickReplyShortcuts: TdNotification<UpdateQuickReplyShortcuts> { .init(.updateQuickReplyShortcuts) }
-    static var updateQuickReplyShortcutMessages: TdNotification<UpdateQuickReplyShortcutMessages> { .init(.updateQuickReplyShortcutMessages) }
-    static var updateForumTopicInfo: TdNotification<UpdateForumTopicInfo> { .init(.updateForumTopicInfo) }
-    static var updateForumTopic: TdNotification<UpdateForumTopic> { .init(.updateForumTopic) }
-    static var updateScopeNotificationSettings: TdNotification<UpdateScopeNotificationSettings> { .init(.updateScopeNotificationSettings) }
-    static var updateReactionNotificationSettings: TdNotification<UpdateReactionNotificationSettings> { .init(.updateReactionNotificationSettings) }
-    static var updateNotification: TdNotification<UpdateNotification> { .init(.updateNotification) }
-    static var updateNotificationGroup: TdNotification<UpdateNotificationGroup> { .init(.updateNotificationGroup) }
-    static var updateActiveNotifications: TdNotification<UpdateActiveNotifications> { .init(.updateActiveNotifications) }
-    static var updateHavePendingNotifications: TdNotification<UpdateHavePendingNotifications> { .init(.updateHavePendingNotifications) }
-    static var updateDeleteMessages: TdNotification<UpdateDeleteMessages> { .init(.updateDeleteMessages) }
-    static var updateChatAction: TdNotification<UpdateChatAction> { .init(.updateChatAction) }
-    static var updatePendingMessage: TdNotification<UpdatePendingMessage> { .init(.updatePendingMessage) }
-    static var updateCommunity: TdNotification<UpdateCommunity> { .init(.updateCommunity) }
-    static var updateUserStatus: TdNotification<UpdateUserStatus> { .init(.updateUserStatus) }
-    static var updateUser: TdNotification<UpdateUser> { .init(.updateUser) }
-    static var updateBasicGroup: TdNotification<UpdateBasicGroup> { .init(.updateBasicGroup) }
-    static var updateSupergroup: TdNotification<UpdateSupergroup> { .init(.updateSupergroup) }
-    static var updateSecretChat: TdNotification<UpdateSecretChat> { .init(.updateSecretChat) }
-    static var updateUserFullInfo: TdNotification<UpdateUserFullInfo> { .init(.updateUserFullInfo) }
-    static var updateBasicGroupFullInfo: TdNotification<UpdateBasicGroupFullInfo> { .init(.updateBasicGroupFullInfo) }
-    static var updateSupergroupFullInfo: TdNotification<UpdateSupergroupFullInfo> { .init(.updateSupergroupFullInfo) }
-    static var updateServiceNotification: TdNotification<UpdateServiceNotification> { .init(.updateServiceNotification) }
-    static var updateNewOauthRequest: TdNotification<UpdateNewOauthRequest> { .init(.updateNewOauthRequest) }
-    static var updateFile: TdNotification<UpdateFile> { .init(.updateFile) }
-    static var updateFileGenerationStart: TdNotification<UpdateFileGenerationStart> { .init(.updateFileGenerationStart) }
-    static var updateFileGenerationStop: TdNotification<UpdateFileGenerationStop> { .init(.updateFileGenerationStop) }
-    static var updateFileDownloads: TdNotification<UpdateFileDownloads> { .init(.updateFileDownloads) }
-    static var updateFileAddedToDownloads: TdNotification<UpdateFileAddedToDownloads> { .init(.updateFileAddedToDownloads) }
-    static var updateFileDownload: TdNotification<UpdateFileDownload> { .init(.updateFileDownload) }
-    static var updateFileRemovedFromDownloads: TdNotification<UpdateFileRemovedFromDownloads> { .init(.updateFileRemovedFromDownloads) }
-    static var updateApplicationVerificationRequired: TdNotification<UpdateApplicationVerificationRequired> { .init(.updateApplicationVerificationRequired) }
-    static var updateApplicationRecaptchaVerificationRequired: TdNotification<UpdateApplicationRecaptchaVerificationRequired> { .init(.updateApplicationRecaptchaVerificationRequired) }
-    static var updateCall: TdNotification<UpdateCall> { .init(.updateCall) }
-    static var updateGroupCall: TdNotification<UpdateGroupCall> { .init(.updateGroupCall) }
-    static var updateGroupCallParticipant: TdNotification<UpdateGroupCallParticipant> { .init(.updateGroupCallParticipant) }
-    static var updateGroupCallParticipants: TdNotification<UpdateGroupCallParticipants> { .init(.updateGroupCallParticipants) }
-    static var updateGroupCallVerificationState: TdNotification<UpdateGroupCallVerificationState> { .init(.updateGroupCallVerificationState) }
-    static var updateNewGroupCallMessage: TdNotification<UpdateNewGroupCallMessage> { .init(.updateNewGroupCallMessage) }
-    static var updateNewGroupCallPaidReaction: TdNotification<UpdateNewGroupCallPaidReaction> { .init(.updateNewGroupCallPaidReaction) }
-    static var updateGroupCallMessageSendFailed: TdNotification<UpdateGroupCallMessageSendFailed> { .init(.updateGroupCallMessageSendFailed) }
-    static var updateGroupCallMessagesDeleted: TdNotification<UpdateGroupCallMessagesDeleted> { .init(.updateGroupCallMessagesDeleted) }
-    static var updateLiveStoryTopDonors: TdNotification<UpdateLiveStoryTopDonors> { .init(.updateLiveStoryTopDonors) }
-    static var updateNewCallSignalingData: TdNotification<UpdateNewCallSignalingData> { .init(.updateNewCallSignalingData) }
-    static var updateGiftAuctionState: TdNotification<UpdateGiftAuctionState> { .init(.updateGiftAuctionState) }
-    static var updateActiveGiftAuctions: TdNotification<UpdateActiveGiftAuctions> { .init(.updateActiveGiftAuctions) }
-    static var updateUserPrivacySettingRules: TdNotification<UpdateUserPrivacySettingRules> { .init(.updateUserPrivacySettingRules) }
-    static var updateUnreadMessageCount: TdNotification<UpdateUnreadMessageCount> { .init(.updateUnreadMessageCount) }
-    static var updateUnreadChatCount: TdNotification<UpdateUnreadChatCount> { .init(.updateUnreadChatCount) }
-    static var updateChatJoinResult: TdNotification<UpdateChatJoinResult> { .init(.updateChatJoinResult) }
-    static var updateStory: TdNotification<UpdateStory> { .init(.updateStory) }
-    static var updateStoryDeleted: TdNotification<UpdateStoryDeleted> { .init(.updateStoryDeleted) }
-    static var updateStoryPostSucceeded: TdNotification<UpdateStoryPostSucceeded> { .init(.updateStoryPostSucceeded) }
-    static var updateStoryPostFailed: TdNotification<UpdateStoryPostFailed> { .init(.updateStoryPostFailed) }
-    static var updateChatActiveStories: TdNotification<UpdateChatActiveStories> { .init(.updateChatActiveStories) }
-    static var updateStoryListChatCount: TdNotification<UpdateStoryListChatCount> { .init(.updateStoryListChatCount) }
-    static var updateStoryStealthMode: TdNotification<UpdateStoryStealthMode> { .init(.updateStoryStealthMode) }
-    static var updateTrustedMiniAppBots: TdNotification<UpdateTrustedMiniAppBots> { .init(.updateTrustedMiniAppBots) }
-    static var updateOption: TdNotification<UpdateOption> { .init(.updateOption) }
-    static var updateStickerSet: TdNotification<UpdateStickerSet> { .init(.updateStickerSet) }
-    static var updateInstalledStickerSets: TdNotification<UpdateInstalledStickerSets> { .init(.updateInstalledStickerSets) }
-    static var updateTrendingStickerSets: TdNotification<UpdateTrendingStickerSets> { .init(.updateTrendingStickerSets) }
-    static var updateRecentStickers: TdNotification<UpdateRecentStickers> { .init(.updateRecentStickers) }
-    static var updateFavoriteStickers: TdNotification<UpdateFavoriteStickers> { .init(.updateFavoriteStickers) }
-    static var updateSavedAnimations: TdNotification<UpdateSavedAnimations> { .init(.updateSavedAnimations) }
-    static var updateSavedNotificationSounds: TdNotification<UpdateSavedNotificationSounds> { .init(.updateSavedNotificationSounds) }
-    static var updateDefaultBackground: TdNotification<UpdateDefaultBackground> { .init(.updateDefaultBackground) }
-    static var updateEmojiChatThemes: TdNotification<UpdateEmojiChatThemes> { .init(.updateEmojiChatThemes) }
-    static var updateAccentColors: TdNotification<UpdateAccentColors> { .init(.updateAccentColors) }
-    static var updateProfileAccentColors: TdNotification<UpdateProfileAccentColors> { .init(.updateProfileAccentColors) }
-    static var updateWebBrowserSettings: TdNotification<UpdateWebBrowserSettings> { .init(.updateWebBrowserSettings) }
-    static var updateLanguagePackStrings: TdNotification<UpdateLanguagePackStrings> { .init(.updateLanguagePackStrings) }
-    static var updateConnectionState: TdNotification<UpdateConnectionState> { .init(.updateConnectionState) }
-    static var updateFreezeState: TdNotification<UpdateFreezeState> { .init(.updateFreezeState) }
-    static var updateAgeVerificationParameters: TdNotification<UpdateAgeVerificationParameters> { .init(.updateAgeVerificationParameters) }
-    static var updateTermsOfService: TdNotification<UpdateTermsOfService> { .init(.updateTermsOfService) }
-    static var updateUnconfirmedSession: TdNotification<UpdateUnconfirmedSession> { .init(.updateUnconfirmedSession) }
-    static var updateAttachmentMenuBots: TdNotification<UpdateAttachmentMenuBots> { .init(.updateAttachmentMenuBots) }
-    static var updateWebAppMessageSent: TdNotification<UpdateWebAppMessageSent> { .init(.updateWebAppMessageSent) }
-    static var updateActiveEmojiReactions: TdNotification<UpdateActiveEmojiReactions> { .init(.updateActiveEmojiReactions) }
-    static var updateAvailableMessageEffects: TdNotification<UpdateAvailableMessageEffects> { .init(.updateAvailableMessageEffects) }
-    static var updateDefaultReactionType: TdNotification<UpdateDefaultReactionType> { .init(.updateDefaultReactionType) }
-    static var updateDefaultPaidReactionType: TdNotification<UpdateDefaultPaidReactionType> { .init(.updateDefaultPaidReactionType) }
-    static var updateSavedMessagesTags: TdNotification<UpdateSavedMessagesTags> { .init(.updateSavedMessagesTags) }
-    static var updateActiveLiveLocationMessages: TdNotification<UpdateActiveLiveLocationMessages> { .init(.updateActiveLiveLocationMessages) }
-    static var updateOwnedStarCount: TdNotification<UpdateOwnedStarCount> { .init(.updateOwnedStarCount) }
-    static var updateOwnedGramCount: TdNotification<UpdateOwnedGramCount> { .init(.updateOwnedGramCount) }
-    static var updateChatRevenueAmount: TdNotification<UpdateChatRevenueAmount> { .init(.updateChatRevenueAmount) }
-    static var updateStarRevenueStatus: TdNotification<UpdateStarRevenueStatus> { .init(.updateStarRevenueStatus) }
-    static var updateGramRevenueStatus: TdNotification<UpdateGramRevenueStatus> { .init(.updateGramRevenueStatus) }
-    static var updateSpeechRecognitionTrial: TdNotification<UpdateSpeechRecognitionTrial> { .init(.updateSpeechRecognitionTrial) }
-    static var updateGroupCallMessageLevels: TdNotification<UpdateGroupCallMessageLevels> { .init(.updateGroupCallMessageLevels) }
-    static var updateDiceEmojis: TdNotification<UpdateDiceEmojis> { .init(.updateDiceEmojis) }
-    static var updateStakeDiceState: TdNotification<UpdateStakeDiceState> { .init(.updateStakeDiceState) }
-    static var updateAnimatedEmojiMessageClicked: TdNotification<UpdateAnimatedEmojiMessageClicked> { .init(.updateAnimatedEmojiMessageClicked) }
-    static var updateAnimationSearchParameters: TdNotification<UpdateAnimationSearchParameters> { .init(.updateAnimationSearchParameters) }
-    static var updateTextCompositionStyles: TdNotification<UpdateTextCompositionStyles> { .init(.updateTextCompositionStyles) }
-    static var updateSuggestedActions: TdNotification<UpdateSuggestedActions> { .init(.updateSuggestedActions) }
-    static var updateSpeedLimitNotification: TdNotification<UpdateSpeedLimitNotification> { .init(.updateSpeedLimitNotification) }
-    static var updateContactCloseBirthdays: TdNotification<UpdateContactCloseBirthdays> { .init(.updateContactCloseBirthdays) }
-    static var updateAutosaveSettings: TdNotification<UpdateAutosaveSettings> { .init(.updateAutosaveSettings) }
-    static var updateBusinessConnection: TdNotification<UpdateBusinessConnection> { .init(.updateBusinessConnection) }
-    static var updateNewBusinessMessage: TdNotification<UpdateNewBusinessMessage> { .init(.updateNewBusinessMessage) }
-    static var updateBusinessMessageEdited: TdNotification<UpdateBusinessMessageEdited> { .init(.updateBusinessMessageEdited) }
-    static var updateBusinessMessagesDeleted: TdNotification<UpdateBusinessMessagesDeleted> { .init(.updateBusinessMessagesDeleted) }
-    static var updateNewInlineQuery: TdNotification<UpdateNewInlineQuery> { .init(.updateNewInlineQuery) }
-    static var updateNewChosenInlineResult: TdNotification<UpdateNewChosenInlineResult> { .init(.updateNewChosenInlineResult) }
-    static var updateNewGuestQuery: TdNotification<UpdateNewGuestQuery> { .init(.updateNewGuestQuery) }
-    static var updateNewCallbackQuery: TdNotification<UpdateNewCallbackQuery> { .init(.updateNewCallbackQuery) }
-    static var updateNewInlineCallbackQuery: TdNotification<UpdateNewInlineCallbackQuery> { .init(.updateNewInlineCallbackQuery) }
-    static var updateNewBusinessCallbackQuery: TdNotification<UpdateNewBusinessCallbackQuery> { .init(.updateNewBusinessCallbackQuery) }
-    static var updateNewShippingQuery: TdNotification<UpdateNewShippingQuery> { .init(.updateNewShippingQuery) }
-    static var updateNewPreCheckoutQuery: TdNotification<UpdateNewPreCheckoutQuery> { .init(.updateNewPreCheckoutQuery) }
-    static var updateNewCustomEvent: TdNotification<UpdateNewCustomEvent> { .init(.updateNewCustomEvent) }
-    static var updateNewCustomQuery: TdNotification<UpdateNewCustomQuery> { .init(.updateNewCustomQuery) }
-    static var updateUserSubscription: TdNotification<UpdateUserSubscription> { .init(.updateUserSubscription) }
-    static var updatePoll: TdNotification<UpdatePoll> { .init(.updatePoll) }
-    static var updatePollAnswer: TdNotification<UpdatePollAnswer> { .init(.updatePollAnswer) }
-    static var updateManagedBot: TdNotification<UpdateManagedBot> { .init(.updateManagedBot) }
-    static var updateChatMember: TdNotification<UpdateChatMember> { .init(.updateChatMember) }
-    static var updateNewChatJoinRequest: TdNotification<UpdateNewChatJoinRequest> { .init(.updateNewChatJoinRequest) }
-    static var updateChatBoost: TdNotification<UpdateChatBoost> { .init(.updateChatBoost) }
-    static var updateMessageReaction: TdNotification<UpdateMessageReaction> { .init(.updateMessageReaction) }
-    static var updateMessageReactions: TdNotification<UpdateMessageReactions> { .init(.updateMessageReactions) }
-    static var updatePaidMediaPurchased: TdNotification<UpdatePaidMediaPurchased> { .init(.updatePaidMediaPurchased) }
+    static var updateAuthorizationState: TdNotification<TDNativeUpdateAuthorizationState> { .init(.updateAuthorizationState) }
+    static var updateNewMessage: TdNotification<TDNativeUpdateNewMessage> { .init(.updateNewMessage) }
+    static var updateMessageSendAcknowledged: TdNotification<TDNativeUpdateMessageSendAcknowledged> { .init(.updateMessageSendAcknowledged) }
+    static var updateMessageSendSucceeded: TdNotification<TDNativeUpdateMessageSendSucceeded> { .init(.updateMessageSendSucceeded) }
+    static var updateMessageSendFailed: TdNotification<TDNativeUpdateMessageSendFailed> { .init(.updateMessageSendFailed) }
+    static var updateMessageContent: TdNotification<TDNativeUpdateMessageContent> { .init(.updateMessageContent) }
+    static var updateMessageEphemeralContent: TdNotification<TDNativeUpdateMessageEphemeralContent> { .init(.updateMessageEphemeralContent) }
+    static var updateMessageEdited: TdNotification<TDNativeUpdateMessageEdited> { .init(.updateMessageEdited) }
+    static var updateMessageIsPinned: TdNotification<TDNativeUpdateMessageIsPinned> { .init(.updateMessageIsPinned) }
+    static var updateMessageInteractionInfo: TdNotification<TDNativeUpdateMessageInteractionInfo> { .init(.updateMessageInteractionInfo) }
+    static var updateMessageContentOpened: TdNotification<TDNativeUpdateMessageContentOpened> { .init(.updateMessageContentOpened) }
+    static var updateMessageMentionRead: TdNotification<TDNativeUpdateMessageMentionRead> { .init(.updateMessageMentionRead) }
+    static var updateMessageUnreadReactions: TdNotification<TDNativeUpdateMessageUnreadReactions> { .init(.updateMessageUnreadReactions) }
+    static var updateMessageContainsUnreadPollVotes: TdNotification<TDNativeUpdateMessageContainsUnreadPollVotes> { .init(.updateMessageContainsUnreadPollVotes) }
+    static var updateMessageFactCheck: TdNotification<TDNativeUpdateMessageFactCheck> { .init(.updateMessageFactCheck) }
+    static var updateMessageSuggestedPostInfo: TdNotification<TDNativeUpdateMessageSuggestedPostInfo> { .init(.updateMessageSuggestedPostInfo) }
+    static var updateMessageLiveLocationViewed: TdNotification<TDNativeUpdateMessageLiveLocationViewed> { .init(.updateMessageLiveLocationViewed) }
+    static var updateVideoPublished: TdNotification<TDNativeUpdateVideoPublished> { .init(.updateVideoPublished) }
+    static var updateNewChat: TdNotification<TDNativeUpdateNewChat> { .init(.updateNewChat) }
+    static var updateChatTitle: TdNotification<TDNativeUpdateChatTitle> { .init(.updateChatTitle) }
+    static var updateChatPhoto: TdNotification<TDNativeUpdateChatPhoto> { .init(.updateChatPhoto) }
+    static var updateChatAccentColors: TdNotification<TDNativeUpdateChatAccentColors> { .init(.updateChatAccentColors) }
+    static var updateChatPermissions: TdNotification<TDNativeUpdateChatPermissions> { .init(.updateChatPermissions) }
+    static var updateChatLastMessage: TdNotification<TDNativeUpdateChatLastMessage> { .init(.updateChatLastMessage) }
+    static var updateChatPosition: TdNotification<TDNativeUpdateChatPosition> { .init(.updateChatPosition) }
+    static var updateChatAddedToList: TdNotification<TDNativeUpdateChatAddedToList> { .init(.updateChatAddedToList) }
+    static var updateChatRemovedFromList: TdNotification<TDNativeUpdateChatRemovedFromList> { .init(.updateChatRemovedFromList) }
+    static var updateChatReadInbox: TdNotification<TDNativeUpdateChatReadInbox> { .init(.updateChatReadInbox) }
+    static var updateChatReadOutbox: TdNotification<TDNativeUpdateChatReadOutbox> { .init(.updateChatReadOutbox) }
+    static var updateChatActionBar: TdNotification<TDNativeUpdateChatActionBar> { .init(.updateChatActionBar) }
+    static var updateChatBusinessBotManageBar: TdNotification<TDNativeUpdateChatBusinessBotManageBar> { .init(.updateChatBusinessBotManageBar) }
+    static var updateChatAvailableReactions: TdNotification<TDNativeUpdateChatAvailableReactions> { .init(.updateChatAvailableReactions) }
+    static var updateChatDraftMessage: TdNotification<TDNativeUpdateChatDraftMessage> { .init(.updateChatDraftMessage) }
+    static var updateChatEmojiStatus: TdNotification<TDNativeUpdateChatEmojiStatus> { .init(.updateChatEmojiStatus) }
+    static var updateChatMessageSender: TdNotification<TDNativeUpdateChatMessageSender> { .init(.updateChatMessageSender) }
+    static var updateChatMessageAutoDeleteTime: TdNotification<TDNativeUpdateChatMessageAutoDeleteTime> { .init(.updateChatMessageAutoDeleteTime) }
+    static var updateChatNotificationSettings: TdNotification<TDNativeUpdateChatNotificationSettings> { .init(.updateChatNotificationSettings) }
+    static var updateChatPendingJoinRequests: TdNotification<TDNativeUpdateChatPendingJoinRequests> { .init(.updateChatPendingJoinRequests) }
+    static var updateChatReplyMarkup: TdNotification<TDNativeUpdateChatReplyMarkup> { .init(.updateChatReplyMarkup) }
+    static var updateChatBackground: TdNotification<TDNativeUpdateChatBackground> { .init(.updateChatBackground) }
+    static var updateChatTheme: TdNotification<TDNativeUpdateChatTheme> { .init(.updateChatTheme) }
+    static var updateChatUnreadMentionCount: TdNotification<TDNativeUpdateChatUnreadMentionCount> { .init(.updateChatUnreadMentionCount) }
+    static var updateChatUnreadReactionCount: TdNotification<TDNativeUpdateChatUnreadReactionCount> { .init(.updateChatUnreadReactionCount) }
+    static var updateChatUnreadPollVoteCount: TdNotification<TDNativeUpdateChatUnreadPollVoteCount> { .init(.updateChatUnreadPollVoteCount) }
+    static var updateChatVideoChat: TdNotification<TDNativeUpdateChatVideoChat> { .init(.updateChatVideoChat) }
+    static var updateChatDefaultDisableNotification: TdNotification<TDNativeUpdateChatDefaultDisableNotification> { .init(.updateChatDefaultDisableNotification) }
+    static var updateChatHasProtectedContent: TdNotification<TDNativeUpdateChatHasProtectedContent> { .init(.updateChatHasProtectedContent) }
+    static var updateChatIsTranslatable: TdNotification<TDNativeUpdateChatIsTranslatable> { .init(.updateChatIsTranslatable) }
+    static var updateChatIsMarkedAsUnread: TdNotification<TDNativeUpdateChatIsMarkedAsUnread> { .init(.updateChatIsMarkedAsUnread) }
+    static var updateChatViewAsTopics: TdNotification<TDNativeUpdateChatViewAsTopics> { .init(.updateChatViewAsTopics) }
+    static var updateChatBlockList: TdNotification<TDNativeUpdateChatBlockList> { .init(.updateChatBlockList) }
+    static var updateChatHasScheduledMessages: TdNotification<TDNativeUpdateChatHasScheduledMessages> { .init(.updateChatHasScheduledMessages) }
+    static var updateChatHasWelcomeMessages: TdNotification<TDNativeUpdateChatHasWelcomeMessages> { .init(.updateChatHasWelcomeMessages) }
+    static var updateChatFolders: TdNotification<TDNativeUpdateChatFolders> { .init(.updateChatFolders) }
+    static var updateChatOnlineMemberCount: TdNotification<TDNativeUpdateChatOnlineMemberCount> { .init(.updateChatOnlineMemberCount) }
+    static var updateSavedMessagesTopic: TdNotification<TDNativeUpdateSavedMessagesTopic> { .init(.updateSavedMessagesTopic) }
+    static var updateSavedMessagesTopicCount: TdNotification<TDNativeUpdateSavedMessagesTopicCount> { .init(.updateSavedMessagesTopicCount) }
+    static var updateDirectMessagesChatTopic: TdNotification<TDNativeUpdateDirectMessagesChatTopic> { .init(.updateDirectMessagesChatTopic) }
+    static var updateTopicMessageCount: TdNotification<TDNativeUpdateTopicMessageCount> { .init(.updateTopicMessageCount) }
+    static var updateQuickReplyShortcut: TdNotification<TDNativeUpdateQuickReplyShortcut> { .init(.updateQuickReplyShortcut) }
+    static var updateQuickReplyShortcutDeleted: TdNotification<TDNativeUpdateQuickReplyShortcutDeleted> { .init(.updateQuickReplyShortcutDeleted) }
+    static var updateQuickReplyShortcuts: TdNotification<TDNativeUpdateQuickReplyShortcuts> { .init(.updateQuickReplyShortcuts) }
+    static var updateQuickReplyShortcutMessages: TdNotification<TDNativeUpdateQuickReplyShortcutMessages> { .init(.updateQuickReplyShortcutMessages) }
+    static var updateChatWelcomeMessages: TdNotification<TDNativeUpdateChatWelcomeMessages> { .init(.updateChatWelcomeMessages) }
+    static var updateForumTopicInfo: TdNotification<TDNativeUpdateForumTopicInfo> { .init(.updateForumTopicInfo) }
+    static var updateForumTopic: TdNotification<TDNativeUpdateForumTopic> { .init(.updateForumTopic) }
+    static var updateScopeNotificationSettings: TdNotification<TDNativeUpdateScopeNotificationSettings> { .init(.updateScopeNotificationSettings) }
+    static var updateReactionNotificationSettings: TdNotification<TDNativeUpdateReactionNotificationSettings> { .init(.updateReactionNotificationSettings) }
+    static var updateNotification: TdNotification<TDNativeUpdateNotification> { .init(.updateNotification) }
+    static var updateNotificationGroup: TdNotification<TDNativeUpdateNotificationGroup> { .init(.updateNotificationGroup) }
+    static var updateActiveNotifications: TdNotification<TDNativeUpdateActiveNotifications> { .init(.updateActiveNotifications) }
+    static var updateHavePendingNotifications: TdNotification<TDNativeUpdateHavePendingNotifications> { .init(.updateHavePendingNotifications) }
+    static var updateDeleteMessages: TdNotification<TDNativeUpdateDeleteMessages> { .init(.updateDeleteMessages) }
+    static var updateChatAction: TdNotification<TDNativeUpdateChatAction> { .init(.updateChatAction) }
+    static var updatePendingMessage: TdNotification<TDNativeUpdatePendingMessage> { .init(.updatePendingMessage) }
+    static var updateStopMessageDraft: TdNotification<TDNativeUpdateStopMessageDraft> { .init(.updateStopMessageDraft) }
+    static var updateCommunity: TdNotification<TDNativeUpdateCommunity> { .init(.updateCommunity) }
+    static var updateUserStatus: TdNotification<TDNativeUpdateUserStatus> { .init(.updateUserStatus) }
+    static var updateUser: TdNotification<TDNativeUpdateUser> { .init(.updateUser) }
+    static var updateBasicGroup: TdNotification<TDNativeUpdateBasicGroup> { .init(.updateBasicGroup) }
+    static var updateSupergroup: TdNotification<TDNativeUpdateSupergroup> { .init(.updateSupergroup) }
+    static var updateSecretChat: TdNotification<TDNativeUpdateSecretChat> { .init(.updateSecretChat) }
+    static var updateUserFullInfo: TdNotification<TDNativeUpdateUserFullInfo> { .init(.updateUserFullInfo) }
+    static var updateBasicGroupFullInfo: TdNotification<TDNativeUpdateBasicGroupFullInfo> { .init(.updateBasicGroupFullInfo) }
+    static var updateSupergroupFullInfo: TdNotification<TDNativeUpdateSupergroupFullInfo> { .init(.updateSupergroupFullInfo) }
+    static var updateCommunityFullInfo: TdNotification<TDNativeUpdateCommunityFullInfo> { .init(.updateCommunityFullInfo) }
+    static var updateServiceNotification: TdNotification<TDNativeUpdateServiceNotification> { .init(.updateServiceNotification) }
+    static var updateNewOauthRequest: TdNotification<TDNativeUpdateNewOauthRequest> { .init(.updateNewOauthRequest) }
+    static var updateFile: TdNotification<TDNativeUpdateFile> { .init(.updateFile) }
+    static var updateFileGenerationStart: TdNotification<TDNativeUpdateFileGenerationStart> { .init(.updateFileGenerationStart) }
+    static var updateFileGenerationStop: TdNotification<TDNativeUpdateFileGenerationStop> { .init(.updateFileGenerationStop) }
+    static var updateFileDownloads: TdNotification<TDNativeUpdateFileDownloads> { .init(.updateFileDownloads) }
+    static var updateFileAddedToDownloads: TdNotification<TDNativeUpdateFileAddedToDownloads> { .init(.updateFileAddedToDownloads) }
+    static var updateFileDownload: TdNotification<TDNativeUpdateFileDownload> { .init(.updateFileDownload) }
+    static var updateFileRemovedFromDownloads: TdNotification<TDNativeUpdateFileRemovedFromDownloads> { .init(.updateFileRemovedFromDownloads) }
+    static var updateApplicationVerificationRequired: TdNotification<TDNativeUpdateApplicationVerificationRequired> { .init(.updateApplicationVerificationRequired) }
+    static var updateApplicationRecaptchaVerificationRequired: TdNotification<TDNativeUpdateApplicationRecaptchaVerificationRequired> { .init(.updateApplicationRecaptchaVerificationRequired) }
+    static var updateCall: TdNotification<TDNativeUpdateCall> { .init(.updateCall) }
+    static var updateGroupCall: TdNotification<TDNativeUpdateGroupCall> { .init(.updateGroupCall) }
+    static var updateGroupCallParticipant: TdNotification<TDNativeUpdateGroupCallParticipant> { .init(.updateGroupCallParticipant) }
+    static var updateGroupCallParticipants: TdNotification<TDNativeUpdateGroupCallParticipants> { .init(.updateGroupCallParticipants) }
+    static var updateGroupCallVerificationState: TdNotification<TDNativeUpdateGroupCallVerificationState> { .init(.updateGroupCallVerificationState) }
+    static var updateNewGroupCallMessage: TdNotification<TDNativeUpdateNewGroupCallMessage> { .init(.updateNewGroupCallMessage) }
+    static var updateNewGroupCallPaidReaction: TdNotification<TDNativeUpdateNewGroupCallPaidReaction> { .init(.updateNewGroupCallPaidReaction) }
+    static var updateGroupCallMessageSendFailed: TdNotification<TDNativeUpdateGroupCallMessageSendFailed> { .init(.updateGroupCallMessageSendFailed) }
+    static var updateGroupCallMessagesDeleted: TdNotification<TDNativeUpdateGroupCallMessagesDeleted> { .init(.updateGroupCallMessagesDeleted) }
+    static var updateLiveStoryTopDonors: TdNotification<TDNativeUpdateLiveStoryTopDonors> { .init(.updateLiveStoryTopDonors) }
+    static var updateNewCallSignalingData: TdNotification<TDNativeUpdateNewCallSignalingData> { .init(.updateNewCallSignalingData) }
+    static var updateGiftAuctionState: TdNotification<TDNativeUpdateGiftAuctionState> { .init(.updateGiftAuctionState) }
+    static var updateActiveGiftAuctions: TdNotification<TDNativeUpdateActiveGiftAuctions> { .init(.updateActiveGiftAuctions) }
+    static var updateUserPrivacySettingRules: TdNotification<TDNativeUpdateUserPrivacySettingRules> { .init(.updateUserPrivacySettingRules) }
+    static var updateUnreadMessageCount: TdNotification<TDNativeUpdateUnreadMessageCount> { .init(.updateUnreadMessageCount) }
+    static var updateUnreadChatCount: TdNotification<TDNativeUpdateUnreadChatCount> { .init(.updateUnreadChatCount) }
+    static var updateChatJoinResult: TdNotification<TDNativeUpdateChatJoinResult> { .init(.updateChatJoinResult) }
+    static var updateStory: TdNotification<TDNativeUpdateStory> { .init(.updateStory) }
+    static var updateStoryDeleted: TdNotification<TDNativeUpdateStoryDeleted> { .init(.updateStoryDeleted) }
+    static var updateStoryPostSucceeded: TdNotification<TDNativeUpdateStoryPostSucceeded> { .init(.updateStoryPostSucceeded) }
+    static var updateStoryPostFailed: TdNotification<TDNativeUpdateStoryPostFailed> { .init(.updateStoryPostFailed) }
+    static var updateChatActiveStories: TdNotification<TDNativeUpdateChatActiveStories> { .init(.updateChatActiveStories) }
+    static var updateStoryListChatCount: TdNotification<TDNativeUpdateStoryListChatCount> { .init(.updateStoryListChatCount) }
+    static var updateStoryStealthMode: TdNotification<TDNativeUpdateStoryStealthMode> { .init(.updateStoryStealthMode) }
+    static var updateTrustedMiniAppBots: TdNotification<TDNativeUpdateTrustedMiniAppBots> { .init(.updateTrustedMiniAppBots) }
+    static var updateOption: TdNotification<TDNativeUpdateOption> { .init(.updateOption) }
+    static var updateStickerSet: TdNotification<TDNativeUpdateStickerSet> { .init(.updateStickerSet) }
+    static var updateInstalledStickerSets: TdNotification<TDNativeUpdateInstalledStickerSets> { .init(.updateInstalledStickerSets) }
+    static var updateTrendingStickerSets: TdNotification<TDNativeUpdateTrendingStickerSets> { .init(.updateTrendingStickerSets) }
+    static var updateRecentStickers: TdNotification<TDNativeUpdateRecentStickers> { .init(.updateRecentStickers) }
+    static var updateFavoriteStickers: TdNotification<TDNativeUpdateFavoriteStickers> { .init(.updateFavoriteStickers) }
+    static var updateSavedAnimations: TdNotification<TDNativeUpdateSavedAnimations> { .init(.updateSavedAnimations) }
+    static var updateSavedNotificationSounds: TdNotification<TDNativeUpdateSavedNotificationSounds> { .init(.updateSavedNotificationSounds) }
+    static var updateDefaultBackground: TdNotification<TDNativeUpdateDefaultBackground> { .init(.updateDefaultBackground) }
+    static var updateEmojiChatThemes: TdNotification<TDNativeUpdateEmojiChatThemes> { .init(.updateEmojiChatThemes) }
+    static var updateAccentColors: TdNotification<TDNativeUpdateAccentColors> { .init(.updateAccentColors) }
+    static var updateProfileAccentColors: TdNotification<TDNativeUpdateProfileAccentColors> { .init(.updateProfileAccentColors) }
+    static var updateWebBrowserSettings: TdNotification<TDNativeUpdateWebBrowserSettings> { .init(.updateWebBrowserSettings) }
+    static var updateLanguagePackStrings: TdNotification<TDNativeUpdateLanguagePackStrings> { .init(.updateLanguagePackStrings) }
+    static var updateConnectionState: TdNotification<TDNativeUpdateConnectionState> { .init(.updateConnectionState) }
+    static var updateFreezeState: TdNotification<TDNativeUpdateFreezeState> { .init(.updateFreezeState) }
+    static var updateAgeVerificationParameters: TdNotification<TDNativeUpdateAgeVerificationParameters> { .init(.updateAgeVerificationParameters) }
+    static var updateTermsOfService: TdNotification<TDNativeUpdateTermsOfService> { .init(.updateTermsOfService) }
+    static var updateUnconfirmedSession: TdNotification<TDNativeUpdateUnconfirmedSession> { .init(.updateUnconfirmedSession) }
+    static var updateAttachmentMenuBots: TdNotification<TDNativeUpdateAttachmentMenuBots> { .init(.updateAttachmentMenuBots) }
+    static var updateWebAppMessageSent: TdNotification<TDNativeUpdateWebAppMessageSent> { .init(.updateWebAppMessageSent) }
+    static var updateActiveEmojiReactions: TdNotification<TDNativeUpdateActiveEmojiReactions> { .init(.updateActiveEmojiReactions) }
+    static var updateAvailableMessageEffects: TdNotification<TDNativeUpdateAvailableMessageEffects> { .init(.updateAvailableMessageEffects) }
+    static var updateDefaultReactionType: TdNotification<TDNativeUpdateDefaultReactionType> { .init(.updateDefaultReactionType) }
+    static var updateDefaultPaidReactionType: TdNotification<TDNativeUpdateDefaultPaidReactionType> { .init(.updateDefaultPaidReactionType) }
+    static var updateSavedMessagesTags: TdNotification<TDNativeUpdateSavedMessagesTags> { .init(.updateSavedMessagesTags) }
+    static var updateActiveLiveLocationMessages: TdNotification<TDNativeUpdateActiveLiveLocationMessages> { .init(.updateActiveLiveLocationMessages) }
+    static var updateOwnedStarCount: TdNotification<TDNativeUpdateOwnedStarCount> { .init(.updateOwnedStarCount) }
+    static var updateOwnedGramCount: TdNotification<TDNativeUpdateOwnedGramCount> { .init(.updateOwnedGramCount) }
+    static var updateChatRevenueAmount: TdNotification<TDNativeUpdateChatRevenueAmount> { .init(.updateChatRevenueAmount) }
+    static var updateStarRevenueStatus: TdNotification<TDNativeUpdateStarRevenueStatus> { .init(.updateStarRevenueStatus) }
+    static var updateGramRevenueStatus: TdNotification<TDNativeUpdateGramRevenueStatus> { .init(.updateGramRevenueStatus) }
+    static var updateSpeechRecognitionTrial: TdNotification<TDNativeUpdateSpeechRecognitionTrial> { .init(.updateSpeechRecognitionTrial) }
+    static var updateGroupCallMessageLevels: TdNotification<TDNativeUpdateGroupCallMessageLevels> { .init(.updateGroupCallMessageLevels) }
+    static var updateDiceEmojis: TdNotification<TDNativeUpdateDiceEmojis> { .init(.updateDiceEmojis) }
+    static var updateStakeDiceState: TdNotification<TDNativeUpdateStakeDiceState> { .init(.updateStakeDiceState) }
+    static var updateAnimatedEmojiMessageClicked: TdNotification<TDNativeUpdateAnimatedEmojiMessageClicked> { .init(.updateAnimatedEmojiMessageClicked) }
+    static var updateAnimationSearchParameters: TdNotification<TDNativeUpdateAnimationSearchParameters> { .init(.updateAnimationSearchParameters) }
+    static var updateTextCompositionStyles: TdNotification<TDNativeUpdateTextCompositionStyles> { .init(.updateTextCompositionStyles) }
+    static var updateSuggestedActions: TdNotification<TDNativeUpdateSuggestedActions> { .init(.updateSuggestedActions) }
+    static var updateSpeedLimitNotification: TdNotification<TDNativeUpdateSpeedLimitNotification> { .init(.updateSpeedLimitNotification) }
+    static var updateContactCloseBirthdays: TdNotification<TDNativeUpdateContactCloseBirthdays> { .init(.updateContactCloseBirthdays) }
+    static var updateAutosaveSettings: TdNotification<TDNativeUpdateAutosaveSettings> { .init(.updateAutosaveSettings) }
+    static var updateBusinessConnection: TdNotification<TDNativeUpdateBusinessConnection> { .init(.updateBusinessConnection) }
+    static var updateNewBusinessMessage: TdNotification<TDNativeUpdateNewBusinessMessage> { .init(.updateNewBusinessMessage) }
+    static var updateBusinessMessageEdited: TdNotification<TDNativeUpdateBusinessMessageEdited> { .init(.updateBusinessMessageEdited) }
+    static var updateBusinessMessagesDeleted: TdNotification<TDNativeUpdateBusinessMessagesDeleted> { .init(.updateBusinessMessagesDeleted) }
+    static var updateNewInlineQuery: TdNotification<TDNativeUpdateNewInlineQuery> { .init(.updateNewInlineQuery) }
+    static var updateNewChosenInlineResult: TdNotification<TDNativeUpdateNewChosenInlineResult> { .init(.updateNewChosenInlineResult) }
+    static var updateNewGuestQuery: TdNotification<TDNativeUpdateNewGuestQuery> { .init(.updateNewGuestQuery) }
+    static var updateNewCallbackQuery: TdNotification<TDNativeUpdateNewCallbackQuery> { .init(.updateNewCallbackQuery) }
+    static var updateNewInlineCallbackQuery: TdNotification<TDNativeUpdateNewInlineCallbackQuery> { .init(.updateNewInlineCallbackQuery) }
+    static var updateNewBusinessCallbackQuery: TdNotification<TDNativeUpdateNewBusinessCallbackQuery> { .init(.updateNewBusinessCallbackQuery) }
+    static var updateNewShippingQuery: TdNotification<TDNativeUpdateNewShippingQuery> { .init(.updateNewShippingQuery) }
+    static var updateNewPreCheckoutQuery: TdNotification<TDNativeUpdateNewPreCheckoutQuery> { .init(.updateNewPreCheckoutQuery) }
+    static var updateNewCustomEvent: TdNotification<TDNativeUpdateNewCustomEvent> { .init(.updateNewCustomEvent) }
+    static var updateNewCustomQuery: TdNotification<TDNativeUpdateNewCustomQuery> { .init(.updateNewCustomQuery) }
+    static var updateUserSubscription: TdNotification<TDNativeUpdateUserSubscription> { .init(.updateUserSubscription) }
+    static var updatePoll: TdNotification<TDNativeUpdatePoll> { .init(.updatePoll) }
+    static var updatePollAnswer: TdNotification<TDNativeUpdatePollAnswer> { .init(.updatePollAnswer) }
+    static var updateManagedBot: TdNotification<TDNativeUpdateManagedBot> { .init(.updateManagedBot) }
+    static var updateChatMember: TdNotification<TDNativeUpdateChatMember> { .init(.updateChatMember) }
+    static var updateNewChatJoinRequest: TdNotification<TDNativeUpdateNewChatJoinRequest> { .init(.updateNewChatJoinRequest) }
+    static var updateChatBoost: TdNotification<TDNativeUpdateChatBoost> { .init(.updateChatBoost) }
+    static var updateMessageReaction: TdNotification<TDNativeUpdateMessageReaction> { .init(.updateMessageReaction) }
+    static var updateMessageReactions: TdNotification<TDNativeUpdateMessageReactions> { .init(.updateMessageReactions) }
+    static var updatePaidMediaPurchased: TdNotification<TDNativeUpdatePaidMediaPurchased> { .init(.updatePaidMediaPurchased) }
 }
 
 extension Foundation.Notification.Name {
@@ -577,6 +588,7 @@ extension Foundation.Notification.Name {
     static let updateMessageSendSucceeded = Self("updateMessageSendSucceeded")
     static let updateMessageSendFailed = Self("updateMessageSendFailed")
     static let updateMessageContent = Self("updateMessageContent")
+    static let updateMessageEphemeralContent = Self("updateMessageEphemeralContent")
     static let updateMessageEdited = Self("updateMessageEdited")
     static let updateMessageIsPinned = Self("updateMessageIsPinned")
     static let updateMessageInteractionInfo = Self("updateMessageInteractionInfo")
@@ -622,6 +634,7 @@ extension Foundation.Notification.Name {
     static let updateChatViewAsTopics = Self("updateChatViewAsTopics")
     static let updateChatBlockList = Self("updateChatBlockList")
     static let updateChatHasScheduledMessages = Self("updateChatHasScheduledMessages")
+    static let updateChatHasWelcomeMessages = Self("updateChatHasWelcomeMessages")
     static let updateChatFolders = Self("updateChatFolders")
     static let updateChatOnlineMemberCount = Self("updateChatOnlineMemberCount")
     static let updateSavedMessagesTopic = Self("updateSavedMessagesTopic")
@@ -632,6 +645,7 @@ extension Foundation.Notification.Name {
     static let updateQuickReplyShortcutDeleted = Self("updateQuickReplyShortcutDeleted")
     static let updateQuickReplyShortcuts = Self("updateQuickReplyShortcuts")
     static let updateQuickReplyShortcutMessages = Self("updateQuickReplyShortcutMessages")
+    static let updateChatWelcomeMessages = Self("updateChatWelcomeMessages")
     static let updateForumTopicInfo = Self("updateForumTopicInfo")
     static let updateForumTopic = Self("updateForumTopic")
     static let updateScopeNotificationSettings = Self("updateScopeNotificationSettings")
@@ -643,6 +657,7 @@ extension Foundation.Notification.Name {
     static let updateDeleteMessages = Self("updateDeleteMessages")
     static let updateChatAction = Self("updateChatAction")
     static let updatePendingMessage = Self("updatePendingMessage")
+    static let updateStopMessageDraft = Self("updateStopMessageDraft")
     static let updateCommunity = Self("updateCommunity")
     static let updateUserStatus = Self("updateUserStatus")
     static let updateUser = Self("updateUser")
@@ -652,6 +667,7 @@ extension Foundation.Notification.Name {
     static let updateUserFullInfo = Self("updateUserFullInfo")
     static let updateBasicGroupFullInfo = Self("updateBasicGroupFullInfo")
     static let updateSupergroupFullInfo = Self("updateSupergroupFullInfo")
+    static let updateCommunityFullInfo = Self("updateCommunityFullInfo")
     static let updateServiceNotification = Self("updateServiceNotification")
     static let updateNewOauthRequest = Self("updateNewOauthRequest")
     static let updateFile = Self("updateFile")

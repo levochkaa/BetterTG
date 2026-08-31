@@ -1,12 +1,12 @@
 // CustomChat.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 
 @MainActor final class CustomChat: ObservableObject {
     // MARK: Internal
 
-    enum CustomChatType: Equatable, Hashable {
+    enum CustomChatType {
         case user(User)
         case supergroup(Supergroup)
         case group(BasicGroup)
@@ -95,7 +95,10 @@ import TDLibKitDynamic
         if case .chatMemberStatusBanned = supergroup.status {
             return false
         }
-        return supergroup.status != .chatMemberStatusLeft
+        if case .chatMemberStatusLeft = supergroup.status {
+            return false
+        }
+        return true
     }
 
     init(

@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_FILE="$ROOT_DIR/project.yml"
-LOCAL_PACKAGE_MANIFEST="$ROOT_DIR/Packages/TDLibKitDynamic/Package.swift"
 
 package_section="$(
   awk '
@@ -25,11 +24,7 @@ if [[ -z "$package_section" ]]; then
 fi
 
 {
-  printf '%s\n' "bettertg-package-graph-v1"
+  printf '%s\n' "bettertg-package-graph-v2"
   xcodebuild -version
   printf '%s\n' "$package_section"
-  if [[ -f "$LOCAL_PACKAGE_MANIFEST" ]]; then
-    printf '%s\n' "TDLibKitDynamic Package.swift"
-    cat "$LOCAL_PACKAGE_MANIFEST"
-  fi
 } | shasum -a 256 | awk '{ print $1 }'

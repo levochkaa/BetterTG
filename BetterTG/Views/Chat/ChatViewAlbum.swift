@@ -2,9 +2,8 @@
 
 import AVKit
 import Combine
-import ImageIO
-import Photos
-import TDLibKitDynamic
+import MobileVLCKit
+import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
 

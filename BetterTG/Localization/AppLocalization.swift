@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - AppLanguage
@@ -390,19 +390,19 @@ final class AppLocalization: @unchecked Sendable {
         }
     }
 
-    func configureTDLibClient(_ client: TDLibClient, databaseDirectory: URL) throws {
+    func configureTDLibClient(_ client: TDLibClient, databaseDirectory: URL) async throws {
         let databasePath = databaseDirectory.appendingPathComponent("language-packs.sqlite").path
-        try enqueueTDLibOption(
+        try await enqueueTDLibOption(
             name: "language_pack_database_path",
             value: .optionValueString(.init(value: databasePath)),
             client: client,
         )
-        try enqueueTDLibOption(
+        try await enqueueTDLibOption(
             name: "localization_target",
             value: .optionValueString(.init(value: Self.localizationTarget)),
             client: client,
         )
-        try enqueueTDLibOption(
+        try await enqueueTDLibOption(
             name: "language_pack_id",
             value: .optionValueString(.init(value: selectedLanguagePackID)),
             client: client,
@@ -439,7 +439,7 @@ final class AppLocalization: @unchecked Sendable {
             downloadedBasePack = nil
         }
 
-        try await client.setOption(
+        _ = try await client.setOption(
             name: "language_pack_id",
             value: .optionValueString(.init(value: language.id)),
         )
@@ -498,12 +498,8 @@ final class AppLocalization: @unchecked Sendable {
         return Self.format(result.0, localeID: result.1, arguments: arguments)
     }
 
-    private func enqueueTDLibOption(name: String, value: OptionValue, client: TDLibClient) throws {
-        try client.setOption(name: name, value: value) { result in
-            if case .failure(let error) = result {
-                log("TDLib localization option \(name) failed: \(error.localizedDescription)")
-            }
-        }
+    private func enqueueTDLibOption(name: String, value: OptionValue, client: TDLibClient) async throws {
+        _ = try await client.setOption(name: name, value: value)
     }
 
     // MARK: Private

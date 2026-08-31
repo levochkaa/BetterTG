@@ -1,6 +1,6 @@
 // LastOrDraftMessageView.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum ChatSummary {

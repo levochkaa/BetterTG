@@ -1,7 +1,7 @@
 // TdNotification.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
     
 struct TdNotification<T> {
     // MARK: Internal

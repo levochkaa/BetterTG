@@ -517,18 +517,28 @@ cached_package_resolved_path() {
 
 package_cache_is_ready() {
   [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/.ready" ]] &&
-    [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json" ]] &&
-    [[ -f "$(cached_package_resolved_path)" ]] &&
-    {
-      [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/checkouts/TDLibKit/Sources/TDLibKit/Generated/Models/Update.swift" ]] ||
-        [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/checkouts/tdlibkit/Sources/TDLibKit/Generated/Models/Update.swift" ]]
-    }
+    [[ -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json" ]]
+}
+
+tdlibkit_schema_path() {
+  local checkout_name
+  local candidate
+  for checkout_name in TDLibKit tdlibkit; do
+    candidate="$CLONED_SOURCE_PACKAGES_DIR_PATH/checkouts/$checkout_name/Sources/TDLibKitNative/Generated/SchemaViews.swift"
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  echo "error: resolved TDLibKit checkout does not contain SchemaViews.swift" >&2
+  return 1
 }
 
 restore_package_resolved() {
   local destination
   local temporary
   destination="$(generated_package_resolved_path)"
+  [[ -f "$(cached_package_resolved_path)" ]] || return 0
   temporary="$destination.tmp.$$"
   mkdir -p "$(dirname "$destination")"
   cp "$(cached_package_resolved_path)" "$temporary"
@@ -540,12 +550,16 @@ publish_package_cache() {
   local cached
   source="$(generated_package_resolved_path)"
   cached="$(cached_package_resolved_path)"
-  if [[ ! -f "$source" || ! -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json" ]]; then
+  if [[ ! -f "$CLONED_SOURCE_PACKAGES_DIR_PATH/workspace-state.json" ]]; then
     echo "error: Swift package resolution did not produce reusable cache metadata" >&2
     return 1
   fi
-  cp "$source" "$cached.tmp.$$"
-  mv "$cached.tmp.$$" "$cached"
+  if [[ -f "$source" ]]; then
+    cp "$source" "$cached.tmp.$$"
+    mv "$cached.tmp.$$" "$cached"
+  else
+    rm -f "$cached"
+  fi
   touch "$CLONED_SOURCE_PACKAGES_DIR_PATH/.ready"
 }
 
@@ -791,9 +805,23 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
   prepare_swift_packages
 
   echo "Updating generated TDLib models..."
+  TDLIBKIT_SCHEMA_PATH="$(tdlibkit_schema_path)"
+  run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_native_aliases.py" \
+    --schema "$TDLIBKIT_SCHEMA_PATH"
+  run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_client_compat.py" \
+    --schema "$TDLIBKIT_SCHEMA_PATH"
+  run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_initializer_compat.py" \
+    --schema "$TDLIBKIT_SCHEMA_PATH"
   run_with_filtered_output python3 "$ROOT_DIR/td.py" \
     --skip-resolve \
     --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+  run_with_filtered_output swiftformat \
+    --config "$ROOT_DIR/.swiftformat" \
+    --cache ignore \
+    "$ROOT_DIR/BetterTG/Shared/TDNativeAliases.swift" \
+    "$ROOT_DIR/BetterTG/Shared/TDClient+Generated.swift" \
+    "$ROOT_DIR/BetterTG/Shared/TDNativeInitializers+Generated.swift" \
+    "$ROOT_DIR/BetterTG/Extensions/Td/Td+Generated.swift"
 
   xcodebuild_args=(
     -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj"

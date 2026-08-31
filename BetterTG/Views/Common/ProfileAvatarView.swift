@@ -2,7 +2,7 @@
 
 import Combine
 import CoreText
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ProfileAvatarView
@@ -152,7 +152,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         guard representedAccountID != accountID
             || representedClientID != clientID
             || representedPeerID != placeholder.peerID
-            || representedFile != file
+            || representedFile?.id != file?.id
             || representedMinithumbnailData != minithumbnailData
             || representedIcon != icon
         else { return }

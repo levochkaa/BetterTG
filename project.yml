@@ -23,19 +23,16 @@ settings:
     DEVELOPMENT_TEAM: 7Z2WHPKU8W
     SDKROOT: iphoneos
     STRING_CATALOG_GENERATE_SYMBOLS: YES
+    SWIFT_OBJC_INTEROP_MODE: objcxx
     SWIFT_VERSION: "5.0"
     WATCHOS_DEPLOYMENT_TARGET: 9.0
 packages:
-  FFmpegBridge:
-    path: Packages/FFmpegBridge
-  Lottie:
-    url: https://github.com/airbnb/lottie-ios.git
-    exactVersion: 4.6.1
-  libwebp:
-    url: https://github.com/SDWebImage/libwebp-Xcode.git
-    exactVersion: 1.6.0
-  TDLibKitDynamic:
-    path: Packages/TDLibKitDynamic
+  TDLibKit:
+    url: https://github.com/levochkaa/TDLibKit.git
+    revision: 4745aedb1e37b6d6242293eddb0941b2f8eef217
+  MobileVLCKit:
+    url: https://github.com/levochkaa/MobileVLCKit
+    exactVersion: 3.7.3
 targets:
   BetterTG:
     type: application
@@ -47,10 +44,8 @@ targets:
           - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
-      - package: FFmpegBridge
-      - package: Lottie
-      - package: libwebp
-      - package: TDLibKitDynamic
+      - package: TDLibKit
+        product: TDLibKitShared
         embed: true
       - target: BetterTGNotificationService
         embed: true
@@ -111,19 +106,6 @@ targets:
           else
             echo "warning: SwiftFormat not installed. Install from https://github.com/nicklockwood/SwiftFormat (Homebrew: brew install swiftformat)"
           fi
-    postBuildScripts:
-      - name: Remove Static TDLib Artifact
-        shell: /bin/sh
-        basedOnDependencyAnalysis: false
-        # SwiftPM's automatic copy/sign tasks are outside the explicit copy-files phase.
-        inputFiles:
-          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/TDLibFramework.framework
-          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/TDLibFramework.framework/_CodeSignature
-        script: |
-          static_artifact="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/TDLibFramework.framework"
-          if [ -d "$static_artifact" ]; then
-            rm -rf "$static_artifact"
-          fi
     scheme:
       gatherCoverageData: false
   BetterTGNotificationService:
@@ -138,7 +120,8 @@ targets:
       - path: BetterTG/Models/TelegramAccount.swift
       - path: BetterTG/Secret/Secret.swift
     dependencies:
-      - package: TDLibKitDynamic
+      - package: TDLibKit
+        product: TDLibKitShared
         embed: false
     settings:
       base:

@@ -7,7 +7,8 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = ROOT_DIR / "BetterTG/Extensions/Td/Td+Generated.swift"
-UPDATE_MODEL_PATH = Path("Sources/TDLibKit/Generated/Models/Update.swift")
+UPDATE_MODEL_PATH = Path("Sources/TDLibKitNative/Generated/SchemaViews.swift")
+LOCAL_TDLIBKIT_ROOT = ROOT_DIR.parent.parent
 PROJECT_PATH = ROOT_DIR / "BetterTG.xcodeproj"
 SCHEME = "BetterTG"
 DERIVED_DATA_PATH = ROOT_DIR / ".build/xcode"
@@ -18,15 +19,11 @@ CORE = """// Td+Generated.swift
 // Any modifications will be overwritten
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 """
 
 UPDATE_FUNC = """
-func update(
-    _ update: Update,
-    source: TdUpdateSource? = nil,
-    notificationCenter: NotificationCenter = nc
-) {
+func update(_ update: TDNativeUpdate) {
     switch update {
 """
 
@@ -66,6 +63,7 @@ def resolve_xcode_packages() -> None:
 
 def update_model_source(cloned_source_packages_path: Path) -> Path:
     candidates = [
+        LOCAL_TDLIBKIT_ROOT / UPDATE_MODEL_PATH,
         cloned_source_packages_path / "checkouts/TDLibKit" / UPDATE_MODEL_PATH,
         cloned_source_packages_path / "checkouts/tdlibkit" / UPDATE_MODEL_PATH,
     ]
@@ -84,7 +82,16 @@ def update_model_source(cloned_source_packages_path: Path) -> Path:
 def parse_update_cases(update_source: str) -> list[tuple[str, str]]:
     cases: list[tuple[str, str]] = []
 
-    for line in update_source.splitlines():
+    declaration = "public enum TDNativeUpdate:"
+    start = update_source.find(declaration)
+    if start == -1:
+        raise ValueError("TDNativeUpdate declaration not found")
+    body_start = update_source.find("{", start)
+    initializer = update_source.find("\n    init?", body_start)
+    if body_start == -1 or initializer == -1:
+        raise ValueError("Unable to isolate TDNativeUpdate cases")
+
+    for line in update_source[body_start + 1 : initializer].splitlines():
         stripped = line.strip()
         if not stripped.startswith("case ") or "(" not in stripped or "(let" in stripped:
             continue
@@ -95,7 +102,7 @@ def parse_update_cases(update_source: str) -> list[tuple[str, str]]:
         cases.append((name, type_name))
 
     if not cases:
-        raise ValueError("No Update enum cases found in TDLibKit Update.swift")
+        raise ValueError("No TDNativeUpdate enum cases found in TDLibKit schema")
 
     return cases
 

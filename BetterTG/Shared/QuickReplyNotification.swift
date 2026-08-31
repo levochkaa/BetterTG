@@ -1,7 +1,7 @@
 // QuickReplyNotification.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 enum QuickReplyNotification {
     // MARK: Internal
@@ -14,8 +14,8 @@ enum QuickReplyNotification {
         switch chat.type {
         case .chatTypePrivate(let privateChat):
             guard let result = try? await client.canSendMessageToUser(
-                onlyLocal: false,
                 userId: privateChat.userId,
+                onlyLocal: false,
             ) else { return false }
             if case .canSendMessageToUserResultOk = result {
                 return true

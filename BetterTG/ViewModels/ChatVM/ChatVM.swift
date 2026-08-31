@@ -3,7 +3,7 @@
 import AVFoundation
 import Combine
 import ImageIO
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor final class ChatVM: ObservableObject {
@@ -616,7 +616,9 @@ import UIKit
         chatInfoTask?.cancel()
         timer?.invalidate()
         audioRecorder?.stop()
-        try? td.closeChat(chatId: chatID) { _ in }
+        let client = td
+        let closingChatID = chatID
+        Task { try? await client.closeChat(chatId: closingChatID) }
         if !previewing {
             Media.shared.onChatDismiss()
         }
@@ -1744,7 +1746,33 @@ import UIKit
             return nil
         }
     }
-
+    
+    func sendMessageVoiceNote(duration: Int, waveform: Data) async {
+        _ = try? await td.sendMessage(
+            chatId: customChat.chat.id,
+            inputMessageContent: .inputMessageVoiceNote(
+                .init(
+                    voiceNote: .init(
+                        voiceNote: .inputFileLocal(.init(path: savedVoiceNoteUrl.path())),
+                        duration: duration,
+                        waveform: waveform,
+                    ),
+                    caption: FormattedText(
+                        entities: getEntities(from: text),
+                        text: text.string,
+                    ),
+                    selfDestructType: nil,
+                ),
+            ),
+            options: nil,
+            replyMarkup: nil,
+            replyTo: getMessageReplyTo(from: replyMessage),
+            topicId: nil,
+        )
+        text = ""
+        try? await tdSendChatAction(.chatActionCancel)
+    }
+    
     func sendMessage() async {
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
@@ -2224,12 +2252,12 @@ import UIKit
             chatId: context.chatID,
             inputMessageContent: .inputMessageText(
                 .init(
-                    clearDraft: false,
-                    linkPreviewOptions: nil,
                     text: FormattedText(
                         entities: getEntities(from: text),
                         text: text.string,
                     ),
+                    linkPreviewOptions: nil,
+                    clearDraft: true,
                 ),
             ),
             options: nil,
@@ -2243,31 +2271,27 @@ import UIKit
         try? await cancelChatAction(in: context)
         return (context, [message])
     }
-
-    func submitVideoNote(
-        _ asset: VideoNoteAsset,
-        thumbnail: VideoNoteInputThumbnailAsset? = nil,
-        originRecordingDraftID: UUID? = nil,
-        replyingTo reply: CustomMessage?,
-        storedReplyMessageID: Int64? = nil,
-        storedReplyTo: InputMessageReplyTo? = nil,
-        storedSendTopic: MessageTopic? = nil,
-    ) async -> VideoNoteSubmissionResult {
-        let sendContext: ResolvedSendContext
-        do {
-            sendContext = try isAllMessagesForum
-                ? resolveFrozenMediaSendContext(
-                    for: .videoNote,
-                    destination: location.draftKey,
-                    sendTopic: storedSendTopic,
-                    replyTo: storedReplyTo ?? getMessageReplyTo(from: reply),
-                )
-                : resolveSendContext(for: .videoNote, replyingTo: reply)
-        } catch {
-            return .retained(
-                asset,
-                originConsumed: false,
-                message: error.localizedDescription,
+    
+    func editMessage() async {
+        guard let message = editCustomMessage?.message else { return }
+        
+        switch message.content {
+        case .messageText:
+            _ = try? await td.editMessageText(
+                chatId: customChat.chat.id,
+                inputMessageContent:
+                .inputMessageText(
+                    .init(
+                        text: FormattedText(
+                            entities: getEntities(from: editMessageText),
+                            text: editMessageText.string,
+                        ),
+                        linkPreviewOptions: nil,
+                        clearDraft: true,
+                    ),
+                ),
+                messageId: message.id,
+                replyMarkup: nil,
             )
         }
         var draft: VideoNoteSendDraft
@@ -2597,18 +2621,42 @@ import UIKit
     }
 
     func updateDraft() async {
-        guard editCustomMessage == nil else { return }
-        do {
-            let context = try resolveSendContext(
-                for: .text,
-                replyingTo: replyMessage,
-                useCurrentReplyOverride: true,
-            )
-            try await updateDraft(in: context, replyTo: context.replyTo)
-        } catch {
-            if !(error is CancellationError) {
-                log("Chat draft update failed: \(error)")
-            }
+        let draftMessage = DraftMessage(
+            content: .draftMessageContentText(
+                .init(
+                    text: FormattedText(
+                        entities: getEntities(from: text),
+                        text: text.string,
+                    ),
+                    linkPreviewOptions: nil,
+                ),
+            ),
+            date: Int(Date.now.timeIntervalSince1970),
+            effectId: 0,
+            replyTo: getMessageReplyTo(from: replyMessage),
+            suggestedPostInfo: nil,
+        )
+        _ = try? await td.setChatDraftMessage(
+            chatId: customChat.chat.id,
+            draftMessage: draftMessage,
+            topicId: nil,
+        )
+    }
+    
+    func setEditMessageText(from message: Message?) {
+        switch message?.content {
+        case .messageText(let messageText):
+            editMessageText = getAttributedString(from: messageText.text)
+        case .messagePhoto(let messagePhoto):
+            editMessageText = getAttributedString(from: messagePhoto.caption)
+        case .messageVoiceNote(let messageVoiceNote):
+            editMessageText = getAttributedString(from: messageVoiceNote.caption)
+        case .messageAnimation(let messageAnimation):
+            editMessageText = getAttributedString(from: messageAnimation.caption)
+        case .messageVideo(let messageVideo):
+            editMessageText = getAttributedString(from: messageVideo.caption)
+        default:
+            break
         }
     }
 
@@ -2645,30 +2693,11 @@ import UIKit
     }
     
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
-        guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
-        if case .chatActionCancel = chatAction {
-            if let context = desiredChatActionContext ?? activeChatActionContext {
-                try await cancelChatAction(in: context)
-            } else if !isAllMessagesForum {
-                chatActionRouteRevision &+= 1
-                desiredChatAction = nil
-                try await client.sendChatAction(
-                    action: chatAction,
-                    businessConnectionId: nil,
-                    chatId: location.chatID,
-                    topicId: location.topic,
-                )
-            } else {
-                chatActionRouteRevision &+= 1
-                desiredChatAction = nil
-            }
-            return
-        }
-        let kind = sendContentKind(for: chatAction)
-        let context = try resolveSendContext(
-            for: kind,
-            replyingTo: replyMessage,
-            useCurrentReplyOverride: true,
+        _ = try await td.sendChatAction(
+            action: chatAction,
+            businessConnectionId: "",
+            chatId: customChat.chat.id,
+            topicId: nil,
         )
         try await sendChatAction(chatAction, in: context)
     }

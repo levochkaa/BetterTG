@@ -1,7 +1,7 @@
 // FormattedText.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 extension FormattedText {
     var withDate: NSMutableAttributedString {

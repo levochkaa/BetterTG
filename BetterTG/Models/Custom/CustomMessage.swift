@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 @MainActor final class CustomMessage: ObservableObject {
     // MARK: Internal

@@ -2,7 +2,7 @@
 
 import Foundation
 import ImageIO
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - TDImageThumbnailKey

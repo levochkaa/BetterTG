@@ -1,12 +1,12 @@
 // CustomFolder.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 
 @MainActor final class CustomFolder: ObservableObject {
     // MARK: Internal
 
-    enum CustomFolderType: Equatable, Hashable {
+    enum CustomFolderType {
         case main
         case archive
         case folder(ChatFolderInfo, ChatFolder)
@@ -20,7 +20,7 @@ import TDLibKitDynamic
         switch type {
         case .main: 0
         case .archive: -1
-        case .folder(let info, _): info.id
+        case .folder(let info, _): Int(info.id)
         }
     }
 

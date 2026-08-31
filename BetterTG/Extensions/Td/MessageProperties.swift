@@ -1,6 +1,6 @@
 // MessageProperties.swift
 
-import TDLibKitDynamic
+import TDLibKit
 
 extension MessageProperties {
     static let `default` = MessageProperties(

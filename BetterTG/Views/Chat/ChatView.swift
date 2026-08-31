@@ -2,7 +2,7 @@
 
 import Combine
 import PhotosUI
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
 

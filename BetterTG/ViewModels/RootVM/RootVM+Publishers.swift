@@ -1,8 +1,7 @@
 // RootVM+Publishers.swift
 
 import Combine
-import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 extension RootVM {
     func setPublishers() {

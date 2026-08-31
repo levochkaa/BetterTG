@@ -1,7 +1,7 @@
 // TDLib.swift
 
 import Combine
-@preconcurrency import TDLibKitDynamic
+@preconcurrency import TDLibKit
 import UIKit
 
 var td: TDLibClient { TDLib.shared.activeClient }
@@ -42,7 +42,7 @@ final class TDLib: @unchecked Sendable {
     private(set) var activeAccountID: UUID?
     private(set) var isActiveAccountReady = false
 
-    private let manager = TDLibClientManager()
+    private var manager = TDLibClientManager()
     private let registry = TelegramAccountRegistry()
     private var processLock: TDLibProcessLock?
     private var ownershipReleaseTask: Task<Void, Never>?
@@ -140,9 +140,11 @@ final class TDLib: @unchecked Sendable {
 
         nc.publisher(&cancellables, for: UIApplication.willTerminateNotification) { [weak self] _ in
             guard let self else { return }
-            manager.closeClients()
-            processLock?.unlock()
-            processLock = nil
+            Task {
+                await self.manager.closeClients()
+                self.processLock?.unlock()
+                self.processLock = nil
+            }
         }
     }
 
@@ -157,9 +159,7 @@ final class TDLib: @unchecked Sendable {
         beginOwnershipBackgroundTask()
         let manager = manager
         ownershipReleaseTask = Task { @MainActor [weak self] in
-            await Task.detached(priority: .userInitiated) {
-                manager.closeClients()
-            }.value
+            await manager.closeClients()
             guard let self else { return }
             processLock?.unlock()
             processLock = nil
@@ -190,6 +190,7 @@ final class TDLib: @unchecked Sendable {
                 }
                 processLock = lock
                 lifecycleSuspended = false
+                manager = TDLibClientManager()
                 activate(account: account, notify: false)
                 log("TDLib ownership restored to main application")
             } catch {
@@ -333,34 +334,25 @@ final class TDLib: @unchecked Sendable {
     private func activate(account: TelegramAccount, notify: Bool) {
         isActiveAccountReady = false
         let accountID = account.id
-        let client = manager.createClient { [weak self] data, callbackClient in
+        let manager = manager
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                let decoded = try callbackClient.decoder.decode(Update.self, from: data)
-                DispatchQueue.main.async {
-                    self?.handle(decoded, from: callbackClient, accountID: accountID)
+                let client = try await manager.createClient()
+                setActiveClient(client)
+                try await client.executeSetLogVerbosityLevel(0)
+
+                if notify {
+                    nc.post(name: .activeTelegramAccountChanged, object: account.id)
+                    nc.post(name: .telegramAccountsChanged)
+                }
+
+                for await incomingUpdate in client.updates {
+                    await handle(incomingUpdate, from: client, accountID: accountID)
                 }
             } catch {
-                log("Error TdLibUpdateHandler: \(error)")
+                log("TDLib client activation failed: \(error.localizedDescription)")
             }
-        }
-        setActiveClient(client)
-        authorizationState.activate(TdUpdateSource(accountID: accountID, clientID: client.id))
-        clientReadiness.activate(TdUpdateSource(accountID: accountID, clientID: client.id))
-        let mediaUpdates = TDLibMediaUpdateStreams(
-            source: TdUpdateSource(accountID: accountID, clientID: client.id),
-        )
-        self.mediaUpdates = mediaUpdates
-        activeVODRanges = TDLibVODRangeCoordinator(
-            accountID: accountID.uuidString,
-            client: .live(client),
-            updates: mediaUpdates.fileUpdates,
-        )
-        activeClientChangesSubject.send(TdUpdateSource(accountID: accountID, clientID: client.id))
-        try? client.setLogStream(logStream: .logStreamEmpty) { _ in }
-
-        if notify {
-            nc.post(name: .activeTelegramAccountChanged, object: account.id)
-            nc.post(name: .telegramAccountsChanged)
         }
     }
 
@@ -413,7 +405,7 @@ final class TDLib: @unchecked Sendable {
     }
 
     private func isActive(client: TDLibClient, accountID: UUID) -> Bool {
-        activeAccountID == accountID && activeClientSnapshot()?.client == client
+        activeAccountID == accountID && activeClientSnapshot()?.client.id == client.id
     }
 
     private func configureIfNeeded(client: TDLibClient, accountID: UUID) {
@@ -422,22 +414,22 @@ final class TDLib: @unchecked Sendable {
         Task {
             do {
                 let directory = try registry.databaseDirectory(for: accountID)
-                try AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
-                try await client.setTdlibParameters(
-                    apiHash: Secret.apiHash,
-                    apiId: Secret.apiId,
-                    applicationVersion: Utils.applicationVersion,
+                try await AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
+                _ = try await client.setTdlibParameters(
+                    useTestDc: false,
                     databaseDirectory: directory.path,
-                    databaseEncryptionKey: Data(),
-                    deviceModel: Utils.modelName,
                     filesDirectory: directory.path,
-                    systemLanguageCode: Locale.preferredLanguages.first ?? "en-US",
-                    systemVersion: UIDevice.current.systemVersion,
-                    useChatInfoDatabase: true,
+                    databaseEncryptionKey: Data(),
                     useFileDatabase: true,
+                    useChatInfoDatabase: true,
                     useMessageDatabase: true,
                     useSecretChats: true,
-                    useTestDc: false,
+                    apiId: Secret.apiId,
+                    apiHash: Secret.apiHash,
+                    systemLanguageCode: Locale.preferredLanguages.first ?? "en-US",
+                    deviceModel: Utils.modelName,
+                    systemVersion: UIDevice.current.systemVersion,
+                    applicationVersion: Utils.applicationVersion,
                 )
                 AppLocalization.shared.clientDidConfigure(client)
                 let state = try await client.getAuthorizationState()
@@ -611,10 +603,10 @@ final class TDLib: @unchecked Sendable {
 
     private func waitUntilClosed(_ client: TDLibClient, timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        while manager.clients[client.id] != nil, Date() < deadline {
+        while await !(manager.isClientClosed(client.id)), Date() < deadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        return manager.clients[client.id] == nil
+        return await manager.isClientClosed(client.id)
     }
 
     @MainActor private func beginOwnershipBackgroundTask() {
