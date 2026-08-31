@@ -17,6 +17,37 @@ enum Route {
     case archive(CustomFolder)
 }
 
+// MARK: - ChatListDescriptor
+
+private enum ChatListDescriptor {
+    case main
+    case archive
+    case folder(Int)
+
+    var makeChatList: ChatList {
+        switch self {
+        case .main:
+            .chatListMain
+        case .archive:
+            .chatListArchive
+        case .folder(let id):
+            .chatListFolder(.init(chatFolderId: id))
+        }
+    }
+
+    init(_ chatList: ChatList) {
+        self =
+            switch chatList {
+            case .chatListMain:
+                .main
+            case .chatListArchive:
+                .archive
+            case .chatListFolder(let folder):
+                .folder(folder.chatFolderId)
+            }
+    }
+}
+
 // MARK: - RootVM
 
 @MainActor final class RootVM: ObservableObject {
@@ -131,62 +162,14 @@ enum Route {
         return CustomFolder(chats: chats, type: .folder(info, folder))
     }
 
-    func getCustomChats(
-        for chatList: ChatList, client: TDLibClient, projection: RootChatProjection.Lease,
-    ) async -> [CustomChat]? {
-        guard projection.isValid else { return nil }
-        projection.beginList(chatList, revision: chatProjection.revision)
-        guard let ids = try? await client.getChats(chatList: chatList, limit: 200).chatIds,
-              projection.isValid else { return nil }
-        return await ids.asyncCompactMap { await getCustomChat(
-            from: $0,
-            for: chatList,
-            client: client,
-            projection: projection,
-        ) }
-    }
-
-    private func hydrateChat(
-        id: Int64,
-        list: ChatList?,
-        client: TDLibClient,
-        projection: RootChatProjection.Lease?,
-    ) async -> CustomChat? {
-        guard let (ticket, _) = captureListRequest(), ticket.source.clientID == client.id else { return nil }
-        let lease = projection ?? chatProjection.begin(chatID: id)
-        defer { if projection == nil { chatProjection.finish(lease) } }
-        guard lease.isValid else { return nil }
-        let rawRevision = chatProjection.revision
-        guard let chat = try? await client.getChat(chatId: id), lease.isValid,
-              acceptsListRequest(ticket) else { return nil }
-        let position = list.map { RootChatInsertion.position(in: chat.positions, for: $0) }
-            ?? chat.positions.first ?? ChatPosition(isPinned: false, list: .chatListMain, order: 0, source: nil)
-        let peerRevision = chatProjection.revision
-        let type: CustomChat.CustomChatType
-        switch chat.type {
-        case .chatTypePrivate(let privateChat):
-            lease.watchUser(privateChat.userId)
-            guard let user = try? await client.getUser(userId: privateChat.userId) else { return nil }
-            if case .userTypeBot = user.type { type = .bot(user) } else { type = .user(user) }
-        case .chatTypeSupergroup(let peer):
-            guard let group = try? await client.getSupergroup(supergroupId: peer.supergroupId) else { return nil }
-            type = .supergroup(group)
-        case .chatTypeBasicGroup(let peer):
-            guard let group = try? await client.getBasicGroup(basicGroupId: peer.basicGroupId) else { return nil }
-            type = .group(group)
-        default:
-            return nil
+    func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {
+        let descriptor = ChatListDescriptor(chatList)
+        // Native request objects are consumed on send, so every request and comparison needs a fresh value.
+        _ = try? await td.send(TDNativeRequests.loadChats(chatList: descriptor.makeChatList, limit: 200))
+        guard let ids = try? await td.getChats(chatList: descriptor.makeChatList, limit: 200).chatIds
+        else { return nil }
+        return await ids.asyncCompactMap {
+            await getCustomChat(from: $0, for: descriptor.makeChatList)
         }
-        guard lease.isValid, acceptsListRequest(ticket) else { return nil }
-        let result = CustomChat(
-            chat: chat,
-            position: position,
-            unreadCount: chat.unreadCount,
-            type: type,
-            lastMessage: chat.lastMessage,
-            draftMessage: chat.draftMessage,
-        )
-        lease.track(result, raw: rawRevision, peer: peerRevision)
-        return list != nil && result.position.order == 0 ? nil : result
     }
 }
