@@ -27,7 +27,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | P1 | Profiles, shared media, fullscreen gallery | pre-Liquid peer info/gallery controllers | user/basic-group/supergroup/full-info and message-search APIs | **queued** — exact thumbnail transitions, paging/prefetch, zoom/dismiss gesture arbitration, video controls, actions, and state restoration. |
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **queued** — isolated clients/storage/subscriptions plus add/auth/switch/remove/logout. |
 | P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists and paging already exist; folder tabs are classic full-width material, and chat cells now use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
-| P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover prepend/edit/delete/header structural snapshots. Every chat now emits one stable localized 34pt date row per day; simultaneous boundaries render date→topic→message, midnight within one topic does not duplicate its topic header, and significant-time/locale changes rebuild IDs and labels. Remaining proof/gaps: live pagination seam/album mutation, explicit resize/keyboard anchor instrumentation and eliminating residual metadata work from the main actor. |
+| P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover structural snapshots. Composer/keyboard insets, object-driven and autonomous cell self-sizing, bulk reconfigure, Dynamic Type and rotation now capture the same anchor or latest edge; mutation depth discards stale deferred anchors and never fights active dragging. Every chat emits one stable localized date row per day with exact date→topic ordering. Remaining proof/gaps: a live pagination/album seam, software-keyboard-attached runtime proof and eliminating residual metadata work from the main actor. |
 | P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars, `ChatListFilterTabContainerNode.swift` and `ChatListItem.swift` | n/a | **implemented classic shell/list breadth** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Chat-list cards are replaced by contiguous 76pt full-width rows with 60pt avatars at x=10 and separators from x=80. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proofs are below. Remaining P2: systematic audit of secondary navigation/search/action surfaces. |
 
 ## Checkpoint
@@ -37,7 +37,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 - Timeline invariants: raw TDLib pagination owns the cursor; `mediaAlbumId` owns grouped identity across pages; heterogeneous
   message/date/topic items rebuild from canonical state; only messages participate in behavior; every structural apply restores a visible
   message + exact pixel offset. Date→topic ordering and significant-time/locale reconfiguration follow Telegram's header spaces.
-- Verification: warning-free Xcode 26.6 build `.build/logs/xcodebuild/build-Debug-20260831-090344-73347-22038.log`; focused reviews are
+- Verification: warning-free Xcode 26.6 build `.build/logs/xcodebuild/build-Debug-20260831-091301-75604-22504.log`; focused reviews are
   clean. PID `71701` passed frozen-destination voice/video recording/send/relaunch probes with no crash/assert; PID `67526` and the date
   smoke stayed alive. Simulator remains booted.
 - Proof blocker: current simulator data has no safe reachable forum with `viewAsTopics == false`, so real topic-header tap and live
@@ -83,6 +83,17 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   `71701` passed `.build/ui-probe-evidence/forum-all-messages-media-destination-*`: voice Ogg/Opus + base-draft/frozen-topic relaunch,
   video send outcome/legacy/thumbnail/tombstone cleanup, and ordered multi-segment video recording trim/thumbnails/frozen-topic handoff.
 - Deferred: live all-messages topic-header/pagination/album seam proof on an account with a reachable forum in this mode.
+
+### Keyboard and self-sizing timeline anchor slice
+
+- **P1 flow:** Telegram-style `messageId + pixelOffset` retention across viewport/intrinsic-size changes in the inverted UIKit history.
+- Implemented: message-cell pre-fit height notification; one coalesced visible-message anchor for autonomous self-sizing; exact anchor/latest
+  restoration around single/bulk diffable reconfigure, composer/search/selection/keyboard insets, Dynamic Type and rotation; mutation-depth
+  ownership so stale deferred size callbacks cannot overwrite a newer snapshot/inset/rotation anchor; active pan/deceleration remains untouched.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-091301-75604-22504.log`; focused delta-review clean. PID `75942`
+  retained `Video message, 0:13` at `{{53,381},{260,260}}` and `chat-date-1787342400` at `{{172,348},{58,22}}` across two
+  hierarchy-derived focus attempts (`Δx/y/w/h=0`). Simulator did not present `AXKeyboard`—likely hardware-keyboard state—so the
+  non-no-op keyboard-attached transition remains a runtime proof blocker. Evidence: `.build/ui-probe-evidence/timeline-anchor-fresh-*`.
 
 ### Date and topic boundary slice
 

@@ -174,6 +174,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         return formatter
     }()
 
+    var onSelfSizingHeightChange: (() -> Void)?
+
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
     private let bubbleStack = UIStackView()
@@ -268,6 +270,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onSwipeToReply = nil
         onMediaTap = nil
         onSelectionToggle = nil
+        onSelfSizingHeightChange = nil
         representedGalleryMessageIDs.removeAll()
         mediaTransitionGeneration = UUID()
         swipeToReplyRecognizer.isEnabled = false
@@ -286,6 +289,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     override func layoutSubviews() {
         updateBubbleWidth(for: bounds.width)
         super.layoutSubviews()
+    }
+
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes,
+    ) -> UICollectionViewLayoutAttributes {
+        let fitted = super.preferredLayoutAttributesFitting(layoutAttributes)
+        if window != nil, abs(fitted.size.height - layoutAttributes.size.height) > 0.5 {
+            onSelfSizingHeightChange?()
+        }
+        return fitted
     }
 
     override func didMoveToWindow() {
