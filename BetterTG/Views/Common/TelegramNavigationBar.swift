@@ -176,6 +176,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     var onSelectionCancel: (() -> Void)?
     var onSearchQueryChange: ((String) -> Void)?
     var onSearchActiveChange: ((Bool) -> Void)?
+    var onProfile: (() -> Void)?
 
     // MARK: Private
 
@@ -314,8 +315,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         addSubview(backButton)
 
         titleControl.translatesAutoresizingMaskIntoConstraints = false
-        titleControl.accessibilityHint = "Long press to search messages"
+        titleControl.accessibilityHint = "Opens profile. Long press to search messages"
         titleControl.accessibilityTraits = .button
+        titleControl.addTarget(self, action: #selector(profilePressed), for: .touchUpInside)
         titleControl.addGestureRecognizer(
             UILongPressGestureRecognizer(target: self, action: #selector(titleLongPressed(_:))),
         )
@@ -337,6 +339,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         titleControl.addSubview(titleStack)
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.isUserInteractionEnabled = true
+        avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(profilePressed)))
         addSubview(avatarView)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
@@ -438,6 +442,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     @objc private func backPressed() {
         onBack?()
+    }
+
+    @objc private func profilePressed() {
+        onProfile?()
     }
 
     @objc private func selectionCancelPressed() {

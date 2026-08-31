@@ -476,6 +476,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return true
     }
 
+    private func openProfile() {
+        guard presentationMode == .full,
+              let accountID = chatVM.accountID,
+              navigationController?.topViewController === self
+        else { return }
+        let profile = PeerProfileViewController(
+            customChat: chatVM.customChat,
+            topic: location.topic,
+            client: chatVM.client,
+            accountID: accountID,
+        )
+        profile.onOpenMessage = { [weak self, weak profile] message in
+            profile?.navigationController?.popViewController(animated: true)
+            DispatchQueue.main.async { self?.scrollToMessage(id: message.id) }
+        }
+        profile.onSearch = { [weak self, weak profile] in
+            profile?.navigationController?.popViewController(animated: true)
+            DispatchQueue.main.async { self?.beginMessageSearch() }
+        }
+        navigationController?.pushViewController(profile, animated: true)
+    }
+
     private func makeLayout() -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .fractionalWidth(1),
@@ -492,6 +514,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func configureNavigationBar() {
         customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
         customNavigationBar.onBack = presentationMode == .full ? { NavigationStorage.shared.pop() } : nil
+        customNavigationBar.onProfile = presentationMode == .full ? { [weak self] in self?.openProfile() } : nil
         customNavigationBar.onSelectionCancel = { [weak self] in
             self?.endMessageSelection()
         }
