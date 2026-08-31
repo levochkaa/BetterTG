@@ -237,7 +237,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
 
 // MARK: - MediaGalleryViewController
 
-final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate {
+final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
     override var canBecomeFirstResponder: Bool {
         true
     }
@@ -247,7 +247,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     override var prefersStatusBarHidden: Bool {
-        false
+        !chromeIsVisible
+    }
+
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation {
+        .fade
     }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -300,11 +304,19 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var contextWasInvalidated = false
     private var forcedDismissalSnapshot: UIView?
     private var forcesFadeDismissal = false
+    private var chromeIsVisible = true
     private let toolbar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let closeButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
     private let counterLabel = UILabel()
+    private var voiceOverCancellable: AnyCancellable?
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
+    private lazy var chromeTapGesture: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(toggleChromeVisibility))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
 
     fileprivate var selectedMessageID: Int64? {
         messages.indices.contains(selectedIndex) ? messages[selectedIndex].id : nil
@@ -367,6 +379,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         view.backgroundColor = .black
         configureCollectionView()
         configureToolbar()
+        observeVoiceOver()
     }
 
     override func viewDidLayoutSubviews() {
@@ -391,6 +404,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        bindSelectedCellChrome()
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        close()
+        return true
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -427,6 +446,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             )
             collectionView.layoutIfNeeded()
             updateCounter()
+            bindSelectedCellChrome()
             prunePlaybackOwners(around: selectedIndex)
         }
     }
@@ -450,7 +470,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         willDisplay cell: UICollectionViewCell,
         forItemAt indexPath: IndexPath,
     ) {
-        (cell as? MediaGalleryCell)?.setPlaybackVisible(shouldPlayItem(at: indexPath.item))
+        let cell = cell as? MediaGalleryCell
+        cell?.setPlaybackVisible(shouldPlayItem(at: indexPath.item))
+        if indexPath.item == selectedIndex {
+            bindGalleryChrome(to: cell)
+        }
         requestMoreMessagesIfNeeded(near: indexPath.item)
     }
 
@@ -459,7 +483,33 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         didEndDisplaying cell: UICollectionViewCell,
         forItemAt _: IndexPath,
     ) {
-        (cell as? MediaGalleryCell)?.setPlaybackVisible(false)
+        let cell = cell as? MediaGalleryCell
+        cell?.unbindGalleryChrome()
+        cell?.setPlaybackVisible(false)
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var touchedView = touch.view
+        while let view = touchedView {
+            if view is UIControl {
+                return false
+            }
+            if view === collectionView {
+                break
+            }
+            touchedView = view.superview
+        }
+        return true
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer,
+    ) -> Bool {
+        guard gestureRecognizer === chromeTapGesture,
+              let otherTap = otherGestureRecognizer as? UITapGestureRecognizer
+        else { return false }
+        return otherTap.numberOfTapsRequired > 1
     }
 
     func preparePictureInPicture(for owner: GalleryVideoPlaybackOwner) -> Bool {
@@ -519,6 +569,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
             .flatMap { $0 as? MediaGalleryCell }?
             .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
+        bindSelectedCellChrome()
         prunePlaybackOwners(around: selectedIndex)
     }
 
@@ -552,6 +603,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cell.configure(message: messages[index], videoPlaybackOwner: owner)
         cell.setPlaybackVisible(true)
         updateCounter()
+        bindSelectedCellChrome()
         prunePlaybackOwners(around: index)
         completion(true)
     }
@@ -612,6 +664,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
                 .flatMap { $0 as? MediaGalleryCell }?
                 .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
+            bindSelectedCellChrome()
             prunePlaybackOwners(around: selectedIndex)
         }
         if appendsOnly {
@@ -706,6 +759,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.delegate = self
         collectionView.dataSource = self
+        collectionView.addGestureRecognizer(chromeTapGesture)
         collectionView.register(MediaGalleryCell.self, forCellWithReuseIdentifier: MediaGalleryCell.reuseIdentifier)
         view.addSubview(collectionView)
     }
@@ -746,7 +800,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -50),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -770,6 +824,38 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         counterLabel.text = messages.count > 1 ? "\(selectedIndex + 1) of \(messages.count)" : ""
     }
 
+    private func observeVoiceOver() {
+        voiceOverCancellable = NotificationCenter.default
+            .publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard UIAccessibility.isVoiceOverRunning else { return }
+                self?.setChromeVisible(true, animated: false)
+            }
+    }
+
+    private func setChromeVisible(_ visible: Bool, animated: Bool) {
+        guard chromeIsVisible != visible else { return }
+        chromeIsVisible = visible
+        toolbar.isUserInteractionEnabled = visible
+        toolbar.accessibilityElementsHidden = !visible
+        selectedGalleryCell()?.setGalleryChromeVisible(visible, animated: animated)
+        let updates = {
+            self.toolbar.alpha = visible ? 1 : 0
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.2,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+                animations: updates,
+            )
+        } else {
+            updates()
+        }
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
     private func updateSelection(from scrollView: UIScrollView) {
         guard !messages.isEmpty else { return }
         let updatedIndex = min(
@@ -781,16 +867,21 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
                 .flatMap { $0 as? MediaGalleryCell }?
                 .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
+            bindSelectedCellChrome()
             prunePlaybackOwners(around: selectedIndex)
             return
         }
-        collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
-            .flatMap { $0 as? MediaGalleryCell }?
-            .setPlaybackVisible(false)
+        if let previousCell = collectionView.cellForItem(
+            at: IndexPath(item: selectedIndex, section: 0),
+        ) as? MediaGalleryCell {
+            previousCell.unbindGalleryChrome()
+            previousCell.setPlaybackVisible(false)
+        }
         selectedIndex = updatedIndex
         collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
             .flatMap { $0 as? MediaGalleryCell }?
             .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
+        bindSelectedCellChrome()
         updateCounter()
         prunePlaybackOwners(around: selectedIndex)
     }
@@ -839,6 +930,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func releasePlaybackOwnersForDismissal() {
         guard !didReleasePlaybackOwners else { return }
         didReleasePlaybackOwners = true
+        collectionView.visibleCells
+            .compactMap { $0 as? MediaGalleryCell }
+            .forEach { $0.unbindGalleryChrome() }
         let pictureInPictureCoordinator = GalleryPictureInPictureCoordinator.shared
         pictureInPictureCoordinator.galleryWillDismiss(self)
         for owner in videoPlaybackOwners.values {
@@ -881,6 +975,26 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     @objc private func close() {
         dismiss(animated: true)
+    }
+
+    @objc private func toggleChromeVisibility() {
+        guard !UIAccessibility.isVoiceOverRunning else {
+            setChromeVisible(true, animated: false)
+            return
+        }
+        setChromeVisible(!chromeIsVisible, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
+
+    private func bindSelectedCellChrome() {
+        guard messages.indices.contains(selectedIndex) else { return }
+        let cell = collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? MediaGalleryCell
+        bindGalleryChrome(to: cell)
+    }
+
+    private func bindGalleryChrome(to cell: MediaGalleryCell?) {
+        cell?.bindGalleryChrome(isVisible: chromeIsVisible) { [weak self] visible in
+            self?.setChromeVisible(visible, animated: !UIAccessibility.isReduceMotionEnabled)
+        }
     }
 
     @objc private func toggleSelectedPlayback() {
@@ -2149,6 +2263,16 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         mediaView.performPlaybackCommand(command)
     }
 
+    func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?) {
+        guard !isInvalidated else { return }
+        mediaView.setGalleryChromeController(visibilityChanged)
+    }
+
+    func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool) {
+        guard !isInvalidated else { return }
+        mediaView.setGalleryChromeVisible(isVisible, animated: animated)
+    }
+
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
         mediaView.makeTransitionSnapshot(contentMode: contentMode)
     }
@@ -2981,6 +3105,7 @@ final class MediaGalleryCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        unbindGalleryChrome()
         if let videoPlaybackAttachmentToken {
             videoPlaybackOwner?.detach(attachment: videoPlaybackAttachmentToken)
         }
@@ -3113,6 +3238,32 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
+    func bindGalleryChrome(
+        isVisible: Bool,
+        visibilityChanged: @escaping (Bool) -> Void,
+    ) {
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.setGalleryChromeController(visibilityChanged)
+            videoPlaybackOwner.setGalleryChromeVisible(isVisible, animated: false)
+        } else {
+            contentMediaView?.setGalleryChromeController(visibilityChanged)
+            contentMediaView?.setGalleryChromeVisible(isVisible, animated: false)
+        }
+    }
+
+    func unbindGalleryChrome() {
+        videoPlaybackOwner?.setGalleryChromeController(nil)
+        contentMediaView?.setGalleryChromeController(nil)
+    }
+
+    func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool) {
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.setGalleryChromeVisible(isVisible, animated: animated)
+        } else {
+            contentMediaView?.setGalleryChromeVisible(isVisible, animated: animated)
+        }
+    }
+
     func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
         guard let transitionMediaSize,
               transitionMediaSize.width > 0,
@@ -3143,11 +3294,15 @@ final class MediaGalleryCell: UICollectionViewCell {
 protocol GalleryMediaView: AnyObject {
     func performPlaybackCommand(_ command: GalleryPlaybackCommand)
     func prepareForReuse()
+    func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?)
+    func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool)
     func setPlaybackVisible(_ isVisible: Bool)
 }
 
 extension GalleryMediaView {
     func performPlaybackCommand(_: GalleryPlaybackCommand) {}
+    func setGalleryChromeController(_: ((Bool) -> Void)?) {}
+    func setGalleryChromeVisible(_: Bool, animated _: Bool) {}
     func setPlaybackVisible(_: Bool) {}
 }
 
@@ -3268,6 +3423,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private let rateButton = UIButton(type: .system)
     private let pictureInPictureButton = UIButton(type: .system)
     private let player = LocalMediaPlayer()
+    private var controlsBottomConstraint: NSLayoutConstraint!
     private var ffmpegPlayer: TDLibVODFFmpegSampleBufferPlayer?
     private var ffmpegCloseTask: Task<Void, Never>?
     private var fileID: Int?
@@ -3312,6 +3468,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var controlsAreVisible = false
     private var controlsAutoHideWorkItem: DispatchWorkItem?
     private var controlsTapGesture: UITapGestureRecognizer?
+    private var onGalleryChromeVisibilityChanged: ((Bool) -> Void)?
     private var isInlinePresentation = false
     private var mutedBeforeInlinePresentation: Bool?
     private var waitsForInitialPlaybackVisibility = false
@@ -3607,6 +3764,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         addSubview(spinner)
         addSubview(retryButton)
         addSubview(controlsView)
+        self.controlsBottomConstraint = controlsView.bottomAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.bottomAnchor,
+            constant: -50,
+        )
         NSLayoutConstraint.activate([
             preview.topAnchor.constraint(equalTo: topAnchor),
             preview.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -3622,7 +3783,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             retryButton.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
             controlsView.leadingAnchor.constraint(equalTo: leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            controlsView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            controlsBottomConstraint,
             controlsView.heightAnchor.constraint(equalToConstant: 136),
             controlsStack.leadingAnchor.constraint(equalTo: controlsView.contentView.leadingAnchor, constant: 12),
             controlsStack.trailingAnchor.constraint(equalTo: controlsView.contentView.trailingAnchor, constant: -12),
@@ -3790,6 +3951,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         onPictureInPictureToggle = nil
         onPictureInPictureEligibilityChanged = nil
         onPlaybackIntentChanged = nil
+        onGalleryChromeVisibilityChanged = nil
         loadIdentifier = nil
         sourceFile = nil
         usesLegacyDownload = false
@@ -3866,7 +4028,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         let shouldPresentInline = context == .inline
         guard isInlinePresentation != shouldPresentInline else { return }
         isInlinePresentation = shouldPresentInline
-        controlsTapGesture?.isEnabled = !shouldPresentInline
+        controlsTapGesture?.isEnabled = !shouldPresentInline && onGalleryChromeVisibilityChanged == nil
         videoSurface.playerLayer.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
         ffmpegPlayer?.surfaceView.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
         if shouldPresentInline {
@@ -3884,6 +4046,20 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             }
         }
         updateControlIcons()
+    }
+
+    func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?) {
+        onGalleryChromeVisibilityChanged = visibilityChanged
+        controlsTapGesture?.isEnabled = !isInlinePresentation && visibilityChanged == nil
+    }
+
+    func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool) {
+        guard !loopsPlayback, !isInlinePresentation else { return }
+        let isVisible = UIAccessibility.isVoiceOverRunning ? true : isVisible
+        setControlsVisible(isVisible, animated: animated)
+        if isVisible {
+            scheduleControlsAutoHideIfNeeded()
+        }
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -4852,7 +5028,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             controlsView.isHidden = true
             return
         }
+        let visibilityChanged = controlsAreVisible != isVisible
         controlsAreVisible = isVisible
+        if visibilityChanged {
+            onGalleryChromeVisibilityChanged?(isVisible)
+        }
         if !isVisible {
             cancelControlsAutoHide()
         }
