@@ -72,6 +72,7 @@ enum VideoNoteSubmissionResult {
     private let captureSession = VideoNoteCaptureSession()
     private let previewPlayer = LocalMediaPlayer()
     private let chatID: Int64
+    private let draftKey: ChatDraftKey
     private let replyMessageID: Int64?
     private let replyTo: InputMessageReplyTo?
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
@@ -124,10 +125,12 @@ enum VideoNoteSubmissionResult {
 
     init(
         chatID: Int64,
+        draftKey: ChatDraftKey,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
     ) {
         self.chatID = chatID
+        self.draftKey = draftKey
         self.replyMessageID = replyMessageID
         self.replyTo = replyTo
         super.init(nibName: nil, bundle: nil)
@@ -227,7 +230,10 @@ enum VideoNoteSubmissionResult {
     }
 
     func restore(_ draft: VideoNoteRecordingDraft) {
-        guard state == .idle, operationTask == nil else { return }
+        guard state == .idle,
+              operationTask == nil,
+              draft.destination == draftKey
+        else { return }
         exitDisposition = .none
         recordingDraft = draft
         recordingDurationBaseline = draft.totalDuration
@@ -812,6 +818,7 @@ enum VideoNoteSubmissionResult {
                 try await VideoNoteRecordingDraftStore.shared.adopt(
                     asset,
                     chatID: chatID,
+                    draftKey: draftKey,
                     replyMessageID: replyMessageID,
                     replyTo: replyTo,
                 )

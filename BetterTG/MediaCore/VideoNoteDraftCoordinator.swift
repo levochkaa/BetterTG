@@ -17,11 +17,18 @@ final class VideoNoteDraftCoordinator {
         }
         nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { update in
             guard case .messageVideoNote = update.message.content else { return }
+            let destination = ChatDraftKey(
+                accountID: TDLib.shared.activeAccountID,
+                chatID: update.message.chatId,
+                topic: update.message.topicId,
+            )
+            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
             Task {
                 do {
                     if let resolution = try await VideoNoteFileStore.shared.handleSendSucceeded(
-                        chatID: update.message.chatId,
+                        destination: destination,
                         temporaryMessageID: update.oldMessageId,
+                        migrateLegacy: migrateLegacy,
                     ) {
                         nc.post(name: .videoNoteDraftResolved, object: resolution)
                     }
@@ -32,6 +39,12 @@ final class VideoNoteDraftCoordinator {
         }
         nc.publisher(&cancellables, for: .updateMessageSendFailed) { update in
             guard case .messageVideoNote = update.message.content else { return }
+            let destination = ChatDraftKey(
+                accountID: TDLib.shared.activeAccountID,
+                chatID: update.message.chatId,
+                topic: update.message.topicId,
+            )
+            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
             let failedSendState: VideoNoteFailedSendState? =
                 if case .messageSendingStateFailed(let state) = update.message.sendingState {
                     VideoNoteFailedSendState(
@@ -48,9 +61,10 @@ final class VideoNoteDraftCoordinator {
             Task {
                 do {
                     if let resolution = try await VideoNoteFileStore.shared.handleSendFailed(
-                        chatID: update.message.chatId,
+                        destination: destination,
                         temporaryMessageID: update.oldMessageId,
                         failedSendState: failedSendState,
+                        migrateLegacy: migrateLegacy,
                     ) {
                         nc.post(name: .videoNoteDraftResolved, object: resolution)
                     }
@@ -61,10 +75,12 @@ final class VideoNoteDraftCoordinator {
         }
         nc.publisher(&cancellables, for: .updateDeleteMessages) { update in
             guard !update.fromCache, update.isPermanent else { return }
+            let accountID = TDLib.shared.activeAccountID
             Task {
                 for messageID in update.messageIds {
                     do {
                         if let resolution = try await VideoNoteFileStore.shared.handleMessageDeleted(
+                            accountID: accountID,
                             chatID: update.chatId,
                             temporaryMessageID: messageID,
                         ) {

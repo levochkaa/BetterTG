@@ -135,9 +135,14 @@ enum VoiceNoteCodec {
                         unpack(data: packedWaveform, sampleCount: referenceSamples.count) == referenceSamples,
                         "Voice waveform packing must be 5-bit LSB-first",
                     )
+                    let sendDestination = ChatDraftKey(
+                        accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000042"),
+                        chatID: Int64.min + 1,
+                        topic: .messageTopicForum(.init(forumTopicId: 42)),
+                    )
                     let draft = VoiceNoteSendDraft(
                         id: UUID(),
-                        chatID: Int64.min + 1,
+                        chatID: sendDestination.chatID,
                         caption: FormattedText(entities: [], text: ""),
                         createdAt: Foundation.Date(),
                         duration: 1,
@@ -149,8 +154,17 @@ enum VoiceNoteCodec {
                         replyTo: nil,
                         temporaryMessageID: nil,
                         waveform: packedWaveform,
+                        destination: sendDestination,
                     )
                     let storedDraft = try await VoiceNoteDraftStore.shared.adopt(draft)
+                    let matchingSendDrafts = await VoiceNoteDraftStore.shared.drafts(for: sendDestination)
+                    precondition(matchingSendDrafts.map(\.id) == [storedDraft.id])
+                    let otherTopicSendDrafts = await VoiceNoteDraftStore.shared.drafts(for: ChatDraftKey(
+                        accountID: sendDestination.accountID,
+                        chatID: sendDestination.chatID,
+                        topic: .messageTopicForum(.init(forumTopicId: 43)),
+                    ))
+                    precondition(otherTopicSendDrafts.isEmpty)
                     let enqueueingDraft = try await VoiceNoteDraftStore.shared.beginEnqueue(storedDraft)
                     let probeMessageID = Int64.min + 2
                     let probeFailedState = VoiceNoteFailedSendState(
@@ -162,7 +176,7 @@ enum VoiceNoteCodec {
                         retryAvailableAt: Foundation.Date(),
                     )
                     let earlyResolution = try await VoiceNoteDraftStore.shared.handleSendFailed(
-                        chatID: draft.chatID,
+                        destination: sendDestination,
                         temporaryMessageID: probeMessageID,
                         failedSendState: probeFailedState,
                     )
@@ -208,6 +222,11 @@ enum VoiceNoteCodec {
                     let recordingDraftID = UUID()
                     recordingProbeDraftID = recordingDraftID
                     let probeChatID = Int64.min + 3
+                    let recordingDestination = ChatDraftKey(
+                        accountID: sendDestination.accountID,
+                        chatID: probeChatID,
+                        topic: .messageTopicForum(.init(forumTopicId: 77)),
+                    )
                     for staleDraft in await VoiceRecordingDraftStore.shared.drafts(for: probeChatID) {
                         await VoiceRecordingDraftStore.shared.discard(id: staleDraft.id)
                     }
@@ -224,6 +243,7 @@ enum VoiceNoteCodec {
                         trimEnd: nil,
                         trimStart: nil,
                         waveform: mergedInspection.waveform,
+                        destination: recordingDestination,
                     )
                     let storedRecordingDraft = try await VoiceRecordingDraftStore.shared.adopt(recordingDraft)
                     writeDebugProbeResult("Voice codec probe stage: recording adopt")
@@ -241,15 +261,21 @@ enum VoiceNoteCodec {
                     precondition(replacedRecordingDraft.exactDuration == 2.5)
                     precondition(replacedRecordingDraft.waveform.count == 63)
                     let restoredRecordingDrafts = await VoiceRecordingDraftStore.shared.drafts(
-                        for: recordingDraft.chatID,
+                        for: recordingDestination,
                     )
                     precondition(restoredRecordingDrafts == [replacedRecordingDraft])
+                    let otherTopicRecordingDrafts = await VoiceRecordingDraftStore.shared.drafts(for: ChatDraftKey(
+                        accountID: recordingDestination.accountID,
+                        chatID: recordingDestination.chatID,
+                        topic: .messageTopicForum(.init(forumTopicId: 78)),
+                    ))
+                    precondition(otherTopicRecordingDrafts.isEmpty)
                     writeDebugProbeResult("Voice codec probe stage: recording replace")
                     await VoiceRecordingDraftStore.shared.discard(id: recordingDraft.id)
                     recordingProbeDraftID = nil
                     let proof = "Voice codec probe: Ogg/Opus valid, \(size?.intValue ?? 0) bytes; "
                         + "waveform round-trip \(packedWaveform.count) bytes; "
-                        + "cached PCM playback \(playbackFile.length) frames; durable retry reconciled; "
+                        + "cached PCM playback \(playbackFile.length) frames; durable retry/location isolated; "
                             + "PCM16 segments \(replacementInspection.frameCount) frames, "
                             + "trim \(trimInspection.frameCount), order/revision restored"
                     writeDebugProbeResult(proof)

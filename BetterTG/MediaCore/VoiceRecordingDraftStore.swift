@@ -5,7 +5,7 @@ import TDLibKitDynamic
 
 // MARK: - VoiceRecordingDraft
 
-struct VoiceRecordingDraft: Equatable {
+struct VoiceRecordingDraft: ChatDraftScoped, Equatable {
     let id: UUID
     let chatID: Int64
     let caption: FormattedText
@@ -19,6 +19,7 @@ struct VoiceRecordingDraft: Equatable {
     var trimEnd: Double?
     var trimStart: Double?
     var waveform: Data
+    var destination: ChatDraftKey?
 
     var effectiveRange: Range<Double> {
         let lowerBound = max(0, min(trimStart ?? 0, exactDuration))
@@ -43,6 +44,7 @@ private struct VoiceRecordingDraftManifest: Codable {
     let trimEnd: Double?
     let trimStart: Double?
     let waveform: Data
+    let destination: ChatDraftKey?
 
     init(_ draft: VoiceRecordingDraft) {
         self.id = draft.id
@@ -58,6 +60,7 @@ private struct VoiceRecordingDraftManifest: Codable {
         self.trimEnd = draft.trimEnd
         self.trimStart = draft.trimStart
         self.waveform = draft.waveform
+        self.destination = draft.destination
     }
 
     func makeDraft(directoryURL: URL) -> VoiceRecordingDraft? {
@@ -79,6 +82,7 @@ private struct VoiceRecordingDraftManifest: Codable {
             trimEnd: trimEnd,
             trimStart: trimStart,
             waveform: waveform,
+            destination: destination,
         )
     }
 }
@@ -215,6 +219,34 @@ actor VoiceRecordingDraftStore {
             return drafts.filter { $0.chatID == chatID }.sorted { $0.createdAt < $1.createdAt }
         } catch {
             log("Voice recording draft load failed: \(error)")
+            return []
+        }
+    }
+
+    func drafts(
+        for destination: ChatDraftKey,
+        migrateLegacy: Bool = false,
+    ) -> [VoiceRecordingDraft] {
+        do {
+            try ensureDirectory()
+            let shouldMigrateLegacy = migrateLegacy
+                && ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
+            var drafts = try loadAllDrafts()
+            for index in drafts.indices where drafts[index].belongs(
+                to: destination,
+                allowingLegacy: shouldMigrateLegacy,
+            ) {
+                if drafts[index].destination == nil {
+                    drafts[index].destination = destination
+                    try save(drafts[index])
+                }
+            }
+            removeAbandonedFiles(referencedBy: Set(drafts.map(\.fileURL)))
+            return drafts
+                .filter { $0.destination == destination }
+                .sorted { $0.createdAt < $1.createdAt }
+        } catch {
+            log("Voice recording scoped draft load failed: \(error)")
             return []
         }
     }

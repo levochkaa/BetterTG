@@ -19,7 +19,7 @@ struct VideoNoteRecordingSegment: Equatable {
 
 // MARK: - VideoNoteRecordingDraft
 
-struct VideoNoteRecordingDraft: Equatable {
+struct VideoNoteRecordingDraft: ChatDraftScoped, Equatable {
     let id: UUID
     let chatID: Int64
     let createdAt: Foundation.Date
@@ -29,6 +29,7 @@ struct VideoNoteRecordingDraft: Equatable {
     var segments: [VideoNoteRecordingSegment]
     var trimEnd: Double?
     var trimStart: Double?
+    var destination: ChatDraftKey?
 
     var totalDuration: Double {
         segments.reduce(0) { $0 + $1.duration }
@@ -93,6 +94,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
     let segments: [VideoNoteRecordingSegmentManifest]
     let trimEnd: Double?
     let trimStart: Double?
+    let destination: ChatDraftKey?
 
     init(_ draft: VideoNoteRecordingDraft) {
         self.id = draft.id
@@ -104,6 +106,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
         self.segments = draft.segments.map(VideoNoteRecordingSegmentManifest.init)
         self.trimEnd = draft.trimEnd
         self.trimStart = draft.trimStart
+        self.destination = draft.destination
     }
 
     func makeDraft(directoryURL: URL) -> VideoNoteRecordingDraft? {
@@ -122,6 +125,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
             segments: resolvedSegments,
             trimEnd: trimEnd,
             trimStart: trimStart,
+            destination: destination,
         )
         let range = draft.effectiveRange
         let hasExplicitTrim = trimStart != nil || trimEnd != nil
@@ -168,6 +172,7 @@ actor VideoNoteRecordingDraftStore {
     func adopt(
         _ asset: VideoNoteAsset,
         chatID: Int64,
+        draftKey: ChatDraftKey? = nil,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
     ) async throws -> VideoNoteRecordingDraft {
@@ -194,6 +199,7 @@ actor VideoNoteRecordingDraftStore {
             segments: [segment],
             trimEnd: nil,
             trimStart: nil,
+            destination: draftKey,
         )
         let destination = segmentURL(id: segment.id)
         try? fileManager.removeItem(at: destination)
@@ -386,6 +392,41 @@ actor VideoNoteRecordingDraftStore {
             return drafts.filter { $0.chatID == chatID }.sorted { $0.createdAt < $1.createdAt }
         } catch {
             log("Video note recording draft load failed: \(error)")
+            return []
+        }
+    }
+
+    func drafts(
+        for destination: ChatDraftKey,
+        migrateLegacy: Bool = false,
+    ) async -> [VideoNoteRecordingDraft] {
+        do {
+            try ensureDirectory()
+            let shouldMigrateLegacy = migrateLegacy
+                && ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
+            let adoptedOrigins = try await VideoNoteFileStore.shared.recordingDraftOrigins()
+            var drafts = try loadAllDrafts()
+            for draft in drafts where adoptedOrigins.contains(draft.id) {
+                if !discard(id: draft.id) {
+                    log("Video note recording manifest cleanup will retry: \(draft.id)")
+                }
+            }
+            drafts.removeAll { adoptedOrigins.contains($0.id) }
+            for index in drafts.indices where drafts[index].belongs(
+                to: destination,
+                allowingLegacy: shouldMigrateLegacy,
+            ) {
+                if drafts[index].destination == nil {
+                    drafts[index].destination = destination
+                    try save(drafts[index])
+                }
+            }
+            removeAbandonedFiles(referencedBy: Set(drafts.flatMap { $0.segments.map(\.fileURL) }))
+            return drafts
+                .filter { $0.destination == destination }
+                .sorted { $0.createdAt < $1.createdAt }
+        } catch {
+            log("Video note recording scoped draft load failed: \(error)")
             return []
         }
     }

@@ -21,6 +21,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | P0 | Message reactions | pre-Liquid/current `ReactionButtonListComponent`, `ChatMessageReactionsFooterContentNode`, `ChatMessageBubbleItemNode` and `ChatController` reaction flow | `MessageInteractionInfo`, `MessageReactions`, `getMessageAvailableReactions`, `addMessageReaction`, `removeMessageReaction`, `updateMessageInteractionInfo`, `updateMessageUnreadReactions`, `readAllChatReactions`, `readAllForumTopicReactions` | **implemented ordinary-chat breadth** — UIKit renders TDLib emoji/custom-emoji reactions as sorted 30pt chips with 20pt icons, exact 6pt wrapping, selected/unread state, compact counts, incoming/outgoing/center alignment, VoiceOver labels/actions and offscreen-paused TGS/WebP/WebM custom emoji. Existing album reactions stay on the representative bubble. Context React can originate the first reaction through a non-Premium standard-emoji picker. Every add re-fetches authoritative message availability, excludes per-item Premium and paid/Stars types, honors unavailability and chat maximum count, while a chosen non-paid reaction remains removable under new restrictions. Generation-safe optimistic state rolls back failures; normal-user interaction/unread plus chat permission/availability updates reconcile under captured account/client guards. Explicit forum-topic identity now scopes read acknowledgement through `readAllForumTopicReactions`; add/remove remains suppressed by the read-only topic barrier. The warning-free builds and device proofs are recorded below. Deferred polish: custom-emoji add grid, reactor list/recent avatars, disappearing-chip animation, topic mutation after write plumbing and a live server mutation smoke. |
 | P0 | Pinned messages | pre-Liquid/current `ChatInterfaceStateContextMenus`, `ChatControllerLoadDisplayNode`, `ChatPinnedMessageTitlePanelNode` and message-window navigation | `Message.isPinned`, `MessageProperties.canBePinned`, `getChatPinnedMessage`, `pinChatMessage`, `unpinChatMessage`, `updateMessageIsPinned`, `updateDeleteMessages` | **implemented ordinary-chat newest-pin breadth** — initial and refreshed state comes only from account/client/generation-fenced `getChatPinnedMessage`; only confirmed 404 clears while transient failures retain the last authoritative banner. Permanent non-cache deletes and authoritative unpins clear before refetch, edits/content refresh the preview, and stale mutation/fetch/animation completions are revision-gated. Context Pin/Unpin uses freshly fetched `canBePinned`, one chat-serialized optimistic transaction and exact Saved/private/group/channel notification/scope modes. A classic full-width 50pt UIKit chrome-material banner sits below navigation, shares spoiler-safe reply thumbnail extraction, locally hides by newest message ID, resurfaces for a newer ID, preserves the inverted timeline offset, and taps through existing history-window navigation. Dynamic Type is capped to the fixed panel geometry and VoiceOver exposes separate Open/Hide controls. Forum/view-as-topics/direct-message groups, albums and sending/service messages are explicitly gated. Proof is recorded below. Deferred parity: nearest-visible pin rotation, pinned-only list/pagination, admin undo and older-pin warning detail. |
 | P0 | Forum topics: identity, list and read-only history | pre-Liquid/current `ChatListNodeLocation.swift`, `ChatListNodeEntries.swift`, `ChatListItem.swift`, `ChatControllerContentData.swift` and `ChatControllerLoadDisplayNode.swift` | `MessageTopic`, `ForumTopic`, `getForumTopics`, `getForumTopic`, `getForumTopicHistory`, `searchChatMessages(topicId:)`, `updateForumTopic`, `updateForumTopicInfo`, `openChat`, `closeChat` | **implemented read-only breadth** — durable runtime identity is `(accountID, clientID, chatID, MessageTopic?)`; a ref-counted captured-client lease prevents list/history close races. Exact three-part list cursors, strict order, hidden omission, repeated-cursor termination, short-page continuation, live refresh/search filtering and ID-stable cell reconfiguration are implemented. Topic history filters every message, de-duplicates repeated anchors, preserves short pages, scopes search/read-reaction/navigation, and retains topic metadata on transient failures. UIKit provides Telegram-like icons/custom emoji lifecycle, draft/last preview, closed/pin/unread/mention/reaction/poll state, Dynamic Type and VoiceOver. Composer and every mutation entry point fail closed; Copy, media, document/contact/location opening and metadata navigation remain available. Until all-topics run headers and topic writes exist, every forum base route deliberately opens the topic list instead of exposing an unsafe unscoped composer. Warning-free build and idb proof are below. |
+| P0 | Topic composer durable media identity | pre-Liquid/current `ChatInterfaceState.swift`, `ChatControllerMediaRecording.swift` and thread-scoped interface-state ownership | `MessageTopic`, `InputMessageVoiceNote`, `InputMessageVideoNote`, `updateMessageSendSucceeded/Failed` | **implemented write foundation** — `ChatDraftKey(accountID,chatID,MessageTopic?)` is persisted across voice/video recording, preview, send, retry and outcome reconciliation; runtime-only TDLib client IDs are deliberately excluded. All four media stores restore/deduplicate/enqueue/discard by exact destination. Outcome files use draft UUID rather than colliding chat/message IDs. Coordinators snapshot account+message topic before asynchronous reconciliation, and ChatVM accepts resolutions/restores/promotes only for its route. A one-time account-registry migration snapshot may claim unambiguous legacy base drafts; explicit-topic or ambiguous legacy state stays quarantined. Writable topic UI remains gated until text draft/resolver/send plumbing is complete. Runtime proof is below. |
 | P0 | Composer and send/delete transitions | pre-Liquid chat input panel and message transition paths | `FormattedText`, `InputMessageContent`, `sendMessage`, edit/reply APIs | **queued** — one UIKit floating blur island; snapshot flight into anchored insertion; collapse/fade/slide delete. |
 | P1 | Profiles, shared media, fullscreen gallery | pre-Liquid peer info/gallery controllers | user/basic-group/supergroup/full-info and message-search APIs | **queued** — exact thumbnail transitions, paging/prefetch, zoom/dismiss gesture arbitration, video controls, actions, and state restoration. |
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **queued** — isolated clients/storage/subscriptions plus add/auth/switch/remove/logout. |
@@ -30,22 +31,38 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: replace floating chat-list cards with classic contiguous Telegram rows.
-- Telegram reference: pre-Liquid `ChatListItem.swift` uses a 60pt avatar centered in the row at x=10 and one shared list separator after
-  the avatar/content inset. BetterTG now renders a full 402×76pt row with avatar x=10, title/preview at x=80, trailing date/delivery and
-  lower unread/mute/pin accessories. Pinned rows use a contiguous secondary background; ordinary rows use the list background; highlight
-  is transient and no row has corner radius or side/vertical card inset.
-- State/accessibility: draft date suppresses stale delivery checks. Pending/failed/delivered/read outgoing states render distinctly;
-  muted unread badges stay gray, marked-unread zero counts remain dots, and pin/mute icons yield to unread. Dynamic Type is capped to the
-  fixed classic geometry, long content truncates, and VoiceOver includes preview/date/delivery/pin/mute/unread state.
-- Verification: one SwiftFormat invocation covers both changed Swift files. Xcode 26.6 build
-  `.build/logs/xcodebuild/build-Debug-20260831-063859-35683-18833.log` succeeds without warnings. Real-state
-  `./build.sh run --skip-build` on iPhone 17 Pro / iOS 26.5 produced PID 35152. Hierarchy reports visible rows at
-  `{x:0,width:402,height:76}` and y=`106,182,258,334…`; screenshot confirms contiguous backgrounds, avatar x=10/60×60pt, separator x≈80,
-  delivery/date/pin/mute/unread layout and ellipsis without overlap. Tapping first-row AX center `(201,144)` opens Saved Messages with Back
-  and title present; PID remains alive. Evidence is `.build/ui-probe-evidence/classic-chat-rows-*`; Simulator remains booted.
-- Next slice: resume P0 explicit forum-topic write plumbing: propagate `topicId` through composer/media/voice/video/drafts/actions/retries,
-  make durable draft keys account+topic scoped, add topic selection to Forward, and only then restore Telegram all-messages mode/run headers.
+- Current slice: make every durable voice/video recording/send/retry artifact account+topic scoped before enabling writable topics.
+- Identity: runtime screens retain immutable `ChatLocation(accountID,clientID,chatID,MessageTopic?)`; persisted media uses
+  `ChatDraftKey(accountID,chatID,MessageTopic?)`, because client IDs are process epochs and cannot be restored safely. Voice recording,
+  voice send, video recording and video send manifests all carry that exact key; recording→send handoff preserves it unchanged.
+- Isolation/reconciliation: scoped restore, single-enqueue gates, origin/file deduplication, pending promotion, deletion cleanup and
+  resolution delivery no longer share state between topics or accounts. Success/failure coordinators synchronously snapshot the active
+  account and authoritative returned `Message.topicId`; ChatVM rejects resolutions for another route. Outcome-before-registration files
+  are keyed by draft UUID+temporary message ID, eliminating cross-account `chatID/messageID` filename collisions. Voice now mirrors
+  video's registration-ownership barrier so a concurrent restore cannot consume an early outcome.
+- Legacy: `TDLib` captures the account registry once on upgrade. Only a snapshot containing the same single account may atomically bind
+  destination-less legacy base-chat drafts. The decision is durable rather than recomputed after account removal; multiple-account,
+  corrupt and explicit-topic legacy state remains quarantined and referenced by cleanup instead of being silently reassigned/deleted.
+- Verification: SwiftFormat covered all 13 changed Swift files, with compile-fix reformat passes. Xcode 26.6 build
+  `.build/logs/xcodebuild/build-Debug-20260831-065904-41355-13754.log` succeeds without warnings. Simulator run
+  `./build.sh run --skip-build -- -media-probe-voice-codec -media-probe-video-note-drafts -media-probe-video-note-recording-drafts`
+  produced PID 41675 and three terminal proofs: voice `durable retry/location isolated`; video send outcome-before-register,
+  adopt+begin, relaunch/tombstone cleanup; video recording ordered segments/revision/trim/origin barrier. Evidence is
+  `.build/ui-probe-evidence/topic-draft-key-*`; idb disconnected and Simulator remains booted.
+- Next slice: add one immutable `ResolvedSendContext` plus base/topic text-draft separation and stale-task generations; then enable
+  explicit-topic text/typing/reply under fresh closed-topic permissions before attachments and the now-safe voice/video paths.
+
+### Topic media draft identity slice
+
+- **P0 flow:** thread-scoped composer media ownership from pre-Liquid/current `ChatInterfaceState` and
+  `ChatControllerMediaRecording`, adapted to Codable actors + TDLibKit rather than Postbox/SignalKit.
+- Implemented: stable account/chat/full-topic key; four version-tolerant manifests; durable one-time legacy policy; exact restore,
+  deduplication, enqueue, discard, recording handoff and resolution routing; draft-UUID outcome names; voice registration barrier;
+  account/topic coordinator snapshots; stale account restore/promote guards; recorder receives the immutable destination.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-065904-41355-13754.log`; terminal probe files and run metadata
+  `.build/ui-probe-evidence/topic-draft-key-*`; PID 41675 alive after proof, Simulator booted.
+- Deferred: resolved network send context, topic text drafts/dirty generations, closed-topic write permission, exact returned-topic
+  assertions, then attachments/voice/video UI enablement and topic-aware Forward/all-messages headers.
 
 ### Classic chat list row slice
 

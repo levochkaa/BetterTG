@@ -407,12 +407,36 @@ import UIKit
                 self.loadingVoiceDraft = false
                 return
             }
-            async let sendDrafts = VoiceNoteDraftStore.shared.drafts(for: chatID)
-            async let recordingDrafts = VoiceRecordingDraftStore.shared.drafts(for: chatID)
-            async let videoDrafts = VideoNoteFileStore.shared.drafts(for: chatID)
-            async let videoRecordingDrafts = VideoNoteRecordingDraftStore.shared.drafts(for: chatID)
+            let draftKey = self.location.draftKey
+            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: draftKey)
+            async let sendDrafts = VoiceNoteDraftStore.shared.drafts(
+                for: draftKey,
+                migrateLegacy: migrateLegacy,
+            )
+            async let recordingDrafts = VoiceRecordingDraftStore.shared.drafts(
+                for: draftKey,
+                migrateLegacy: migrateLegacy,
+            )
+            async let videoDrafts = VideoNoteFileStore.shared.drafts(
+                for: draftKey,
+                migrateLegacy: migrateLegacy,
+            )
+            async let videoRecordingDrafts = VideoNoteRecordingDraftStore.shared.drafts(
+                for: draftKey,
+                migrateLegacy: migrateLegacy,
+            )
+            let loadedDrafts = await (
+                sendDrafts,
+                recordingDrafts,
+                videoDrafts,
+                videoRecordingDrafts,
+            )
+            guard locationContextIsCurrent else {
+                self.loadingVoiceDraft = false
+                return
+            }
             var restoredPendingDraft: VoiceNoteSendDraft?
-            for draft in await sendDrafts {
+            for draft in loadedDrafts.0 {
                 if let temporaryMessageID = draft.temporaryMessageID {
                     outgoingVoiceNotes[temporaryMessageID] = draft
                 } else if restoredPendingDraft == nil {
@@ -426,11 +450,11 @@ import UIKit
                 } else if let retryStatus = pendingVoiceRetryStatusMessage {
                     self.voiceNoteErrorMessage = retryStatus
                 }
-            } else if let recordingDraft = await recordingDrafts.first {
+            } else if let recordingDraft = loadedDrafts.1.first {
                 restoreVoiceRecordingDraft(recordingDraft)
             }
             var restoredVideoDraft: VideoNoteSendDraft?
-            for draft in await videoDrafts {
+            for draft in loadedDrafts.2 {
                 if let temporaryMessageID = draft.temporaryMessageID {
                     outgoingVideoNotes[temporaryMessageID] = draft
                 } else if restoredVideoDraft == nil {
@@ -445,16 +469,19 @@ import UIKit
                     self.videoNoteErrorMessage = status
                 }
             }
-            let storedVideoRecordingDrafts = await videoRecordingDrafts
             if restoredVideoDraft == nil,
                !hasPendingVoiceNote,
                !recordingVoiceNote,
-               let recordingDraft = storedVideoRecordingDrafts.first
+               let recordingDraft = loadedDrafts.3.first
             {
                 let reply = await resolveStoredReply(
                     replyTo: recordingDraft.replyTo,
                     legacyMessageID: recordingDraft.replyMessageID,
                 )
+                guard locationContextIsCurrent else {
+                    self.loadingVoiceDraft = false
+                    return
+                }
                 self.restoredVideoRecordingReplyMessage = reply
                 self.restoredVideoRecordingDraft = recordingDraft
             }
@@ -683,9 +710,9 @@ import UIKit
             videoNoteErrorMessage = nil
         }
         Task {
-            await VoiceNoteDraftStore.shared.discardMessages(chatID: chatID, messageIDs: ids)
+            await VoiceNoteDraftStore.shared.discardMessages(destination: location.draftKey, messageIDs: ids)
             await promoteNextPendingVoiceDraft()
-            await VideoNoteFileStore.shared.discardMessages(chatID: chatID, messageIDs: ids)
+            await VideoNoteFileStore.shared.discardMessages(destination: location.draftKey, messageIDs: ids)
             await promoteNextPendingVideoDraft()
             guard locationContextIsCurrent else { return }
             _ = try? await client.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
@@ -1205,6 +1232,7 @@ import UIKit
                 asset,
                 thumbnail: thumbnail,
                 chatID: chatID,
+                draftKey: location.draftKey,
                 originRecordingDraftID: originRecordingDraftID,
                 replyMessageID: reply?.id ?? storedReplyMessageID,
                 replyTo: getMessageReplyTo(from: reply) ?? storedReplyTo,
@@ -1279,7 +1307,7 @@ import UIKit
             var deletionResolution: VideoNoteDraftResolution?
             if bufferedVideoDeletedMessageIDs.remove(message.id) != nil {
                 deletionResolution = try? await VideoNoteFileStore.shared.handleMessageDeleted(
-                    chatID: chatID,
+                    destination: location.draftKey,
                     temporaryMessageID: message.id,
                 )
                 if deletionResolution == nil,
@@ -2102,6 +2130,7 @@ import UIKit
     }
 
     private func activatePendingVideoDraft(_ draft: VideoNoteSendDraft) {
+        guard draft.destination == location.draftKey else { return }
         pendingVideoNote = draft
         hasPendingVideoNote = true
         videoRetryAvailabilityTask?.cancel()
@@ -2130,9 +2159,10 @@ import UIKit
     }
 
     private func promoteNextPendingVideoDraft() async {
-        guard pendingVideoNote == nil else { return }
-        let drafts = await VideoNoteFileStore.shared.drafts(for: chatID)
+        guard pendingVideoNote == nil, locationContextIsCurrent else { return }
+        let drafts = await VideoNoteFileStore.shared.drafts(for: location.draftKey)
         guard pendingVideoNote == nil,
+              locationContextIsCurrent,
               let nextDraft = drafts.first(where: { $0.temporaryMessageID == nil })
         else { return }
         activatePendingVideoDraft(nextDraft)
@@ -2265,6 +2295,7 @@ import UIKit
                         trimEnd: nil,
                         trimStart: nil,
                         waveform: inspection.waveform,
+                        destination: location.draftKey,
                     )
                     storedDraft = try await VoiceRecordingDraftStore.shared.adopt(draft)
                 }
@@ -2348,6 +2379,7 @@ import UIKit
             replyTo: getMessageReplyTo(from: reply),
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
+            destination: location.draftKey,
         )
         pendingVoiceReplyMessage = reply
         cancelReply()
@@ -2457,6 +2489,7 @@ import UIKit
             replyTo: draft.replyTo,
             temporaryMessageID: nil,
             waveform: draft.waveform,
+            destination: draft.destination,
         )
         voiceRecordingDraftTask = Task { [weak self] in
             guard let self else { return }
@@ -2682,6 +2715,7 @@ import UIKit
             replyTo: getMessageReplyTo(from: reply),
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
+            destination: location.draftKey,
         )
         pendingVoiceReplyMessage = reply
         cancelReply()
@@ -2802,7 +2836,7 @@ import UIKit
                 var deletionResolution: VoiceNoteDraftResolution?
                 if bufferedDeletedMessageIDs.remove(message.id) != nil {
                     deletionResolution = try? await VoiceNoteDraftStore.shared.handleMessageDeleted(
-                        chatID: chatID,
+                        destination: location.draftKey,
                         temporaryMessageID: message.id,
                     )
                     if deletionResolution == nil, registration == nil,
@@ -2862,6 +2896,7 @@ import UIKit
     }
 
     private func activatePendingVoiceDraft(_ draft: VoiceNoteSendDraft) {
+        guard draft.destination == location.draftKey else { return }
         pendingVoiceNote = draft
         hasPendingVoiceNote = true
         pendingVoiceReplyMessage = nil
@@ -2902,9 +2937,10 @@ import UIKit
     }
 
     private func promoteNextPendingVoiceDraft() async {
-        guard pendingVoiceNote == nil else { return }
-        let drafts = await VoiceNoteDraftStore.shared.drafts(for: chatID)
+        guard pendingVoiceNote == nil, locationContextIsCurrent else { return }
+        let drafts = await VoiceNoteDraftStore.shared.drafts(for: location.draftKey)
         guard pendingVoiceNote == nil,
+              locationContextIsCurrent,
               let nextDraft = drafts.first(where: { $0.temporaryMessageID == nil })
         else { return }
         activatePendingVoiceDraft(nextDraft)

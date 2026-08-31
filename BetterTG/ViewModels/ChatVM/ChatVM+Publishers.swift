@@ -134,7 +134,7 @@ extension ChatVM {
             guard let self,
                   locationContextIsCurrent,
                   let resolution = notification.object as? VoiceNoteDraftResolution,
-                  resolution.chatID == customChat.id
+                  resolution.draft.destination == location.draftKey
             else { return }
             handleVoiceNoteDraftResolution(resolution)
         }
@@ -142,7 +142,7 @@ extension ChatVM {
             guard let self,
                   locationContextIsCurrent,
                   let resolution = notification.object as? VideoNoteDraftResolution,
-                  resolution.chatID == customChat.id
+                  resolution.draft.destination == location.draftKey
             else { return }
             handleVideoNoteDraftResolution(resolution)
         }

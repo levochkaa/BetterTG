@@ -35,7 +35,7 @@ struct VideoNoteInputThumbnailAsset {
 
 // MARK: - VideoNoteSendDraft
 
-struct VideoNoteSendDraft: Codable {
+struct VideoNoteSendDraft: Codable, ChatDraftScoped {
     let id: UUID
     let chatID: Int64
     let createdAt: Foundation.Date
@@ -52,6 +52,7 @@ struct VideoNoteSendDraft: Codable {
     let thumbnailHeight: Int?
     let thumbnailWidth: Int?
     var temporaryMessageID: Int64?
+    var destination: ChatDraftKey? = nil
 
     var asset: VideoNoteAsset {
         VideoNoteAsset(duration: duration, length: length, url: fileURL)
@@ -156,6 +157,7 @@ actor VideoNoteFileStore {
         _ asset: VideoNoteAsset,
         thumbnail: VideoNoteInputThumbnailAsset? = nil,
         chatID: Int64,
+        draftKey: ChatDraftKey? = nil,
         originRecordingDraftID: UUID? = nil,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
@@ -187,9 +189,10 @@ actor VideoNoteFileStore {
                 && $0.removalRequestedAt == nil
                 && fileManager.fileExists(atPath: $0.fileURL.path(percentEncoded: false))
         }
+        let resolvedDraftKey = draftKey ?? .legacy(chatID: chatID)
         if let originRecordingDraftID,
            let existing = drafts.first(where: {
-               $0.chatID == chatID && $0.originRecordingDraftID == originRecordingDraftID
+               $0.belongs(to: resolvedDraftKey) && $0.originRecordingDraftID == originRecordingDraftID
            })
         {
             if existing.fileURL.standardizedFileURL != asset.url.standardizedFileURL,
@@ -201,7 +204,8 @@ actor VideoNoteFileStore {
             return existing
         }
         if let existing = drafts.first(where: {
-            $0.chatID == chatID && $0.fileURL.standardizedFileURL == asset.url.standardizedFileURL
+            $0.belongs(to: resolvedDraftKey)
+                && $0.fileURL.standardizedFileURL == asset.url.standardizedFileURL
         }) {
             discardUnmanagedThumbnailInput(thumbnail)
             return existing
@@ -244,6 +248,7 @@ actor VideoNoteFileStore {
             thumbnailHeight: thumbnail?.height,
             thumbnailWidth: thumbnail?.width,
             temporaryMessageID: nil,
+            destination: draftKey,
         )
         do {
             try save(draft)
@@ -268,7 +273,7 @@ actor VideoNoteFileStore {
             throw VideoNoteFileStoreError.draftBeingRemoved
         }
         guard !visibleDrafts.contains(where: {
-            $0.chatID == draft.chatID && $0.enqueueStartedAt != nil
+            $0.belongs(to: draft.resolvedDestination) && $0.enqueueStartedAt != nil
         }) else { throw VideoNoteFileStoreError.enqueueAlreadyActive }
         removeOutcomes(draftID: draft.id)
         var updatedDraft = draft
@@ -282,6 +287,7 @@ actor VideoNoteFileStore {
         _ asset: VideoNoteAsset,
         thumbnail: VideoNoteInputThumbnailAsset? = nil,
         chatID: Int64,
+        draftKey: ChatDraftKey? = nil,
         originRecordingDraftID: UUID?,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
@@ -290,6 +296,7 @@ actor VideoNoteFileStore {
             asset,
             thumbnail: thumbnail,
             chatID: chatID,
+            draftKey: draftKey,
             originRecordingDraftID: originRecordingDraftID,
             replyMessageID: replyMessageID,
             replyTo: replyTo,
@@ -327,7 +334,6 @@ actor VideoNoteFileStore {
         updatedDraft.temporaryMessageID = temporaryMessageID
         let outcomeRecord = loadOutcome(
             draftID: draft.id,
-            chatID: draft.chatID,
             temporaryMessageID: temporaryMessageID,
         )
         if let outcomeRecord {
@@ -345,7 +351,7 @@ actor VideoNoteFileStore {
         } else {
             try save(updatedDraft)
         }
-        removeOutcome(chatID: draft.chatID, temporaryMessageID: temporaryMessageID)
+        removeOutcomes(draftID: draft.id)
         return VideoNoteEnqueueRegistration(draft: updatedDraft, outcome: outcomeRecord?.outcome)
     }
 
@@ -384,6 +390,37 @@ actor VideoNoteFileStore {
         }
     }
 
+    func drafts(
+        for destination: ChatDraftKey,
+        migrateLegacy: Bool = false,
+    ) async -> [VideoNoteSendDraft] {
+        do {
+            try ensureDirectory()
+            let shouldMigrateLegacy = migrateLegacy
+                && ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
+            var drafts = try await reconcileInterruptedDrafts()
+            for index in drafts.indices where drafts[index].belongs(
+                to: destination,
+                allowingLegacy: shouldMigrateLegacy,
+            ) {
+                if drafts[index].destination == nil {
+                    drafts[index].destination = destination
+                    try save(drafts[index])
+                }
+            }
+            let manifests = try loadAllManifests()
+            removeAbandonedFiles(referencedBy: Set(manifests.flatMap {
+                [$0.fileURL] + [$0.thumbnailFileURL].compactMap(\.self)
+            }))
+            return drafts
+                .filter { $0.destination == destination }
+                .sorted { $0.createdAt < $1.createdAt }
+        } catch {
+            log("Video note scoped draft load failed: \(error)")
+            return []
+        }
+    }
+
     func recordingDraftOrigins() throws -> Set<UUID> {
         try Set(loadAllManifests().compactMap(\.originRecordingDraftID))
     }
@@ -413,6 +450,129 @@ actor VideoNoteFileStore {
     }
 
     func handleSendSucceeded(
+        destination: ChatDraftKey,
+        temporaryMessageID: Int64,
+        migrateLegacy: Bool = false,
+    ) async throws -> VideoNoteDraftResolution? {
+        if migrateLegacy {
+            try bindLegacyDrafts(to: destination)
+        }
+        if let draft = draft(destination: destination, temporaryMessageID: temporaryMessageID) {
+            try saveOutcome(
+                .succeeded,
+                draftID: draft.id,
+                temporaryMessageID: temporaryMessageID,
+            )
+            guard await remove(draft) else {
+                throw VideoNoteFileStoreError.removalPersistenceFailed
+            }
+            removeOutcomes(draftID: draft.id)
+            return VideoNoteDraftResolution(
+                chatID: destination.chatID,
+                draft: draft,
+                outcome: .succeeded,
+                temporaryMessageID: temporaryMessageID,
+            )
+        }
+        if let activeDraft = try loadVisibleDrafts().first(where: {
+            $0.belongs(to: destination) && $0.enqueueStartedAt != nil
+        }) {
+            try saveOutcome(
+                .succeeded,
+                draftID: activeDraft.id,
+                temporaryMessageID: temporaryMessageID,
+            )
+            guard !registrationOwnedDraftIDs.contains(activeDraft.id) else { return nil }
+            _ = try await reconcileInterruptedDrafts()
+            return VideoNoteDraftResolution(
+                chatID: destination.chatID,
+                draft: activeDraft,
+                outcome: .succeeded,
+                temporaryMessageID: temporaryMessageID,
+            )
+        }
+        return nil
+    }
+
+    func handleSendFailed(
+        destination: ChatDraftKey,
+        temporaryMessageID: Int64,
+        failedSendState: VideoNoteFailedSendState?,
+        migrateLegacy: Bool = false,
+    ) async throws -> VideoNoteDraftResolution? {
+        if migrateLegacy {
+            try bindLegacyDrafts(to: destination)
+        }
+        if let draft = draft(destination: destination, temporaryMessageID: temporaryMessageID) {
+            let pending = try markPending(draft, failedSendState: failedSendState)
+            removeOutcomes(draftID: draft.id)
+            return VideoNoteDraftResolution(
+                chatID: destination.chatID,
+                draft: pending,
+                outcome: .failed,
+                temporaryMessageID: temporaryMessageID,
+            )
+        }
+        if let activeDraft = try loadVisibleDrafts().first(where: {
+            $0.belongs(to: destination) && $0.enqueueStartedAt != nil
+        }) {
+            try saveOutcome(
+                .failed,
+                draftID: activeDraft.id,
+                failedSendState: failedSendState,
+                temporaryMessageID: temporaryMessageID,
+            )
+            guard !registrationOwnedDraftIDs.contains(activeDraft.id) else { return nil }
+            let reconciled = try await reconcileInterruptedDrafts()
+            guard let pendingDraft = reconciled.first(where: { $0.id == activeDraft.id }) else {
+                return nil
+            }
+            return VideoNoteDraftResolution(
+                chatID: destination.chatID,
+                draft: pendingDraft,
+                outcome: .failed,
+                temporaryMessageID: temporaryMessageID,
+            )
+        }
+        return nil
+    }
+
+    func handleMessageDeleted(
+        destination: ChatDraftKey,
+        temporaryMessageID: Int64,
+    ) throws -> VideoNoteDraftResolution? {
+        guard let draft = draft(destination: destination, temporaryMessageID: temporaryMessageID)
+        else { return nil }
+        let pending = try markPending(draft)
+        return VideoNoteDraftResolution(
+            chatID: destination.chatID,
+            draft: pending,
+            outcome: .failed,
+            temporaryMessageID: temporaryMessageID,
+        )
+    }
+
+    func handleMessageDeleted(
+        accountID: UUID?,
+        chatID: Int64,
+        temporaryMessageID: Int64,
+    ) throws -> VideoNoteDraftResolution? {
+        let baseDestination = ChatDraftKey(accountID: accountID, chatID: chatID, topic: nil)
+        try bindLegacyDrafts(to: baseDestination)
+        guard let draft = try loadVisibleDrafts().first(where: {
+            $0.belongsToAccount(accountID, chatID: chatID)
+                && $0.temporaryMessageID == temporaryMessageID
+        }) else { return nil }
+        let pending = try markPending(draft)
+        return VideoNoteDraftResolution(
+            chatID: chatID,
+            draft: pending,
+            outcome: .failed,
+            temporaryMessageID: temporaryMessageID,
+        )
+    }
+
+    func handleSendSucceeded(
         chatID: Int64,
         temporaryMessageID: Int64,
     ) async throws -> VideoNoteDraftResolution? {
@@ -420,13 +580,12 @@ actor VideoNoteFileStore {
             try saveOutcome(
                 .succeeded,
                 draftID: draft.id,
-                chatID: chatID,
                 temporaryMessageID: temporaryMessageID,
             )
             guard await remove(draft) else {
                 throw VideoNoteFileStoreError.removalPersistenceFailed
             }
-            removeOutcome(chatID: chatID, temporaryMessageID: temporaryMessageID)
+            removeOutcomes(draftID: draft.id)
             return VideoNoteDraftResolution(
                 chatID: chatID,
                 draft: draft,
@@ -440,7 +599,6 @@ actor VideoNoteFileStore {
             try saveOutcome(
                 .succeeded,
                 draftID: activeDraft.id,
-                chatID: chatID,
                 temporaryMessageID: temporaryMessageID,
             )
             guard !registrationOwnedDraftIDs.contains(activeDraft.id) else { return nil }
@@ -462,7 +620,7 @@ actor VideoNoteFileStore {
     ) async throws -> VideoNoteDraftResolution? {
         if let draft = draft(chatID: chatID, temporaryMessageID: temporaryMessageID) {
             let pending = try markPending(draft, failedSendState: failedSendState)
-            removeOutcome(chatID: chatID, temporaryMessageID: temporaryMessageID)
+            removeOutcomes(draftID: draft.id)
             return VideoNoteDraftResolution(
                 chatID: chatID,
                 draft: pending,
@@ -477,7 +635,6 @@ actor VideoNoteFileStore {
                 .failed,
                 draftID: activeDraft.id,
                 failedSendState: failedSendState,
-                chatID: chatID,
                 temporaryMessageID: temporaryMessageID,
             )
             guard !registrationOwnedDraftIDs.contains(activeDraft.id) else { return nil }
@@ -575,6 +732,17 @@ actor VideoNoteFileStore {
         }
     }
 
+    func discardMessages(destination: ChatDraftKey, messageIDs: [Int64]) async {
+        let ids = Set(messageIDs)
+        guard let drafts = try? loadAllDrafts() else { return }
+        for draft in drafts where draft.belongs(to: destination) && draft.enqueueStartedAt == nil && (
+            draft.temporaryMessageID.map(ids.contains) == true
+                || draft.failedSendState.map { ids.contains($0.messageID) } == true
+        ) {
+            await remove(draft)
+        }
+    }
+
     @discardableResult private func removeFiles(for draft: VideoNoteSendDraft) -> Bool {
         registrationOwnedDraftIDs.remove(draft.id)
         let manifestURL = manifestURL(for: draft.id)
@@ -630,13 +798,33 @@ actor VideoNoteFileStore {
         directoryURL.appendingPathComponent(id.uuidString).appendingPathExtension("json")
     }
 
-    private func outcomeURL(chatID: Int64, temporaryMessageID: Int64) -> URL {
-        directoryURL.appendingPathComponent("outcome_\(chatID)_\(temporaryMessageID).json")
+    private func outcomeURL(draftID: UUID, temporaryMessageID: Int64) -> URL {
+        directoryURL.appendingPathComponent("outcome_\(draftID.uuidString)_\(temporaryMessageID).json")
     }
 
     private func draft(chatID: Int64, temporaryMessageID: Int64) -> VideoNoteSendDraft? {
         try? loadVisibleDrafts().first {
             $0.chatID == chatID && $0.temporaryMessageID == temporaryMessageID
+        }
+    }
+
+    private func draft(
+        destination: ChatDraftKey,
+        temporaryMessageID: Int64,
+    ) -> VideoNoteSendDraft? {
+        try? loadVisibleDrafts().first {
+            $0.belongs(to: destination) && $0.temporaryMessageID == temporaryMessageID
+        }
+    }
+
+    private func bindLegacyDrafts(to destination: ChatDraftKey) throws {
+        guard ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination) else { return }
+        var drafts = try loadVisibleDrafts()
+        for index in drafts.indices where drafts[index].destination == nil
+            && drafts[index].chatID == destination.chatID
+        {
+            drafts[index].destination = destination
+            try save(drafts[index])
         }
     }
 
@@ -696,7 +884,6 @@ actor VideoNoteFileStore {
         _ outcome: VideoNoteSendOutcome,
         draftID: UUID,
         failedSendState: VideoNoteFailedSendState? = nil,
-        chatID: Int64,
         temporaryMessageID: Int64,
     ) throws {
         try ensureDirectory()
@@ -706,26 +893,23 @@ actor VideoNoteFileStore {
             outcome: outcome,
         )
         try JSONEncoder().encode(record).write(
-            to: outcomeURL(chatID: chatID, temporaryMessageID: temporaryMessageID),
+            to: outcomeURL(draftID: draftID, temporaryMessageID: temporaryMessageID),
             options: .atomic,
         )
     }
 
     private func loadOutcome(
         draftID: UUID,
-        chatID: Int64,
         temporaryMessageID: Int64,
     ) -> VideoNoteOutcomeRecord? {
-        let url = outcomeURL(chatID: chatID, temporaryMessageID: temporaryMessageID)
-        guard let data = try? Data(contentsOf: url),
-              let record = try? JSONDecoder().decode(VideoNoteOutcomeRecord.self, from: data),
-              record.draftID == draftID
-        else { return nil }
-        return record
-    }
-
-    private func removeOutcome(chatID: Int64, temporaryMessageID: Int64) {
-        try? fileManager.removeItem(at: outcomeURL(chatID: chatID, temporaryMessageID: temporaryMessageID))
+        let url = outcomeURL(draftID: draftID, temporaryMessageID: temporaryMessageID)
+        if let data = try? Data(contentsOf: url),
+           let record = try? JSONDecoder().decode(VideoNoteOutcomeRecord.self, from: data),
+           record.draftID == draftID
+        {
+            return record
+        }
+        return outcomeRecordsWithURLs(draftID: draftID).first?.1
     }
 
     private func removeOutcomes(draftID: UUID) {

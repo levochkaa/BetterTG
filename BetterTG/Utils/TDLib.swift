@@ -102,6 +102,7 @@ final class TDLib: @unchecked Sendable {
             let state = try registry.loadOrCreate()
             accounts = state.accounts
             activeAccountID = state.activeAccountID
+            ChatDraftLegacyMigrationPolicy.captureIfNeeded(accountIDs: accounts.map(\.id))
             guard let account = activeAccount else { throw TelegramAccountError.unavailable }
             activate(account: account, notify: false)
         } catch {

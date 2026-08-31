@@ -618,6 +618,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         composerView.setVideoNoteReplyContext(message: replySnapshot, input: replyInput)
         let recorder = VideoNoteRecorderViewController(
             chatID: chatVM.chatID,
+            draftKey: chatVM.location.draftKey,
             replyMessageID: restoredDraft?.replyMessageID ?? replySnapshot?.id,
             replyTo: replyInput,
         )
