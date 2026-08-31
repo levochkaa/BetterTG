@@ -30,6 +30,11 @@ import UIKit
         case resendUnavailable
     }
 
+    private enum ReactionMutationFailure: Swift.Error {
+        case accountChanged
+        case unavailable
+    }
+
     private enum VoiceRecordingTrimContinuation {
         case resume
         case send
@@ -39,6 +44,7 @@ import UIKit
 
     let customChat: CustomChat
     nonisolated let chatID: Int64
+    nonisolated let accountID: UUID?
     let client: TDLibClient
     let metadataResolver: MessageMetadataResolver
     let pollInteractionStore = MessagePollInteractionStore()
@@ -71,6 +77,9 @@ import UIKit
     private(set) var voiceRecordingTrimIsUpdating = false
     @Published var voiceNoteErrorMessage: String?
     @Published var videoNoteErrorMessage: String?
+    @Published var reactionErrorMessage: String?
+    @Published private(set) var canAddReactions = false
+    @Published private(set) var maximumChosenReactionCount = 1
     @Published var errorShown = false
 
     var loadingMessagesTask: Task<Void, Never>?
@@ -109,6 +118,8 @@ import UIKit
     private var bufferedVideoResolutions = [Int64: VideoNoteDraftResolution]()
     private var bufferedVideoDeletedMessageIDs = Set<Int64>()
     private var replySelectionGeneration = UInt64.zero
+    private var reactionMutationTasks = [Int64: Task<Void, Never>]()
+    private var reactionMutationGenerations = [Int64: UUID]()
     private let previewing: Bool
 
     private var pendingVoiceNote: VoiceNoteSendDraft?
@@ -289,9 +300,13 @@ import UIKit
         let client = td
         self.customChat = customChat
         self.chatID = customChat.id
+        self.accountID = TDLib.shared.activeAccountID
         self.client = client
         self.metadataResolver = MessageMetadataResolver(client: client)
         self.previewing = previewing
+        self.canAddReactions = customChat.chat.permissions.canReactToMessages
+        self.maximumChosenReactionCount =
+            customChat.chat.availableReactions.maximumChosenReactionCount
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
@@ -390,6 +405,7 @@ import UIKit
         voiceRetryAvailabilityTask?.cancel()
         videoRetryAvailabilityTask?.cancel()
         videoRetryTask?.cancel()
+        reactionMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
         timer?.invalidate()
         if audioRecorder != nil {
@@ -600,13 +616,29 @@ import UIKit
     }
 
     func viewMessage(id: Int64) {
+        let client = client
+        let accountID = accountID
         Task {
-            try await td.viewMessages(
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            try await client.viewMessages(
                 chatId: chatID,
                 forceRead: true,
                 messageIds: [id],
                 source: nil,
             )
+        }
+    }
+
+    func readAllReactions() {
+        let client = client
+        let accountID = accountID
+        Task {
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            _ = try? await client.readAllChatReactions(chatId: chatID)
         }
     }
 
@@ -624,6 +656,126 @@ import UIKit
                 pollInteractionStore.failSubmission(messageID: messageID)
             }
         }
+    }
+
+    func toggleReaction(
+        on message: CustomMessage,
+        type: ReactionType,
+        isBig: Bool,
+    ) {
+        guard !type.isPaid,
+              !message.reactionMutationInFlight,
+              message.message.topicId == nil,
+              message.message.selfDestructType == nil,
+              message.message.ephemeralMessageId == 0,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id,
+              messages.contains(where: { $0 === message })
+        else { return }
+        let previous = message.reactions
+        let wasChosen = MessageReactionStateReducer.isChosen(type, in: previous)
+        let generation = UUID()
+        let messageID = message.id
+        message.reactionMutationInFlight = true
+        reactionMutationGenerations[messageID] = generation
+        let client = client
+        reactionMutationTasks[messageID] = Task { [weak self, weak message] in
+            guard let self else { return }
+            var optimistic: MessageReactions?
+            var appliedOptimisticState = false
+            do {
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else {
+                    throw ReactionMutationFailure.accountChanged
+                }
+                let areTags: Bool
+                if wasChosen {
+                    areTags = previous?.areTags ?? false
+                } else {
+                    let available = try await client.getMessageAvailableReactions(
+                        chatId: chatID,
+                        messageId: messageID,
+                        rowSize: 8,
+                    )
+                    guard available.allowsNonPremium(type) else {
+                        throw ReactionMutationFailure.unavailable
+                    }
+                    guard TDLib.shared.activeAccountID == accountID,
+                          TDLib.shared.activeClient.id == client.id
+                    else {
+                        throw ReactionMutationFailure.accountChanged
+                    }
+                    areTags = available.areTags
+                }
+                optimistic = MessageReactionStateReducer.toggling(
+                    type,
+                    in: previous,
+                    areTags: areTags,
+                    maximumChosenCount: maximumChosenReactionCount,
+                )
+                if optimistic != previous {
+                    message?.reactions = optimistic
+                    appliedOptimisticState = true
+                }
+                _ =
+                    if wasChosen {
+                        try await client.removeMessageReaction(
+                            chatId: chatID,
+                            messageId: messageID,
+                            reactionType: type,
+                        )
+                    } else {
+                        try await client.addMessageReaction(
+                            chatId: chatID,
+                            isBig: isBig,
+                            messageId: messageID,
+                            reactionType: type,
+                            updateRecentReactions: true,
+                        )
+                    }
+                guard reactionMutationGenerations[messageID] == generation else { return }
+                reactionMutationTasks[messageID] = nil
+                reactionMutationGenerations[messageID] = nil
+                message?.reactionMutationInFlight = false
+            } catch is CancellationError {
+                guard reactionMutationGenerations[messageID] == generation else { return }
+                reactionMutationTasks[messageID] = nil
+                reactionMutationGenerations[messageID] = nil
+                message?.reactionMutationInFlight = false
+            } catch {
+                guard reactionMutationGenerations[messageID] == generation else { return }
+                reactionMutationTasks[messageID] = nil
+                reactionMutationGenerations[messageID] = nil
+                if appliedOptimisticState,
+                   let message,
+                   message.reactions == optimistic
+                {
+                    message.reactions = previous
+                }
+                message?.reactionMutationInFlight = false
+                reactionErrorMessage =
+                    switch error as? ReactionMutationFailure {
+                    case .accountChanged:
+                        "The active Telegram account changed."
+                    case .unavailable:
+                        "This reaction isn't available for the message."
+                    case nil:
+                        wasChosen
+                            ? "The reaction couldn't be removed."
+                            : "The reaction couldn't be added."
+                    }
+            }
+        }
+    }
+
+    func updateReactionPermission(_ canAddReactions: Bool) {
+        self.canAddReactions = canAddReactions
+        messagesDidChange.send()
+    }
+
+    func updateAvailableReactions(_ availableReactions: ChatAvailableReactions) {
+        maximumChosenReactionCount = availableReactions.maximumChosenReactionCount
     }
 
     func beginReply(to message: CustomMessage) {

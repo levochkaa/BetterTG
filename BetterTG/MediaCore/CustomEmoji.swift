@@ -6,33 +6,52 @@ import UIKit
 // MARK: - CustomEmojiStickerRepository
 
 actor CustomEmojiStickerRepository {
+    // MARK: Private
+
+    private struct CacheKey: Hashable {
+        let clientID: Int32
+        let identifier: TdInt64
+    }
+
     // MARK: Internal
 
     static let shared = CustomEmojiStickerRepository()
 
-    // MARK: Private
-
-    private var stickersByIdentifier = [TdInt64: Sticker]()
-    private var missingStickerIdentifiers = Set<TdInt64>()
+    private var stickersByKey = [CacheKey: Sticker]()
+    private var missingKeys = Set<CacheKey>()
 
     func stickers(for identifiers: [TdInt64]) async -> [TdInt64: Sticker] {
+        await stickers(for: identifiers, client: td)
+    }
+
+    func stickers(
+        for identifiers: [TdInt64],
+        client: TDLibClient,
+    ) async -> [TdInt64: Sticker] {
         let uniqueIdentifiers = Array(Set(identifiers)).prefix(200)
+        let keys = uniqueIdentifiers.map { CacheKey(clientID: client.id, identifier: $0) }
         let missingIdentifiers = uniqueIdentifiers.filter {
-            stickersByIdentifier[$0] == nil && !missingStickerIdentifiers.contains($0)
+            let key = CacheKey(clientID: client.id, identifier: $0)
+            return stickersByKey[key] == nil && !missingKeys.contains(key)
         }
         if !missingIdentifiers.isEmpty,
-           let response = try? await td.getCustomEmojiStickers(customEmojiIds: Array(missingIdentifiers))
+           let response = try? await client.getCustomEmojiStickers(customEmojiIds: Array(missingIdentifiers))
         {
             var foundIdentifiers = Set<TdInt64>()
             for sticker in response.stickers {
                 guard case .stickerFullTypeCustomEmoji(let fullType) = sticker.fullType else { continue }
-                stickersByIdentifier[fullType.customEmojiId] = sticker
+                let key = CacheKey(clientID: client.id, identifier: fullType.customEmojiId)
+                stickersByKey[key] = sticker
                 foundIdentifiers.insert(fullType.customEmojiId)
             }
-            missingStickerIdentifiers.formUnion(Set(missingIdentifiers).subtracting(foundIdentifiers))
+            missingKeys.formUnion(
+                Set(missingIdentifiers)
+                    .subtracting(foundIdentifiers)
+                    .map { CacheKey(clientID: client.id, identifier: $0) },
+            )
         }
-        return Dictionary(uniqueKeysWithValues: uniqueIdentifiers.compactMap { identifier in
-            stickersByIdentifier[identifier].map { (identifier, $0) }
+        return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
+            stickersByKey[key].map { (key.identifier, $0) }
         })
     }
 }

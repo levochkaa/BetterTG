@@ -15,6 +15,9 @@ import TDLibKitDynamic
     @Published var sendFailed: Bool
     @Published var formattedText: FormattedText?
     @Published var properties: MessageProperties
+    @Published var reactions: MessageReactions?
+    @Published var unreadReactions: [UnreadReaction]
+    @Published var reactionMutationInFlight = false
 
     var isReplyQuoteExpanded = false
 
@@ -36,6 +39,8 @@ import TDLibKitDynamic
         sendFailed: Bool = false,
         formattedText: FormattedText? = nil,
         properties: MessageProperties,
+        reactions: MessageReactions? = nil,
+        unreadReactions: [UnreadReaction]? = nil,
     ) {
         self.message = message
         self.senderUser = senderUser
@@ -45,5 +50,7 @@ import TDLibKitDynamic
         self.sendFailed = sendFailed
         self.formattedText = formattedText
         self.properties = properties
+        self.reactions = reactions ?? message.interactionInfo?.reactions
+        self.unreadReactions = unreadReactions ?? message.unreadReactions
     }
 }

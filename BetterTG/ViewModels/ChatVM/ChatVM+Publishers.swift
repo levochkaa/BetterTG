@@ -39,6 +39,36 @@ extension ChatVM {
             }
             refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
         }
+        nc.publisher(&cancellables, for: .updateMessageInteractionInfo) { [weak self] update in
+            guard let self, update.chatId == customChat.id,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id,
+                  let message = messages.first(where: { $0.id == update.messageId })
+            else { return }
+            message.reactions = update.interactionInfo?.reactions
+        }
+        nc.publisher(&cancellables, for: .updateMessageUnreadReactions) { [weak self] update in
+            guard let self, update.chatId == customChat.id,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id,
+                  let message = messages.first(where: { $0.id == update.messageId })
+            else { return }
+            message.unreadReactions = update.unreadReactions
+        }
+        nc.publisher(&cancellables, for: .updateChatPermissions) { [weak self] update in
+            guard let self, update.chatId == customChat.id,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            updateReactionPermission(update.permissions.canReactToMessages)
+        }
+        nc.publisher(&cancellables, for: .updateChatAvailableReactions) { [weak self] update in
+            guard let self, update.chatId == customChat.id,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            updateAvailableReactions(update.availableReactions)
+        }
         nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
             guard let self, update.message.chatId == customChat.id else { return }
             updateMessageSendSucceeded(update)
