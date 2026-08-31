@@ -49,6 +49,7 @@ import UIKit
     var onSearch: (() -> Void)?
 
     private let accountID: UUID
+    private let accountUserID: Int64?
     private let client: TDLibClient
     private let customChat: CustomChat
     private let topic: MessageTopic?
@@ -65,6 +66,32 @@ import UIKit
     private let bioLabel = UILabel()
     private let detailsLabel = UILabel()
     private let actionStack = UIStackView()
+    private let managementActionStack = UIStackView()
+    private lazy var messageActionButton = profileButton(
+        title: "Message",
+        symbol: "message.fill",
+        action: #selector(messagePressed),
+    )
+    private lazy var searchActionButton = profileButton(
+        title: "Search",
+        symbol: "magnifyingglass",
+        action: #selector(searchPressed),
+    )
+    private lazy var membersActionButton = profileButton(
+        title: "Members",
+        symbol: "person.2.fill",
+        action: #selector(membersPressed),
+    )
+    private lazy var administratorsActionButton = profileButton(
+        title: "Admins",
+        symbol: "person.badge.key.fill",
+        action: #selector(administratorsPressed),
+    )
+    private lazy var editActionButton = profileButton(
+        title: "Edit",
+        symbol: "pencil",
+        action: #selector(editPressed),
+    )
     private let profileHeaderView = UIView()
     private let segmentedControl = UISegmentedControl(items: SharedTab.allCases.map(\.title))
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -83,6 +110,8 @@ import UIKit
     private var historyError: String?
     private var sharedTotalMessageCount: Int?
     private var currentProfilePhoto: ChatPhoto?
+    private var currentBasicGroupMembers = [ChatMember]()
+    private var currentSupergroupCanGetMembers = false
     private var avatarHistoryRawOffset = 0
     private var avatarHistoryTotalCount = 0
     private var avatarHistoryHasExtraCurrentPhoto = false
@@ -115,6 +144,7 @@ import UIKit
         self.topic = topic
         self.client = client
         self.accountID = accountID
+        self.accountUserID = TDLib.shared.activeAccountID == accountID ? TDLib.shared.activeAccount?.userID : nil
         self.currentChatTitle = customChat.displayTitle
         self.currentChatPhotoInfo = customChat.chat.photo
         self.currentStatusText = Self.statusText(for: customChat)
@@ -291,11 +321,18 @@ import UIKit
         actionStack.axis = .horizontal
         actionStack.distribution = .fillEqually
         actionStack.spacing = 10
-        let messageButton = profileButton(title: "Message", symbol: "message.fill", action: #selector(messagePressed))
-        let searchButton = profileButton(title: "Search", symbol: "magnifyingglass", action: #selector(searchPressed))
-        actionStack.addArrangedSubview(messageButton)
-        actionStack.addArrangedSubview(searchButton)
+        actionStack.addArrangedSubview(messageActionButton)
+        actionStack.addArrangedSubview(searchActionButton)
         headerStack.addArrangedSubview(actionStack)
+
+        managementActionStack.axis = .horizontal
+        managementActionStack.distribution = .fillEqually
+        managementActionStack.spacing = 10
+        managementActionStack.addArrangedSubview(membersActionButton)
+        managementActionStack.addArrangedSubview(administratorsActionButton)
+        managementActionStack.addArrangedSubview(editActionButton)
+        headerStack.addArrangedSubview(managementActionStack)
+        updateActionAvailability()
 
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
         segmentedControl.selectedSegmentIndex = SharedTab.media.rawValue
@@ -311,6 +348,7 @@ import UIKit
             avatarLoadingIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            managementActionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             segmentedControl.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
             segmentedControl.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor, constant: 12),
             segmentedControl.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor, constant: -12),
@@ -535,7 +573,15 @@ import UIKit
     private func handleAccountChange() {
         guard !contextIsCurrent else { return }
         let leaveProfile: () -> Void = { [weak self] in
-            _ = self?.navigationController?.popViewController(animated: true)
+            guard let self,
+                  let navigationController,
+                  let profileIndex = navigationController.viewControllers.firstIndex(where: { $0 === self }),
+                  profileIndex > 0
+            else { return }
+            navigationController.setViewControllers(
+                Array(navigationController.viewControllers.prefix(upTo: profileIndex)),
+                animated: false,
+            )
         }
         if let activeMediaGallery {
             activeMediaGallery.invalidateForContextChange(completion: leaveProfile)
@@ -631,6 +677,7 @@ import UIKit
         fullInfoGeneration &+= 1
         infoTask?.cancel()
         infoTask = nil
+        currentBasicGroupMembers = update.basicGroupFullInfo.members
         applyFullInfo(
             bio: update.basicGroupFullInfo.description,
             details: [],
@@ -647,6 +694,7 @@ import UIKit
         fullInfoGeneration &+= 1
         infoTask?.cancel()
         infoTask = nil
+        currentSupergroupCanGetMembers = update.supergroupFullInfo.canGetMembers
         let noun = group.isChannel ? "subscribers" : "members"
         applyFullInfo(
             bio: update.supergroupFullInfo.description,
@@ -760,7 +808,34 @@ import UIKit
         avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
         avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
         avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
+        updateActionAvailability()
         view.setNeedsLayout()
+    }
+
+    private func updateActionAvailability() {
+        membersActionButton.isHidden =
+            switch customChat.type {
+            case .group:
+                false
+            case .supergroup:
+                !currentSupergroupCanGetMembers
+            case .bot, .user:
+                true
+            }
+        administratorsActionButton.isHidden =
+            switch customChat.type {
+            case .group, .supergroup:
+                false
+            case .bot, .user:
+                true
+            }
+        editActionButton.isHidden =
+            if let user = customChat.user {
+                user.id != accountUserID
+            } else {
+                !peerProfileCanChangeInfo(status: customChat.group?.status ?? customChat.supergroup?.status)
+            }
+        managementActionStack.isHidden = managementActionStack.arrangedSubviews.allSatisfy(\.isHidden)
     }
 
     private func refreshSharedMessage(id: Int64, chatID: Int64) {
@@ -825,6 +900,7 @@ import UIKit
                           contextIsCurrent,
                           fullInfoGeneration == generation
                     else { return }
+                    currentBasicGroupMembers = info.members
                     applyFullInfo(bio: info.description, details: [], status: nil, photo: info.photo)
                 case .supergroup(let group):
                     let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
@@ -833,6 +909,7 @@ import UIKit
                           contextIsCurrent,
                           fullInfoGeneration == generation
                     else { return }
+                    currentSupergroupCanGetMembers = info.canGetMembers
                     applyFullInfo(
                         bio: info.description,
                         details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
@@ -1203,6 +1280,67 @@ import UIKit
 
     @objc private func messagePressed() {
         navigationController?.popViewController(animated: true)
+    }
+
+    @objc private func membersPressed() {
+        guard contextIsCurrent else { return }
+        let source: PeerProfileMembersViewController.Source
+        switch customChat.type {
+        case .group(let group):
+            source = .basicGroup(chatID: customChat.id, id: group.id, members: currentBasicGroupMembers)
+        case .supergroup(let group) where currentSupergroupCanGetMembers:
+            source = .supergroup(chatID: customChat.id, id: group.id)
+        case .bot, .supergroup, .user:
+            return
+        }
+        navigationController?.pushViewController(PeerProfileMembersViewController(
+            accountID: accountID,
+            client: client,
+            source: source,
+            title: profileTitle(),
+        ), animated: true)
+    }
+
+    @objc private func administratorsPressed() {
+        guard contextIsCurrent else { return }
+        switch customChat.type {
+        case .group, .supergroup:
+            navigationController?.pushViewController(PeerProfileMembersViewController(
+                accountID: accountID,
+                client: client,
+                source: .administrators(chatID: customChat.id),
+                title: profileTitle(),
+            ), animated: true)
+        case .bot, .user:
+            return
+        }
+    }
+
+    @objc private func editPressed() {
+        guard contextIsCurrent else { return }
+        let mode: PeerProfileEditViewController.Mode
+        if let user = customChat.user, user.id == accountUserID {
+            mode = .selfProfile(
+                userID: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                bio: currentBioText,
+            )
+        } else {
+            guard peerProfileCanChangeInfo(status: customChat.group?.status ?? customChat.supergroup?.status)
+            else { return }
+            mode = .chat(
+                chatID: customChat.id,
+                title: currentChatTitle,
+                description: currentBioText,
+            )
+        }
+        navigationController?.pushViewController(PeerProfileEditViewController(
+            accountID: accountID,
+            accountUserID: accountUserID,
+            client: client,
+            mode: mode,
+        ), animated: true)
     }
 
     @objc private func retrySharedMedia() {
