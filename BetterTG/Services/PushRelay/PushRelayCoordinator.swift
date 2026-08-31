@@ -565,8 +565,10 @@ import UserNotifications
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            guard route.accountId == nil || route.accountId == currentUser.id else {
-                log("Unable to send quick reply: notification belongs to another Telegram account")
+            guard let routeAccountID = route.accountId,
+                  routeAccountID == currentUser.id
+            else {
+                log("Unable to send quick reply: notification account couldn't be verified")
                 return
             }
 
@@ -574,10 +576,8 @@ import UserNotifications
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            if chat.viewAsTopics {
-                log("Unable to send quick reply: choose a forum topic in the app")
-                return
-            }
+            var destinationTopic: MessageTopic?
+            var verifiedReplyMessageID: Int64?
             if case .chatTypeSupergroup(let supergroupChat) = chat.type {
                 let supergroup: Supergroup
                 do {
@@ -592,9 +592,44 @@ import UserNotifications
                       TDLib.shared.activeClient.id == client.id
                 else { return }
                 if supergroup.isForum {
-                    log("Unable to send quick reply: forum quick replies aren't topic-scoped yet")
-                    return
+                    guard let notificationMessageID = route.tdlibMessageId,
+                          let targetMessage = try? await client.getMessage(
+                              chatId: chat.id,
+                              messageId: notificationMessageID,
+                          ),
+                          targetMessage.chatId == chat.id,
+                          case .messageTopicForum(let forumTopic) = targetMessage.topicId,
+                          let topic = try? await client.getForumTopic(
+                              chatId: chat.id,
+                              forumTopicId: forumTopic.forumTopicId,
+                          )
+                    else {
+                        log("Unable to send quick reply: forum topic couldn't be verified")
+                        return
+                    }
+                    guard TDLib.shared.activeAccountID == accountID,
+                          TDLib.shared.activeClient.id == client.id
+                    else { return }
+                    let canManageTopics: Bool =
+                        switch supergroup.status {
+                        case .chatMemberStatusCreator:
+                            true
+                        case .chatMemberStatusAdministrator(let administrator):
+                            administrator.rights.canManageTopics
+                        default:
+                            false
+                        }
+                    let restricted = topic.info.isClosed || topic.info.isHidden
+                    guard !restricted || topic.info.isOutgoing || canManageTopics else {
+                        log("Unable to send quick reply: forum topic is closed")
+                        return
+                    }
+                    destinationTopic = targetMessage.topicId
+                    verifiedReplyMessageID = targetMessage.id
                 }
+            } else if chat.viewAsTopics {
+                log("Unable to send quick reply: topic destination couldn't be verified")
+                return
             }
             guard await QuickReplyNotification.canSendText(to: chat, using: client),
                   TDLib.shared.activeAccountID == accountID,
@@ -604,7 +639,7 @@ import UserNotifications
                 return
             }
 
-            let replyTo = route.tdlibTopMessageId.map {
+            let replyTo = (verifiedReplyMessageID ?? route.tdlibTopMessageId).map {
                 InputMessageReplyTo.inputMessageReplyToMessage(
                     InputMessageReplyToMessage(
                         checklistTaskId: 0,
@@ -614,7 +649,7 @@ import UserNotifications
                     ),
                 )
             }
-            _ = try await client.sendMessage(
+            let sentMessage = try await client.sendMessage(
                 chatId: chat.id,
                 inputMessageContent: .inputMessageText(
                     InputMessageText(
@@ -626,8 +661,14 @@ import UserNotifications
                 options: nil,
                 replyMarkup: nil,
                 replyTo: replyTo,
-                topicId: nil,
+                topicId: destinationTopic,
             )
+            guard sentMessage.chatId == chat.id,
+                  sentMessage.topicId == destinationTopic
+            else {
+                log("Unable to send quick reply: Telegram returned a different topic")
+                return
+            }
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }

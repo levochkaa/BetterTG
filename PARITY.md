@@ -32,26 +32,29 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: make Forward destinations forum-topic aware without any fallback to General.
-- Identity/preflight: `MessageForwardDestination(chatID, MessageTopic?)` replaces chat-only selection and supports multiple topics in the
-  same forum alongside ordinary/secret chats. Preparation and the final delivery boundary both re-fetch every source message and prove
-  its original `ChatLocation`; account/client guards bracket each suspension. Transient supergroup lookup failure leaves a retryable
-  disabled row instead of a nil-topic destination.
-- Topic picker/eligibility: tapping a forum opens a UIKit exact-cursor/search/pagination topic list. Hidden topics are omitted; closed
-  topics require `isOutgoing`, creator or `canManageTopics`. Chat content permissions, paid/private/secret rules and selected mode are
-  rechecked immediately before `forwardMessages(topicId:)`. Result count, destination chat and exact returned topic are authoritative;
-  partial or mismatched results retain/report selection rather than claiming complete delivery.
-- UIKit: root and topic search are normal table headers rather than iOS 26 bottom floating islands. Topic picker owns a full-width
-  `systemChromeMaterial` header and a direct plain chevron Back, avoiding system `UIBarButtonItem` glass capsules. Stable topic cells show
-  closed/draft/unread state and local checkmarks; parent rows summarize one/multiple selected topics.
-- Verification: SwiftFormat covered all three changed Swift files plus warning/fix passes. Xcode 26.6 build
-  `.build/logs/xcodebuild/build-Debug-20260831-075614-53821-9609.log` succeeds without warnings. Live non-mutating flow opened a real
-  message context menu → Forward → forum destination → topic picker and locally selected `forum-topic-16`; final hierarchy reports
-  AXValue `Selected`, screenshot proves top Search Topics and plain Back. Forward/send was never tapped. PID 54141 remained alive,
-  evidence is `.build/ui-probe-evidence/forum-forward-topic-plain-final-*`, idb disconnected and Simulator remains booted.
-- Proof gap: exact `forwardMessages(topicId:)` is source/build/result-assertion covered but deliberately not executed against the user's
-  forum. Next slice: verified topic-aware notification quick reply, then all-messages General-or-reply resolver plus adjacent-topic run
-  headers; only after those restore `viewAsTopics == false` base routing.
+- Current slice: verify and route notification quick replies into the authoritative forum topic instead of rejecting forums or falling
+  through to General.
+- Identity/preflight: quick reply now requires the notification's exact Telegram account user ID; missing/mismatched account payloads
+  fail closed. The captured TDLib client/account is rechecked after every suspension. For a forum notification the coordinator fetches
+  the authoritative notification message, requires its `.messageTopicForum`, then fetches matching `ForumTopic` metadata.
+- Permissions/routing: existing paid/private/chat membership/basic-message checks remain. Closed/hidden topics additionally require
+  topic ownership, supergroup creator or `canManageTopics`. The reply target is the verified notification message, not an untrusted
+  top-message hint; `sendMessage` receives its exact `topicId`, and the returned message must match both chat and topic before the
+  notification is marked read. Every missing chat/message/topic/permission lookup is fail-closed.
+- Verification: one SwiftFormat invocation covered the changed Swift file. Final Xcode 26.6 build
+  `.build/logs/xcodebuild/build-Debug-20260831-080453-55869-29388.log` succeeds without warnings. Source review specifically audited
+  account ambiguity, topic derivation, closed/admin/payment permissions, reply target and result validation; the missing-account P1 was
+  fixed by requiring exact account identity.
+- Proof gap: no synthetic notification or external reply was sent from the user's account. Next slice: Telegram all-messages
+  General-or-reply resolver plus adjacent-topic run headers; only after both restore `viewAsTopics == false` base routing.
+
+### Forum notification quick-reply slice
+
+- **P0 flow:** topic-aware notification reply using TDLib `getMessage`, `getForumTopic`, `sendMessage(topicId:)` and `viewMessages`.
+- Implemented: exact account requirement; captured-client guards; authoritative message/topic fetch; closed/manage-topic and existing
+  chat/payment checks; verified same-topic reply target; exact returned chat/topic assertion; fail-closed lookup behavior.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-080453-55869-29388.log` plus focused source delta-review.
+- Deferred: deliberate test-account notification action proof and all-messages history/composer parity.
 
 ### Forum-aware Forward destination slice
 
@@ -62,7 +65,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   partial retention; account fences; classic full-width material navigation/search and local selection summaries.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-075614-53821-9609.log`; local selection flow and classic header evidence
   `.build/ui-probe-evidence/forum-forward-topic-plain-final-*`; no Forward/send mutation, PID 54141 alive, Simulator booted.
-- Deferred: comment/forward-draft transition, deliberate test-account delivery, notification quick reply and all-messages headers.
+- Deferred: comment/forward-draft transition, deliberate test-account delivery and all-messages headers.
 
 ### Writable explicit forum topic slice
 
@@ -75,7 +78,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   placeholder. Base forum routes remain fail-closed in the topic list.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-073123-48367-634.log`; non-mutating real-topic route and production
   composer evidence `.build/ui-probe-evidence/forum-topic-write-final-*`; PID 48686 alive, Simulator booted.
-- Deferred: destination topic picker/forward comment, verified notification quick reply, all-messages General-or-reply resolver/run
+- Deferred: forward comment, all-messages General-or-reply resolver/run
   headers, deliberate test-account send/draft mutation, topic-scoped pinned banner and remaining attachment types.
 
 ### Topic media draft identity slice
