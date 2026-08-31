@@ -24,27 +24,38 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | P0 | Composer and send/delete transitions | pre-Liquid chat input panel and message transition paths | `FormattedText`, `InputMessageContent`, `sendMessage`, edit/reply APIs | **queued** — one UIKit floating blur island; snapshot flight into anchored insertion; collapse/fade/slide delete. |
 | P1 | Profiles, shared media, fullscreen gallery | pre-Liquid peer info/gallery controllers | user/basic-group/supergroup/full-info and message-search APIs | **queued** — exact thumbnail transitions, paging/prefetch, zoom/dismiss gesture arbitration, video controls, actions, and state restoration. |
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **queued** — isolated clients/storage/subscriptions plus add/auth/switch/remove/logout. |
-| P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid chat list/filter behavior | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **queued**. |
+| P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists and paging already exist; folder tabs are classic full-width material, and chat cells now use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
 | P1 | Timeline stability and performance | pre-Liquid chat history behavior | `getChatHistory`, `updateNewMessage`, `updateMessageContent`, file updates | **partial** — UIKit collection timeline exists; audit anchor `messageId + pixelOffset`, prepend/resize/keyboard invariants, account scope, prefetch cancellation, and main-thread work. |
-| P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars and `ChatListFilterTabContainerNode.swift` | n/a | **partial — glass markers removed, classic folder bar proved** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proof are below. Next P2 gap: replace the still-rounded floating chat-list cards with Telegram's contiguous full-width rows, then audit remaining surfaces. |
+| P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars, `ChatListFilterTabContainerNode.swift` and `ChatListItem.swift` | n/a | **implemented classic shell/list breadth** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Chat-list cards are replaced by contiguous 76pt full-width rows with 60pt avatars at x=10 and separators from x=80. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proofs are below. Remaining P2: systematic audit of secondary navigation/search/action surfaces. |
 
 ## Checkpoint
 
-- Current slice: remove Liquid Glass/floating-lens shell markers and restore classic pre-Liquid folder tabs/context-menu material.
-- Telegram reference: pre-Liquid `ChatListFilterTabContainerNode.swift` lays out one scrollable bar and a selected line at
-  `y = height - 3`, spanning the selected segment. BetterTG now uses the same three-point geometry on one edge-to-edge
-  `.systemChromeMaterial` bar through the bottom safe area; the former 16pt-inset rounded control and capsule selection are gone.
-- Context menus: `UIGlassEffect` and iOS 26 corner configuration are replaced by `.systemMaterial` plus a 16pt continuous corner and
-  10pt row highlight. Existing extraction, tracking, action grouping and background dim/blur behavior are unchanged.
+- Current slice: replace floating chat-list cards with classic contiguous Telegram rows.
+- Telegram reference: pre-Liquid `ChatListItem.swift` uses a 60pt avatar centered in the row at x=10 and one shared list separator after
+  the avatar/content inset. BetterTG now renders a full 402×76pt row with avatar x=10, title/preview at x=80, trailing date/delivery and
+  lower unread/mute/pin accessories. Pinned rows use a contiguous secondary background; ordinary rows use the list background; highlight
+  is transient and no row has corner radius or side/vertical card inset.
+- State/accessibility: draft date suppresses stale delivery checks. Pending/failed/delivered/read outgoing states render distinctly;
+  muted unread badges stay gray, marked-unread zero counts remain dots, and pin/mute icons yield to unread. Dynamic Type is capped to the
+  fixed classic geometry, long content truncates, and VoiceOver includes preview/date/delivery/pin/mute/unread state.
 - Verification: one SwiftFormat invocation covers both changed Swift files. Xcode 26.6 build
-  `.build/logs/xcodebuild/build-Debug-20260831-062914-33482-14249.log` succeeds with no warnings. `rg` finds zero
-  `UIGlassEffect`, `glassEffect` or `cornerConfiguration` in application Swift. Real-state `./build.sh run --skip-build` on iPhone 17 Pro
-  / iOS 26.5 produced PID 33820. Hierarchy shows 50pt contiguous folder buttons from x=0; screenshot proves a 60×3pt blue `All` line and
-  full-width blur through the safe area. A 0.4s long press at AX center `(122,807)` opens six readable, non-overlapping material actions;
-  PID remains alive. Evidence is `.build/ui-probe-evidence/classic-shell-*`; Simulator remains booted.
-- Next slice: the same screenshot exposes rounded/inset floating chat-list cards. Convert them to Telegram's contiguous full-width rows
-  with 76pt-classic geometry, avatar/title/preview/date/unread/pin layout and separators, then repeat real-state idb proof. After that,
-  resume explicit forum-topic write plumbing recorded in the Forum topic slice.
+  `.build/logs/xcodebuild/build-Debug-20260831-063859-35683-18833.log` succeeds without warnings. Real-state
+  `./build.sh run --skip-build` on iPhone 17 Pro / iOS 26.5 produced PID 35152. Hierarchy reports visible rows at
+  `{x:0,width:402,height:76}` and y=`106,182,258,334…`; screenshot confirms contiguous backgrounds, avatar x=10/60×60pt, separator x≈80,
+  delivery/date/pin/mute/unread layout and ellipsis without overlap. Tapping first-row AX center `(201,144)` opens Saved Messages with Back
+  and title present; PID remains alive. Evidence is `.build/ui-probe-evidence/classic-chat-rows-*`; Simulator remains booted.
+- Next slice: resume P0 explicit forum-topic write plumbing: propagate `topicId` through composer/media/voice/video/drafts/actions/retries,
+  make durable draft keys account+topic scoped, add topic selection to Forward, and only then restore Telegram all-messages mode/run headers.
+
+### Classic chat list row slice
+
+- **P2/P1 flow:** pre-Liquid `ChatListItem` presentation applied to existing UIKit chat/folder data and actions.
+- Implemented: full-width 76pt rows; 60pt avatar at x=10; content/separator x=80; pinned/normal/highlight backgrounds; title/preview/date;
+  pending/failed/delivered/read state; unread/muted/marked-unread/pin accessories; capped Dynamic Type; full-state VoiceOver; full-row context
+  extraction and tap target. Existing diffable stable IDs, prefetch, search, gestures and TDLib actions remain unchanged.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-063859-35683-18833.log`; exact frame/tap evidence
+  `.build/ui-probe-evidence/classic-chat-rows-*`; first tap opens Saved Messages; PID 35152 alive; Simulator booted.
+- Deferred: typing/action preview, verified/scam/status/story adornments, archive reveal gestures and full account fencing for list mutations.
 
 ### Classic shell blur slice
 
@@ -54,8 +65,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   text; ordinary system-material context menu; classic 16/10pt menu/highlight corners; all Glass-only APIs and marker strings removed.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-062914-33482-14249.log`; real account hierarchy/screenshot and long-press
   menu evidence `.build/ui-probe-evidence/classic-shell-*`; PID 33820 alive; Simulator booted.
-- Deferred: contiguous classic chat rows are the next visible shell gap; remaining navigation/search/action surfaces still need a complete
-  full-width/no-floating audit.
+- Deferred: remaining navigation/search/action surfaces still need a complete full-width/no-floating audit.
 
 ### Forum topic browsing slice
 

@@ -151,7 +151,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         view.backgroundColor = .systemBackground
         tableView.backgroundColor = .systemBackground
         tableView.separatorStyle = .none
-        tableView.rowHeight = 84
+        tableView.rowHeight = 76
         tableView.keyboardDismissMode = .interactive
         tableView.alwaysBounceVertical = true
         let initialTopInset = searchActive
