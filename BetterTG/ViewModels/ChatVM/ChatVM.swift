@@ -47,6 +47,10 @@ import UIKit
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
     let messageBubblesWillDelete = PassthroughSubject<Set<DisplayedMessageID>, Never>()
+    let sendTransitionAccepted = PassthroughSubject<ComposerSendTransitionAcceptance, Never>()
+    let sendTransitionCancelled = PassthroughSubject<UUID, Never>()
+    let sendTransitionMessageIDReplaced = PassthroughSubject<(old: Int64, new: Int64), Never>()
+    let sendTransitionWillBegin = PassthroughSubject<ComposerSendTransitionRequest, Never>()
 
     let customChat: CustomChat
     nonisolated let chatID: Int64
@@ -86,6 +90,7 @@ import UIKit
     @Published var videoNoteErrorMessage: String?
     @Published var reactionErrorMessage: String?
     @Published var sendErrorMessage: String?
+    @Published private(set) var sendingComposerMessage = false
     @Published var draftErrorMessage: String?
     @Published private(set) var canAddReactions = false
     @Published private(set) var maximumChosenReactionCount = 1
@@ -1390,6 +1395,12 @@ import UIKit
     }
 
     func sendMessage() async {
+        guard !sendingComposerMessage else { return }
+        sendingComposerMessage = true
+        defer {
+            sendingComposerMessage = false
+            sendMessageTask = nil
+        }
         if canEditMessage {
             let sentEditID = editCustomMessage?.id
             do {
@@ -1408,17 +1419,24 @@ import UIKit
         let sentText = text
         let sentImageIDs = Set(displayedImages.map(\.id))
         let sentReplyID = replyMessage?.id
+        let transitionID = UUID()
+        let transitionKind: ComposerSendTransitionKind = displayedImages.isEmpty ? .text : .media
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: transitionKind))
         do {
-            let context: ResolvedSendContext
+            let result: (context: ResolvedSendContext, messages: [Message])
             if !displayedImages.isEmpty {
-                context = try await sendMessagePhotos()
+                result = try await sendMessagePhotos()
             } else if !text.characters.isEmpty {
-                context = try await sendMessageText()
+                result = try await sendMessageText()
             } else {
+                sendTransitionCancelled.send(transitionID)
                 return
             }
-            let draftClearSucceeded = await clearRouteDraft(context)
-            guard locationContextIsCurrent else { return }
+            let draftClearSucceeded = await clearRouteDraft(result.context)
+            guard locationContextIsCurrent else {
+                sendTransitionCancelled.send(transitionID)
+                return
+            }
             displayedImages.removeAll { sentImageIDs.contains($0.id) }
             if text == sentText {
                 text = ""
@@ -1442,12 +1460,18 @@ import UIKit
             } else if location.isTopicScoped {
                 loadForumTopic()
             }
+            await Task.yield()
+            sendTransitionAccepted.send(ComposerSendTransitionAcceptance(
+                id: transitionID,
+                messageIDs: result.messages.map(\.id),
+            ))
         } catch {
+            sendTransitionCancelled.send(transitionID)
             sendErrorMessage = error.localizedDescription
         }
     }
 
-    func sendMessagePhotos() async throws -> ResolvedSendContext {
+    func sendMessagePhotos() async throws -> (context: ResolvedSendContext, messages: [Message]) {
         let context = try resolveSendContext(
             for: .photo,
             replyingTo: replyMessage,
@@ -1458,6 +1482,7 @@ import UIKit
         let caption = FormattedText(entities: getEntities(from: text), text: text.string)
         try await sendChatAction(.chatActionUploadingPhoto(.init(progress: 0)), in: context)
         do {
+            let sentMessages: [Message]
             var messageContents = [InputMessageContent]()
             for image in images {
                 await messageContents.append(makeInputMessageContent(for: image.url, caption: caption))
@@ -1475,6 +1500,7 @@ import UIKit
                 guard context.matches(message: message) else {
                     throw ChatSendContextError.unexpectedDestination
                 }
+                sentMessages = [message]
             } else {
                 let result = try await client.sendMessageAlbum(
                     chatId: context.chatID,
@@ -1493,9 +1519,10 @@ import UIKit
                 guard messages.allSatisfy({ context.matches(message: $0) }) else {
                     throw ChatSendContextError.unexpectedDestination
                 }
+                sentMessages = messages
             }
             try? await cancelChatAction(in: context)
-            return context
+            return (context, sentMessages)
         } catch {
             try? await cancelChatAction(in: context)
             throw error
@@ -1539,7 +1566,7 @@ import UIKit
         )
     }
 
-    func sendMessageText() async throws -> ResolvedSendContext {
+    func sendMessageText() async throws -> (context: ResolvedSendContext, messages: [Message]) {
         let context = try resolveSendContext(
             for: .text,
             replyingTo: replyMessage,
@@ -1566,7 +1593,7 @@ import UIKit
             throw ChatSendContextError.unexpectedDestination
         }
         try? await cancelChatAction(in: context)
-        return context
+        return (context, [message])
     }
 
     func submitVideoNote(

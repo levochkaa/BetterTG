@@ -10,6 +10,13 @@ enum ChatMediaRecordingMode: Equatable {
     case voice
 }
 
+// MARK: - ComposerSendTransitionSnapshot
+
+struct ComposerSendTransitionSnapshot {
+    let sourceFrame: CGRect
+    let view: UIView
+}
+
 // MARK: - ChatComposerView
 
 final class ChatComposerView: UIView {
@@ -141,6 +148,42 @@ final class ChatComposerView: UIView {
 
     func focusInput() {
         textView.becomeFirstResponder()
+    }
+
+    func makeSendTransitionSnapshots(
+        kind: ComposerSendTransitionKind,
+        in container: UIView,
+    ) -> [ComposerSendTransitionSnapshot] {
+        var sources = [UIView]()
+        if !replyContainer.isHidden, replyContainer.alpha > 0.01 {
+            sources.append(replyContainer)
+        }
+        switch kind {
+        case .media:
+            if !photosScroll.isHidden {
+                sources.append(photosScroll)
+            }
+            if !textView.text.isEmpty {
+                sources.append(textView)
+            }
+        case .text:
+            sources.append(textView)
+        case .videoNote, .voiceNote:
+            if !recordingRow.isHidden {
+                sources.append(recordingRow)
+            }
+        }
+        return sources.compactMap { source in
+            guard source.window != nil,
+                  !source.bounds.isEmpty,
+                  let snapshot = source.snapshotView(afterScreenUpdates: false)
+            else { return nil }
+            snapshot.isUserInteractionEnabled = false
+            return ComposerSendTransitionSnapshot(
+                sourceFrame: source.convert(source.bounds, to: container),
+                view: snapshot,
+            )
+        }
     }
 
     func cancelActiveRecordingGesture() {
@@ -763,6 +806,7 @@ final class ChatComposerView: UIView {
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
         let isPreparingVoice = chatVM.loadingVoiceDraft || chatVM.startingVoiceNote || chatVM.finalizingVoiceNote
+        let isSendingComposer = chatVM.sendingComposerMessage
         let isFinalizingVoice = isPreparingVoice && !hasContent
         let isFinalizingVideo = isVideoNoteBusy && !hasContent
         let isRetryingVoice = chatVM.canRetryPendingVoiceNote && !hasContent
@@ -774,7 +818,7 @@ final class ChatComposerView: UIView {
             ? chatVM.canRecordVoiceNote
             : chatVM.canRecordVideoNote
         let symbol =
-            if isFinalizingVoice || isFinalizingVideo {
+            if isFinalizingVoice || isFinalizingVideo || isSendingComposer {
                 "clock.circle"
             } else if isRetryingVoice {
                 "arrow.clockwise.circle.fill"
@@ -799,7 +843,7 @@ final class ChatComposerView: UIView {
             ),
             forImageIn: .normal,
         )
-        actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo
+        actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo && !isSendingComposer
         actionButton.alpha = actionButton.isEnabled ? 1 : 0.55
         let canBeginRecordingGesture = !chatVM.startingVoiceNote
             && !chatVM.loadingVoiceDraft
@@ -1101,7 +1145,7 @@ final class ChatComposerView: UIView {
             }
             return
         }
-        chatVM.sendMessageTask?.cancel()
+        guard !chatVM.sendingComposerMessage else { return }
         draftTask?.cancel()
         draftTask = nil
         typingTask?.cancel()

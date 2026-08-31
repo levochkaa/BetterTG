@@ -212,6 +212,7 @@ extension ChatVM {
     }
 
     func updateMessageSendSucceeded(_ update: UpdateMessageSendSucceeded) {
+        sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         Task {
             let replacement = await self.getCustomMessage(from: update.message)
             await main {
@@ -221,6 +222,7 @@ extension ChatVM {
     }
 
     func updateMessageSendFailed(_ update: UpdateMessageSendFailed) {
+        sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         Task {
             let replacement = await self.getCustomMessage(from: update.message)
             await main {

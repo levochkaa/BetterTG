@@ -42,6 +42,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let minYRelativeToViewport: CGFloat
     }
 
+    private struct PendingComposerSendTransition {
+        let kind: ComposerSendTransitionKind
+        var messageIDs = [Int64]()
+        let snapshots: [ComposerSendTransitionSnapshot]
+        let timeout: DispatchWorkItem
+    }
+
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
         presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
     }
@@ -111,6 +118,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingSelfSizingAnchor: SnapshotAnchor?
     private var pendingSelfSizingKeepsLatest = false
     private var selfSizingAnchorRestoreScheduled = false
+    private var pendingComposerSendTransitions = [UUID: PendingComposerSendTransition]()
+    private var sendTransitionMessageIDAliases = [Int64: Int64]()
     private var pendingDeleteSnapshotWorkItem: DispatchWorkItem?
     private var pendingDeleteSnapshotDeadline: CFTimeInterval?
 
@@ -215,6 +224,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         reactionPickerTask?.cancel()
         selectionCapabilityTask?.cancel()
         pendingDeleteSnapshotWorkItem?.cancel()
+        for transition in pendingComposerSendTransitions.values {
+            transition.timeout.cancel()
+            transition.snapshots.forEach { $0.view.removeFromSuperview() }
+        }
     }
 
     override func viewDidLoad() {
@@ -1045,6 +1058,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.messageBubblesWillDelete
             .sink { [weak self] ids in self?.prepareDeleteTransition(for: ids) }
             .store(in: &cancellables)
+        chatVM.sendTransitionWillBegin
+            .sink { [weak self] request in self?.prepareComposerSendTransition(request) }
+            .store(in: &cancellables)
+        chatVM.sendTransitionAccepted
+            .sink { [weak self] acceptance in self?.acceptComposerSendTransition(acceptance) }
+            .store(in: &cancellables)
+        chatVM.sendTransitionCancelled
+            .sink { [weak self] id in self?.cancelComposerSendTransition(id: id) }
+            .store(in: &cancellables)
+        chatVM.sendTransitionMessageIDReplaced
+            .sink { [weak self] replacement in
+                self?.replacePendingComposerSendMessageID(
+                    old: replacement.old,
+                    new: replacement.new,
+                )
+            }
+            .store(in: &cancellables)
         chatVM.customChat
             .$chat
             .dropFirst()
@@ -1260,6 +1290,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else if let anchor {
                 restoreSnapshotAnchor(anchor)
             }
+            performPendingComposerSendTransitions()
             didPerformInitialScroll = true
         }
         collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
@@ -1308,6 +1339,124 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         pendingDeleteSnapshotWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         return true
+    }
+
+    private func prepareComposerSendTransition(_ request: ComposerSendTransitionRequest) {
+        let snapshots = composerView.makeSendTransitionSnapshots(kind: request.kind, in: view)
+        guard !snapshots.isEmpty else { return }
+        let timeout = DispatchWorkItem { [weak self] in
+            self?.cancelComposerSendTransition(id: request.id)
+        }
+        pendingComposerSendTransitions[request.id] = PendingComposerSendTransition(
+            kind: request.kind,
+            snapshots: snapshots,
+            timeout: timeout,
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
+    }
+
+    private func acceptComposerSendTransition(_ acceptance: ComposerSendTransitionAcceptance) {
+        guard !acceptance.messageIDs.isEmpty,
+              var transition = pendingComposerSendTransitions[acceptance.id]
+        else {
+            cancelComposerSendTransition(id: acceptance.id)
+            return
+        }
+        transition.messageIDs = acceptance.messageIDs.map(resolveSendTransitionMessageID)
+        pendingComposerSendTransitions[acceptance.id] = transition
+        DispatchQueue.main.async { [weak self] in self?.performPendingComposerSendTransitions() }
+    }
+
+    private func cancelComposerSendTransition(id: UUID) {
+        guard let transition = pendingComposerSendTransitions.removeValue(forKey: id) else { return }
+        transition.timeout.cancel()
+        transition.snapshots.forEach { $0.view.removeFromSuperview() }
+    }
+
+    private func replacePendingComposerSendMessageID(old: Int64, new: Int64) {
+        sendTransitionMessageIDAliases[old] = new
+        if sendTransitionMessageIDAliases.count > 128,
+           let oldestKey = sendTransitionMessageIDAliases.keys.first
+        {
+            sendTransitionMessageIDAliases[oldestKey] = nil
+        }
+        for id in Array(pendingComposerSendTransitions.keys) {
+            guard var transition = pendingComposerSendTransitions[id],
+                  transition.messageIDs.contains(old)
+            else { continue }
+            transition.messageIDs = transition.messageIDs.map(resolveSendTransitionMessageID)
+            pendingComposerSendTransitions[id] = transition
+        }
+        performPendingComposerSendTransitions()
+    }
+
+    private func resolveSendTransitionMessageID(_ id: Int64) -> Int64 {
+        var resolved = id
+        var visited = Set<Int64>()
+        while let replacement = sendTransitionMessageIDAliases[resolved],
+              visited.insert(resolved).inserted
+        {
+            resolved = replacement
+        }
+        return resolved
+    }
+
+    private func performPendingComposerSendTransitions() {
+        guard isViewLoaded else { return }
+        collectionView.layoutIfNeeded()
+        for (id, transition) in pendingComposerSendTransitions where !transition.messageIDs.isEmpty {
+            guard let displayedID = transition.messageIDs
+                .lazy
+                .compactMap({
+                    self.chatVM.displayedMessageID(containing: $0)
+                })
+                .first,
+                let indexPath = dataSource.indexPath(for: .message(displayedID))
+            else { continue }
+            let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+            let fallbackTarget = CGRect(
+                x: view.bounds.midX - 4,
+                y: max(customNavigationBar.frame.maxY, composerView.frame.minY - 8),
+                width: 8,
+                height: 8,
+            )
+            let targetFrame = cell.map {
+                $0.contextPreviewView.convert($0.contextPreviewView.bounds, to: view)
+            } ?? fallbackTarget
+            pendingComposerSendTransitions[id] = nil
+            transition.timeout.cancel()
+            animateComposerSendTransition(transition, targetFrame: targetFrame)
+        }
+    }
+
+    private func animateComposerSendTransition(
+        _ transition: PendingComposerSendTransition,
+        targetFrame: CGRect,
+    ) {
+        let inset: CGFloat = transition.kind == .media ? 2 : 8
+        let destination = targetFrame.insetBy(
+            dx: min(inset, targetFrame.width / 4),
+            dy: min(inset, targetFrame.height / 4),
+        )
+        for (index, source) in transition.snapshots.enumerated() {
+            let snapshot = source.view
+            snapshot.frame = source.sourceFrame
+            snapshot.layer.cornerCurve = .continuous
+            snapshot.layer.cornerRadius = min(12, snapshot.bounds.height / 2)
+            snapshot.clipsToBounds = true
+            view.addSubview(snapshot)
+            UIView.animate(
+                withDuration: 0.32,
+                delay: Double(index) * 0.025,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+            ) {
+                snapshot.frame = destination
+                snapshot.alpha = 0
+                snapshot.layer.cornerRadius = min(8, destination.height / 2)
+            } completion: { _ in
+                snapshot.removeFromSuperview()
+            }
+        }
     }
 
     private func captureSnapshotAnchor(ensuringLayout: Bool = true) -> SnapshotAnchor? {
