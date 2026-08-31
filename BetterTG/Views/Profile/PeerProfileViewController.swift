@@ -52,7 +52,13 @@ import UIKit
     private let client: TDLibClient
     private let customChat: CustomChat
     private let topic: MessageTopic?
+    private var currentChatTitle: String
+    private var currentChatPhotoInfo: ChatPhotoInfo?
+    private var currentStatusText: String
+    private var currentBioText = ""
+    private var currentDetailTexts = [String]()
     private let avatarView = ProfileAvatarView()
+    private lazy var avatarTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarPressed))
     private let avatarLoadingIndicator = UIActivityIndicatorView(style: .medium)
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
@@ -68,6 +74,7 @@ import UIKit
     private var infoTask: Task<Void, Never>?
     private var avatarGalleryTask: Task<Void, Never>?
     private var avatarHistoryTask: Task<Void, Never>?
+    private var chatMetadataTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var messageRefreshTasks = [Int64: Task<Void, Never>]()
     private var messageRefreshGenerations = [Int64: UUID]()
@@ -81,6 +88,11 @@ import UIKit
     private var avatarHistoryHasExtraCurrentPhoto = false
     private var avatarHistoryKnownPhotoIDs = Set<Int64>()
     private var avatarHistoryUserID: Int64?
+    private var metadataGeneration = UInt64.zero
+    private var fullInfoGeneration = UInt64.zero
+    private var avatarMetadataGeneration = UInt64.zero
+    private var hasHydratedFullInfo = false
+    private var metadataRenderScheduled = false
     private weak var activeMediaGallery: MediaGalleryViewController?
     private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
 
@@ -103,6 +115,9 @@ import UIKit
         self.topic = topic
         self.client = client
         self.accountID = accountID
+        self.currentChatTitle = customChat.displayTitle
+        self.currentChatPhotoInfo = customChat.chat.photo
+        self.currentStatusText = Self.statusText(for: customChat)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -114,6 +129,7 @@ import UIKit
         infoTask?.cancel()
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
+        chatMetadataTask?.cancel()
         historyTask?.cancel()
         messageRefreshTasks.values.forEach { $0.cancel() }
     }
@@ -147,6 +163,32 @@ import UIKit
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateProfileHeaderLayout()
+    }
+
+    private static func statusText(for customChat: CustomChat) -> String {
+        if customChat.isSavedMessages {
+            return "Saved Messages"
+        }
+        switch customChat.type {
+        case .bot:
+            return "bot"
+        case .user(let user):
+            return statusText(for: user.status)
+        case .group(let group):
+            return "\(group.memberCount) members"
+        case .supergroup(let group):
+            return group.isChannel ? "channel" : (group.isForum ? "forum" : "group")
+        }
+    }
+
+    private static func statusText(for status: UserStatus) -> String {
+        switch status {
+        case .userStatusOnline: "online"
+        case .userStatusRecently: "last seen recently"
+        case .userStatusLastWeek: "last seen within a week"
+        case .userStatusLastMonth: "last seen within a month"
+        case .userStatusEmpty, .userStatusOffline: "offline"
+        }
     }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -195,20 +237,19 @@ import UIKit
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarView.configure(
-            file: customChat.chat.photo?.big,
-            minithumbnail: customChat.chat.photo?.minithumbnail,
+            file: currentChatPhotoInfo?.big,
+            minithumbnail: currentChatPhotoInfo?.minithumbnail,
             placeholder: customChat.telegramAvatarPlaceholder,
         )
         avatarView.layer.cornerRadius = 48
         avatarView.clipsToBounds = true
-        let avatarGalleryIsAvailable = !customChat.isSavedMessages && customChat.chat.photo != nil
+        let avatarGalleryIsAvailable = !customChat.isSavedMessages && currentChatPhotoInfo != nil
         avatarView.isAccessibilityElement = true
         avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
         avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
         avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
-        if avatarGalleryIsAvailable {
-            avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(avatarPressed)))
-        }
+        avatarTapGesture.isEnabled = avatarGalleryIsAvailable
+        avatarView.addGestureRecognizer(avatarTapGesture)
         headerStack.addArrangedSubview(avatarView)
         avatarLoadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         avatarLoadingIndicator.color = .white
@@ -430,6 +471,33 @@ import UIKit
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
             self?.handleAccountChange()
         }
+        nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
+            self?.handleChatTitleUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
+            self?.handleChatPhotoUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
+            self?.handleUserStatusUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
+            self?.handleUserUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateBasicGroup) { [weak self] update in
+            self?.handleBasicGroupUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateSupergroup) { [weak self] update in
+            self?.handleSupergroupUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateUserFullInfo) { [weak self] update in
+            self?.handleUserFullInfoUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateBasicGroupFullInfo) { [weak self] update in
+            self?.handleBasicGroupFullInfoUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] update in
+            self?.handleSupergroupFullInfoUpdate(update)
+        }
         nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
             self?.refreshSharedMessage(id: update.messageId, chatID: update.chatId)
         }
@@ -480,6 +548,221 @@ import UIKit
         }
     }
 
+    private func handleChatTitleUpdate(_ update: UpdateChatTitle) {
+        guard contextIsCurrent, update.chatId == customChat.id else { return }
+        currentChatTitle = update.title
+        scheduleMetadataRender()
+        refreshChatMetadata()
+    }
+
+    private func handleChatPhotoUpdate(_ update: UpdateChatPhoto) {
+        guard contextIsCurrent, update.chatId == customChat.id else { return }
+        currentChatPhotoInfo = update.photo
+        currentProfilePhoto = nil
+        hasHydratedFullInfo = false
+        resetAvatarGalleryForMetadataChange()
+        scheduleMetadataRender()
+        refreshChatMetadata()
+        loadProfileInfo()
+    }
+
+    private func handleUserStatusUpdate(_ update: UpdateUserStatus) {
+        guard contextIsCurrent, update.userId == customChat.user?.id else { return }
+        currentStatusText = Self.statusText(for: update.status)
+        scheduleMetadataRender()
+    }
+
+    private func handleUserUpdate(_ update: UpdateUser) {
+        guard contextIsCurrent, update.user.id == customChat.user?.id else { return }
+        metadataGeneration &+= 1
+        chatMetadataTask?.cancel()
+        chatMetadataTask = nil
+        customChat.updatePrivateUser(update.user)
+        let name = [update.user.firstName, update.user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        if !name.isEmpty, !customChat.isSavedMessages {
+            currentChatTitle = name
+        }
+        currentStatusText = Self.statusText(for: update.user.status)
+        currentDetailTexts = update.user.usernames?.activeUsernames.map { "@\($0)" } ?? []
+        if !update.user.phoneNumber.isEmpty {
+            currentDetailTexts.append("+\(update.user.phoneNumber)")
+        }
+        scheduleMetadataRender()
+        loadProfileInfo()
+    }
+
+    private func handleBasicGroupUpdate(_ update: UpdateBasicGroup) {
+        guard contextIsCurrent, update.basicGroup.id == customChat.group?.id else { return }
+        customChat.type = .group(update.basicGroup)
+        currentStatusText = "\(update.basicGroup.memberCount) members"
+        scheduleMetadataRender()
+    }
+
+    private func handleSupergroupUpdate(_ update: UpdateSupergroup) {
+        guard contextIsCurrent, update.supergroup.id == customChat.supergroup?.id else { return }
+        customChat.type = .supergroup(update.supergroup)
+        currentStatusText =
+            if update.supergroup.memberCount > 0 {
+                "\(update.supergroup.memberCount) \(update.supergroup.isChannel ? "subscribers" : "members")"
+            } else {
+                update.supergroup.isChannel
+                    ? "channel"
+                    : (update.supergroup.isForum ? "forum" : "group")
+            }
+        currentDetailTexts = update.supergroup.usernames?.activeUsernames.map { "@\($0)" } ?? []
+        scheduleMetadataRender()
+    }
+
+    private func handleUserFullInfoUpdate(_ update: UpdateUserFullInfo) {
+        guard contextIsCurrent,
+              update.userId == customChat.user?.id,
+              let user = customChat.user
+        else { return }
+        fullInfoGeneration &+= 1
+        infoTask?.cancel()
+        infoTask = nil
+        applyUserFullInfo(update.userFullInfo, user: user)
+    }
+
+    private func handleBasicGroupFullInfoUpdate(_ update: UpdateBasicGroupFullInfo) {
+        guard contextIsCurrent,
+              update.basicGroupId == customChat.group?.id
+        else { return }
+        fullInfoGeneration &+= 1
+        infoTask?.cancel()
+        infoTask = nil
+        applyFullInfo(
+            bio: update.basicGroupFullInfo.description,
+            details: [],
+            status: nil,
+            photo: update.basicGroupFullInfo.photo,
+        )
+    }
+
+    private func handleSupergroupFullInfoUpdate(_ update: UpdateSupergroupFullInfo) {
+        guard contextIsCurrent,
+              let group = customChat.supergroup,
+              update.supergroupId == group.id
+        else { return }
+        fullInfoGeneration &+= 1
+        infoTask?.cancel()
+        infoTask = nil
+        let noun = group.isChannel ? "subscribers" : "members"
+        applyFullInfo(
+            bio: update.supergroupFullInfo.description,
+            details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
+            status: update.supergroupFullInfo.memberCount > 0
+                ? "\(update.supergroupFullInfo.memberCount) \(noun)"
+                : nil,
+            photo: update.supergroupFullInfo.photo,
+        )
+    }
+
+    private func refreshChatMetadata() {
+        metadataGeneration &+= 1
+        let generation = metadataGeneration
+        chatMetadataTask?.cancel()
+        chatMetadataTask = Task { [weak self] in
+            guard let self else { return }
+            let chat = try? await client.getChat(chatId: customChat.id)
+            guard !Task.isCancelled,
+                  contextIsCurrent,
+                  metadataGeneration == generation,
+                  let chat
+            else { return }
+            customChat.chat = chat
+            currentChatTitle = customChat.isSavedMessages ? "Saved Messages" : chat.title
+            if currentChatPhotoInfo != chat.photo {
+                currentProfilePhoto = nil
+                hasHydratedFullInfo = false
+                resetAvatarGalleryForMetadataChange()
+            }
+            currentChatPhotoInfo = chat.photo
+            chatMetadataTask = nil
+            scheduleMetadataRender()
+        }
+    }
+
+    private func applyUserFullInfo(_ info: UserFullInfo, user: User) {
+        var details = user.usernames?.activeUsernames.map { "@\($0)" } ?? []
+        if !user.phoneNumber.isEmpty {
+            details.append("+\(user.phoneNumber)")
+        }
+        applyFullInfo(
+            bio: info.bio?.text ?? info.botInfo?.description ?? info.botInfo?.shortDescription,
+            details: details,
+            status: nil,
+            photo: info.personalPhoto ?? info.photo ?? info.publicPhoto,
+        )
+    }
+
+    private func applyFullInfo(
+        bio: String?,
+        details: [String],
+        status: String?,
+        photo: ChatPhoto?,
+    ) {
+        currentBioText = bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        currentDetailTexts = details
+        if let status {
+            currentStatusText = status
+        }
+        if hasHydratedFullInfo, currentProfilePhoto?.id != photo?.id {
+            resetAvatarGalleryForMetadataChange()
+        }
+        hasHydratedFullInfo = true
+        currentProfilePhoto = photo
+        scheduleMetadataRender()
+    }
+
+    private func resetAvatarGalleryForMetadataChange() {
+        avatarMetadataGeneration &+= 1
+        avatarGalleryTask?.cancel()
+        avatarHistoryTask?.cancel()
+        avatarGalleryTask = nil
+        avatarHistoryTask = nil
+        avatarHistoryRawOffset = 0
+        avatarHistoryTotalCount = 0
+        avatarHistoryHasExtraCurrentPhoto = false
+        avatarHistoryKnownPhotoIDs = []
+        avatarHistoryUserID = nil
+        activeAvatarGallery?.dismiss(animated: false)
+        activeAvatarGallery = nil
+        avatarLoadingIndicator.stopAnimating()
+    }
+
+    private func scheduleMetadataRender() {
+        guard !metadataRenderScheduled else { return }
+        metadataRenderScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            metadataRenderScheduled = false
+            renderMetadata()
+        }
+    }
+
+    private func renderMetadata() {
+        titleLabel.text = profileTitle()
+        statusLabel.text = currentStatusText
+        statusLabel.textColor = currentStatusText == "online" ? .systemGreen : .secondaryLabel
+        bioLabel.text = currentBioText
+        bioLabel.textColor = .label
+        bioLabel.isHidden = currentBioText.isEmpty
+        detailsLabel.text = currentDetailTexts.joined(separator: " · ")
+        detailsLabel.isHidden = currentDetailTexts.isEmpty
+        avatarView.configure(
+            file: currentChatPhotoInfo?.big,
+            minithumbnail: currentChatPhotoInfo?.minithumbnail,
+            placeholder: customChat.telegramAvatarPlaceholder,
+        )
+        let avatarGalleryIsAvailable = !customChat.isSavedMessages && currentChatPhotoInfo != nil
+        avatarTapGesture.isEnabled = avatarGalleryIsAvailable
+        avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
+        avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
+        avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
+        view.setNeedsLayout()
+    }
+
     private func refreshSharedMessage(id: Int64, chatID: Int64) {
         guard contextIsCurrent,
               chatID == customChat.id,
@@ -522,53 +805,50 @@ import UIKit
     }
 
     private func loadProfileInfo() {
+        fullInfoGeneration &+= 1
+        let generation = fullInfoGeneration
         infoTask?.cancel()
         infoTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result: (bio: String?, details: [String], status: String?, photo: ChatPhoto?)
                 switch customChat.type {
                 case .bot(let user), .user(let user):
                     let info = try await client.getUserFullInfo(userId: user.id)
-                    var details = user.usernames?.activeUsernames.map { "@\($0)" } ?? []
-                    if !user.phoneNumber.isEmpty {
-                        details.append("+\(user.phoneNumber)")
-                    }
-                    let bio = info.bio?.text ?? info.botInfo?.description ?? info.botInfo?.shortDescription
-                    result = (bio, details, nil, info.personalPhoto ?? info.photo ?? info.publicPhoto)
+                    guard !Task.isCancelled,
+                          contextIsCurrent,
+                          fullInfoGeneration == generation
+                    else { return }
+                    applyUserFullInfo(info, user: user)
                 case .group(let group):
                     let info = try await client.getBasicGroupFullInfo(basicGroupId: group.id)
-                    result = (info.description, [], nil, info.photo)
+                    guard !Task.isCancelled,
+                          contextIsCurrent,
+                          fullInfoGeneration == generation
+                    else { return }
+                    applyFullInfo(bio: info.description, details: [], status: nil, photo: info.photo)
                 case .supergroup(let group):
                     let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
-                    let usernames = group.usernames?.activeUsernames.map { "@\($0)" } ?? []
                     let noun = group.isChannel ? "subscribers" : "members"
-                    result = (
-                        info.description,
-                        usernames,
-                        info.memberCount > 0 ? "\(info.memberCount) \(noun)" : nil,
-                        info.photo,
+                    guard !Task.isCancelled,
+                          contextIsCurrent,
+                          fullInfoGeneration == generation
+                    else { return }
+                    applyFullInfo(
+                        bio: info.description,
+                        details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
+                        status: info.memberCount > 0 ? "\(info.memberCount) \(noun)" : nil,
+                        photo: info.photo,
                     )
                 }
-                guard !Task.isCancelled, contextIsCurrent else { return }
-                if let status = result.status {
-                    statusLabel.text = status
+                if fullInfoGeneration == generation {
+                    infoTask = nil
                 }
-                let bio = result.bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                bioLabel.text = bio
-                bioLabel.isHidden = bio.isEmpty
-                detailsLabel.text = result.details.joined(separator: " · ")
-                detailsLabel.isHidden = result.details.isEmpty
-                currentProfilePhoto = result.photo
-                infoTask = nil
-                view.setNeedsLayout()
             } catch {
-                guard !Task.isCancelled, contextIsCurrent else { return }
-                bioLabel.text = "Profile information is unavailable."
-                bioLabel.textColor = .secondaryLabel
-                bioLabel.isHidden = false
+                guard !Task.isCancelled,
+                      contextIsCurrent,
+                      fullInfoGeneration == generation
+                else { return }
                 infoTask = nil
-                view.setNeedsLayout()
             }
         }
     }
@@ -657,30 +937,12 @@ import UIKit
     }
 
     private func initialStatus() -> String {
-        if customChat.isSavedMessages {
-            return "Saved Messages"
-        }
-        switch customChat.type {
-        case .bot:
-            return "bot"
-        case .user(let user):
-            return switch user.status {
-            case .userStatusOnline: "online"
-            case .userStatusRecently: "last seen recently"
-            case .userStatusLastWeek: "last seen within a week"
-            case .userStatusLastMonth: "last seen within a month"
-            case .userStatusEmpty, .userStatusOffline: "offline"
-            }
-        case .group(let group):
-            return "\(group.memberCount) members"
-        case .supergroup(let group):
-            return group.isChannel ? "channel" : (group.isForum ? "forum" : "group")
-        }
+        currentStatusText
     }
 
     private func profileTitle() -> String {
         guard customChat.isSavedMessages, let user = customChat.user else {
-            return customChat.displayTitle
+            return currentChatTitle
         }
         let name = [user.firstName, user.lastName]
             .filter { !$0.isEmpty }
@@ -690,18 +952,20 @@ import UIKit
 
     @objc private func avatarPressed() {
         guard !customChat.isSavedMessages,
-              customChat.chat.photo != nil,
+              currentChatPhotoInfo != nil,
               avatarGalleryTask == nil,
               contextIsCurrent,
               presentedViewController == nil
         else { return }
         avatarLoadingIndicator.startAnimating()
+        let avatarGeneration = avatarMetadataGeneration
         avatarGalleryTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let payload = try await loadAvatarGalleryPayload()
                 guard !Task.isCancelled,
                       contextIsCurrent,
+                      avatarMetadataGeneration == avatarGeneration,
                       view.window != nil,
                       navigationController?.topViewController === self,
                       presentedViewController == nil,
@@ -741,8 +1005,9 @@ import UIKit
                 present(gallery, animated: true)
             } catch {
                 guard !Task.isCancelled else { return }
-                let fallback = ProfileAvatarGalleryItem(current: customChat.chat.photo)
+                let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo)
                 guard contextIsCurrent,
+                      avatarMetadataGeneration == avatarGeneration,
                       view.window != nil,
                       navigationController?.topViewController === self,
                       presentedViewController == nil,
@@ -799,7 +1064,7 @@ import UIKit
                 hasExtraCurrentPhoto = false
             }
             var items = photos.map(ProfileAvatarGalleryItem.init(photo:))
-            if items.isEmpty, let fallback = ProfileAvatarGalleryItem(current: customChat.chat.photo) {
+            if items.isEmpty, let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo) {
                 items = [fallback]
                 totalCount = max(totalCount, 1)
             }
@@ -838,7 +1103,7 @@ import UIKit
                 )
             }
         }
-        if let fallback = ProfileAvatarGalleryItem(current: customChat.chat.photo) {
+        if let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo) {
             return AvatarGalleryPayload(
                 hasExtraCurrentPhoto: false,
                 historyRawOffset: 0,
