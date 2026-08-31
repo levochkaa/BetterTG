@@ -817,6 +817,7 @@ final class TDImageLoadingView: UIImageView {
 
     private var representedRequest: RequestIdentity?
     private var representedClient: TDLibClient?
+    private var cancelsTransportOnCancel = true
     private var downloadTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
     private var maximumPixelSize = 1280
@@ -842,6 +843,7 @@ final class TDImageLoadingView: UIImageView {
         self.maximumPixelSize = maximumPixelSize
         representedRequest = request
         representedClient = client
+        cancelsTransportOnCancel = true
         image = placeholderData.flatMap(UIImage.init(data:))
         if let cached = Self.cache.object(forKey: request.cacheKey) {
             image = cached
@@ -865,6 +867,48 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
+    func load(
+        file: File,
+        placeholderData: Data? = nil,
+        maximumPixelSize: Int = 1280,
+        accountID: UUID,
+        client: TDLibClient,
+    ) {
+        cancel()
+        let request = RequestIdentity(
+            accountID: accountID,
+            clientID: client.id,
+            fileID: file.id,
+            generation: UUID(),
+        )
+        self.maximumPixelSize = maximumPixelSize
+        representedRequest = request
+        representedClient = client
+        cancelsTransportOnCancel = false
+        image = placeholderData.flatMap(UIImage.init(data:))
+        if let cached = Self.cache.object(forKey: request.cacheKey) {
+            image = cached
+            return
+        }
+        update(file: file, for: request)
+        downloadTask = Task { [weak self] in
+            let downloaded = try? await client.downloadFile(
+                fileId: file.id,
+                limit: 0,
+                offset: 0,
+                priority: 1,
+                synchronous: true,
+            )
+            guard let self,
+                  !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id,
+                  let downloaded
+            else { return }
+            update(file: downloaded, for: request)
+        }
+    }
+
     func loadPlaceholder(data: Data?) {
         cancel()
         image = data.flatMap(UIImage.init(data:))
@@ -881,20 +925,23 @@ final class TDImageLoadingView: UIImageView {
     func cancel() {
         let request = representedRequest
         let client = representedClient
+        let cancelsTransportOnCancel = cancelsTransportOnCancel
         representedRequest = nil
         representedClient = nil
+        self.cancelsTransportOnCancel = true
         downloadTask?.cancel()
         downloadTask = nil
         cancellable?.cancel()
         cancellable = nil
         loadedPath = nil
-        if let request, let client {
+        if cancelsTransportOnCancel, let request, let client {
             Task { try? await client.cancelDownloadFile(fileId: request.fileID, onlyIfPending: true) }
         }
     }
 
     private func update(file: File, for request: RequestIdentity) {
         guard representedRequest == request,
+              TDLib.shared.activeAccountID == request.accountID,
               TDLib.shared.activeClient.id == request.clientID,
               file.id == request.fileID,
               file.local.isDownloadingCompleted
@@ -909,6 +956,7 @@ final class TDImageLoadingView: UIImageView {
             await MainActor.run {
                 guard let self,
                       self.representedRequest == request,
+                      TDLib.shared.activeAccountID == request.accountID,
                       TDLib.shared.activeClient.id == request.clientID,
                       let decoded
                 else { return }

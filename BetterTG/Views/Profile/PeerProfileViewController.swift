@@ -37,12 +37,19 @@ import UIKit
     }
 
     private struct AvatarGalleryPayload {
-        let hasExtraCurrentPhoto: Bool
+        let extraPhotoCount: Int
         let historyRawOffset: Int
         let historyTotalCount: Int
         let items: [ProfileAvatarGalleryItem]
         let totalCount: Int
+        let trailingPhotoID: Int64?
         let userID: Int64?
+    }
+
+    private struct UserPhotoRoleSignature: Equatable {
+        let mainID: Int64?
+        let personalID: Int64?
+        let publicID: Int64?
     }
 
     var onOpenMessage: ((Int64) -> Void)?
@@ -52,9 +59,12 @@ import UIKit
     private let accountUserID: Int64?
     private let client: TDLibClient
     private let customChat: CustomChat
+    private let isSelfProfile: Bool
     private let topic: MessageTopic?
     private var currentChatTitle: String
     private var currentChatPhotoInfo: ChatPhotoInfo?
+    private var currentUserProfilePhoto: ProfilePhoto?
+    private var currentUserPhotoRoleSignature: UserPhotoRoleSignature?
     private var currentStatusText: String
     private var currentBioText = ""
     private var currentDetailTexts = [String]()
@@ -100,7 +110,11 @@ import UIKit
     private var cancellables = Set<AnyCancellable>()
     private var infoTask: Task<Void, Never>?
     private var avatarGalleryTask: Task<Void, Never>?
+    private var avatarGalleryRequestID: UUID?
     private var avatarHistoryTask: Task<Void, Never>?
+    private var avatarHistoryRequestID: UUID?
+    private var avatarReconciliationTask: Task<Void, Never>?
+    private var avatarReconciliationRequestID: UUID?
     private var chatMetadataTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var messageRefreshTasks = [Int64: Task<Void, Never>]()
@@ -114,19 +128,73 @@ import UIKit
     private var currentSupergroupCanGetMembers = false
     private var avatarHistoryRawOffset = 0
     private var avatarHistoryTotalCount = 0
-    private var avatarHistoryHasExtraCurrentPhoto = false
+    private var avatarHistoryExtraPhotoCount = 0
     private var avatarHistoryKnownPhotoIDs = Set<Int64>()
+    private var avatarHistoryTrailingPhotoID: Int64?
     private var avatarHistoryUserID: Int64?
     private var metadataGeneration = UInt64.zero
     private var fullInfoGeneration = UInt64.zero
     private var avatarMetadataGeneration = UInt64.zero
     private var hasHydratedFullInfo = false
     private var metadataRenderScheduled = false
+    private var renderedAvatarFileID: Int?
+    private var renderedAvatarItemID: Int64?
     private weak var activeMediaGallery: MediaGalleryViewController?
     private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
 
     private var currentSharedTab: SharedTab {
         SharedTab(rawValue: segmentedControl.selectedSegmentIndex) ?? .media
+    }
+
+    private var displayedAvatarFile: File? {
+        currentUserProfilePhoto?.big ?? currentProfilePhotoSize?.photo ?? currentChatPhotoInfo?.big
+    }
+
+    private var displayedAvatarMinithumbnail: Minithumbnail? {
+        currentUserProfilePhoto?.minithumbnail
+            ?? currentProfilePhoto?.minithumbnail
+            ?? currentChatPhotoInfo?.minithumbnail
+    }
+
+    private var avatarGalleryIsAvailable: Bool {
+        currentUserProfilePhoto.map { $0.id.rawValue != 0 } == true
+            || currentProfilePhoto != nil
+            || !isSelfProfile && currentChatPhotoInfo != nil
+    }
+
+    private var avatarGalleryFallbackItem: ProfileAvatarGalleryItem? {
+        if let currentUserProfilePhoto,
+           let item = ProfileAvatarGalleryItem(profilePhoto: currentUserProfilePhoto)
+        {
+            return item
+        }
+        if let currentProfilePhoto {
+            return ProfileAvatarGalleryItem(photo: currentProfilePhoto)
+        }
+        guard !isSelfProfile else { return nil }
+        return ProfileAvatarGalleryItem(current: currentChatPhotoInfo)
+    }
+
+    private var currentProfilePhotoSize: PhotoSize? {
+        currentProfilePhoto?.sizes.max { lhs, rhs in
+            let lhsPixels = Int64(lhs.width) * Int64(lhs.height)
+            let rhsPixels = Int64(rhs.width) * Int64(rhs.height)
+            if lhsPixels == rhsPixels {
+                return max(lhs.photo.size, lhs.photo.expectedSize) < max(rhs.photo.size, rhs.photo.expectedSize)
+            }
+            return lhsPixels < rhsPixels
+        }
+    }
+
+    private var displayedAvatarItemID: Int64? {
+        if let currentUserProfilePhoto, currentUserProfilePhoto.id.rawValue != 0 {
+            return currentUserProfilePhoto.id.rawValue
+        }
+        if let currentProfilePhoto {
+            return currentProfilePhoto.id.rawValue
+        }
+        guard !isSelfProfile, let currentChatPhotoInfo else { return nil }
+        return -Int64(currentChatPhotoInfo.big.id) - 1
     }
 
     private var contextIsCurrent: Bool {
@@ -144,10 +212,13 @@ import UIKit
         self.topic = topic
         self.client = client
         self.accountID = accountID
-        self.accountUserID = TDLib.shared.activeAccountID == accountID ? TDLib.shared.activeAccount?.userID : nil
+        let accountUserID = TDLib.shared.activeAccountID == accountID ? TDLib.shared.activeAccount?.userID : nil
+        self.accountUserID = accountUserID
+        self.isSelfProfile = accountUserID.map { customChat.user?.id == $0 } == true
         self.currentChatTitle = customChat.displayTitle
         self.currentChatPhotoInfo = customChat.chat.photo
-        self.currentStatusText = Self.statusText(for: customChat)
+        self.currentUserProfilePhoto = customChat.user?.profilePhoto
+        self.currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -159,6 +230,7 @@ import UIKit
         infoTask?.cancel()
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
+        avatarReconciliationTask?.cancel()
         chatMetadataTask?.cancel()
         historyTask?.cancel()
         messageRefreshTasks.values.forEach { $0.cancel() }
@@ -187,6 +259,9 @@ import UIKit
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
+        avatarReconciliationTask?.cancel()
+        avatarHistoryRequestID = nil
+        avatarReconciliationRequestID = nil
         finishAvatarGalleryLoad()
     }
 
@@ -196,18 +271,15 @@ import UIKit
     }
 
     private static func statusText(for customChat: CustomChat) -> String {
-        if customChat.isSavedMessages {
-            return "Saved Messages"
-        }
         switch customChat.type {
         case .bot:
-            return "bot"
+            "bot"
         case .user(let user):
-            return statusText(for: user.status)
+            statusText(for: user.status)
         case .group(let group):
-            return "\(group.memberCount) members"
+            "\(group.memberCount) members"
         case .supergroup(let group):
-            return group.isChannel ? "channel" : (group.isForum ? "forum" : "group")
+            group.isChannel ? "channel" : (group.isForum ? "forum" : "group")
         }
     }
 
@@ -267,13 +339,18 @@ import UIKit
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarView.configure(
-            file: currentChatPhotoInfo?.big,
-            minithumbnail: currentChatPhotoInfo?.minithumbnail,
+            file: displayedAvatarFile,
+            minithumbnail: displayedAvatarMinithumbnail,
             placeholder: customChat.telegramAvatarPlaceholder,
+            usesPeerPhotoForSavedMessages: isSelfProfile,
+            accountID: accountID,
+            accountUserID: accountUserID,
+            client: client,
         )
+        renderedAvatarItemID = displayedAvatarItemID
+        renderedAvatarFileID = displayedAvatarFile?.id
         avatarView.layer.cornerRadius = 48
         avatarView.clipsToBounds = true
-        let avatarGalleryIsAvailable = !customChat.isSavedMessages && currentChatPhotoInfo != nil
         avatarView.isAccessibilityElement = true
         avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
         avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
@@ -298,6 +375,7 @@ import UIKit
         statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .center
         statusLabel.text = initialStatus()
+        statusLabel.isHidden = currentStatusText.isEmpty
         headerStack.addArrangedSubview(statusLabel)
 
         bioLabel.font = .preferredFont(forTextStyle: .body)
@@ -624,7 +702,7 @@ import UIKit
 
     private func handleUserStatusUpdate(_ update: UpdateUserStatus) {
         guard contextIsCurrent, update.userId == customChat.user?.id else { return }
-        currentStatusText = Self.statusText(for: update.status)
+        currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.status)
         scheduleMetadataRender()
     }
 
@@ -634,11 +712,17 @@ import UIKit
         chatMetadataTask?.cancel()
         chatMetadataTask = nil
         customChat.updatePrivateUser(update.user)
+        if currentUserProfilePhoto?.id != update.user.profilePhoto?.id {
+            currentUserProfilePhoto = update.user.profilePhoto
+            resetAvatarGalleryForMetadataChange()
+        } else {
+            currentUserProfilePhoto = update.user.profilePhoto
+        }
         let name = [update.user.firstName, update.user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
-        if !name.isEmpty, !customChat.isSavedMessages {
+        if !name.isEmpty, !isSelfProfile {
             currentChatTitle = name
         }
-        currentStatusText = Self.statusText(for: update.user.status)
+        currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.user.status)
         currentDetailTexts = update.user.usernames?.activeUsernames.map { "@\($0)" } ?? []
         if !update.user.phoneNumber.isEmpty {
             currentDetailTexts.append("+\(update.user.phoneNumber)")
@@ -729,7 +813,7 @@ import UIKit
                   let chat
             else { return }
             customChat.chat = chat
-            currentChatTitle = customChat.isSavedMessages ? "Saved Messages" : chat.title
+            currentChatTitle = isSelfProfile ? "Saved Messages" : chat.title
             if currentChatPhotoInfo != chat.photo {
                 currentProfilePhoto = nil
                 hasHydratedFullInfo = false
@@ -746,12 +830,26 @@ import UIKit
         if !user.phoneNumber.isEmpty {
             details.append("+\(user.phoneNumber)")
         }
+        let signature = UserPhotoRoleSignature(
+            mainID: info.photo?.id.rawValue,
+            personalID: isSelfProfile ? nil : info.personalPhoto?.id.rawValue,
+            publicID: info.publicPhoto?.id.rawValue,
+        )
+        let selectedPhoto = isSelfProfile
+            ? info.photo
+            : (info.personalPhoto ?? info.photo ?? info.publicPhoto)
+        let photoIDWillChange = hasHydratedFullInfo && currentProfilePhoto?.id != selectedPhoto?.id
+        let roleSignatureChanged = currentUserPhotoRoleSignature != signature
+        currentUserPhotoRoleSignature = signature
         applyFullInfo(
             bio: info.bio?.text ?? info.botInfo?.description ?? info.botInfo?.shortDescription,
             details: details,
             status: nil,
-            photo: info.personalPhoto ?? info.photo ?? info.publicPhoto,
+            photo: selectedPhoto,
         )
+        if roleSignatureChanged, !photoIDWillChange, activeAvatarGallery != nil {
+            resetAvatarGalleryForMetadataChange()
+        }
     }
 
     private func applyFullInfo(
@@ -765,11 +863,12 @@ import UIKit
         if let status {
             currentStatusText = status
         }
-        if hasHydratedFullInfo, currentProfilePhoto?.id != photo?.id {
-            resetAvatarGalleryForMetadataChange()
-        }
+        let photoChanged = hasHydratedFullInfo && currentProfilePhoto?.id != photo?.id
         hasHydratedFullInfo = true
         currentProfilePhoto = photo
+        if photoChanged {
+            resetAvatarGalleryForMetadataChange()
+        }
         scheduleMetadataRender()
     }
 
@@ -777,15 +876,73 @@ import UIKit
         avatarMetadataGeneration &+= 1
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
+        avatarReconciliationTask?.cancel()
         avatarGalleryTask = nil
+        avatarGalleryRequestID = nil
         avatarHistoryTask = nil
+        avatarHistoryRequestID = nil
+        avatarReconciliationTask = nil
+        avatarReconciliationRequestID = nil
+        if let activeAvatarGallery, contextIsCurrent {
+            let generation = avatarMetadataGeneration
+            let requestID = UUID()
+            avatarReconciliationRequestID = requestID
+            avatarReconciliationTask = Task { [weak self, weak activeAvatarGallery] in
+                guard let self else { return }
+                defer {
+                    if avatarReconciliationRequestID == requestID {
+                        avatarReconciliationRequestID = nil
+                        avatarReconciliationTask = nil
+                    }
+                }
+                guard let activeAvatarGallery else { return }
+                do {
+                    let payload = try await loadAvatarGalleryPayload()
+                    guard !Task.isCancelled,
+                          contextIsCurrent,
+                          avatarMetadataGeneration == generation,
+                          avatarReconciliationRequestID == requestID,
+                          self.activeAvatarGallery === activeAvatarGallery
+                    else { return }
+                    avatarHistoryRawOffset = payload.historyRawOffset
+                    avatarHistoryTotalCount = payload.historyTotalCount
+                    avatarHistoryExtraPhotoCount = payload.extraPhotoCount
+                    avatarHistoryKnownPhotoIDs = Set(payload.items.map(\.id))
+                    avatarHistoryTrailingPhotoID = payload.trailingPhotoID
+                    avatarHistoryUserID = payload.userID
+                    if payload.items.isEmpty {
+                        activeAvatarGallery.onRequestMoreItems = nil
+                        activeAvatarGallery.reconcileItems([], totalCount: 0)
+                        self.activeAvatarGallery = nil
+                        return
+                    }
+                    activeAvatarGallery.onRequestMoreItems = payload.userID == nil
+                        ? nil
+                        : { [weak self] in
+                            self?.loadMoreAvatarHistory()
+                        }
+                    activeAvatarGallery.reconcileItems(payload.items, totalCount: payload.totalCount)
+                } catch {
+                    guard !Task.isCancelled,
+                          avatarMetadataGeneration == generation,
+                          avatarReconciliationRequestID == requestID,
+                          self.activeAvatarGallery === activeAvatarGallery
+                    else { return }
+                    activeAvatarGallery.onRequestMoreItems = { [weak self] in
+                        self?.resetAvatarGalleryForMetadataChange()
+                    }
+                    activeAvatarGallery.showMoreItemsRetry()
+                }
+            }
+            avatarLoadingIndicator.stopAnimating()
+            return
+        }
         avatarHistoryRawOffset = 0
         avatarHistoryTotalCount = 0
-        avatarHistoryHasExtraCurrentPhoto = false
+        avatarHistoryExtraPhotoCount = 0
         avatarHistoryKnownPhotoIDs = []
+        avatarHistoryTrailingPhotoID = nil
         avatarHistoryUserID = nil
-        activeAvatarGallery?.dismiss(animated: false)
-        activeAvatarGallery = nil
         avatarLoadingIndicator.stopAnimating()
     }
 
@@ -803,17 +960,23 @@ import UIKit
         titleLabel.text = profileTitle()
         statusLabel.text = currentStatusText
         statusLabel.textColor = currentStatusText == "online" ? .systemGreen : .secondaryLabel
+        statusLabel.isHidden = currentStatusText.isEmpty
         bioLabel.text = currentBioText
         bioLabel.textColor = .label
         bioLabel.isHidden = currentBioText.isEmpty
         detailsLabel.text = currentDetailTexts.joined(separator: " · ")
         detailsLabel.isHidden = currentDetailTexts.isEmpty
         avatarView.configure(
-            file: currentChatPhotoInfo?.big,
-            minithumbnail: currentChatPhotoInfo?.minithumbnail,
+            file: displayedAvatarFile,
+            minithumbnail: displayedAvatarMinithumbnail,
             placeholder: customChat.telegramAvatarPlaceholder,
+            usesPeerPhotoForSavedMessages: isSelfProfile,
+            accountID: accountID,
+            accountUserID: accountUserID,
+            client: client,
         )
-        let avatarGalleryIsAvailable = !customChat.isSavedMessages && currentChatPhotoInfo != nil
+        renderedAvatarItemID = displayedAvatarItemID
+        renderedAvatarFileID = displayedAvatarFile?.id
         avatarTapGesture.isEnabled = avatarGalleryIsAvailable
         avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
         avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
@@ -823,6 +986,7 @@ import UIKit
     }
 
     private func updateActionAvailability() {
+        messageActionButton.isHidden = isSelfProfile
         membersActionButton.isHidden =
             switch customChat.type {
             case .group:
@@ -1028,24 +1192,19 @@ import UIKit
     }
 
     private func profileTitle() -> String {
-        guard customChat.isSavedMessages, let user = customChat.user else {
-            return currentChatTitle
-        }
-        let name = [user.firstName, user.lastName]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return name.isEmpty ? customChat.displayTitle : name
+        isSelfProfile ? "Saved Messages" : currentChatTitle
     }
 
     @objc private func avatarPressed() {
-        guard !customChat.isSavedMessages,
-              currentChatPhotoInfo != nil,
+        guard avatarGalleryIsAvailable,
               avatarGalleryTask == nil,
               contextIsCurrent,
               presentedViewController == nil
         else { return }
         avatarLoadingIndicator.startAnimating()
         let avatarGeneration = avatarMetadataGeneration
+        let requestID = UUID()
+        avatarGalleryRequestID = requestID
         avatarGalleryTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -1053,15 +1212,16 @@ import UIKit
                 guard !Task.isCancelled,
                       contextIsCurrent,
                       avatarMetadataGeneration == avatarGeneration,
+                      avatarGalleryRequestID == requestID,
                       view.window != nil,
                       navigationController?.topViewController === self,
                       presentedViewController == nil,
                       let selectedItem = payload.items.first
                 else {
-                    finishAvatarGalleryLoad()
+                    finishAvatarGalleryLoad(requestID: requestID)
                     return
                 }
-                let transitionSource = avatarTransitionTarget(itemID: selectedItem.id)
+                let transitionSource = avatarTransitionTarget(item: selectedItem)
                 let gallery = ProfileAvatarGalleryViewController(
                     accountID: accountID,
                     client: client,
@@ -1071,7 +1231,7 @@ import UIKit
                     transitionSource: transitionSource,
                     transitionSourceProvider: { [weak self] itemID in
                         guard itemID == selectedItem.id else { return nil }
-                        return self?.avatarTransitionTarget(itemID: itemID)
+                        return self?.avatarTransitionTarget(item: selectedItem)
                     },
                 )
                 gallery.contextIsCurrent = { [weak self] in
@@ -1079,8 +1239,9 @@ import UIKit
                 }
                 avatarHistoryRawOffset = payload.historyRawOffset
                 avatarHistoryTotalCount = payload.historyTotalCount
-                avatarHistoryHasExtraCurrentPhoto = payload.hasExtraCurrentPhoto
+                avatarHistoryExtraPhotoCount = payload.extraPhotoCount
                 avatarHistoryKnownPhotoIDs = Set(payload.items.map(\.id))
+                avatarHistoryTrailingPhotoID = payload.trailingPhotoID
                 avatarHistoryUserID = payload.userID
                 activeAvatarGallery = gallery
                 if payload.userID != nil {
@@ -1088,22 +1249,23 @@ import UIKit
                         self?.loadMoreAvatarHistory()
                     }
                 }
-                finishAvatarGalleryLoad()
+                finishAvatarGalleryLoad(requestID: requestID)
                 present(gallery, animated: true)
             } catch {
                 guard !Task.isCancelled else { return }
-                let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo)
+                let fallback = avatarGalleryFallbackItem
                 guard contextIsCurrent,
                       avatarMetadataGeneration == avatarGeneration,
+                      avatarGalleryRequestID == requestID,
                       view.window != nil,
                       navigationController?.topViewController === self,
                       presentedViewController == nil,
                       let fallback
                 else {
-                    finishAvatarGalleryLoad()
+                    finishAvatarGalleryLoad(requestID: requestID)
                     return
                 }
-                let transitionSource = avatarTransitionTarget(itemID: fallback.id)
+                let transitionSource = avatarTransitionTarget(item: fallback)
                 let gallery = ProfileAvatarGalleryViewController(
                     accountID: accountID,
                     client: client,
@@ -1113,7 +1275,7 @@ import UIKit
                     transitionSource: transitionSource,
                     transitionSourceProvider: { [weak self] itemID in
                         guard itemID == fallback.id else { return nil }
-                        return self?.avatarTransitionTarget(itemID: itemID)
+                        return self?.avatarTransitionTarget(item: fallback)
                     },
                 )
                 gallery.contextIsCurrent = { [weak self] in
@@ -1121,11 +1283,12 @@ import UIKit
                 }
                 avatarHistoryRawOffset = 0
                 avatarHistoryTotalCount = 0
-                avatarHistoryHasExtraCurrentPhoto = false
+                avatarHistoryExtraPhotoCount = 0
                 avatarHistoryKnownPhotoIDs = [fallback.id]
+                avatarHistoryTrailingPhotoID = nil
                 avatarHistoryUserID = nil
                 activeAvatarGallery = gallery
-                finishAvatarGalleryLoad()
+                finishAvatarGalleryLoad(requestID: requestID)
                 present(gallery, animated: true)
             }
         }
@@ -1135,32 +1298,62 @@ import UIKit
         switch customChat.type {
         case .bot(let user), .user(let user):
             let info = try await client.getUserFullInfo(userId: user.id)
-            let currentPhoto = info.personalPhoto ?? info.photo ?? info.publicPhoto ?? currentProfilePhoto
             let result = try await client.getUserProfilePhotos(limit: 100, offset: 0, userId: user.id)
-            var photos = result.photos
-            var totalCount = result.totalCount
-            let hasExtraCurrentPhoto: Bool
-            if let currentPhoto {
-                photos.removeAll(where: { $0.id == currentPhoto.id })
-                photos.insert(currentPhoto, at: 0)
-                hasExtraCurrentPhoto = !result.photos.contains(where: { $0.id == currentPhoto.id })
-                if hasExtraCurrentPhoto {
-                    totalCount += 1
-                }
+            let historyItems = result.photos.map(ProfileAvatarGalleryItem.init(photo:))
+            let publicItem = info.publicPhoto.map(ProfileAvatarGalleryItem.init(photo:))
+            let rolePhotos = isSelfProfile
+                ? [info.photo, info.publicPhoto].compactMap(\.self)
+                : [info.personalPhoto, info.photo, info.publicPhoto].compactMap(\.self)
+            let fullItemsByID = Dictionary(
+                (rolePhotos.map(ProfileAvatarGalleryItem.init(photo:)) + historyItems)
+                    .map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first },
+            )
+            var items = [ProfileAvatarGalleryItem]()
+            var knownIDs = Set<Int64>()
+            let appendItem: (ProfileAvatarGalleryItem?) -> Void = { item in
+                guard let item, knownIDs.insert(item.id).inserted else { return }
+                items.append(item)
+            }
+            let effectiveID = currentUserProfilePhoto?.id.rawValue
+            if let effectiveID, effectiveID != 0 {
+                appendItem(fullItemsByID[effectiveID] ??
+                    ProfileAvatarGalleryItem(profilePhoto: currentUserProfilePhoto))
+            }
+            if isSelfProfile {
+                appendItem(info.photo.map(ProfileAvatarGalleryItem.init(photo:)))
             } else {
-                hasExtraCurrentPhoto = false
+                appendItem((info.personalPhoto ?? info.photo ?? info.publicPhoto)
+                    .map(ProfileAvatarGalleryItem.init(photo:)))
+                if info.personalPhoto != nil {
+                    appendItem(info.photo.map(ProfileAvatarGalleryItem.init(photo:)))
+                }
             }
-            var items = photos.map(ProfileAvatarGalleryItem.init(photo:))
-            if items.isEmpty, let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo) {
+            for item in historyItems where item.id != publicItem?.id {
+                appendItem(item)
+            }
+            let publicWasAlreadyCurrent = publicItem.map { knownIDs.contains($0.id) } == true
+            if !publicWasAlreadyCurrent {
+                appendItem(publicItem)
+            }
+            if items.isEmpty, !isSelfProfile,
+               let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo)
+            {
                 items = [fallback]
-                totalCount = max(totalCount, 1)
+                knownIDs = [fallback.id]
             }
+            let resultIDs = Set(result.photos.map(\.id.rawValue))
+            let extraPhotoCount = knownIDs.filter { !resultIDs.contains($0) }.count
+            let trailingPhotoID = !publicWasAlreadyCurrent && items.last?.id == publicItem?.id
+                ? publicItem?.id
+                : nil
             return AvatarGalleryPayload(
-                hasExtraCurrentPhoto: hasExtraCurrentPhoto,
+                extraPhotoCount: extraPhotoCount,
                 historyRawOffset: result.photos.count,
                 historyTotalCount: result.totalCount,
                 items: items,
-                totalCount: totalCount,
+                totalCount: max(items.count, result.totalCount + extraPhotoCount),
+                trailingPhotoID: trailingPhotoID,
                 userID: user.id,
             )
         case .group(let group):
@@ -1168,11 +1361,12 @@ import UIKit
             let photo = info.photo ?? currentProfilePhoto
             if let photo {
                 return AvatarGalleryPayload(
-                    hasExtraCurrentPhoto: false,
+                    extraPhotoCount: 0,
                     historyRawOffset: 0,
                     historyTotalCount: 0,
                     items: [ProfileAvatarGalleryItem(photo: photo)],
                     totalCount: 1,
+                    trailingPhotoID: nil,
                     userID: nil,
                 )
             }
@@ -1181,56 +1375,71 @@ import UIKit
             let photo = info.photo ?? currentProfilePhoto
             if let photo {
                 return AvatarGalleryPayload(
-                    hasExtraCurrentPhoto: false,
+                    extraPhotoCount: 0,
                     historyRawOffset: 0,
                     historyTotalCount: 0,
                     items: [ProfileAvatarGalleryItem(photo: photo)],
                     totalCount: 1,
+                    trailingPhotoID: nil,
                     userID: nil,
                 )
             }
         }
-        if let fallback = ProfileAvatarGalleryItem(current: currentChatPhotoInfo) {
+        if let fallback = avatarGalleryFallbackItem {
             return AvatarGalleryPayload(
-                hasExtraCurrentPhoto: false,
+                extraPhotoCount: 0,
                 historyRawOffset: 0,
                 historyTotalCount: 0,
                 items: [fallback],
                 totalCount: 1,
+                trailingPhotoID: nil,
                 userID: nil,
             )
         }
         return AvatarGalleryPayload(
-            hasExtraCurrentPhoto: false,
+            extraPhotoCount: 0,
             historyRawOffset: 0,
             historyTotalCount: 0,
             items: [],
             totalCount: 0,
+            trailingPhotoID: nil,
             userID: nil,
         )
     }
 
     private func loadMoreAvatarHistory() {
         guard avatarHistoryTask == nil,
+              avatarReconciliationTask == nil,
               let userID = avatarHistoryUserID,
               avatarHistoryRawOffset < avatarHistoryTotalCount,
               let activeAvatarGallery,
               contextIsCurrent
         else { return }
         let offset = avatarHistoryRawOffset
+        let metadataGeneration = avatarMetadataGeneration
+        let requestID = UUID()
+        avatarHistoryRequestID = requestID
         avatarHistoryTask = Task { [weak self, weak activeAvatarGallery] in
             guard let self else { return }
+            defer {
+                if avatarHistoryRequestID == requestID {
+                    avatarHistoryRequestID = nil
+                    avatarHistoryTask = nil
+                }
+            }
             do {
                 let result = try await client.getUserProfilePhotos(limit: 100, offset: offset, userId: userID)
-                avatarHistoryTask = nil
                 guard let activeAvatarGallery else {
                     return
                 }
                 guard !Task.isCancelled,
                       contextIsCurrent,
+                      avatarMetadataGeneration == metadataGeneration,
+                      avatarHistoryRequestID == requestID,
+                      avatarHistoryRawOffset == offset,
                       self.activeAvatarGallery === activeAvatarGallery
                 else { return }
-                avatarHistoryRawOffset += result.photos.count
+                avatarHistoryRawOffset = offset + result.photos.count
                 avatarHistoryTotalCount = result.totalCount
                 if result.photos.isEmpty {
                     avatarHistoryRawOffset = result.totalCount
@@ -1241,34 +1450,49 @@ import UIKit
                 }
                 activeAvatarGallery.appendItems(
                     newItems,
-                    totalCount: result.totalCount + (avatarHistoryHasExtraCurrentPhoto ? 1 : 0),
+                    before: avatarHistoryTrailingPhotoID,
+                    totalCount: result.totalCount + avatarHistoryExtraPhotoCount,
                 )
             } catch {
-                avatarHistoryTask = nil
                 guard let activeAvatarGallery else {
                     return
                 }
-                guard self.activeAvatarGallery === activeAvatarGallery else { return }
+                guard !Task.isCancelled,
+                      avatarMetadataGeneration == metadataGeneration,
+                      avatarHistoryRequestID == requestID,
+                      self.activeAvatarGallery === activeAvatarGallery
+                else { return }
                 activeAvatarGallery.showMoreItemsRetry()
             }
         }
     }
 
-    private func avatarTransitionTarget(itemID: Int64) -> MediaGalleryTransitionTarget? {
+    private func avatarTransitionTarget(item: ProfileAvatarGalleryItem) -> MediaGalleryTransitionTarget? {
+        let itemContainsRenderedFile = item.photo.sizes.contains { $0.photo.id == renderedAvatarFileID }
         guard contextIsCurrent,
+              renderedAvatarItemID == item.id,
+              itemContainsRenderedFile,
               avatarView.window != nil
         else { return nil }
         return MediaGalleryTransitionTarget(
-            messageID: itemID,
+            messageID: item.id,
             sourceView: avatarView,
             validation: { [weak self, weak avatarView] in
                 guard let self, let avatarView else { return false }
-                return contextIsCurrent && self.avatarView === avatarView && avatarView.window != nil
+                return contextIsCurrent
+                    && renderedAvatarItemID == item.id
+                    && item.photo.sizes.contains { $0.photo.id == self.renderedAvatarFileID }
+                    && self.avatarView === avatarView
+                    && avatarView.window != nil
             },
         )
     }
 
-    private func finishAvatarGalleryLoad() {
+    private func finishAvatarGalleryLoad(requestID: UUID? = nil) {
+        if let requestID, avatarGalleryRequestID != requestID {
+            return
+        }
+        avatarGalleryRequestID = nil
         avatarGalleryTask = nil
         avatarLoadingIndicator.stopAnimating()
     }

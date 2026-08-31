@@ -31,6 +31,25 @@ struct ProfileAvatarGalleryItem: Hashable {
         )
     }
 
+    init?(profilePhoto: ProfilePhoto?) {
+        guard let profilePhoto, profilePhoto.id.rawValue != 0 else { return nil }
+        self.addedDate = 0
+        self.animation = nil
+        self.id = profilePhoto.id.rawValue
+        self.minithumbnail = profilePhoto.minithumbnail
+        self.photo = Photo(
+            hasStickers: false,
+            minithumbnail: profilePhoto.minithumbnail,
+            sizes: [PhotoSize(
+                height: 640,
+                photo: profilePhoto.big,
+                progressiveSizes: [],
+                type: "i",
+                width: 640,
+            )],
+        )
+    }
+
     init?(current photo: ChatPhotoInfo?) {
         guard let photo else { return nil }
         self.addedDate = 0
@@ -71,6 +90,7 @@ struct ProfileAvatarGalleryItem: Hashable {
     private var totalCount: Int
     private var paginationRequestedItemCount: Int?
     private var paginationMutationInProgress = false
+    private var pendingReconciliation: (items: [ProfileAvatarGalleryItem], totalCount: Int)?
     private var didSetInitialPosition = false
     private let footer = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let closeButton = UIButton(type: .system)
@@ -223,7 +243,11 @@ struct ProfileAvatarGalleryItem: Hashable {
         }
     }
 
-    func appendItems(_ appendedItems: [ProfileAvatarGalleryItem], totalCount: Int) {
+    func appendItems(
+        _ appendedItems: [ProfileAvatarGalleryItem],
+        before trailingItemID: Int64? = nil,
+        totalCount: Int,
+    ) {
         guard contextIsCurrent?() != false else { return }
         retryButton.isHidden = true
         let existingIDs = Set(items.map(\.id))
@@ -235,18 +259,80 @@ struct ProfileAvatarGalleryItem: Hashable {
             requestMoreItemsIfNeeded(near: selectedIndex)
             return
         }
-        let startIndex = items.count
-        items.append(contentsOf: appendedItems)
+        let selectedItemID = selectedItemID
+        let startIndex = trailingItemID.flatMap { trailingItemID in
+            items.firstIndex(where: { $0.id == trailingItemID })
+        } ?? items.count
+        items.insert(contentsOf: appendedItems, at: startIndex)
+        if let selectedItemID,
+           let updatedSelectedIndex = items.firstIndex(where: { $0.id == selectedItemID })
+        {
+            selectedIndex = updatedSelectedIndex
+        }
         paginationMutationInProgress = true
         collectionView.performBatchUpdates {
-            collectionView.insertItems(at: (startIndex..<items.count).map { IndexPath(item: $0, section: 0) })
+            collectionView.insertItems(at: (startIndex..<(startIndex + appendedItems.count)).map {
+                IndexPath(item: $0, section: 0)
+            })
         } completion: { [weak self] _ in
             guard let self else { return }
             paginationMutationInProgress = false
+            if let pendingReconciliation {
+                self.pendingReconciliation = nil
+                reconcileItems(
+                    pendingReconciliation.items,
+                    totalCount: pendingReconciliation.totalCount,
+                )
+                return
+            }
             paginationRequestedItemCount = nil
+            if let selectedItemID,
+               let selectedIndex = items.firstIndex(where: { $0.id == selectedItemID })
+            {
+                self.selectedIndex = selectedIndex
+                collectionView.scrollToItem(
+                    at: IndexPath(item: selectedIndex, section: 0),
+                    at: .centeredHorizontally,
+                    animated: false,
+                )
+            }
             updateCounter()
             requestMoreItemsIfNeeded(near: selectedIndex)
         }
+    }
+
+    func reconcileItems(_ updatedItems: [ProfileAvatarGalleryItem], totalCount: Int) {
+        guard contextIsCurrent?() != false else { return }
+        let updatedItems = Self.deduplicated(updatedItems)
+        if paginationMutationInProgress {
+            pendingReconciliation = (updatedItems, totalCount)
+            return
+        }
+        guard !updatedItems.isEmpty else {
+            items = []
+            self.totalCount = 0
+            paginationRequestedItemCount = nil
+            dismiss(animated: false)
+            return
+        }
+        let selectedItemID = selectedItemID
+        items = updatedItems
+        self.totalCount = max(totalCount, updatedItems.count)
+        selectedIndex = selectedItemID.flatMap { selectedItemID in
+            updatedItems.firstIndex(where: { $0.id == selectedItemID })
+        } ?? 0
+        paginationRequestedItemCount = nil
+        retryButton.isHidden = true
+        guard isViewLoaded else { return }
+        collectionView.reloadData()
+        collectionView.layoutIfNeeded()
+        collectionView.scrollToItem(
+            at: IndexPath(item: selectedIndex, section: 0),
+            at: .centeredHorizontally,
+            animated: false,
+        )
+        updateCounter()
+        requestMoreItemsIfNeeded(near: selectedIndex)
     }
 
     func showMoreItemsRetry() {
