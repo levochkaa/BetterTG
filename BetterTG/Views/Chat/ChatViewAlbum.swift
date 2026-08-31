@@ -235,6 +235,230 @@ struct VideoPlaybackAttachmentToken: Hashable {
     }
 #endif
 
+// MARK: - GalleryCaptionTextView
+
+private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
+    private struct EntityAction {
+        let accessibilityLabel: String
+        let range: NSRange
+        let requiresConfirmation: Bool
+        let url: URL
+    }
+
+    override var canBecomeFirstResponder: Bool { false }
+
+    var onBackgroundTap: (() -> Void)?
+    var onInteractionChanged: ((Bool) -> Void)?
+    var onOpenURL: ((URL, Bool) -> Void)?
+    var onRevealSpoilers: (() -> Void)?
+
+    private var entityActions = [EntityAction]()
+    private var spoilerRanges = [NSRange]()
+    private var spoilersAreRevealed = false
+    private var representedMessageID: Int64?
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        backgroundColor = .clear
+        delegate = self
+        isEditable = false
+        isSelectable = false
+        isScrollEnabled = true
+        alwaysBounceVertical = false
+        showsVerticalScrollIndicator = true
+        scrollsToTop = false
+        textContainerInset = .zero
+        self.textContainer.lineFragmentPadding = 0
+        self.textContainer.lineBreakMode = .byWordWrapping
+        adjustsFontForContentSizeCategory = true
+        accessibilityTraits = .staticText
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(captionTapped(_:))))
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private static func entityAction(_ entity: TextEntity, text: String) -> (URL, String, Bool)? {
+        let range = NSRange(location: entity.offset, length: entity.length)
+        guard let stringRange = Range(range, in: text) else { return nil }
+        let raw = String(text[stringRange])
+        switch entity.type {
+        case .textEntityTypeEmailAddress:
+            return URL(string: "mailto://\(raw)").map { ($0, "Email \(raw)", false) }
+        case .textEntityTypeMention:
+            return getUrl(from: "t.me/\(raw.trimmingCharacters(in: CharacterSet(charactersIn: "@")))")
+                .map { ($0, "Open \(raw)", false) }
+        case .textEntityTypePhoneNumber:
+            return URL(string: "tel://\(raw)").map { ($0, "Call \(raw)", false) }
+        case .textEntityTypeTextUrl(let textURL):
+            guard let url = getUrl(from: textURL.url) else { return nil }
+            let displayedURL = getUrl(from: raw)
+            let matchesDisplayedDestination = displayedURL.map(Self.normalizedURLString) == Self
+                .normalizedURLString(url)
+            return (url, "Open link to \(url.host ?? url.absoluteString)", !matchesDisplayedDestination)
+        case .textEntityTypeUrl:
+            return getUrl(from: raw).map { ($0, "Open link \(raw)", false) }
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedURLString(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if (components.scheme == "https" && components.port == 443)
+            || (components.scheme == "http" && components.port == 80)
+        {
+            components.port = nil
+        }
+        if components.host != nil, components.percentEncodedPath.isEmpty {
+            components.percentEncodedPath = "/"
+        }
+        return components.string ?? url.absoluteString
+    }
+
+    private static func accessibilityText(
+        _ formattedText: FormattedText,
+        spoilerRanges: [NSRange],
+        revealed: Bool,
+    ) -> String {
+        guard !revealed, !spoilerRanges.isEmpty else { return formattedText.text }
+        let redacted = NSMutableString(string: formattedText.text)
+        for range in spoilerRanges.sorted(by: { $0.location > $1.location }) {
+            redacted.replaceCharacters(in: range, with: "Spoiler")
+        }
+        return String(redacted)
+    }
+
+    func configure(messageID: Int64, formattedText: FormattedText, spoilersRevealed: Bool) {
+        let resetsScrollPosition = representedMessageID != messageID
+        representedMessageID = messageID
+        spoilersAreRevealed = spoilersRevealed
+        let caption = NSMutableAttributedString(
+            attributedString: NSAttributedString(getAttributedString(from: formattedText, .white)),
+        )
+        let fontMetrics = UIFontMetrics(forTextStyle: .body)
+        caption.enumerateAttribute(.font, in: NSRange(location: 0, length: caption.length)) { value, range, _ in
+            guard let font = value as? UIFont else { return }
+            caption.addAttribute(.font, value: fontMetrics.scaledFont(for: font), range: range)
+        }
+        spoilerRanges = formattedText.entities.compactMap { entity -> NSRange? in
+            guard case .textEntityTypeSpoiler = entity.type else { return nil }
+            let range = NSRange(location: entity.offset, length: entity.length)
+            return NSMaxRange(range) <= caption.length ? range : nil
+        }
+        let spoilerColor = UIColor.systemGray
+        for range in spoilerRanges {
+            caption.addAttributes(
+                spoilersRevealed
+                    ? [.backgroundColor: UIColor.clear, .foregroundColor: UIColor.white]
+                    : [.backgroundColor: spoilerColor, .foregroundColor: spoilerColor],
+                range: range,
+            )
+        }
+        entityActions = formattedText.entities.compactMap { entity in
+            let range = NSRange(location: entity.offset, length: entity.length)
+            guard NSMaxRange(range) <= caption.length,
+                  let action = Self.entityAction(entity, text: formattedText.text)
+            else { return nil }
+            return EntityAction(
+                accessibilityLabel: action.1,
+                range: range,
+                requiresConfirmation: action.2,
+                url: action.0,
+            )
+        }
+        attributedText = caption
+        accessibilityLabel = "Caption, \(Self.accessibilityText(formattedText, spoilerRanges: spoilerRanges, revealed: spoilersRevealed))"
+        var customActions = [UIAccessibilityCustomAction]()
+        if !spoilersRevealed, !spoilerRanges.isEmpty {
+            customActions.append(UIAccessibilityCustomAction(
+                name: "Reveal spoiler",
+                target: self,
+                selector: #selector(revealSpoilers),
+            ))
+        }
+        for action in entityActions where spoilersRevealed || !spoilerRanges.contains(where: {
+            NSIntersectionRange($0, action.range).length > 0
+        }) {
+            customActions.append(UIAccessibilityCustomAction(name: action.accessibilityLabel) { [weak self] _ in
+                guard let self else { return false }
+                onOpenURL?(action.url, action.requiresConfirmation)
+                return true
+            })
+        }
+        accessibilityCustomActions = customActions.isEmpty ? nil : customActions
+        if resetsScrollPosition {
+            setContentOffset(.zero, animated: false)
+            onInteractionChanged?(false)
+        }
+    }
+
+    func scrollViewWillBeginDragging(_: UIScrollView) {
+        onInteractionChanged?(true)
+    }
+
+    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            onInteractionChanged?(contentOffset.y > 1)
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_: UIScrollView) {
+        onInteractionChanged?(contentOffset.y > 1)
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        textView.selectedTextRange = nil
+    }
+
+    @objc private func revealSpoilers() -> Bool {
+        guard !spoilersAreRevealed, !spoilerRanges.isEmpty else { return false }
+        onRevealSpoilers?()
+        return true
+    }
+
+    @objc private func captionTapped(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended,
+              let characterIndex = characterIndex(at: gesture.location(in: self))
+        else {
+            onBackgroundTap?()
+            return
+        }
+        if !spoilersAreRevealed,
+           spoilerRanges.contains(where: { NSLocationInRange(characterIndex, $0) })
+        {
+            _ = revealSpoilers()
+            return
+        }
+        if let action = entityActions.first(where: { NSLocationInRange(characterIndex, $0.range) }) {
+            onOpenURL?(action.url, action.requiresConfirmation)
+            return
+        }
+        onBackgroundTap?()
+    }
+
+    private func characterIndex(at location: CGPoint) -> Int? {
+        var point = CGPoint(
+            x: location.x - textContainerInset.left + contentOffset.x,
+            y: location.y - textContainerInset.top + contentOffset.y,
+        )
+        point.x -= textContainer.lineFragmentPadding
+        let glyphIndex = layoutManager.glyphIndex(for: point, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer,
+        )
+        guard glyphRect.insetBy(dx: -3, dy: -3).contains(point) else { return nil }
+        return layoutManager.characterIndexForGlyph(at: glyphIndex)
+    }
+}
+
 // MARK: - MediaGalleryViewController
 
 final class MediaGalleryViewController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
@@ -290,6 +514,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
     private var messages: [Message]
+    private var totalMessageCount: Int?
     private let tdlib: TDLib
     private var selectedIndex: Int
     private var didSetInitialPosition = false
@@ -308,11 +533,17 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var chromeIsVisible = true
     private var interactiveDismissalProgress = CGFloat.zero
     private var interactiveDismissalChromeWasVisible = true
+    private var revealedCaptionSpoilerMessageIDs = Set<Int64>()
+    private var captionInteractionIsActive = false
     private let toolbar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let captionView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let captionTextView = GalleryCaptionTextView()
+    private var captionHeightConstraint: NSLayoutConstraint!
     private let closeButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
     private let counterLabel = UILabel()
     private var voiceOverCancellable: AnyCancellable?
+    private var contentSizeCancellable: AnyCancellable?
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private lazy var chromeTapGesture: UITapGestureRecognizer = {
         let gesture = UITapGestureRecognizer(target: self, action: #selector(toggleChromeVisibility))
@@ -352,6 +583,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               transitionCoordinator == nil,
               mediaTransitionController?.isInteractiveDismissalInProgress != true,
               !messageUpdateInProgress,
+              !captionInteractionIsActive,
               !isSelectedPictureInPictureRetained,
               messages.indices.contains(selectedIndex),
               collectionView.bounds.width > 0
@@ -363,6 +595,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     init(
         messages: [Message],
         selection: Int64,
+        totalMessageCount: Int? = nil,
         tdlib: TDLib = .shared,
         transferredPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
         transferredPlaybackOwners: [GalleryVideoPlaybackOwner] = [],
@@ -372,7 +605,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         self.tdlib = tdlib
         self.transitionSource = transitionSource
         self.transitionSourceProvider = transitionSourceProvider
-        self.messages = messages.filter { message in
+        let galleryMessages = messages.filter { message in
             switch message.content {
             case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
                 true
@@ -380,7 +613,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 false
             }
         }
-        self.selectedIndex = self.messages.firstIndex(where: { $0.id == selection }) ?? 0
+        self.messages = galleryMessages
+        self.totalMessageCount = totalMessageCount.map { max($0, galleryMessages.count) }
+        self.selectedIndex = galleryMessages.firstIndex(where: { $0.id == selection }) ?? 0
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalPresentationCapturesStatusBarAppearance = true
@@ -405,7 +640,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         view.accessibilityViewIsModal = true
         configureCollectionView()
         configureToolbar()
+        configureCaption()
         observeVoiceOver()
+        observeContentSizeCategory()
     }
 
     override func viewDidLayoutSubviews() {
@@ -416,6 +653,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             layout.itemSize = collectionView.bounds.size
             layout.invalidateLayout()
         }
+        updateCaptionHeight()
         guard !didSetInitialPosition, messages.indices.contains(selectedIndex) else { return }
         didSetInitialPosition = true
         collectionView.scrollToItem(
@@ -507,9 +745,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     func collectionView(
         _: UICollectionView,
         didEndDisplaying cell: UICollectionViewCell,
-        forItemAt _: IndexPath,
+        forItemAt indexPath: IndexPath,
     ) {
         let cell = cell as? MediaGalleryCell
+        if indexPath.item == selectedIndex, captionInteractionIsActive {
+            captionInteractionIsActive = false
+            cell?.setGalleryChromeInteractionActive(false)
+        }
         cell?.unbindGalleryChrome()
         cell?.setPlaybackVisible(false)
     }
@@ -690,7 +932,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         let previousIDs = messages.map(\.id)
         let updatedIDs = updatedMessages.map(\.id)
-        guard previousIDs != updatedIDs else { return }
+        if previousIDs == updatedIDs {
+            messages = updatedMessages
+            if isViewLoaded {
+                updateCounter()
+            }
+            return
+        }
         let selectedMessageID = selectedMessageID
         if let selectedMessageID, !updatedIDs.contains(selectedMessageID) {
             forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
@@ -703,6 +951,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             && updatedIDs.starts(with: previousIDs)
         let previousCount = messages.count
         messages = updatedMessages
+        if let totalMessageCount, messages.count > totalMessageCount {
+            self.totalMessageCount = messages.count
+        }
         selectedIndex =
             if let selectedMessageID,
             let preservedIndex = messages.firstIndex(where: { $0.id == selectedMessageID }) {
@@ -753,6 +1004,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func allowMoreMessagesRetry() {
         paginationRequestedMessageCount = nil
+    }
+
+    func updateTotalMessageCount(_ count: Int?) {
+        totalMessageCount = count.map { max($0, messages.count) }
+        if isViewLoaded {
+            updateCounter()
+        }
     }
 
     func invalidateForContextChange(completion: @escaping () -> Void) {
@@ -885,8 +1143,117 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         ])
     }
 
+    private func configureCaption() {
+        captionView.translatesAutoresizingMaskIntoConstraints = false
+        captionView.accessibilityIdentifier = "gallery-caption"
+        captionView.isHidden = true
+        captionTextView.translatesAutoresizingMaskIntoConstraints = false
+        captionTextView.onBackgroundTap = { [weak self] in
+            self?.toggleChromeVisibility()
+        }
+        captionTextView.onInteractionChanged = { [weak self] isInteracting in
+            self?.setCaptionInteractionActive(isInteracting)
+        }
+        captionTextView.onOpenURL = { [weak self] url, requiresConfirmation in
+            self?.openCaptionURL(url, requiresConfirmation: requiresConfirmation)
+        }
+        captionTextView.onRevealSpoilers = { [weak self] in
+            self?.revealSelectedCaptionSpoilers()
+        }
+        captionView.contentView.addSubview(captionTextView)
+        view.addSubview(captionView)
+        captionHeightConstraint = captionView.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            captionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            captionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            captionView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            captionHeightConstraint,
+            captionTextView.topAnchor.constraint(equalTo: captionView.contentView.topAnchor, constant: 8),
+            captionTextView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            captionTextView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            captionTextView.bottomAnchor.constraint(equalTo: captionView.contentView.bottomAnchor, constant: -8),
+        ])
+    }
+
     private func updateCounter() {
-        counterLabel.text = messages.count > 1 ? "\(selectedIndex + 1) of \(messages.count)" : ""
+        let count = max(messages.count, totalMessageCount ?? messages.count)
+        counterLabel.text = count > 1 ? "\(selectedIndex + 1) of \(count)" : ""
+        updateCaption()
+    }
+
+    private func updateCaption() {
+        guard messages.indices.contains(selectedIndex),
+              let formattedText = MessageContentPresentation.make(messages[selectedIndex]).formattedText,
+              !formattedText.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            setCaptionInteractionActive(false)
+            captionView.isHidden = true
+            captionHeightConstraint.constant = 0
+            updateSelectedMediaChromeBottomInset()
+            return
+        }
+        let messageID = messages[selectedIndex].id
+        captionTextView.configure(
+            messageID: messageID,
+            formattedText: formattedText,
+            spoilersRevealed: revealedCaptionSpoilerMessageIDs.contains(messageID),
+        )
+        captionView.isHidden = false
+        captionView.alpha = chromeIsVisible ? 1 : 0
+        captionView.accessibilityElementsHidden = !chromeIsVisible
+        updateCaptionHeight()
+    }
+
+    private func updateCaptionHeight() {
+        guard !captionView.isHidden, view.bounds.width > 0 else {
+            captionHeightConstraint.constant = 0
+            updateSelectedMediaChromeBottomInset()
+            return
+        }
+        let width = max(1, view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right - 24)
+        let measuredHeight = captionTextView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude),
+        )
+        .height + 16
+        let maximumHeight = traitCollection.verticalSizeClass == .compact
+            ? min(96, view.bounds.height * 0.24)
+            : min(220, max(96, view.bounds.height * 0.32))
+        let height = min(maximumHeight, max(44, ceil(measuredHeight)))
+        captionHeightConstraint.constant = height
+        let canScroll = measuredHeight > height + 0.5
+        captionTextView.isScrollEnabled = canScroll
+        if !canScroll {
+            captionTextView.setContentOffset(.zero, animated: false)
+        }
+        if captionInteractionIsActive,
+           !captionTextView.isDragging,
+           !captionTextView.isDecelerating,
+           !canScroll || captionTextView.contentOffset.y <= 1
+        {
+            setCaptionInteractionActive(false)
+        }
+        updateSelectedMediaChromeBottomInset()
+    }
+
+    private func updateSelectedMediaChromeBottomInset() {
+        let captionHeight = captionView.isHidden ? 0 : captionHeightConstraint.constant
+        visibleSelectedGalleryCell()?.setGalleryChromeBottomInset(50 + captionHeight)
+    }
+
+    private func setCaptionInteractionActive(_ isActive: Bool) {
+        guard captionInteractionIsActive != isActive else { return }
+        captionInteractionIsActive = isActive
+        if isActive {
+            setChromeVisible(true, animated: false)
+        }
+        visibleSelectedGalleryCell()?.setGalleryChromeInteractionActive(isActive)
+    }
+
+    private func revealSelectedCaptionSpoilers() {
+        guard messages.indices.contains(selectedIndex) else { return }
+        revealedCaptionSpoilerMessageIDs.insert(messages[selectedIndex].id)
+        updateCaption()
+        UIAccessibility.post(notification: .layoutChanged, argument: captionTextView)
     }
 
     private func observeVoiceOver() {
@@ -899,14 +1266,45 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             }
     }
 
+    private func observeContentSizeCategory() {
+        contentSizeCancellable = NotificationCenter.default
+            .publisher(for: UIContentSizeCategory.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateCaption()
+            }
+    }
+
+    private func openCaptionURL(_ url: URL, requiresConfirmation: Bool) {
+        guard hasCurrentContext else { return }
+        guard requiresConfirmation else {
+            UIApplication.shared.open(url)
+            return
+        }
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "Open Link?",
+            message: url.absoluteString,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Open", style: .default) { _ in
+            UIApplication.shared.open(url)
+        })
+        present(alert, animated: true)
+    }
+
     private func setChromeVisible(_ visible: Bool, animated: Bool) {
         guard chromeIsVisible != visible else { return }
         chromeIsVisible = visible
         toolbar.isUserInteractionEnabled = visible
         toolbar.accessibilityElementsHidden = !visible
+        captionView.isUserInteractionEnabled = visible
+        captionView.accessibilityElementsHidden = !visible
         selectedGalleryCell()?.setGalleryChromeVisible(visible, animated: animated)
         let updates = {
             self.toolbar.alpha = visible ? 1 : 0
+            self.captionView.alpha = visible ? 1 : 0
         }
         if animated {
             UIView.animate(
@@ -939,6 +1337,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if let previousCell = collectionView.cellForItem(
             at: IndexPath(item: selectedIndex, section: 0),
         ) as? MediaGalleryCell {
+            setCaptionInteractionActive(false)
             previousCell.unbindGalleryChrome()
             previousCell.setPlaybackVisible(false)
         }
@@ -1129,6 +1528,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cell?.bindGalleryChrome(isVisible: chromeIsVisible) { [weak self] visible in
             self?.setChromeVisible(visible, animated: !UIAccessibility.isReduceMotionEnabled)
         }
+        cell?.setGalleryChromeBottomInset(50 + (captionView.isHidden ? 0 : captionHeightConstraint.constant))
+        cell?.setGalleryChromeInteractionActive(captionInteractionIsActive)
     }
 
     @objc private func toggleSelectedPlayback() {
@@ -2474,6 +2875,16 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         mediaView.setGalleryChromeVisible(isVisible, animated: animated)
     }
 
+    func setGalleryChromeBottomInset(_ inset: CGFloat) {
+        guard !isInvalidated else { return }
+        mediaView.setGalleryChromeBottomInset(inset)
+    }
+
+    func setGalleryChromeInteractionActive(_ isActive: Bool) {
+        guard !isInvalidated else { return }
+        mediaView.setGalleryChromeInteractionActive(isActive)
+    }
+
     func canBeginInteractiveDismissal(at point: CGPoint, in coordinateSpace: UIView) -> Bool {
         guard !isInvalidated,
               !isPictureInPictureRetained,
@@ -3478,6 +3889,22 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
+    func setGalleryChromeBottomInset(_ inset: CGFloat) {
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.setGalleryChromeBottomInset(inset)
+        } else {
+            contentMediaView?.setGalleryChromeBottomInset(inset)
+        }
+    }
+
+    func setGalleryChromeInteractionActive(_ isActive: Bool) {
+        if let videoPlaybackOwner {
+            videoPlaybackOwner.setGalleryChromeInteractionActive(isActive)
+        } else {
+            contentMediaView?.setGalleryChromeInteractionActive(isActive)
+        }
+    }
+
     func canBeginInteractiveDismissal(at point: CGPoint) -> Bool {
         if let videoPlaybackOwner {
             return videoPlaybackOwner.canBeginInteractiveDismissal(at: point, in: contentView)
@@ -3528,7 +3955,9 @@ protocol GalleryMediaView: AnyObject {
     func performPlaybackCommand(_ command: GalleryPlaybackCommand)
     func prepareForReuse()
     func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?)
+    func setGalleryChromeBottomInset(_ inset: CGFloat)
     func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool)
+    func setGalleryChromeInteractionActive(_ isActive: Bool)
     func setInteractiveDismissalActive(_ isActive: Bool)
     func setPlaybackVisible(_ isVisible: Bool)
 }
@@ -3537,7 +3966,9 @@ extension GalleryMediaView {
     func canBeginInteractiveDismissal(at _: CGPoint) -> Bool { true }
     func performPlaybackCommand(_: GalleryPlaybackCommand) {}
     func setGalleryChromeController(_: ((Bool) -> Void)?) {}
+    func setGalleryChromeBottomInset(_: CGFloat) {}
     func setGalleryChromeVisible(_: Bool, animated _: Bool) {}
+    func setGalleryChromeInteractionActive(_: Bool) {}
     func setInteractiveDismissalActive(_: Bool) {}
     func setPlaybackVisible(_: Bool) {}
 }
@@ -3717,6 +4148,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var controlsAutoHideWorkItem: DispatchWorkItem?
     private var controlsTapGesture: UITapGestureRecognizer?
     private var onGalleryChromeVisibilityChanged: ((Bool) -> Void)?
+    private var galleryChromeInteractionIsActive = false
     private var isInlinePresentation = false
     private var mutedBeforeInlinePresentation: Bool?
     private var waitsForInitialPlaybackVisibility = false
@@ -4200,6 +4632,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         onPictureInPictureEligibilityChanged = nil
         onPlaybackIntentChanged = nil
         onGalleryChromeVisibilityChanged = nil
+        galleryChromeInteractionIsActive = false
         loadIdentifier = nil
         sourceFile = nil
         usesLegacyDownload = false
@@ -4299,6 +4732,21 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?) {
         onGalleryChromeVisibilityChanged = visibilityChanged
         controlsTapGesture?.isEnabled = !isInlinePresentation && visibilityChanged == nil
+    }
+
+    func setGalleryChromeBottomInset(_ inset: CGFloat) {
+        controlsBottomConstraint.constant = -max(0, inset)
+    }
+
+    func setGalleryChromeInteractionActive(_ isActive: Bool) {
+        guard galleryChromeInteractionIsActive != isActive else { return }
+        galleryChromeInteractionIsActive = isActive
+        if isActive {
+            cancelControlsAutoHide()
+            setControlsVisible(true, animated: true)
+        } else {
+            scheduleControlsAutoHideIfNeeded()
+        }
     }
 
     func setGalleryChromeVisible(_ isVisible: Bool, animated: Bool) {
@@ -5327,6 +5775,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private func scheduleControlsAutoHideIfNeeded() {
         cancelControlsAutoHide()
         guard !hasBlockingStreamingStatus,
+              !galleryChromeInteractionIsActive,
               controlsAreVisible,
               Self.shouldAutoHideControls(
                   state: currentPlaybackState,
@@ -5339,6 +5788,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         let workItem = DispatchWorkItem { [weak self] in
             guard let self,
                   !hasBlockingStreamingStatus,
+                  !galleryChromeInteractionIsActive,
                   Self.shouldAutoHideControls(
                       state: currentPlaybackState,
                       isSeeking: isSeeking,

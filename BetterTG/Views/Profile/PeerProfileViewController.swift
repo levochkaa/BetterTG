@@ -57,9 +57,12 @@ import UIKit
     private var cancellables = Set<AnyCancellable>()
     private var infoTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
+    private var messageRefreshTasks = [Int64: Task<Void, Never>]()
+    private var messageRefreshGenerations = [Int64: UUID]()
     private var oldestMessageID: Int64?
     private var hasMore = true
     private var historyError: String?
+    private var sharedTotalMessageCount: Int?
     private weak var activeMediaGallery: MediaGalleryViewController?
 
     private var currentSharedTab: SharedTab {
@@ -91,6 +94,7 @@ import UIKit
     deinit {
         infoTask?.cancel()
         historyTask?.cancel()
+        messageRefreshTasks.values.forEach { $0.cancel() }
     }
 
     override func viewDidLoad() {
@@ -349,6 +353,7 @@ import UIKit
         let gallery = MediaGalleryViewController(
             messages: messages,
             selection: selectedMessage.id,
+            totalMessageCount: sharedTotalMessageCount,
             tdlib: .shared,
             transitionSource: transitionSource,
             transitionSourceProvider: { [weak self] messageID in
@@ -382,6 +387,12 @@ import UIKit
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
             self?.handleAccountChange()
         }
+        nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
+            self?.refreshSharedMessage(id: update.messageId, chatID: update.chatId)
+        }
+        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
+            self?.refreshSharedMessage(id: update.messageId, chatID: update.chatId)
+        }
         TDLib.shared
             .deleteMessageUpdates
             .receive(on: DispatchQueue.main)
@@ -396,6 +407,12 @@ import UIKit
                 let previousCount = messagesByID.count
                 messagesByID = messagesByID.filter { !deletedIDs.contains($0.key) }
                 guard messagesByID.count != previousCount else { return }
+                if let sharedTotalMessageCount {
+                    self.sharedTotalMessageCount = max(
+                        messagesByID.count,
+                        sharedTotalMessageCount - (previousCount - messagesByID.count),
+                    )
+                }
                 if let oldestMessageID, deletedIDs.contains(oldestMessageID) {
                     self.oldestMessageID = sortedSharedMessages.last?.id
                 }
@@ -418,6 +435,47 @@ import UIKit
         } else {
             leaveProfile()
         }
+    }
+
+    private func refreshSharedMessage(id: Int64, chatID: Int64) {
+        guard contextIsCurrent,
+              chatID == customChat.id,
+              messagesByID[id] != nil
+        else { return }
+        messageRefreshTasks[id]?.cancel()
+        let generation = UUID()
+        messageRefreshGenerations[id] = generation
+        let requestedTab = currentSharedTab
+        messageRefreshTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let message = try await client.getMessage(chatId: customChat.id, messageId: id)
+                guard messageRefreshGenerations[id] == generation else { return }
+                guard !Task.isCancelled,
+                      contextIsCurrent,
+                      currentSharedTab == requestedTab
+                else {
+                    finishMessageRefresh(id: id, generation: generation)
+                    return
+                }
+                messagesByID[id] =
+                    if let topic, message.topicId != topic {
+                        nil
+                    } else {
+                        message
+                    }
+                finishMessageRefresh(id: id, generation: generation)
+                applySnapshot()
+            } catch {
+                finishMessageRefresh(id: id, generation: generation)
+            }
+        }
+    }
+
+    private func finishMessageRefresh(id: Int64, generation: UUID) {
+        guard messageRefreshGenerations[id] == generation else { return }
+        messageRefreshGenerations[id] = nil
+        messageRefreshTasks[id] = nil
     }
 
     private func loadProfileInfo() {
@@ -493,6 +551,7 @@ import UIKit
                 for message in messages {
                     messagesByID[message.id] = message
                 }
+                sharedTotalMessageCount = max(messagesByID.count, result.totalCount)
                 oldestMessageID = nextCursor
                 hasMore = !messages.isEmpty && (fromMessageID == 0 || nextCursor != fromMessageID)
                 historyError = nil
@@ -524,6 +583,7 @@ import UIKit
         dataSource.apply(snapshot, animatingDifferences: true)
         if currentSharedTab == .media {
             activeMediaGallery?.updateMessages(messages)
+            activeMediaGallery?.updateTotalMessageCount(sharedTotalMessageCount)
         }
         guard messages.isEmpty else {
             collectionView.backgroundView = nil
@@ -582,10 +642,14 @@ import UIKit
     @objc private func tabChanged() {
         historyTask?.cancel()
         historyTask = nil
+        messageRefreshTasks.values.forEach { $0.cancel() }
+        messageRefreshTasks = [:]
+        messageRefreshGenerations = [:]
         messagesByID = [:]
         oldestMessageID = nil
         hasMore = true
         historyError = nil
+        sharedTotalMessageCount = nil
         collectionView.collectionViewLayout.invalidateLayout()
         loadMore()
     }
