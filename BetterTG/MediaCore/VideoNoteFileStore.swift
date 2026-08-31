@@ -48,6 +48,7 @@ struct VideoNoteSendDraft: Codable, ChatDraftScoped {
     var removalRequestedAt: Foundation.Date?
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic? = nil
     let thumbnailFileURL: URL?
     let thumbnailHeight: Int?
     let thumbnailWidth: Int?
@@ -161,6 +162,7 @@ actor VideoNoteFileStore {
         originRecordingDraftID: UUID? = nil,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
+        sendTopic: MessageTopic? = nil,
     ) throws -> VideoNoteSendDraft {
         try ensureDirectory()
         if let thumbnail {
@@ -244,6 +246,7 @@ actor VideoNoteFileStore {
             removalRequestedAt: nil,
             replyMessageID: replyMessageID,
             replyTo: replyTo,
+            sendTopic: sendTopic,
             thumbnailFileURL: thumbnailDestination,
             thumbnailHeight: thumbnail?.height,
             thumbnailWidth: thumbnail?.width,
@@ -291,6 +294,7 @@ actor VideoNoteFileStore {
         originRecordingDraftID: UUID?,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
+        sendTopic: MessageTopic? = nil,
     ) throws -> VideoNoteEnqueuePreparation {
         let draft = try adopt(
             asset,
@@ -300,6 +304,7 @@ actor VideoNoteFileStore {
             originRecordingDraftID: originRecordingDraftID,
             replyMessageID: replyMessageID,
             replyTo: replyTo,
+            sendTopic: sendTopic,
         )
         guard draft.enqueueStartedAt == nil, draft.temporaryMessageID == nil else {
             return .alreadyEnqueued(draft)
@@ -982,6 +987,7 @@ actor VideoNoteFileStore {
             var draftsToRemove = [VideoNoteSendDraft]()
             var stage = "success adopt"
             do {
+                let frozenSendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 42))
                 let successSource = fileManager.temporaryDirectory
                     .appendingPathComponent("video-note-draft-success-\(UUID().uuidString).mp4")
                 try Data([0, 1, 2, 3]).write(to: successSource, options: .atomic)
@@ -991,10 +997,12 @@ actor VideoNoteFileStore {
                     originRecordingDraftID: nil,
                     replyMessageID: nil,
                     replyTo: nil,
+                    sendTopic: frozenSendTopic,
                 )
                 guard case .ready(let successDraft) = successPreparation else {
                     throw CocoaError(.fileWriteUnknown)
                 }
+                guard successDraft.sendTopic == frozenSendTopic else { throw CocoaError(.coderInvalidValue) }
                 draftsToRemove.append(successDraft)
                 stage = "success outcome"
                 _ = try await handleSendSucceeded(chatID: chatID, temporaryMessageID: -9001)
@@ -1020,10 +1028,19 @@ actor VideoNoteFileStore {
                 )
                 guard legacyDraft.originRecordingDraftID == nil,
                       legacyDraft.removalRequestedAt == nil,
-                      legacyDraft.thumbnailFileURL == nil
+                      legacyDraft.thumbnailFileURL == nil,
+                      legacyDraft.sendTopic == frozenSendTopic
                 else {
                     throw CocoaError(.coderInvalidValue)
                 }
+                var legacyWithoutSendTopic = legacyDictionary
+                legacyWithoutSendTopic.removeValue(forKey: "sendTopic")
+                let legacyWithoutSendTopicData = try JSONSerialization.data(withJSONObject: legacyWithoutSendTopic)
+                let decodedWithoutSendTopic = try JSONDecoder().decode(
+                    VideoNoteSendDraft.self,
+                    from: legacyWithoutSendTopicData,
+                )
+                guard decodedWithoutSendTopic.sendTopic == nil else { throw CocoaError(.coderInvalidValue) }
 
                 let failureSource = fileManager.temporaryDirectory
                     .appendingPathComponent("video-note-draft-failure-\(UUID().uuidString).mp4")
@@ -1157,7 +1174,7 @@ actor VideoNoteFileStore {
 
                 let proof = "Video note draft probe: outcome-before-register success/failure, "
                     + "atomic adopt+begin, legacy-origin decode, "
-                    + "durable thumbnail, relaunch reconciliation/removal-tombstone, cleanup=true"
+                    + "frozen-topic, durable thumbnail, relaunch reconciliation/removal-tombstone, cleanup=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {

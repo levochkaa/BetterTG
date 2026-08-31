@@ -15,6 +15,7 @@ struct VoiceRecordingDraft: ChatDraftScoped, Equatable {
     var fileURL: URL
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic?
     var revision: Int
     var trimEnd: Double?
     var trimStart: Double?
@@ -40,6 +41,7 @@ private struct VoiceRecordingDraftManifest: Codable {
     let mediaFileName: String
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    let sendTopic: MessageTopic?
     let revision: Int
     let trimEnd: Double?
     let trimStart: Double?
@@ -56,6 +58,7 @@ private struct VoiceRecordingDraftManifest: Codable {
         self.mediaFileName = draft.fileURL.lastPathComponent
         self.replyMessageID = draft.replyMessageID
         self.replyTo = draft.replyTo
+        self.sendTopic = draft.sendTopic
         self.revision = draft.revision
         self.trimEnd = draft.trimEnd
         self.trimStart = draft.trimStart
@@ -78,6 +81,7 @@ private struct VoiceRecordingDraftManifest: Codable {
             fileURL: directoryURL.appendingPathComponent(mediaFileName),
             replyMessageID: replyMessageID,
             replyTo: replyTo,
+            sendTopic: sendTopic,
             revision: revision,
             trimEnd: trimEnd,
             trimStart: trimStart,

@@ -121,6 +121,7 @@ import UIKit
     private var voiceRecordingDraftGeneration = 0
     private var voiceRecordingDraftID: UUID?
     private var activeVoiceRecordingDraft: VoiceRecordingDraft?
+    private var activeVoiceRecordingContext: ResolvedSendContext?
     private let voiceRecordingPreviewPlayer = LocalMediaPlayer()
     private var voiceRecordingPreviewLoadedURL: URL?
     private var voiceRecordingPreviewOwnsAudioSession = false
@@ -150,6 +151,8 @@ import UIKit
     private var activeChatAction: ChatAction?
     private var activeChatActionContext: ResolvedSendContext?
     private var chatActionRouteRevision = UInt64.zero
+    private var desiredChatAction: ChatAction?
+    private var desiredChatActionContext: ResolvedSendContext?
     private var composerRevision = UInt64.zero
     private var composerIsDirty = false
     private var awaitingAuthoritativeDraftClear = false
@@ -193,7 +196,9 @@ import UIKit
     }
 
     var acceptedChatActionTopic: MessageTopic? {
-        isAllMessagesForum ? activeChatActionContext?.destinationTopic : location.topic
+        guard isAllMessagesForum else { return location.topic }
+        let desiredContext = desiredChatAction == nil ? nil : desiredChatActionContext
+        return (desiredContext ?? activeChatActionContext)?.destinationTopic
     }
 
     var canWriteBasicMessages: Bool {
@@ -220,8 +225,7 @@ import UIKit
     }
 
     var canRecordVoiceNote: Bool {
-        guard !isAllMessagesForum else { return false }
-        return (try? resolveSendContext(
+        (try? resolveSendContext(
             for: .voiceNote,
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
@@ -229,8 +233,7 @@ import UIKit
     }
 
     var canRecordVideoNote: Bool {
-        guard !isAllMessagesForum else { return false }
-        return (try? resolveSendContext(
+        (try? resolveSendContext(
             for: .videoNote,
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
@@ -284,17 +287,27 @@ import UIKit
     }
 
     var canRetryPendingVoiceNote: Bool {
-        guard canRecordVoiceNote,
-              let pendingVoiceNote,
+        guard let pendingVoiceNote,
+              (try? resolveFrozenMediaSendContext(
+                  for: .voiceNote,
+                  destination: pendingVoiceNote.destination,
+                  sendTopic: pendingVoiceNote.sendTopic,
+                  replyTo: pendingVoiceNote.replyTo,
+              )) != nil,
               pendingVoiceNote.enqueueStartedAt == nil
         else { return false }
         return pendingVoiceNote.failedSendState?.canRetryNow ?? true
     }
 
     var canRetryPendingVideoNote: Bool {
-        guard canRecordVideoNote,
-              !retryingVideoNote,
+        guard !retryingVideoNote,
               let pendingVideoNote,
+              (try? resolveFrozenMediaSendContext(
+                  for: .videoNote,
+                  destination: pendingVideoNote.destination,
+                  sendTopic: pendingVideoNote.sendTopic,
+                  replyTo: pendingVideoNote.replyTo,
+              )) != nil,
               pendingVideoNote.enqueueStartedAt == nil
         else { return false }
         return pendingVideoNote.failedSendState?.canRetryNow ?? true
@@ -596,6 +609,7 @@ import UIKit
                !recordingVoiceNote,
                let recordingDraft = loadedDrafts.3.first
             {
+                refreshForumTopicIfNeeded(recordingDraft.sendTopic)
                 let reply = await resolveStoredReply(
                     replyTo: recordingDraft.replyTo,
                     legacyMessageID: recordingDraft.replyMessageID,
@@ -1561,10 +1575,18 @@ import UIKit
         replyingTo reply: CustomMessage?,
         storedReplyMessageID: Int64? = nil,
         storedReplyTo: InputMessageReplyTo? = nil,
+        storedSendTopic: MessageTopic? = nil,
     ) async -> VideoNoteSubmissionResult {
         let sendContext: ResolvedSendContext
         do {
-            sendContext = try resolveSendContext(for: .videoNote, replyingTo: reply)
+            sendContext = try isAllMessagesForum
+                ? resolveFrozenMediaSendContext(
+                    for: .videoNote,
+                    destination: location.draftKey,
+                    sendTopic: storedSendTopic,
+                    replyTo: storedReplyTo ?? getMessageReplyTo(from: reply),
+                )
+                : resolveSendContext(for: .videoNote, replyingTo: reply)
         } catch {
             return .retained(
                 asset,
@@ -1584,6 +1606,7 @@ import UIKit
                 originRecordingDraftID: originRecordingDraftID,
                 replyMessageID: reply?.id ?? storedReplyMessageID,
                 replyTo: sendContext.replyTo ?? storedReplyTo,
+                sendTopic: sendContext.destinationTopic,
             )
             switch preparation {
             case .alreadyEnqueued(let preparedDraft):
@@ -1596,6 +1619,9 @@ import UIKit
                 draft = preparedDraft
             }
             guard draft.destination == sendContext.draftKey else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            if isAllMessagesForum, draft.sendTopic != sendContext.destinationTopic {
                 throw ChatSendContextError.unexpectedDestination
             }
         } catch {
@@ -1624,11 +1650,16 @@ import UIKit
 
         do {
             try Task.checkCancellation()
-            let activeSendContext = try resolveSendContext(for: .videoNote, replyingTo: nil)
-            guard draft.destination == activeSendContext.draftKey else {
-                throw ChatSendContextError.unexpectedDestination
-            }
-            try? await tdSendChatAction(.chatActionUploadingVideoNote(.init(progress: 0)))
+            let activeSendContext = try resolveFrozenMediaSendContext(
+                for: .videoNote,
+                destination: draft.destination,
+                sendTopic: draft.sendTopic,
+                replyTo: draft.replyTo,
+            )
+            _ = try? await sendChatAction(
+                .chatActionUploadingVideoNote(.init(progress: 0)),
+                in: activeSendContext,
+            )
             pendingVideoNote = draft
             submittingVideoDraftIDs.insert(draft.id)
             let message: Message
@@ -1705,7 +1736,7 @@ import UIKit
             {
                 cancelReply()
             }
-            try? await tdSendChatAction(.chatActionCancel)
+            _ = try? await cancelChatAction(in: activeSendContext)
             if registration != nil, resolution?.outcome != .failed {
                 videoNoteErrorMessage = nil
             }
@@ -1741,7 +1772,11 @@ import UIKit
                 )) ?? draft
                 activatePendingVideoDraft(draft)
             }
-            try? await tdSendChatAction(.chatActionCancel)
+            _ = try? await tdSendFrozenMediaChatAction(
+                .chatActionCancel,
+                sendTopic: draft.sendTopic,
+                replyTo: draft.replyTo,
+            )
             return .retained(
                 draft.asset,
                 originConsumed: true,
@@ -1768,6 +1803,7 @@ import UIKit
                 replyingTo: pendingVideoReplyMessage,
                 storedReplyMessageID: draft.replyMessageID,
                 storedReplyTo: draft.replyTo,
+                storedSendTopic: draft.sendTopic,
             )
             if case .retained(_, _, let message) = result {
                 videoNoteErrorMessage = message
@@ -1998,16 +2034,20 @@ import UIKit
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
         guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
         if case .chatActionCancel = chatAction {
-            chatActionRouteRevision &+= 1
-            if let context = activeChatActionContext {
+            if let context = desiredChatActionContext ?? activeChatActionContext {
                 try await cancelChatAction(in: context)
             } else if !isAllMessagesForum {
+                chatActionRouteRevision &+= 1
+                desiredChatAction = nil
                 try await client.sendChatAction(
                     action: chatAction,
                     businessConnectionId: nil,
                     chatId: location.chatID,
                     topicId: location.topic,
                 )
+            } else {
+                chatActionRouteRevision &+= 1
+                desiredChatAction = nil
             }
             return
         }
@@ -2020,8 +2060,48 @@ import UIKit
         try await sendChatAction(chatAction, in: context)
     }
 
+    func tdSendFrozenMediaChatAction(
+        _ chatAction: ChatAction,
+        sendTopic: MessageTopic?,
+        replyTo: InputMessageReplyTo?,
+    ) async throws {
+        guard let accountID = location.accountID,
+              locationContextIsCurrent
+        else { throw ChatSendContextError.accountUnavailable }
+        if case .chatActionCancel = chatAction {
+            guard !isAllMessagesForum || sendTopic != nil else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            let context = ResolvedSendContext(
+                accountID: accountID,
+                chatID: location.chatID,
+                clientID: location.clientID,
+                destinationTopic: sendTopic ?? location.topic,
+                draftTopic: location.topic,
+                replyTo: replyTo,
+            )
+            try await cancelChatAction(in: context)
+            return
+        }
+        let context = try resolveFrozenMediaSendContext(
+            for: sendContentKind(for: chatAction),
+            destination: location.draftKey,
+            sendTopic: sendTopic,
+            replyTo: replyTo,
+        )
+        try await sendChatAction(chatAction, in: context)
+    }
+
     @MainActor func mediaStartRecordingVoice() async -> Bool {
-        guard canRecordVoiceNote, locationContextIsCurrent else { return false }
+        let replySnapshot = replyMessage
+        guard canRecordVoiceNote,
+              locationContextIsCurrent,
+              let initialContext = try? resolveSendContext(
+                  for: .voiceNote,
+                  replyingTo: replySnapshot,
+                  useCurrentReplyOverride: true,
+              )
+        else { return false }
         guard !loadingVoiceDraft,
               !startingVoiceNote,
               !recordingVoiceNote,
@@ -2048,6 +2128,14 @@ import UIKit
             await promoteNextPendingVoiceDraft()
             return false
         }
+        guard let recordingContext = try? resolveFrozenMediaSendContext(
+            for: .voiceNote,
+            destination: initialContext.draftKey,
+            sendTopic: initialContext.destinationTopic,
+            replyTo: initialContext.replyTo,
+        ) else { return false }
+        activeVoiceRecordingContext = recordingContext
+        pendingVoiceReplyMessage = replySnapshot
         Media.shared.setAudioSessionRecord()
         Media.shared.stop()
         
@@ -2062,13 +2150,18 @@ import UIKit
             voiceRecordingTimerBaseline = 0
             voiceRecordingLastRecorderTime = recorder.currentTime
             startTimer()
-            Task { [weak self] in try? await self?.tdSendChatAction(.chatActionRecordingVoiceNote) }
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await sendChatAction(.chatActionRecordingVoiceNote, in: recordingContext)
+            }
             return true
         } catch {
             log("Error creating AudioRecorder: \(error)")
             try? FileManager.default.removeItem(at: url)
             recordingVoiceNoteURL = nil
             audioRecorder = nil
+            activeVoiceRecordingContext = nil
+            pendingVoiceReplyMessage = nil
             voiceRecordingInteractionState = .idle
             Media.shared.endAudioSessionRecord()
             voiceNoteErrorMessage = "Couldn’t start voice recording."
@@ -2251,8 +2344,9 @@ import UIKit
         recordingVoiceNoteURL = nil
         let recordingDraftID = voiceRecordingDraftID ?? activeVoiceRecordingDraft?.id
         let recordingReply = pendingVoiceReplyMessage
-        let recordingReplyTo = activeVoiceRecordingDraft?.replyTo
+        let recordingReplyTo = activeVoiceRecordingDraft?.replyTo ?? activeVoiceRecordingContext?.replyTo
         activeVoiceRecordingDraft = nil
+        activeVoiceRecordingContext = nil
         voiceRecordingDraftID = nil
         pendingVoiceReplyMessage = nil
         if replyMessage == nil {
@@ -2345,10 +2439,71 @@ import UIKit
         )
     }
 
+    private func resolveFrozenMediaSendContext(
+        for kind: ChatSendContentKind,
+        destination: ChatDraftKey?,
+        sendTopic: MessageTopic?,
+        replyTo: InputMessageReplyTo?,
+    ) throws -> ResolvedSendContext {
+        guard let accountID = location.accountID,
+              locationContextIsCurrent
+        else { throw ChatSendContextError.accountUnavailable }
+        guard permissionAllows(kind) else { throw ChatSendContextError.chatPermissionDenied }
+        guard destination == location.draftKey else { throw ChatSendContextError.unexpectedDestination }
+        if isAllMessagesForum {
+            guard let sendTopic,
+                  case .messageTopicForum = sendTopic,
+                  let info = forumTopicInfo(for: sendTopic)
+            else { throw ChatSendContextError.topicMetadataUnavailable }
+            if replyTo != nil {
+                guard !info.isClosed, !info.isHidden else {
+                    throw ChatSendContextError.topicReadOnly
+                }
+            } else {
+                guard info.isGeneral else { throw ChatSendContextError.unexpectedDestination }
+                if info.isClosed || info.isHidden {
+                    guard canManageForumTopics else { throw ChatSendContextError.topicReadOnly }
+                }
+            }
+            return ResolvedSendContext(
+                accountID: accountID,
+                chatID: location.chatID,
+                clientID: location.clientID,
+                destinationTopic: sendTopic,
+                draftTopic: nil,
+                replyTo: replyTo,
+            )
+        }
+        let current = try resolveSendContext(for: kind, replyingTo: nil)
+        let resolvedSendTopic = sendTopic ?? destination?.topic
+        guard current.destinationTopic == resolvedSendTopic else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        return ResolvedSendContext(
+            accountID: current.accountID,
+            chatID: current.chatID,
+            clientID: current.clientID,
+            destinationTopic: resolvedSendTopic,
+            draftTopic: current.draftTopic,
+            replyTo: replyTo,
+        )
+    }
+
+    private func refreshForumTopicIfNeeded(_ topic: MessageTopic?) {
+        guard isAllMessagesForum,
+              case .messageTopicForum(let forumTopic) = topic
+        else { return }
+        refreshForumTopic(id: forumTopic.forumTopicId)
+    }
+
     private func sendChatAction(
         _ action: ChatAction,
         in context: ResolvedSendContext,
     ) async throws {
+        chatActionRouteRevision &+= 1
+        let revision = chatActionRouteRevision
+        desiredChatAction = action
+        desiredChatActionContext = context
         if let active = activeChatActionContext,
            !sameChatActionDestination(active, context)
         {
@@ -2359,19 +2514,53 @@ import UIKit
                 topicId: active.destinationTopic,
             )
         }
+        guard chatActionRouteRevision == revision else {
+            await reconcileDesiredChatAction(after: revision)
+            throw CancellationError()
+        }
         try await client.sendChatAction(
             action: action,
             businessConnectionId: nil,
             chatId: context.chatID,
             topicId: context.destinationTopic,
         )
+        guard chatActionRouteRevision == revision else {
+            await reconcileDesiredChatAction(after: revision)
+            throw CancellationError()
+        }
         activeChatAction = action
         activeChatActionContext = context
     }
 
+    private func reconcileDesiredChatAction(after staleRevision: UInt64) async {
+        let revision = chatActionRouteRevision
+        guard revision != staleRevision,
+              let context = desiredChatActionContext,
+              locationContextIsCurrent
+        else { return }
+        let action = desiredChatAction ?? .chatActionCancel
+        _ = try? await client.sendChatAction(
+            action: action,
+            businessConnectionId: nil,
+            chatId: context.chatID,
+            topicId: context.destinationTopic,
+        )
+        guard chatActionRouteRevision == revision else {
+            await reconcileDesiredChatAction(after: revision)
+            return
+        }
+        if let desiredChatAction {
+            activeChatAction = desiredChatAction
+            activeChatActionContext = context
+        } else if activeChatActionContext.map({ sameChatActionDestination($0, context) }) == true {
+            activeChatAction = nil
+            activeChatActionContext = nil
+        }
+    }
+
     private func reconcileActiveChatActionAfterReplyChange() {
-        guard let previousContext = activeChatActionContext,
-              let previousAction = activeChatAction
+        guard let previousContext = desiredChatActionContext ?? activeChatActionContext,
+              let previousAction = desiredChatAction ?? activeChatAction
         else { return }
         let nextContext = try? resolveSendContext(
             for: sendContentKind(for: previousAction),
@@ -2383,6 +2572,8 @@ import UIKit
         let revision = chatActionRouteRevision
         activeChatAction = nil
         activeChatActionContext = nil
+        desiredChatAction = nil
+        desiredChatActionContext = previousContext
         let client = client
         Task { [weak self] in
             _ = try? await client.sendChatAction(
@@ -2391,9 +2582,12 @@ import UIKit
                 chatId: previousContext.chatID,
                 topicId: previousContext.destinationTopic,
             )
-            guard let self,
-                  chatActionRouteRevision == revision,
-                  locationContextIsCurrent,
+            guard let self else { return }
+            guard chatActionRouteRevision == revision else {
+                await reconcileDesiredChatAction(after: revision)
+                return
+            }
+            guard locationContextIsCurrent,
                   case .chatActionTyping = previousAction,
                   !text.characters.isEmpty,
                   let nextContext = try? resolveSendContext(
@@ -2552,16 +2746,23 @@ import UIKit
         guard TDLib.shared.activeAccountID == context.accountID,
               TDLib.shared.activeClient.id == context.clientID
         else { throw ChatSendContextError.accountUnavailable }
+        chatActionRouteRevision &+= 1
+        let revision = chatActionRouteRevision
+        desiredChatAction = nil
+        desiredChatActionContext = context
         try await client.sendChatAction(
             action: .chatActionCancel,
             businessConnectionId: nil,
             chatId: context.chatID,
             topicId: context.destinationTopic,
         )
+        guard chatActionRouteRevision == revision else {
+            await reconcileDesiredChatAction(after: revision)
+            return
+        }
         if let activeChatActionContext,
            sameChatActionDestination(activeChatActionContext, context)
         {
-            chatActionRouteRevision &+= 1
             activeChatAction = nil
             self.activeChatActionContext = nil
         }
@@ -2753,6 +2954,13 @@ import UIKit
         }
     }
 
+    private func cancelReplyIfMatching(_ frozenReplyTo: InputMessageReplyTo?) {
+        guard let frozenReplyTo,
+              getMessageReplyTo(from: replyMessage) == frozenReplyTo
+        else { return }
+        cancelReply()
+    }
+
     private func restoreReplyState(
         message: CustomMessage?,
         input: InputMessageReplyTo?,
@@ -2793,6 +3001,7 @@ import UIKit
 
     private func activatePendingVideoDraft(_ draft: VideoNoteSendDraft) {
         guard draft.destination == location.draftKey else { return }
+        refreshForumTopicIfNeeded(draft.sendTopic)
         pendingVideoNote = draft
         hasPendingVideoNote = true
         videoRetryAvailabilityTask?.cancel()
@@ -2834,10 +3043,12 @@ import UIKit
     }
 
     private func sendMessageVideoNote(_ draft: VideoNoteSendDraft) async throws -> Message {
-        let context = try resolveSendContext(for: .videoNote, replyingTo: nil)
-        guard draft.destination == context.draftKey else {
-            throw ChatSendContextError.unexpectedDestination
-        }
+        let context = try resolveFrozenMediaSendContext(
+            for: .videoNote,
+            destination: draft.destination,
+            sendTopic: draft.sendTopic,
+            replyTo: draft.replyTo,
+        )
         try await validateStoredReply(draft.replyTo, in: context)
         let thumbnail = await VideoNoteFileStore.shared.inputThumbnail(for: draft)
         guard locationContextIsCurrent else { throw CancellationError() }
@@ -2864,6 +3075,16 @@ import UIKit
     }
 
     private func beginVoiceRecordingResume(_ draft: VoiceRecordingDraft) {
+        guard let recordingContext = try? resolveFrozenMediaSendContext(
+            for: .voiceNote,
+            destination: draft.destination,
+            sendTopic: draft.sendTopic,
+            replyTo: draft.replyTo,
+        ) else {
+            voiceNoteErrorMessage = "The voice message destination is no longer writable."
+            return
+        }
+        activeVoiceRecordingContext = recordingContext
         stopVoiceRecordingPreviewPlayback()
         Media.shared.stop()
         Media.shared.setAudioSessionRecord()
@@ -2884,7 +3105,10 @@ import UIKit
                     log("Voice preview smoke: resumed at \(draft.exactDuration)")
                 }
             #endif
-            Task { [weak self] in try? await self?.tdSendChatAction(.chatActionRecordingVoiceNote) }
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await sendChatAction(.chatActionRecordingVoiceNote, in: recordingContext)
+            }
         } catch {
             try? FileManager.default.removeItem(at: url)
             Media.shared.endAudioSessionRecord()
@@ -2916,7 +3140,8 @@ import UIKit
         let recordedDuration = timerCount
         let segmentPeaks = wave
         let existingDraft = activeVoiceRecordingDraft
-        let reply = pendingVoiceReplyMessage ?? replyMessage
+        let reply = pendingVoiceReplyMessage
+        let recordingContext = activeVoiceRecordingContext
         let draftID = existingDraft?.id ?? voiceRecordingDraftID ?? UUID()
         voiceRecordingDraftID = draftID
         audioRecorder.stop()
@@ -2960,12 +3185,13 @@ import UIKit
                         exactDuration: inspection.duration,
                         fileURL: sourceURL,
                         replyMessageID: reply?.id,
-                        replyTo: getMessageReplyTo(from: reply),
+                        replyTo: recordingContext?.replyTo ?? getMessageReplyTo(from: reply),
+                        sendTopic: recordingContext?.destinationTopic,
                         revision: 0,
                         trimEnd: nil,
                         trimStart: nil,
                         waveform: inspection.waveform,
-                        destination: location.draftKey,
+                        destination: recordingContext?.draftKey ?? location.draftKey,
                     )
                     storedDraft = try await VoiceRecordingDraftStore.shared.adopt(draft)
                 }
@@ -3017,11 +3243,16 @@ import UIKit
                         duration: recordedDuration,
                         peakPowers: segmentPeaks,
                         reply: reply,
+                        context: recordingContext,
                     )
                 }
             }
         }
-        Task { [weak self] in try? await self?.tdSendChatAction(.chatActionCancel) }
+        if let recordingContext {
+            Task { [weak self] in
+                _ = try? await self?.cancelChatAction(in: recordingContext)
+            }
+        }
     }
 
     private func fallbackClosedVoiceSegment(
@@ -3029,6 +3260,7 @@ import UIKit
         duration: Double,
         peakPowers: [Float],
         reply: CustomMessage?,
+        context: ResolvedSendContext?,
     ) {
         recordingVoiceNote = false
         voiceRecordingInteractionState = .idle
@@ -3046,13 +3278,15 @@ import UIKit
             fileURL: sourceURL,
             isEncoded: false,
             replyMessageID: reply?.id,
-            replyTo: getMessageReplyTo(from: reply),
+            replyTo: context?.replyTo ?? getMessageReplyTo(from: reply),
+            sendTopic: context?.destinationTopic,
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
-            destination: location.draftKey,
+            destination: context?.draftKey ?? location.draftKey,
         )
+        activeVoiceRecordingContext = nil
         pendingVoiceReplyMessage = reply
-        cancelReply()
+        cancelReplyIfMatching(context?.replyTo)
         startVoiceFinalization(
             sendWhenReady: false,
             pendingMessage: "Preview preparation failed. The recording was preserved as a retry draft.",
@@ -3144,7 +3378,7 @@ import UIKit
         voiceRecordingInteractionState = .pausing
         voiceRecordingDraftGeneration &+= 1
         let generation = voiceRecordingDraftGeneration
-        let reply = pendingVoiceReplyMessage ?? replyMessage
+        let reply = pendingVoiceReplyMessage
         let sendDraft = VoiceNoteSendDraft(
             id: draft.id,
             chatID: draft.chatID,
@@ -3157,6 +3391,7 @@ import UIKit
             isEncoded: false,
             replyMessageID: draft.replyMessageID,
             replyTo: draft.replyTo,
+            sendTopic: draft.sendTopic,
             temporaryMessageID: nil,
             waveform: draft.waveform,
             destination: draft.destination,
@@ -3179,11 +3414,12 @@ import UIKit
                     return
                 }
                 activeVoiceRecordingDraft = nil
+                activeVoiceRecordingContext = nil
                 voiceRecordingDraftID = nil
                 voiceRecordingDraftTask = nil
                 pendingVoiceNote = adoptedDraft
                 pendingVoiceReplyMessage = reply
-                cancelReply()
+                cancelReplyIfMatching(adoptedDraft.replyTo)
                 recordingVoiceNote = false
                 voiceRecordingInteractionState = .idle
                 stopTimer()
@@ -3210,6 +3446,13 @@ import UIKit
     }
 
     private func restoreVoiceRecordingDraft(_ draft: VoiceRecordingDraft) {
+        refreshForumTopicIfNeeded(draft.sendTopic)
+        activeVoiceRecordingContext = try? resolveFrozenMediaSendContext(
+            for: .voiceNote,
+            destination: draft.destination,
+            sendTopic: draft.sendTopic,
+            replyTo: draft.replyTo,
+        )
         activeVoiceRecordingDraft = draft
         voiceRecordingDraftID = draft.id
         recordingVoiceNote = true
@@ -3354,6 +3597,8 @@ import UIKit
         updateVoiceRecordingDuration()
         let recordedDuration = timerCount
         let peakPowers = wave
+        let recordingContext = activeVoiceRecordingContext
+        let reply = pendingVoiceReplyMessage
         Media.shared.stop()
         audioRecorder.stop()
         Media.shared.endAudioSessionRecord()
@@ -3363,14 +3608,19 @@ import UIKit
         voiceRecordingInteractionState = .idle
         wave.removeAll(keepingCapacity: true)
         stopTimer()
-        Task { try? await self.tdSendChatAction(.chatActionCancel) }
+        if let recordingContext {
+            Task { [weak self] in
+                _ = try? await self?.cancelChatAction(in: recordingContext)
+            }
+        }
         guard recordedDuration >= 0.5 else {
+            activeVoiceRecordingContext = nil
+            pendingVoiceReplyMessage = nil
             try? FileManager.default.removeItem(at: sourceURL)
             voiceNoteErrorMessage = pendingMessage ?? "Voice message is too short."
             Task { [weak self] in await self?.promoteNextPendingVoiceDraft() }
             return
         }
-        let reply = replyMessage
         pendingVoiceNote = VoiceNoteSendDraft(
             id: UUID(),
             chatID: chatID,
@@ -3382,13 +3632,15 @@ import UIKit
             fileURL: sourceURL,
             isEncoded: false,
             replyMessageID: reply?.id,
-            replyTo: getMessageReplyTo(from: reply),
+            replyTo: recordingContext?.replyTo ?? getMessageReplyTo(from: reply),
+            sendTopic: recordingContext?.destinationTopic,
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
-            destination: location.draftKey,
+            destination: recordingContext?.draftKey ?? location.draftKey,
         )
+        activeVoiceRecordingContext = nil
         pendingVoiceReplyMessage = reply
-        cancelReply()
+        cancelReplyIfMatching(pendingVoiceNote?.replyTo)
         startVoiceFinalization(sendWhenReady: sendWhenReady, pendingMessage: pendingMessage)
     }
 
@@ -3408,10 +3660,12 @@ import UIKit
     }
 
     private func sendMessageVoiceNote(fileURL: URL, draft: VoiceNoteSendDraft) async throws -> Message {
-        let context = try resolveSendContext(for: .voiceNote, replyingTo: nil)
-        guard draft.destination == context.draftKey else {
-            throw ChatSendContextError.unexpectedDestination
-        }
+        let context = try resolveFrozenMediaSendContext(
+            for: .voiceNote,
+            destination: draft.destination,
+            sendTopic: draft.sendTopic,
+            replyTo: draft.replyTo,
+        )
         try await validateStoredReply(draft.replyTo, in: context)
         let message = try await client.sendMessage(
             chatId: context.chatID,
@@ -3434,7 +3688,7 @@ import UIKit
         guard context.matches(message: message) else {
             throw ChatSendContextError.unexpectedDestination
         }
-        try? await tdSendChatAction(.chatActionCancel)
+        _ = try? await cancelChatAction(in: context)
         return message
     }
 
@@ -3475,17 +3729,22 @@ import UIKit
                     #endif
                     return
                 }
-                try? await tdSendChatAction(.chatActionUploadingVoiceNote(.init(progress: 0)))
+                let activeSendContext = try resolveFrozenMediaSendContext(
+                    for: .voiceNote,
+                    destination: draft.destination,
+                    sendTopic: draft.sendTopic,
+                    replyTo: draft.replyTo,
+                )
+                _ = try? await sendChatAction(
+                    .chatActionUploadingVoiceNote(.init(progress: 0)),
+                    in: activeSendContext,
+                )
                 draft = try await VoiceNoteDraftStore.shared.beginEnqueue(draft)
                 pendingVoiceNote = draft
                 let message: Message
                 if let failedSendState = draft.failedSendState {
                     guard failedSendState.canRetryNow else {
                         throw VoiceNoteFailure.resendUnavailable
-                    }
-                    let context = try resolveSendContext(for: .voiceNote, replyingTo: nil)
-                    guard draft.destination == context.draftKey else {
-                        throw ChatSendContextError.unexpectedDestination
                     }
                     let resentMessages = try await client.resendMessages(
                         chatId: chatID,
@@ -3496,7 +3755,7 @@ import UIKit
                     guard let resentMessage = resentMessages.messages?.first else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
-                    guard context.matches(message: resentMessage)
+                    guard activeSendContext.matches(message: resentMessage)
                     else { throw ChatSendContextError.unexpectedDestination }
                     message = resentMessage
                     draft.failedSendState = nil
@@ -3576,13 +3835,18 @@ import UIKit
                 activatePendingVoiceDraft(draft)
                 voiceNoteErrorMessage = pendingVoiceRetryStatusMessage
                     ?? "Couldn’t send the voice message. You can retry without recording again."
-                try? await tdSendChatAction(.chatActionCancel)
+                _ = try? await tdSendFrozenMediaChatAction(
+                    .chatActionCancel,
+                    sendTopic: draft.sendTopic,
+                    replyTo: draft.replyTo,
+                )
             }
         }
     }
 
     private func activatePendingVoiceDraft(_ draft: VoiceNoteSendDraft) {
         guard draft.destination == location.draftKey else { return }
+        refreshForumTopicIfNeeded(draft.sendTopic)
         pendingVoiceNote = draft
         hasPendingVoiceNote = true
         pendingVoiceReplyMessage = nil

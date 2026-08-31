@@ -100,6 +100,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var videoNoteRecorder: VideoNoteRecorderViewController?
     private var videoNoteReplyMessage: CustomMessage?
     private var videoNoteReplyInput: InputMessageReplyTo?
+    private var videoNoteSendTopic: MessageTopic?
     private var videoNoteChatActionActive = false
     private var restoredVideoRecordingDraftIDHandled: UUID?
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
@@ -608,16 +609,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func beginVideoNoteRecording() async -> Bool {
-        guard chatVM.canRecordVideoNote else { return false }
-        let recorder: VideoNoteRecorderViewController
         if let videoNoteRecorder {
-            recorder = videoNoteRecorder
-        } else {
-            videoNoteReplyMessage = chatVM.replyMessage
-            videoNoteReplyInput = chatVM.getMessageReplyTo(from: videoNoteReplyMessage)
-            composerView.setVideoNoteReplyContext(message: videoNoteReplyMessage, input: videoNoteReplyInput)
-            recorder = installVideoNoteRecorder()
+            return await videoNoteRecorder.beginHolding()
         }
+        guard let context = try? chatVM.resolveSendContext(
+            for: .videoNote,
+            replyingTo: chatVM.replyMessage,
+            useCurrentReplyOverride: true,
+        ) else { return false }
+        videoNoteReplyMessage = chatVM.replyMessage
+        videoNoteReplyInput = context.replyTo
+        videoNoteSendTopic = context.destinationTopic
+        composerView.setVideoNoteReplyContext(message: videoNoteReplyMessage, input: videoNoteReplyInput)
+        let recorder = installVideoNoteRecorder()
         return await recorder.beginHolding()
     }
 
@@ -627,13 +631,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ) -> VideoNoteRecorderViewController {
         let replySnapshot = restoredDraft == nil ? videoNoteReplyMessage : restoredReply
         let replyInput = restoredDraft?.replyTo ?? videoNoteReplyInput ?? chatVM.getMessageReplyTo(from: replySnapshot)
+        let sendTopic = restoredDraft?.sendTopic ?? videoNoteSendTopic
         videoNoteReplyInput = replyInput
+        videoNoteSendTopic = sendTopic
         composerView.setVideoNoteReplyContext(message: replySnapshot, input: replyInput)
         let recorder = VideoNoteRecorderViewController(
             chatID: chatVM.chatID,
             draftKey: chatVM.location.draftKey,
             replyMessageID: restoredDraft?.replyMessageID ?? replySnapshot?.id,
             replyTo: replyInput,
+            sendTopic: sendTopic,
         )
         recorder.onStateChange = { [weak self, weak recorder] state in
             guard let self, videoNoteRecorder === recorder else { return }
@@ -642,8 +649,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             case .holding, .locked:
                 if !videoNoteChatActionActive {
                     videoNoteChatActionActive = true
-                    Task { [weak chatVM] in
-                        try? await chatVM?.tdSendChatAction(.chatActionRecordingVideoNote)
+                    Task { [weak self] in
+                        guard let self else { return }
+                        _ = try? await chatVM.tdSendFrozenMediaChatAction(
+                            .chatActionRecordingVideoNote,
+                            sendTopic: videoNoteSendTopic,
+                            replyTo: videoNoteReplyInput,
+                        )
                     }
                 }
             case .failed(let message):
@@ -691,6 +703,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 replyingTo: replySnapshot,
                 storedReplyMessageID: storedReplyMessageID,
                 storedReplyTo: storedReplyTo,
+                storedSendTopic: sendTopic,
             )
         }
         recorder.onDismiss = { [weak self, weak recorder] in
@@ -699,10 +712,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             recorder.view.removeFromSuperview()
             recorder.removeFromParent()
             videoNoteRecorder = nil
+            stopVideoNoteChatAction()
             videoNoteReplyMessage = nil
             videoNoteReplyInput = nil
+            videoNoteSendTopic = nil
             composerView.setVideoNoteReplyContext(message: nil, input: nil)
-            stopVideoNoteChatAction()
             composerView.updateVideoNoteState(.idle)
         }
 
@@ -733,6 +747,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         restoredVideoRecordingDraftIDHandled = draft.id
         videoNoteReplyMessage = chatVM.restoredVideoRecordingReplyMessage
         videoNoteReplyInput = draft.replyTo
+        videoNoteSendTopic = draft.sendTopic
         composerView.setVideoNoteReplyContext(message: videoNoteReplyMessage, input: videoNoteReplyInput)
         _ = installVideoNoteRecorder(
             restoring: draft,
@@ -790,7 +805,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func stopVideoNoteChatAction() {
         guard videoNoteChatActionActive else { return }
         videoNoteChatActionActive = false
-        Task { [weak chatVM] in try? await chatVM?.tdSendChatAction(.chatActionCancel) }
+        let sendTopic = videoNoteSendTopic
+        let replyTo = videoNoteReplyInput
+        Task { [weak chatVM] in
+            _ = try? await chatVM?.tdSendFrozenMediaChatAction(
+                .chatActionCancel,
+                sendTopic: sendTopic,
+                replyTo: replyTo,
+            )
+        }
     }
 
     private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {

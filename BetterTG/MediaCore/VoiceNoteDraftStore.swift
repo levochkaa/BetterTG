@@ -36,6 +36,7 @@ struct VoiceNoteSendDraft: Codable, ChatDraftScoped {
     var isEncoded: Bool
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic? = nil
     var temporaryMessageID: Int64?
     let waveform: Data
     var destination: ChatDraftKey? = nil

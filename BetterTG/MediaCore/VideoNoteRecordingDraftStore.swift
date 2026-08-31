@@ -25,6 +25,7 @@ struct VideoNoteRecordingDraft: ChatDraftScoped, Equatable {
     let createdAt: Foundation.Date
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic?
     var revision: Int
     var segments: [VideoNoteRecordingSegment]
     var trimEnd: Double?
@@ -90,6 +91,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
     let createdAt: Foundation.Date
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
+    let sendTopic: MessageTopic?
     let revision: Int
     let segments: [VideoNoteRecordingSegmentManifest]
     let trimEnd: Double?
@@ -102,6 +104,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
         self.createdAt = draft.createdAt
         self.replyMessageID = draft.replyMessageID
         self.replyTo = draft.replyTo
+        self.sendTopic = draft.sendTopic
         self.revision = draft.revision
         self.segments = draft.segments.map(VideoNoteRecordingSegmentManifest.init)
         self.trimEnd = draft.trimEnd
@@ -121,6 +124,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
             createdAt: createdAt,
             replyMessageID: replyMessageID,
             replyTo: replyTo,
+            sendTopic: sendTopic,
             revision: revision,
             segments: resolvedSegments,
             trimEnd: trimEnd,
@@ -175,6 +179,7 @@ actor VideoNoteRecordingDraftStore {
         draftKey: ChatDraftKey? = nil,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
+        sendTopic: MessageTopic? = nil,
     ) async throws -> VideoNoteRecordingDraft {
         let validated = try await VideoNoteAssetWriter.validate(url: asset.url, expectedLength: 400)
         try Task.checkCancellation()
@@ -195,6 +200,7 @@ actor VideoNoteRecordingDraftStore {
             createdAt: Foundation.Date(),
             replyMessageID: replyMessageID,
             replyTo: replyTo,
+            sendTopic: sendTopic,
             revision: 0,
             segments: [segment],
             trimEnd: nil,
@@ -594,6 +600,7 @@ actor VideoNoteRecordingDraftStore {
             }
             var stage = "segments"
             do {
+                let frozenSendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 77))
                 async let first = VideoNoteAssetWriter.makeDebugSegment(
                     outputURL: firstURL,
                     duration: 0.7,
@@ -611,6 +618,7 @@ actor VideoNoteRecordingDraftStore {
                     chatID: chatID,
                     replyMessageID: 77,
                     replyTo: nil,
+                    sendTopic: frozenSendTopic,
                 )
                 draftID = draft.id
                 guard !fileManager.fileExists(atPath: firstURL.path(percentEncoded: false)),
@@ -644,7 +652,8 @@ actor VideoNoteRecordingDraftStore {
                 guard let restored = await drafts(for: chatID).first(where: { $0.id == draft.id }),
                       restored.segments.map(\.id) == draft.segments.map(\.id),
                       restored.revision == draft.revision,
-                      restored.replyMessageID == 77
+                      restored.replyMessageID == 77,
+                      restored.sendTopic == frozenSendTopic
                 else { throw VideoNoteRecordingDraftStoreError.missingDraft }
                 stage = "derivations"
                 let derivedPreview = try await preview(for: restored)
@@ -663,6 +672,7 @@ actor VideoNoteRecordingDraftStore {
                     originRecordingDraftID: draft.id,
                     replyMessageID: draft.replyMessageID,
                     replyTo: draft.replyTo,
+                    sendTopic: draft.sendTopic,
                 )
                 sendDraft = adoptedSendDraft
                 try fileManager.copyItem(at: adoptedSendDraft.fileURL, to: redundantURL)
@@ -676,6 +686,7 @@ actor VideoNoteRecordingDraftStore {
                     originRecordingDraftID: draft.id,
                     replyMessageID: draft.replyMessageID,
                     replyTo: draft.replyTo,
+                    sendTopic: draft.sendTopic,
                 )
                 let originIDs = try await VideoNoteFileStore.shared.recordingDraftOrigins()
                 guard originIDs.contains(draft.id),
@@ -696,7 +707,7 @@ actor VideoNoteRecordingDraftStore {
                 sendDraft = nil
                 let proof = "Video note recording draft probe: ordered=2, revision=2, "
                     + "short-preview=0.7, trim=1.2, preview-lease/thumbnails=13, "
-                    + "origin-dedupe/barrier/reload/discard=true"
+                    + "frozen-topic/origin-dedupe/barrier/reload/discard=true"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {

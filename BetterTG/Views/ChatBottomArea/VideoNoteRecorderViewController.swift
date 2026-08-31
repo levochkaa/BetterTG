@@ -75,6 +75,7 @@ enum VideoNoteSubmissionResult {
     private let draftKey: ChatDraftKey
     private let replyMessageID: Int64?
     private let replyTo: InputMessageReplyTo?
+    private let sendTopic: MessageTopic?
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let previewContainer = VideoNotePreviewContainerView()
     private let cameraPreview = VideoNoteCameraPreviewView()
@@ -128,11 +129,13 @@ enum VideoNoteSubmissionResult {
         draftKey: ChatDraftKey,
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
+        sendTopic: MessageTopic?,
     ) {
         self.chatID = chatID
         self.draftKey = draftKey
         self.replyMessageID = replyMessageID
         self.replyTo = replyTo
+        self.sendTopic = sendTopic
         super.init(nibName: nil, bundle: nil)
         captureSession.onAutomaticStop = { [weak self] result in
             Task { @MainActor [weak self] in
@@ -821,6 +824,7 @@ enum VideoNoteSubmissionResult {
                     draftKey: draftKey,
                     replyMessageID: replyMessageID,
                     replyTo: replyTo,
+                    sendTopic: sendTopic,
                 )
             }
         guard operationGeneration == generation else {
