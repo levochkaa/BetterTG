@@ -7,7 +7,11 @@ import TDLibKitDynamic
 // MARK: - Route
 
 enum Route {
-    case customChat(CustomChat, targetMessageID: Int64? = nil)
+    case customChat(
+        CustomChat,
+        targetMessageID: Int64? = nil,
+        targetQuote: MessageQuoteHighlight? = nil,
+    )
     case archive(CustomFolder)
 }
 
@@ -89,9 +93,40 @@ enum Route {
     }
 
     func getCustomChat(from chat: Chat, position: ChatPosition) async -> CustomChat? {
+        await getCustomChat(from: chat, position: position, client: td)
+    }
+
+    func getCustomChatForNavigation(from id: Int64, client: TDLibClient) async -> CustomChat? {
+        guard let chat = try? await client.getChat(chatId: id) else { return nil }
+        let position = chat.positions.first ?? ChatPosition(
+            isPinned: false,
+            list: .chatListMain,
+            order: 0,
+            source: nil,
+        )
+        return await getCustomChat(from: chat, position: position, client: client)
+    }
+
+    func getCustomFolder(from info: ChatFolderInfo) async -> CustomFolder? {
+        guard let folder = try? await td.getChatFolder(chatFolderId: info.id),
+              let chats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)))
+        else { return nil }
+        return CustomFolder(chats: chats, type: .folder(info, folder))
+    }
+
+    func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {
+        guard let ids = try? await td.getChats(chatList: chatList, limit: 200).chatIds else { return nil }
+        return await ids.asyncCompactMap { await getCustomChat(from: $0, for: chatList) }
+    }
+
+    private func getCustomChat(
+        from chat: Chat,
+        position: ChatPosition,
+        client: TDLibClient,
+    ) async -> CustomChat? {
         switch chat.type {
         case .chatTypePrivate(let privateChat):
-            guard let user = try? await td.getUser(userId: privateChat.userId) else { return nil }
+            guard let user = try? await client.getUser(userId: privateChat.userId) else { return nil }
             switch user.type {
             case .userTypeRegular:
                 return CustomChat(
@@ -122,7 +157,7 @@ enum Route {
                 )
             }
         case .chatTypeSupergroup(let type):
-            guard let group = try? await td.getSupergroup(supergroupId: type.supergroupId) else { return nil }
+            guard let group = try? await client.getSupergroup(supergroupId: type.supergroupId) else { return nil }
             return CustomChat(
                 chat: chat,
                 position: position,
@@ -132,7 +167,7 @@ enum Route {
                 draftMessage: chat.draftMessage,
             )
         case .chatTypeBasicGroup(let type):
-            guard let group = try? await td.getBasicGroup(basicGroupId: type.basicGroupId) else { return nil }
+            guard let group = try? await client.getBasicGroup(basicGroupId: type.basicGroupId) else { return nil }
             return CustomChat(
                 chat: chat,
                 position: position,
@@ -144,17 +179,5 @@ enum Route {
         default:
             return nil
         }
-    }
-
-    func getCustomFolder(from info: ChatFolderInfo) async -> CustomFolder? {
-        guard let folder = try? await td.getChatFolder(chatFolderId: info.id),
-              let chats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)))
-        else { return nil }
-        return CustomFolder(chats: chats, type: .folder(info, folder))
-    }
-
-    func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {
-        guard let ids = try? await td.getChats(chatList: chatList, limit: 200).chatIds else { return nil }
-        return await ids.asyncCompactMap { await getCustomChat(from: $0, for: chatList) }
     }
 }

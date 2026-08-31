@@ -178,7 +178,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let bubbleContainerView = TelegramContextMenuExtractableView()
     private let bubbleStack = UIStackView()
     private let avatarView = ProfileAvatarView()
-    private let forwardedLabel = UILabel()
+    private let forwardView = ForwardHeaderView()
     private let replyView = ReplySnippetView()
     private let mediaView = MessageMediaView()
     private let structuredContentView = MessageStructuredContentView()
@@ -205,7 +205,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var bubbleContentNeedsMeasurement = true
     private var measuredCellWidth = CGFloat.zero
     private var centeredSpacerConstraint: NSLayoutConstraint?
-    private var replyTargetMessageID: Int64?
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
     private var representedGalleryMessageIDs = Set<Int64>()
@@ -242,19 +241,21 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaView.prepareForReuse()
         structuredContentView.prepareForReuse()
         textView.prepareForReuse()
-        forwardedLabel.isHidden = true
+        forwardView.prepareForReuse()
+        replyView.prepareForReuse()
+        forwardView.isHidden = true
         replyView.isHidden = true
         textView.isHidden = true
         mediaView.isHidden = true
         structuredContentView.isHidden = true
         timestampLabel.isHidden = true
         mediaTimestampLabel.isHidden = true
-        replyTargetMessageID = nil
         onSwipeToReply = nil
         onMediaTap = nil
         representedGalleryMessageIDs.removeAll()
         mediaTransitionGeneration = UUID()
         swipeToReplyRecognizer.isEnabled = false
+        accessibilityCustomActions = nil
         resetSwipeToReply(animated: false)
         bubbleContentNeedsMeasurement = true
     }
@@ -271,12 +272,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
-    func replyMessageID(at point: CGPoint) -> Int64? {
-        guard let replyTargetMessageID, !replyView.isHidden else { return nil }
-        let replyFrame = replyView.convert(replyView.bounds, to: contentView).insetBy(dx: -4, dy: -4)
-        return replyFrame.contains(point) ? replyTargetMessageID : nil
-    }
-
     func setMediaPlaybackVisible(_ isVisible: Bool, allowsInlineVideoPlayback: Bool = true) {
         mediaView.setPlaybackVisible(
             isVisible,
@@ -284,6 +279,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         structuredContentView.setPlaybackVisible(isVisible)
         textView.setCustomEmojiPlaybackVisible(isVisible)
+    }
+
+    func highlightQuote(_ quote: MessageQuoteHighlight) {
+        textView.highlightQuote(position: quote.position, length: quote.length)
     }
 
     @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
@@ -324,6 +323,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         pollInteractionStore: MessagePollInteractionStore,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onSwipeToReply: (() -> Void)?,
+        onMetadataNavigate: @escaping (MessageMetadataNavigationTarget) -> Void,
+        onReplyQuoteExpand: @escaping () -> Void,
         onContentAction: @escaping (MessageContentAction) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
     ) {
@@ -350,8 +351,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             }
         let isStandaloneVideoNote =
             if isVideoNoteMessage,
-            message.forwardedFrom == nil,
-            message.replyToMessage == nil,
+            message.forwardPresentation == nil,
+            message.replyPresentation == nil,
             message.formattedText == nil {
                 true
             } else {
@@ -370,20 +371,32 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
         bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
         bubbleBottomConstraint.constant = usesEdgeToEdgeContent ? 0 : -5
-        forwardedLabel.isHidden = message.forwardedFrom == nil
-        forwardedLabel.text = message.forwardedFrom.map { "Forwarded from \($0)" }
-
-        if let reply = message.replyToMessage {
-            replyView.isHidden = false
-            replyTargetMessageID = reply.id
-            replyView.configure(
-                title: message.replyUser?.firstName ?? "Reply",
-                message: reply,
-                onTap: {},
+        if let forward = message.forwardPresentation {
+            forwardView.isHidden = false
+            forwardView.configure(
+                presentation: forward,
+                onTap: forward.navigationTarget.map { target in
+                    { onMetadataNavigate(target) }
+                },
             )
         } else {
+            forwardView.isHidden = true
+        }
+
+        if let reply = message.replyPresentation {
+            replyView.isHidden = false
+            replyView.configure(
+                presentation: reply,
+                expanded: message.isReplyQuoteExpanded,
+            ) { shouldExpand in
+                if shouldExpand {
+                    onReplyQuoteExpand()
+                } else if let target = reply.navigationTarget {
+                    onMetadataNavigate(target)
+                }
+            }
+        } else {
             replyView.isHidden = true
-            replyTargetMessageID = nil
         }
 
         let hasMedia = mediaView.configure(
@@ -448,12 +461,36 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 displayedFormattedText?.text ?? presentation.summary
             }
         accessibilityLabel = [
-            message.forwardedFrom.map { "Forwarded from \($0)" },
+            message.forwardPresentation?.accessibilityDescription,
+            message.replyPresentation?.accessibilityDescription,
             accessibilityContent,
             timestampLabel.text,
         ]
             .compactMap(\.self)
             .joined(separator: ", ")
+        var metadataAccessibilityActions = [UIAccessibilityCustomAction]()
+        if let reply = message.replyPresentation {
+            if reply.isManualQuote, !message.isReplyQuoteExpanded {
+                metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Expand quoted text") { _ in
+                    onReplyQuoteExpand()
+                    return true
+                })
+            }
+            if let target = reply.navigationTarget {
+                metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Open replied message") { _ in
+                    onMetadataNavigate(target)
+                    return true
+                })
+            }
+        }
+        if let target = message.forwardPresentation?.navigationTarget {
+            metadataAccessibilityActions
+                .append(UIAccessibilityCustomAction(name: "Open forwarded message source") { _ in
+                    onMetadataNavigate(target)
+                    return true
+                })
+        }
+        accessibilityCustomActions = metadataAccessibilityActions
 
         bubbleContentNeedsMeasurement = true
         updateBubbleWidth(for: bounds.width)
@@ -494,9 +531,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         rowStack.addArrangedSubview(bubbleContainerView)
         rowStack.addArrangedSubview(trailingSpacer)
 
-        forwardedLabel.textColor = .secondaryLabel
-        forwardedLabel.font = .preferredFont(forTextStyle: .caption1)
-        forwardedLabel.numberOfLines = 1
+        forwardView.isHidden = true
         replyView.isHidden = true
         mediaView.isHidden = true
         textView.isHidden = true
@@ -519,7 +554,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             mediaTimestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
         ])
 
-        for view in [forwardedLabel, replyView, mediaView, structuredContentView, textView, timestampLabel] {
+        for view in [forwardView, replyView, mediaView, structuredContentView, textView, timestampLabel] {
             bubbleStack.addArrangedSubview(view)
         }
         bubbleStack.setCustomSpacing(6, after: replyView)
@@ -718,80 +753,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private func maximumTextWidth(for cellWidth: CGFloat) -> CGFloat {
         guard cellWidth > 0 else { return Utils.maxMessageContentWidth }
         return max(1, floor(cellWidth * 0.82) - 16)
-    }
-}
-
-// MARK: - ReplySnippetView
-
-final class ReplySnippetView: UIControl {
-    // MARK: Private
-
-    private let accentView = UIView()
-    private let stack = UIStackView()
-    private let titleLabel = UILabel()
-    private let textLabel = UILabel()
-    private var onTap: (() -> Void)?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        accentView.translatesAutoresizingMaskIntoConstraints = false
-        accentView.backgroundColor = .systemBlue
-        accentView.layer.cornerRadius = 1.5
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.spacing = 1
-        titleLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
-            for: .systemFont(ofSize: 15, weight: .semibold),
-        )
-        titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .systemBlue
-        titleLabel.numberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingTail
-        textLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
-            for: .systemFont(ofSize: 15, weight: .regular),
-        )
-        textLabel.adjustsFontForContentSizeCategory = true
-        textLabel.textColor = .secondaryLabel
-        textLabel.numberOfLines = 1
-        textLabel.lineBreakMode = .byTruncatingTail
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(textLabel)
-        addSubview(accentView)
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            accentView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            accentView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            accentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-            accentView.widthAnchor.constraint(equalToConstant: 3),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            stack.leadingAnchor.constraint(equalTo: accentView.trailingAnchor, constant: 6),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-        ])
-        addTarget(self, action: #selector(tapped), for: .touchUpInside)
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: Internal
-
-    func configure(title: String, message: Message, onTap: @escaping () -> Void) {
-        titleLabel.text = title
-        textLabel.text = ChatSummary.summary(for: message)
-        self.onTap = onTap
-    }
-
-    func configure(title: String, text: String, onTap: @escaping () -> Void) {
-        titleLabel.text = title
-        textLabel.text = text
-        self.onTap = onTap
-    }
-
-    @objc private func tapped() {
-        onTap?()
     }
 }
 

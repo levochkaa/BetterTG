@@ -31,12 +31,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    private struct PendingQuoteDestination {
+        let displayedMessageID: Int64
+        let quote: MessageQuoteHighlight
+        let targetMessageID: Int64
+    }
+
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
         presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
     }
 
     private let presentationMode: PresentationMode
     private let targetMessageID: Int64?
+    private let targetQuote: MessageQuoteHighlight?
     private let chatVM: ChatVM
     private let tdlib: TDLib
     private let historyContainerView = UIView()
@@ -59,7 +66,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
+    private var pendingQuoteHighlight: MessageQuoteHighlight?
+    private var pendingQuoteTargetMessageID: Int64?
+    private var pendingQuoteDestination: PendingQuoteDestination?
     private var messageNavigationTask: Task<Void, Never>?
+    private var metadataNavigationTask: Task<Void, Never>?
     private var messageHighlightTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
@@ -71,6 +82,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var voiceGestureDefersSystemGestures = false
     private var videoNoteRecorder: VideoNoteRecorderViewController?
     private var videoNoteReplyMessage: CustomMessage?
+    private var videoNoteReplyInput: InputMessageReplyTo?
     private var videoNoteChatActionActive = false
     private var restoredVideoRecordingDraftIDHandled: UUID?
 
@@ -115,11 +127,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         customChat: CustomChat,
         presentationMode: PresentationMode = .full,
         targetMessageID: Int64? = nil,
+        targetQuote: MessageQuoteHighlight? = nil,
         tdlib: TDLib = .shared,
     ) {
         self.presentationMode = presentationMode
         self.chatVM = ChatVM(customChat: customChat, previewing: presentationMode == .contextPreview)
         self.targetMessageID = targetMessageID
+        self.targetQuote = targetQuote
         self.tdlib = tdlib
         super.init(nibName: nil, bundle: nil)
     }
@@ -134,6 +148,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             inlineVideoPlaybackOwners.values.forEach { $0.invalidate() }
         }
         messageNavigationTask?.cancel()
+        metadataNavigationTask?.cancel()
         messageHighlightTask?.cancel()
     }
 
@@ -147,7 +162,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         updateSnapshot(animated: false)
         restoreVideoRecordingIfNeeded()
         if let targetMessageID {
-            scrollToMessage(id: targetMessageID)
+            scrollToMessage(id: targetMessageID, quote: targetQuote)
         }
     }
 
@@ -247,6 +262,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             presentedViewController == nil,
             allowsInlineVideoPlayback: false,
         )
+        if let cell = cell as? MessageCell {
+            applyPendingQuoteHighlight(to: cell, displayedMessageID: messageID)
+        }
         updateInlineVideoPlaybackVisibility()
         if presentationMode == .full {
             chatVM.viewMessage(id: messageID)
@@ -403,7 +421,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
-            composerView.onScrollToMessage = { [weak self] id in self?.scrollToMessage(id: id) }
+            composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
                 voiceGestureDefersSystemGestures = active
@@ -482,7 +500,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             recorder = videoNoteRecorder
         } else {
             videoNoteReplyMessage = chatVM.replyMessage
-            composerView.setVideoNoteReplyMessage(videoNoteReplyMessage)
+            videoNoteReplyInput = chatVM.getMessageReplyTo(from: videoNoteReplyMessage)
+            composerView.setVideoNoteReplyContext(message: videoNoteReplyMessage, input: videoNoteReplyInput)
             recorder = installVideoNoteRecorder()
         }
         return await recorder.beginHolding()
@@ -493,10 +512,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         restoredReply: CustomMessage? = nil,
     ) -> VideoNoteRecorderViewController {
         let replySnapshot = restoredDraft == nil ? videoNoteReplyMessage : restoredReply
+        let replyInput = restoredDraft?.replyTo ?? videoNoteReplyInput ?? chatVM.getMessageReplyTo(from: replySnapshot)
+        videoNoteReplyInput = replyInput
+        composerView.setVideoNoteReplyContext(message: replySnapshot, input: replyInput)
         let recorder = VideoNoteRecorderViewController(
             chatID: chatVM.chatID,
             replyMessageID: restoredDraft?.replyMessageID ?? replySnapshot?.id,
-            replyTo: restoredDraft?.replyTo ?? chatVM.getMessageReplyTo(from: replySnapshot),
+            replyTo: replyInput,
         )
         recorder.onStateChange = { [weak self, weak recorder] state in
             guard let self, videoNoteRecorder === recorder else { return }
@@ -563,7 +585,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             recorder.removeFromParent()
             videoNoteRecorder = nil
             videoNoteReplyMessage = nil
-            composerView.setVideoNoteReplyMessage(nil)
+            videoNoteReplyInput = nil
+            composerView.setVideoNoteReplyContext(message: nil, input: nil)
             stopVideoNoteChatAction()
             composerView.updateVideoNoteState(.idle)
         }
@@ -594,7 +617,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         restoredVideoRecordingDraftIDHandled = draft.id
         videoNoteReplyMessage = chatVM.restoredVideoRecordingReplyMessage
-        composerView.setVideoNoteReplyMessage(videoNoteReplyMessage)
+        videoNoteReplyInput = draft.replyTo
+        composerView.setVideoNoteReplyContext(message: videoNoteReplyMessage, input: videoNoteReplyInput)
         _ = installVideoNoteRecorder(
             restoring: draft,
             restoredReply: videoNoteReplyMessage,
@@ -736,8 +760,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 pollInteractionStore: chatVM.pollInteractionStore,
                 videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
                 onSwipeToReply: presentationMode == .full && message.properties.canBeReplied
-                    ? { [weak self] in self?.chatVM.replyMessage = message }
+                    ? { [weak self] in self?.chatVM.beginReply(to: message) }
                     : nil,
+                onMetadataNavigate: { [weak self] target in
+                    guard self?.presentationMode == .full else { return }
+                    self?.navigate(to: target)
+                },
+                onReplyQuoteExpand: { [weak self] in
+                    self?.expandReplyQuote(for: message)
+                },
                 onContentAction: { [weak self] action in
                     guard self?.presentationMode == .full else { return }
                     self?.performContentAction(action)
@@ -846,8 +877,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             guard let self, !snapshot.itemIdentifiers.isEmpty else { return }
             if let pendingScrollMessageID {
+                let quote = pendingQuoteHighlight
+                let quoteTargetMessageID = pendingQuoteTargetMessageID
                 self.pendingScrollMessageID = nil
-                scrollToLoadedMessage(id: pendingScrollMessageID)
+                pendingQuoteHighlight = nil
+                pendingQuoteTargetMessageID = nil
+                scrollToLoadedMessage(
+                    id: pendingScrollMessageID,
+                    quote: quote,
+                    quoteTargetMessageID: quoteTargetMessageID,
+                )
             } else if shouldKeepLatestVisible {
                 scrollToLatestMessage(animated: false)
             }
@@ -934,12 +973,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.messages.first(where: { $0.id == id })
     }
 
-    private func scrollToMessage(id: Int64) {
+    private func scrollToMessage(id: Int64, quote: MessageQuoteHighlight? = nil) {
         messageNavigationTask?.cancel()
         messageNavigationTask = nil
+        pendingQuoteDestination = nil
         pendingScrollMessageID = nil
+        pendingQuoteHighlight = nil
+        pendingQuoteTargetMessageID = nil
         if let displayedID = chatVM.displayedMessageID(containing: id) {
-            scrollToLoadedMessage(id: displayedID)
+            scrollToLoadedMessage(id: displayedID, quote: quote, quoteTargetMessageID: id)
             return
         }
         messageNavigationTask = Task { [weak self] in
@@ -948,14 +990,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   !Task.isCancelled
             else { return }
             pendingScrollMessageID = window.displayedMessageID
+            pendingQuoteHighlight = quote
+            pendingQuoteTargetMessageID = id
             chatVM.applyMessageWindow(window)
             messageNavigationTask = nil
         }
     }
 
-    private func scrollToLoadedMessage(id: Int64) {
+    private func scrollToLoadedMessage(
+        id: Int64,
+        quote: MessageQuoteHighlight? = nil,
+        quoteTargetMessageID: Int64? = nil,
+    ) {
         guard let index = dataSource.snapshot().indexOfItem(id) else {
             pendingScrollMessageID = id
+            pendingQuoteHighlight = quote
+            pendingQuoteTargetMessageID = quoteTargetMessageID
             updateSnapshot(animated: false)
             return
         }
@@ -991,6 +1041,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.updateHighlightState()
             self?.messageHighlightTask = nil
         }
+        if let quote, let quoteTargetMessageID {
+            pendingQuoteDestination = PendingQuoteDestination(
+                displayedMessageID: id,
+                quote: quote,
+                targetMessageID: quoteTargetMessageID,
+            )
+            if let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
+                applyPendingQuoteHighlight(to: cell, displayedMessageID: id)
+            }
+        }
+    }
+
+    private func applyPendingQuoteHighlight(to cell: MessageCell, displayedMessageID: Int64) {
+        guard let destination = pendingQuoteDestination,
+              destination.displayedMessageID == displayedMessageID
+        else { return }
+        pendingQuoteDestination = nil
+        guard destination.targetMessageID == displayedMessageID else { return }
+        cell.highlightQuote(destination.quote)
     }
 
     private func showMedia(_ messages: [Message], selection: Int64) {
@@ -1012,6 +1081,114 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ),
             animated: true,
         )
+    }
+
+    private func navigate(to target: MessageMetadataNavigationTarget) {
+        metadataNavigationTask?.cancel()
+        metadataNavigationTask = nil
+        pendingQuoteDestination = nil
+        switch target {
+        case .message(let chatID, let messageID, let quote) where chatID == chatVM.chatID:
+            scrollToMessage(id: messageID, quote: quote)
+        case .message(let chatID, let messageID, let quote):
+            openMetadataChat(chatID: chatID, targetMessageID: messageID, quote: quote)
+        case .chat(let chatID) where chatID == chatVM.chatID:
+            break
+        case .chat(let chatID):
+            openMetadataChat(chatID: chatID, targetMessageID: nil, quote: nil)
+        case .unavailable:
+            presentMetadataUnavailable()
+        case .user(let userID):
+            let client = chatVM.client
+            let accountID = TDLib.shared.activeAccountID
+            metadataNavigationTask = Task { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                let chat = try? await client.createPrivateChat(force: false, userId: userID)
+                guard !Task.isCancelled,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                guard let chat else {
+                    presentMetadataUnavailable()
+                    return
+                }
+                guard let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client)
+                else {
+                    presentMetadataUnavailable()
+                    return
+                }
+                NavigationStorage.shared.push(.customChat(customChat))
+                metadataNavigationTask = nil
+            }
+        }
+    }
+
+    private func openMetadataChat(
+        chatID: Int64,
+        targetMessageID: Int64?,
+        quote: MessageQuoteHighlight?,
+    ) {
+        let client = chatVM.client
+        let accountID = TDLib.shared.activeAccountID
+        metadataNavigationTask = Task { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            let customChat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            guard let customChat else {
+                presentMetadataUnavailable()
+                return
+            }
+            NavigationStorage.shared.push(.customChat(
+                customChat,
+                targetMessageID: targetMessageID,
+                targetQuote: quote,
+            ))
+            metadataNavigationTask = nil
+        }
+    }
+
+    private func presentMetadataUnavailable() {
+        metadataNavigationTask = nil
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "Message Unavailable",
+            message: "The original chat or message can’t be opened.",
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func expandReplyQuote(for message: CustomMessage) {
+        guard !message.isReplyQuoteExpanded,
+              let index = dataSource.snapshot().indexOfItem(message.id)
+        else { return }
+        collectionView.layoutIfNeeded()
+        let indexPath = IndexPath(item: index, section: 0)
+        let oldFrame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame
+        let oldOffset = collectionView.contentOffset
+        message.isReplyQuoteExpanded = true
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems([message.id])
+        UIView.performWithoutAnimation {
+            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                guard let self else { return }
+                collectionView.layoutIfNeeded()
+                guard let oldFrame,
+                      let newFrame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame
+                else { return }
+                collectionView.setContentOffset(
+                    CGPoint(x: oldOffset.x, y: oldOffset.y + newFrame.minY - oldFrame.minY),
+                    animated: false,
+                )
+            }
+        }
     }
 
     private func performContentAction(_ action: MessageContentAction) {
@@ -1351,17 +1528,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    @objc private func historyTapped(_ gesture: UITapGestureRecognizer) {
-        let point = gesture.location(in: collectionView)
-        if let indexPath = collectionView.indexPathForItem(at: point),
-           let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
-        {
-            let pointInCell = cell.contentView.convert(point, from: collectionView)
-            if let replyMessageID = cell.replyMessageID(at: pointInCell) {
-                scrollToMessage(id: replyMessageID)
-                return
-            }
-        }
+    @objc private func historyTapped(_: UITapGestureRecognizer) {
         view.endEditing(true)
     }
 
@@ -1393,8 +1560,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     title: "Reply",
                     image: UIImage(systemName: "arrowshape.turn.up.left"),
                 ) { [weak self] in
-                    self?.chatVM.replyMessage = message
+                    self?.chatVM.beginReply(to: message)
                 })
+            if formattedText(from: message.message.content)?.text.isEmpty == false {
+                elements.append(TelegramContextMenuAction(
+                    title: "Quote",
+                    image: UIImage(systemName: "quote.opening"),
+                ) { [weak self] in
+                    self?.chatVM.beginQuoteReply(to: message)
+                })
+            }
         }
         if message.properties.canBeEdited {
             elements.append(TelegramContextMenuAction(

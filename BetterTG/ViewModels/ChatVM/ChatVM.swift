@@ -40,11 +40,15 @@ import UIKit
     let customChat: CustomChat
     nonisolated let chatID: Int64
     let client: TDLibClient
+    let metadataResolver: MessageMetadataResolver
     let pollInteractionStore = MessagePollInteractionStore()
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
     @Published var editCustomMessage: CustomMessage?
     @Published var replyMessage: CustomMessage?
+    @Published private(set) var replyQuote: InputTextQuote?
+    @Published private(set) var replyInputOverride: InputMessageReplyTo?
+    @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var timerCount = 0.0
@@ -81,6 +85,8 @@ import UIKit
         didSet { messagesDidChange.send() }
     }
 
+    var metadataRefreshGenerations = [Int64: UUID]()
+
     private var voiceRecordingTimerBaseline = 0.0
     private var voiceRecordingLastRecorderTime = 0.0
     private var voiceRecordingDraftTask: Task<Void, Never>?
@@ -102,7 +108,7 @@ import UIKit
     private var submittingVideoDraftIDs = Set<UUID>()
     private var bufferedVideoResolutions = [Int64: VideoNoteDraftResolution]()
     private var bufferedVideoDeletedMessageIDs = Set<Int64>()
-
+    private var replySelectionGeneration = UInt64.zero
     private let previewing: Bool
 
     private var pendingVoiceNote: VoiceNoteSendDraft?
@@ -132,6 +138,20 @@ import UIKit
 
     var pendingVideoReplyMessageID: Int64? {
         pendingVideoNote?.replyMessageID
+    }
+
+    var pendingVideoReplyNavigationTarget: MessageMetadataNavigationTarget? {
+        MessageReplyInputBuilder.navigationTarget(
+            for: pendingVideoNote?.replyTo ?? restoredVideoRecordingDraft?.replyTo,
+            currentChatID: chatID,
+        )
+    }
+
+    var pendingVoiceReplyNavigationTarget: MessageMetadataNavigationTarget? {
+        MessageReplyInputBuilder.navigationTarget(
+            for: pendingVoiceNote?.replyTo ?? activeVoiceRecordingDraft?.replyTo,
+            currentChatID: chatID,
+        )
     }
 
     var canEditMessage: Bool {
@@ -266,9 +286,11 @@ import UIKit
     }
 
     init(customChat: CustomChat, previewing: Bool = false) {
+        let client = td
         self.customChat = customChat
         self.chatID = customChat.id
-        self.client = td
+        self.client = client
+        self.metadataResolver = MessageMetadataResolver(client: client)
         self.previewing = previewing
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
@@ -295,7 +317,7 @@ import UIKit
         Task { [weak self] in
             guard let self, let draftMessage else { return }
             let replyMessage = await getInputReplyToMessage(draftMessage.replyTo)
-            self.replyMessage = replyMessage
+            restoreReplyState(message: replyMessage, input: draftMessage.replyTo)
         }
         Task { [weak self] in
             guard let self else { return }
@@ -347,12 +369,10 @@ import UIKit
                !recordingVoiceNote,
                let recordingDraft = storedVideoRecordingDrafts.first
             {
-                let reply: CustomMessage? =
-                    if let replyMessageID = recordingDraft.replyMessageID {
-                        await getCustomMessage(fromId: replyMessageID)
-                    } else {
-                        nil
-                    }
+                let reply = await resolveStoredReply(
+                    replyTo: recordingDraft.replyTo,
+                    legacyMessageID: recordingDraft.replyMessageID,
+                )
                 self.restoredVideoRecordingReplyMessage = reply
                 self.restoredVideoRecordingDraft = recordingDraft
             }
@@ -424,7 +444,7 @@ import UIKit
         case .userStatusLastMonth: "last seen last month"
         }
     }
-    
+
     func loadMessages() {
         guard loadingMessagesTask == nil, hasMoreMessages else { return }
         let fromMessageID = messages.last?.message.id ?? 0
@@ -432,7 +452,7 @@ import UIKit
             await self?._loadMessages(fromMessageID: fromMessageID)
         }
     }
-    
+
     func _loadMessages(fromMessageID: Int64) async {
         guard let chatHistory = try? await td.getChatHistory(
             chatId: customChat.chat.id,
@@ -572,7 +592,7 @@ import UIKit
             _ = try? await td.deleteMessages(chatId: chatID, messageIds: ids, revoke: deleteForBoth)
         }
     }
-    
+
     func viewMessage(id: Int64) {
         Task {
             try await td.viewMessages(
@@ -599,21 +619,67 @@ import UIKit
             }
         }
     }
+
+    func beginReply(to message: CustomMessage) {
+        replySelectionGeneration &+= 1
+        replyMessage = message
+        replyQuote = nil
+        replyInputOverride = nil
+        replyFallbackPresentation = nil
+    }
+
+    func beginQuoteReply(to message: CustomMessage) {
+        guard let formattedText = message.formattedText, !formattedText.text.isEmpty else {
+            beginReply(to: message)
+            return
+        }
+        replySelectionGeneration &+= 1
+        let generation = replySelectionGeneration
+        replyMessage = message
+        replyQuote = nil
+        replyInputOverride = nil
+        replyFallbackPresentation = nil
+        let client = client
+        Task { [weak self, weak message] in
+            guard let self, let message else { return }
+            let maximumLength: Int =
+                if case .optionValueInteger(let value) = try? await client.getOption(
+                    name: "message_reply_quote_length_max",
+                ) {
+                    max(1, Int(clamping: value.value.rawValue))
+                } else {
+                    1024
+                }
+            guard replySelectionGeneration == generation,
+                  replyMessage === message,
+                  let quote = MessageQuoteBuilder.make(from: formattedText, maximumLength: maximumLength)
+            else { return }
+            replyQuote = quote
+        }
+    }
+
+    func cancelReply() {
+        replySelectionGeneration &+= 1
+        replyMessage = nil
+        replyQuote = nil
+        replyInputOverride = nil
+        replyFallbackPresentation = nil
+    }
     
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
-        guard let message = try? await td.getMessage(chatId: customChat.chat.id, messageId: id) else { return nil }
+        guard let message = try? await client.getMessage(chatId: customChat.chat.id, messageId: id) else { return nil }
         return await getCustomMessage(from: message)
     }
     
     func getCustomMessage(from message: Message) async -> CustomMessage {
-        let replyToMessage = await getReplyToMessage(message.replyTo)
+        async let replyPresentation = metadataResolver.replyPresentation(for: message)
+        async let forwardPresentation = metadataResolver.forwardPresentation(for: message.forwardInfo)
+        async let properties = try? client.getMessageProperties(chatId: message.chatId, messageId: message.id)
         let customMessage = await CustomMessage(
             message: message,
-            replyToMessage: replyToMessage,
-            forwardedFrom: getForwardedFrom(message.forwardInfo?.origin),
-            properties: (try? td.getMessageProperties(
-                chatId: customChat.chat.id, messageId: message.id,
-            )) ?? .default,
+            replyPresentation: replyPresentation,
+            forwardPresentation: forwardPresentation,
+            properties: properties ?? .default,
         )
         
         if message.mediaAlbumId != 0 {
@@ -621,11 +687,7 @@ import UIKit
         }
         
         if case .messageSenderUser(let messageSenderUser) = message.senderId {
-            customMessage.senderUser = try? await td.getUser(userId: messageSenderUser.userId)
-        }
-        
-        if case .messageSenderUser(let messageSenderUser) = replyToMessage?.senderId {
-            customMessage.replyUser = try? await td.getUser(userId: messageSenderUser.userId)
+            customMessage.senderUser = try? await client.getUser(userId: messageSenderUser.userId)
         }
         
         customMessage.formattedText = customMessage.contentPresentation.formattedText
@@ -633,43 +695,21 @@ import UIKit
         return customMessage
     }
     
-    func getForwardedFrom(_ origin: MessageOrigin?) async -> String? {
-        guard let origin else { return nil }
-        
-        switch origin {
-        case .messageOriginChat(let chat):
-            if let title = await (try? td.getChat(chatId: chat.senderChatId))?.title {
-                return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
-            } else {
-                return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
-            }
-        case .messageOriginChannel(let channel):
-            if let title = await (try? td.getChat(chatId: channel.chatId))?.title {
-                return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
-            } else {
-                return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
-            }
-        case .messageOriginHiddenUser(let messageOriginHiddenUser):
-            return messageOriginHiddenUser.senderName
-        case .messageOriginUser(let messageOriginUser):
-            return await (try? td.getUser(userId: messageOriginUser.senderUserId))?.firstName
-        }
-    }
-    
-    func getReplyToMessage(_ replyTo: MessageReplyTo?) async -> Message? {
-        if case .messageReplyToMessage(let messageReplyToMessage) = replyTo, messageReplyToMessage.messageId != 0 {
-            return try? await td.getMessage(chatId: customChat.chat.id, messageId: messageReplyToMessage.messageId)
-        }
-        return nil
-    }
-    
     func getInputReplyToMessage(_ inputMessageReplyTo: InputMessageReplyTo?) async -> CustomMessage? {
-        if case .inputMessageReplyToMessage(let message) = inputMessageReplyTo {
-            return await getCustomMessage(fromId: message.messageId)
+        switch inputMessageReplyTo {
+        case .inputMessageReplyToMessage(let message):
+            guard let target = try? await client.getMessage(chatId: chatID, messageId: message.messageId)
+            else { return nil }
+            return await getCustomMessage(from: target)
+        case .inputMessageReplyToExternalMessage(let message):
+            guard let target = try? await client.getMessage(chatId: message.chatId, messageId: message.messageId)
+            else { return nil }
+            return await getCustomMessage(from: target)
+        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory, nil:
+            return nil
         }
-        return nil
     }
-    
+
     func sendMessage() async {
         if !displayedImages.isEmpty {
             await sendMessagePhotos()
@@ -685,7 +725,7 @@ import UIKit
             self.displayedImages.removeAll()
             self.editMessageText = ""
             self.text = ""
-            self.replyMessage = nil
+            self.cancelReply()
             self.editCustomMessage = nil
         }
     }
@@ -900,10 +940,10 @@ import UIKit
             } else {
                 outgoingVideoNotes[message.id] = registration?.draft ?? draft
             }
-            if let replyMessageID = draft.replyMessageID,
-               replyMessage?.id == replyMessageID
+            if let replyTo = draft.replyTo,
+               getMessageReplyTo(from: replyMessage) == replyTo
             {
-                replyMessage = nil
+                cancelReply()
             }
             try? await tdSendChatAction(.chatActionCancel)
             if registration != nil, resolution?.outcome != .failed {
@@ -1142,15 +1182,15 @@ import UIKit
     }
     
     func getMessageReplyTo(from customMessage: CustomMessage?) -> InputMessageReplyTo? {
-        guard let customMessage else { return nil }
-        return .inputMessageReplyToMessage(.init(
-            checklistTaskId: 0,
-            messageId: customMessage.message.id,
-            pollOptionId: "",
-            quote: nil,
-        ))
+        guard let customMessage else { return replyInputOverride }
+        return MessageReplyInputBuilder.make(
+            currentChatID: chatID,
+            target: customMessage.message,
+            override: customMessage === replyMessage ? replyInputOverride : nil,
+            quote: customMessage === replyMessage ? replyQuote : nil,
+        )
     }
-    
+
     func startTimer() {
         guard timer == nil else { return }
         let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -1412,11 +1452,12 @@ import UIKit
         recordingVoiceNoteURL = nil
         let recordingDraftID = voiceRecordingDraftID ?? activeVoiceRecordingDraft?.id
         let recordingReply = pendingVoiceReplyMessage
+        let recordingReplyTo = activeVoiceRecordingDraft?.replyTo
         activeVoiceRecordingDraft = nil
         voiceRecordingDraftID = nil
         pendingVoiceReplyMessage = nil
         if replyMessage == nil {
-            replyMessage = recordingReply
+            restoreReplyState(message: recordingReply, input: recordingReplyTo)
         }
         wave.removeAll(keepingCapacity: true)
         stopTimer()
@@ -1470,21 +1511,67 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func resolveStoredReply(
+        replyTo: InputMessageReplyTo?,
+        legacyMessageID: Int64?,
+    ) async -> CustomMessage? {
+        if let resolved = await getInputReplyToMessage(replyTo) {
+            return resolved
+        }
+        let allowsLegacyCurrentChatFallback =
+            switch replyTo {
+            case .inputMessageReplyToMessage, nil:
+                true
+            case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToExternalMessage,
+                 .inputMessageReplyToStory:
+                false
+            }
+        guard allowsLegacyCurrentChatFallback, let legacyMessageID else { return nil }
+        return await getCustomMessage(fromId: legacyMessageID)
+    }
+
+    private func inputQuote(from replyTo: InputMessageReplyTo?) -> InputTextQuote? {
+        switch replyTo {
+        case .inputMessageReplyToMessage(let message):
+            message.quote
+        case .inputMessageReplyToExternalMessage(let message):
+            message.quote
+        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory, nil:
+            nil
+        }
+    }
+
+    private func restoreReplyState(
+        message: CustomMessage?,
+        input: InputMessageReplyTo?,
+    ) {
+        replySelectionGeneration &+= 1
+        replyMessage = message
+        replyQuote = inputQuote(from: input)
+        replyInputOverride = input
+        replyFallbackPresentation = message == nil
+            ? input.map { MessageReplyPresentation.fallback(for: $0, currentChatID: chatID) }
+            : nil
+    }
+
     private func restoreVideoReplyIfNeeded(
         from draft: VideoNoteSendDraft,
         knownReply: CustomMessage?,
     ) {
         guard replyMessage == nil, editCustomMessage == nil else { return }
         if let knownReply {
-            replyMessage = knownReply
+            restoreReplyState(message: knownReply, input: draft.replyTo)
             return
         }
-        guard let replyMessageID = draft.replyMessageID else { return }
+        guard draft.replyTo != nil || draft.replyMessageID != nil else { return }
         Task { [weak self] in
             guard let self else { return }
-            let restoredReply = await getCustomMessage(fromId: replyMessageID)
+            let restoredReply = await resolveStoredReply(
+                replyTo: draft.replyTo,
+                legacyMessageID: draft.replyMessageID,
+            )
             guard replyMessage == nil, editCustomMessage == nil else { return }
-            replyMessage = restoredReply
+            restoreReplyState(message: restoredReply, input: draft.replyTo)
         }
     }
 
@@ -1504,13 +1591,13 @@ import UIKit
                 objectWillChange.send()
             }
         }
-        guard let replyMessageID = draft.replyMessageID else {
+        guard draft.replyTo != nil || draft.replyMessageID != nil else {
             pendingVideoReplyMessage = nil
             return
         }
         Task { [weak self] in
             guard let self else { return }
-            let reply = await getCustomMessage(fromId: replyMessageID)
+            let reply = await resolveStoredReply(replyTo: draft.replyTo, legacyMessageID: draft.replyMessageID)
             guard pendingVideoNote?.id == draft.id else { return }
             pendingVideoReplyMessage = reply
         }
@@ -1735,7 +1822,7 @@ import UIKit
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
         )
         pendingVoiceReplyMessage = reply
-        replyMessage = nil
+        cancelReply()
         startVoiceFinalization(
             sendWhenReady: false,
             pendingMessage: "Preview preparation failed. The recording was preserved as a retry draft.",
@@ -1865,7 +1952,7 @@ import UIKit
                 voiceRecordingDraftTask = nil
                 pendingVoiceNote = adoptedDraft
                 pendingVoiceReplyMessage = reply
-                replyMessage = nil
+                cancelReply()
                 recordingVoiceNote = false
                 voiceRecordingInteractionState = .idle
                 stopTimer()
@@ -1899,10 +1986,10 @@ import UIKit
         timerCount = draft.exactDuration
         voiceRecordingTimerBaseline = draft.exactDuration
         loadVoiceRecordingPreview(draft)
-        guard let replyMessageID = draft.replyMessageID else { return }
+        guard draft.replyTo != nil || draft.replyMessageID != nil else { return }
         Task { [weak self] in
             guard let self else { return }
-            let reply = await getCustomMessage(fromId: replyMessageID)
+            let reply = await resolveStoredReply(replyTo: draft.replyTo, legacyMessageID: draft.replyMessageID)
             guard activeVoiceRecordingDraft?.id == draft.id else { return }
             pendingVoiceReplyMessage = reply
         }
@@ -2069,7 +2156,7 @@ import UIKit
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
         )
         pendingVoiceReplyMessage = reply
-        replyMessage = nil
+        cancelReply()
         startVoiceFinalization(sendWhenReady: sendWhenReady, pendingMessage: pendingMessage)
     }
 
@@ -2261,10 +2348,10 @@ import UIKit
                 objectWillChange.send()
             }
         }
-        guard let replyMessageID = draft.replyMessageID else { return }
+        guard draft.replyTo != nil || draft.replyMessageID != nil else { return }
         Task { [weak self] in
             guard let self else { return }
-            let reply = await getCustomMessage(fromId: replyMessageID)
+            let reply = await resolveStoredReply(replyTo: draft.replyTo, legacyMessageID: draft.replyMessageID)
             guard pendingVoiceNote?.id == draft.id else { return }
             pendingVoiceReplyMessage = reply
         }
@@ -2302,16 +2389,22 @@ import UIKit
         from draft: VoiceNoteSendDraft?,
         knownReply: CustomMessage?,
     ) {
-        guard replyMessage == nil, editCustomMessage == nil, let replyMessageID = draft?.replyMessageID else { return }
+        guard replyMessage == nil,
+              editCustomMessage == nil,
+              draft?.replyTo != nil || draft?.replyMessageID != nil
+        else { return }
         if let knownReply {
-            replyMessage = knownReply
+            restoreReplyState(message: knownReply, input: draft?.replyTo)
             return
         }
         Task { [weak self] in
             guard let self else { return }
-            let restoredReply = await getCustomMessage(fromId: replyMessageID)
+            let restoredReply = await resolveStoredReply(
+                replyTo: draft?.replyTo,
+                legacyMessageID: draft?.replyMessageID,
+            )
             guard replyMessage == nil, editCustomMessage == nil else { return }
-            replyMessage = restoredReply
+            restoreReplyState(message: restoredReply, input: draft?.replyTo)
         }
     }
 

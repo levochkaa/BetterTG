@@ -9,13 +9,14 @@ import TDLibKitDynamic
 
     @Published var message: Message
     @Published var senderUser: User?
-    @Published var replyUser: User?
-    @Published var replyToMessage: Message?
+    @Published var replyPresentation: MessageReplyPresentation?
+    @Published var forwardPresentation: MessageForwardPresentation?
     @Published var album: [Message]
     @Published var sendFailed: Bool
-    @Published var forwardedFrom: String?
     @Published var formattedText: FormattedText?
     @Published var properties: MessageProperties
+
+    var isReplyQuoteExpanded = false
 
     var id: Int64 { message.id }
     var contentPresentation: MessageContentPresentation {
@@ -29,21 +30,19 @@ import TDLibKitDynamic
     init(
         message: Message,
         senderUser: User? = nil,
-        replyUser: User? = nil,
-        replyToMessage: Message? = nil,
+        replyPresentation: MessageReplyPresentation? = nil,
+        forwardPresentation: MessageForwardPresentation? = nil,
         album: [Message] = [],
         sendFailed: Bool = false,
-        forwardedFrom: String? = nil,
         formattedText: FormattedText? = nil,
         properties: MessageProperties,
     ) {
         self.message = message
         self.senderUser = senderUser
-        self.replyUser = replyUser
-        self.replyToMessage = replyToMessage
+        self.replyPresentation = replyPresentation
+        self.forwardPresentation = forwardPresentation
         self.album = album
         self.sendFailed = sendFailed
-        self.forwardedFrom = forwardedFrom
         self.formattedText = formattedText
         self.properties = properties
     }

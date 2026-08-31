@@ -1,6 +1,7 @@
 // ChatVM+Publishers.swift
 
 import Combine
+import Foundation
 import TDLibKitDynamic
 
 extension ChatVM {
@@ -14,16 +15,29 @@ extension ChatVM {
             updateNewMessage(update)
         }
         nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
-            updateDeleteMessages(update)
+            guard let self else { return }
+            if update.chatId == customChat.id {
+                updateDeleteMessages(update)
+            }
+            guard !update.fromCache else { return }
+            refreshReferencedMetadata(chatID: update.chatId, messageIDs: Set(update.messageIds))
+            if update.isPermanent {
+                invalidateDeletedForwardTargets(chatID: update.chatId, messageIDs: Set(update.messageIds))
+            }
         }
         nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
-            updateMessageEdited(update)
+            guard let self else { return }
+            if update.chatId == customChat.id {
+                updateMessageEdited(update)
+            }
+            refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
         }
         nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
-            refreshMessage(id: update.messageId)
+            guard let self else { return }
+            if update.chatId == customChat.id {
+                refreshMessage(id: update.messageId)
+            }
+            refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
         }
         nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
             guard let self, update.message.chatId == customChat.id else { return }
@@ -53,14 +67,23 @@ extension ChatVM {
         }
         nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
             guard let self else { return }
+            metadataResolver.update(user: update.user)
             for message in messages {
                 if message.senderUser?.id == update.user.id {
                     message.senderUser = update.user
                 }
-                if message.replyUser?.id == update.user.id {
-                    message.replyUser = update.user
-                }
             }
+            refreshReferencedMetadata(userID: update.user.id)
+        }
+        nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
+            guard let self else { return }
+            metadataResolver.invalidateChat(id: update.chatId)
+            refreshReferencedMetadata(chatID: update.chatId)
+        }
+        nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
+            guard let self else { return }
+            metadataResolver.invalidateChat(id: update.chatId)
+            refreshReferencedMetadata(chatID: update.chatId)
         }
         nc.publisher(&cancellables, for: .updateChatAction) { [weak self] update in
             guard let self, update.chatId == customChat.id else { return }
@@ -149,7 +172,6 @@ extension ChatVM {
     private func refreshMessage(id: Int64) {
         Task {
             let replacement = await getCustomMessage(fromId: id)
-            let reply = try? await td.getMessage(chatId: chatID, messageId: id)
             if let replacement,
                let index = messages.firstIndex(where: { $0.id == id })
             {
@@ -158,9 +180,76 @@ extension ChatVM {
                     replyMessage = replacement
                 }
             }
-            for message in messages where message.replyToMessage?.id == id {
-                message.replyToMessage = reply
+        }
+    }
+
+    private func refreshReferencedMetadata(chatID: Int64, messageIDs: Set<Int64>) {
+        let candidates = messages.filter { message in
+            guard let reply = message.replyPresentation else { return false }
+            return reply.targetChatID == chatID
+                && reply.targetMessageID.map(messageIDs.contains) == true
+        }
+        for message in candidates {
+            refreshMetadata(for: message)
+        }
+    }
+
+    private func refreshReferencedMetadata(userID: Int64) {
+        for message in messages {
+            let refreshReply = message.replyPresentation?.referencedUserID == userID
+            let refreshForward = message.forwardPresentation?.referencedUserIDs.contains(userID) == true
+            if refreshReply || refreshForward {
+                refreshMetadata(for: message)
             }
+        }
+    }
+
+    private func invalidateDeletedForwardTargets(chatID: Int64, messageIDs: Set<Int64>) {
+        for message in messages {
+            guard let forward = message.forwardPresentation,
+                  forward.targetChatID == chatID,
+                  forward.targetMessageID.map(messageIDs.contains) == true
+            else { continue }
+            metadataRefreshGenerations[message.id] = UUID()
+            message.forwardPresentation = forward.removingNavigationTarget()
+        }
+    }
+
+    private func refreshReferencedMetadata(chatID: Int64) {
+        for message in messages {
+            let refreshReply = message.replyPresentation?.referencedChatID == chatID
+                || message.replyPresentation?.targetChatID == chatID
+            let refreshForward = message.forwardPresentation?.referencedChatIDs.contains(chatID) == true
+            if refreshReply || refreshForward {
+                refreshMetadata(for: message)
+            }
+        }
+    }
+
+    private func refreshMetadata(for message: CustomMessage) {
+        let generation = UUID()
+        metadataRefreshGenerations[message.id] = generation
+        Task { [weak self, weak message] in
+            guard let self, let message else { return }
+            let previousForward = message.forwardPresentation
+            async let replyPresentation = metadataResolver.replyPresentation(for: message.message)
+            async let forwardPresentation = metadataResolver.forwardPresentation(for: message.message.forwardInfo)
+            let resolvedReply = await replyPresentation
+            var resolvedForward = await forwardPresentation
+            if let previousForward,
+               previousForward.navigationTarget == nil,
+               previousForward.targetMessageID != nil,
+               previousForward.targetChatID == resolvedForward?.targetChatID,
+               previousForward.targetMessageID == resolvedForward?.targetMessageID
+            {
+                resolvedForward = resolvedForward?.removingNavigationTarget()
+            }
+            guard metadataRefreshGenerations[message.id] == generation,
+                  messages.contains(where: { $0 === message })
+            else { return }
+            message.replyPresentation = resolvedReply
+            message.forwardPresentation = resolvedForward
+            metadataRefreshGenerations[message.id] = nil
         }
     }
 }

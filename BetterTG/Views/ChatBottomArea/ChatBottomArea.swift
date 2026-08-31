@@ -25,7 +25,7 @@ final class ChatComposerView: UIView {
 
     var onPickPhotos: (() -> Void)?
     var onTakePhoto: (() -> Void)?
-    var onScrollToMessage: ((Int64) -> Void)?
+    var onNavigateToMessage: ((MessageMetadataNavigationTarget) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
     var onConfirmVoiceTrimResume: (() -> Void)?
     var onCancelVideoNoteRecording: (() -> Void)?
@@ -98,6 +98,7 @@ final class ChatComposerView: UIView {
     private var selectedMediaRecordingMode = ChatMediaRecordingMode.voice
     private var videoNoteState = VideoNoteComposerState.idle
     private var videoNoteReplyMessage: CustomMessage?
+    private var videoNoteReplyFallback: MessageReplyPresentation?
     private var videoNoteTrimEditing = false
     private var videoNoteTrimSaving = false
 
@@ -182,8 +183,14 @@ final class ChatComposerView: UIView {
         )
     }
 
-    func setVideoNoteReplyMessage(_ message: CustomMessage?) {
+    func setVideoNoteReplyContext(
+        message: CustomMessage?,
+        input: InputMessageReplyTo?,
+    ) {
         videoNoteReplyMessage = message
+        videoNoteReplyFallback = message == nil
+            ? input.map { MessageReplyPresentation.fallback(for: $0, currentChatID: chatVM.chatID) }
+            : nil
         update(from: chatVM)
     }
 
@@ -236,7 +243,8 @@ final class ChatComposerView: UIView {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
             replySnippet.configure(title: "Edit message", message: edited.message) { [weak self] in
-                self?.onScrollToMessage?(edited.id)
+                guard let self else { return }
+                onNavigateToMessage?(navigationTarget(for: edited))
             }
         } else if videoNoteState.isActive, let videoNoteReplyMessage {
             showsReplyPreview = true
@@ -245,7 +253,15 @@ final class ChatComposerView: UIView {
                 title: "Video reply · \(videoNoteReplyMessage.senderUser?.firstName ?? "Message")",
                 message: videoNoteReplyMessage.message,
             ) { [weak self] in
-                self?.onScrollToMessage?(videoNoteReplyMessage.id)
+                guard let self else { return }
+                onNavigateToMessage?(navigationTarget(for: videoNoteReplyMessage))
+            }
+        } else if videoNoteState.isActive, let videoNoteReplyFallback {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = true
+            replySnippet.configure(presentation: videoNoteReplyFallback, expanded: false) { [weak self] _ in
+                guard let self, let target = videoNoteReplyFallback.navigationTarget else { return }
+                onNavigateToMessage?(target)
             }
         } else if targetText.characters.isEmpty,
                   let pendingReplyID = chatVM.pendingVideoReplyMessageID,
@@ -258,11 +274,16 @@ final class ChatComposerView: UIView {
                     title: "Video reply · \(pendingReply.senderUser?.firstName ?? "Message")",
                     message: pendingReply.message,
                 ) { [weak self] in
-                    self?.onScrollToMessage?(pendingReply.id)
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: pendingReply))
                 }
             } else {
                 replySnippet.configure(title: "Video reply", text: "Original replied message") { [weak self] in
-                    self?.onScrollToMessage?(pendingReplyID)
+                    guard let self else { return }
+                    onNavigateToMessage?(
+                        chatVM.pendingVideoReplyNavigationTarget
+                            ?? .message(chatID: chatVM.chatID, messageID: pendingReplyID, quote: nil),
+                    )
                 }
             }
         } else if targetText.characters.isEmpty,
@@ -276,20 +297,40 @@ final class ChatComposerView: UIView {
                     title: "Voice reply · \(pendingReply.senderUser?.firstName ?? "Message")",
                     message: pendingReply.message,
                 ) { [weak self] in
-                    self?.onScrollToMessage?(pendingReply.id)
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: pendingReply))
                 }
             } else {
                 replySnippet.configure(title: "Voice reply", text: "Original replied message") { [weak self] in
-                    self?.onScrollToMessage?(pendingReplyID)
+                    guard let self else { return }
+                    onNavigateToMessage?(
+                        chatVM.pendingVoiceReplyNavigationTarget
+                            ?? .message(chatID: chatVM.chatID, messageID: pendingReplyID, quote: nil),
+                    )
                 }
             }
         } else if let reply = chatVM.replyMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
-            replySnippet
-                .configure(title: reply.senderUser?.firstName ?? "Reply", message: reply.message) { [weak self] in
-                    self?.onScrollToMessage?(reply.id)
+            let title = reply.senderUser?.firstName ?? "Reply"
+            if let quote = chatVM.replyQuote {
+                replySnippet.configure(title: title, quote: quote) { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: reply, quote: quote))
                 }
+            } else {
+                replySnippet.configure(title: title, message: reply.message) { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: reply))
+                }
+            }
+        } else if let fallback = chatVM.replyFallbackPresentation {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = false
+            replySnippet.configure(presentation: fallback, expanded: false) { [weak self] _ in
+                guard let self, let target = fallback.navigationTarget else { return }
+                onNavigateToMessage?(target)
+            }
         } else {
             showsReplyPreview = false
             closeReplyButton.isHidden = false
@@ -957,8 +998,22 @@ final class ChatComposerView: UIView {
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
+    private func navigationTarget(
+        for message: CustomMessage,
+        quote: InputTextQuote? = nil,
+    ) -> MessageMetadataNavigationTarget {
+        let quoteHighlight = quote.map {
+            MessageQuoteHighlight(length: $0.text.text.utf16.count, position: max(0, $0.position))
+        }
+        return .message(
+            chatID: message.message.chatId,
+            messageID: message.id,
+            quote: quoteHighlight,
+        )
+    }
+
     @objc private func cancelReplyOrEdit() {
-        chatVM.replyMessage = nil
+        chatVM.cancelReply()
         chatVM.editCustomMessage = nil
         chatVM.editMessageText = ""
     }

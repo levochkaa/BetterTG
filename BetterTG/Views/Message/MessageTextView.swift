@@ -38,6 +38,13 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private var customEmojiTask: Task<Void, Never>?
     private var customEmojiGeneration = 0
     private var customEmojiPlaybackVisible = false
+    private var quoteHighlightRange: NSRange?
+    private var quoteHighlightTask: Task<Void, Never>?
+    private var quoteHighlightViews = [UIView]()
+
+    #if DEBUG
+        var debugQuoteHighlightCount: Int { quoteHighlightViews.count }
+    #endif
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -77,6 +84,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         )
         bringSubviewToFront(statusLabel)
         layoutCustomEmojiViews()
+        layoutQuoteHighlightViews()
         lastLayoutWidth = bounds.width
         if abs(oldWidth - bounds.width) > 0.5 {
             invalidateIntrinsicContentSize()
@@ -114,6 +122,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     }
 
     func prepareForReuse() {
+        clearQuoteHighlight()
         clearCustomEmojiViews()
         customEmojiPlaybackVisible = false
         formattedText = nil
@@ -125,6 +134,45 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         customEmojiPlaybackVisible = isVisible
         for placement in customEmojiPlacements {
             placement.view.setPlaybackVisible(isVisible)
+        }
+    }
+
+    func highlightQuote(position: Int, length: Int) {
+        guard let formattedText,
+              position >= 0,
+              length > 0,
+              position < formattedText.text.utf16.count
+        else { return }
+        clearQuoteHighlight()
+        quoteHighlightRange = NSRange(
+            location: position,
+            length: min(length, formattedText.text.utf16.count - position),
+        )
+        layoutIfNeeded()
+        layoutQuoteHighlightViews()
+        for view in quoteHighlightViews {
+            view.alpha = 0
+            UIView.animate(withDuration: 0.18) { view.alpha = 1 }
+        }
+        quoteHighlightTask = Task { @MainActor [weak self] in
+            #if DEBUG
+                let visibleDuration = ProcessInfo.processInfo.arguments.contains("-ui-probe-message-metadata")
+                    ? 30.0
+                    : 1.2
+            #else
+                let visibleDuration = 1.2
+            #endif
+            try? await Task<Never, Never>.sleep(for: .seconds(visibleDuration))
+            guard let self, !Task.isCancelled else { return }
+            let views = quoteHighlightViews
+            quoteHighlightViews.removeAll()
+            quoteHighlightRange = nil
+            UIView.animate(withDuration: 0.28) {
+                views.forEach { $0.alpha = 0 }
+            } completion: { _ in
+                views.forEach { $0.removeFromSuperview() }
+            }
+            quoteHighlightTask = nil
         }
     }
 
@@ -207,6 +255,46 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             placement.view.removeFromSuperview()
         }
         customEmojiPlacements.removeAll()
+    }
+
+    private func clearQuoteHighlight() {
+        quoteHighlightTask?.cancel()
+        quoteHighlightTask = nil
+        quoteHighlightRange = nil
+        quoteHighlightViews.forEach { $0.removeFromSuperview() }
+        quoteHighlightViews.removeAll()
+    }
+
+    private func layoutQuoteHighlightViews() {
+        guard let range = quoteHighlightRange,
+              NSMaxRange(range) <= textStorage.length,
+              bounds.width > 0
+        else { return }
+        quoteHighlightViews.forEach { $0.removeFromSuperview() }
+        quoteHighlightViews.removeAll()
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        layoutManager.enumerateEnclosingRects(
+            forGlyphRange: glyphRange,
+            withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+            in: textContainer,
+        ) { [weak self] rect, _ in
+            guard let self, !rect.isNull, !rect.isEmpty else { return }
+            let highlight = UIView(frame: rect.offsetBy(dx: textContainerInset.left, dy: textContainerInset.top)
+                .insetBy(
+                    dx: -2,
+                    dy: -1,
+                ))
+            highlight.isUserInteractionEnabled = false
+            highlight.backgroundColor = UIColor.messageHighlight.withAlphaComponent(0.55)
+            highlight.layer.cornerRadius = 4
+            insertSubview(highlight, belowSubview: statusLabel)
+            quoteHighlightViews.append(highlight)
+        }
+        for placement in customEmojiPlacements {
+            bringSubviewToFront(placement.view)
+        }
+        bringSubviewToFront(statusLabel)
     }
 
     private func layoutCustomEmojiViews() {

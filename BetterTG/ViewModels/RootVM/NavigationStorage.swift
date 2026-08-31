@@ -26,10 +26,11 @@ import UIKit
     func push(_ route: Route, animated: Bool = true) {
         let controller: UIViewController =
             switch route {
-            case .customChat(let customChat, let targetMessageID):
+            case .customChat(let customChat, let targetMessageID, let targetQuote):
                 ChatViewController(
                     customChat: customChat,
                     targetMessageID: targetMessageID,
+                    targetQuote: targetQuote,
                 )
             case .archive(let customFolder):
                 ArchiveViewController(folder: customFolder, rootVM: .shared)
