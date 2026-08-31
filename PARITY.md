@@ -26,34 +26,36 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **queued** — isolated clients/storage/subscriptions plus add/auth/switch/remove/logout. |
 | P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid chat list/filter behavior | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **queued**. |
 | P1 | Timeline stability and performance | pre-Liquid chat history behavior | `getChatHistory`, `updateNewMessage`, `updateMessageContent`, file updates | **partial** — UIKit collection timeline exists; audit anchor `messageId + pixelOffset`, prepend/resize/keyboard invariants, account scope, prefetch cancellation, and main-thread work. |
-| P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars | n/a | **partial** — UIKit shell exists; audit every surface for full-width safe-area blur and forbidden floating/glass markers. |
+| P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars and `ChatListFilterTabContainerNode.swift` | n/a | **partial — glass markers removed, classic folder bar proved** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proof are below. Next P2 gap: replace the still-rounded floating chat-list cards with Telegram's contiguous full-width rows, then audit remaining surfaces. |
 
 ## Checkpoint
 
-- Current slice: account-scoped `ChatLocation` plus UIKit forum topic list and read-only topic history.
-- Identity/lifecycle: `(accountID, clientID, chatID, MessageTopic?)` survives every route. `ForumTopic` is presentation state only. One
-  ref-counted `openChat` lease captures the originating TDLib client, so the list and pushed topic cannot close each other and an account
-  switch cannot close through the new active client. Push navigation and quick replies capture/revalidate account+client after every
-  suspension; forum forwarding and quick replies fail closed when supergroup lookup fails or no topic picker exists.
-- Pagination/reconciliation: `getForumTopics` uses the exact date/topic/message cursor, strict `order` sorting, ID merge, hidden-General
-  removal, unchanged/repeated/zero cursor termination and no short-page EOF assumption. Live topic/info/message updates refetch missing
-  order/last/unread fields; transient failures retain rows/topic headers, active search drops renamed nonmatches, and diffable snapshots
-  reconfigure retained IDs. `getForumTopicHistory` filters the explicit topic, de-duplicates repeated anchors and stops only on empty or
-  no-new-ID pages. Search passes `topicId`; message/metadata navigation resolves cross-topic targets deliberately.
-- Read-only barrier: the composer, reply/edit/delete/select/forward/reaction/poll/pin, voice/video recording/retry/send, drafts, album sends and
-  chat actions are blocked both in UIKit and at mutation entry points. Non-mutating Copy, media, document/contact/location opening,
-  search and metadata navigation remain usable. All forum base routes temporarily open the list; Telegram's all-messages mode remains
-  deferred until run headers and explicit topic write routing prevent unscoped sends.
-- Verification: one SwiftFormat invocation covers all 17 changed Swift files. Xcode 26.6 build
-  `.build/logs/xcodebuild/build-Debug-20260831-062650-32938-29366.log` succeeds with no `warning:` or `error:`. The DEBUG fixture proves
-  location matching, cursor continuation/termination, `[1,42,77]` ordering and hidden-General omission.
-  `./build.sh run --skip-build -- -ui-probe-forum-topics` on iPhone 17 Pro / iOS 26.5 produced PID 31980. Before-action hierarchy exposes full-width topic buttons:
-  General = pinned + 12 unread, Announcements = closed + draft, Support = 2 unread reactions + unknown preview; topic 99 is absent.
-  Tapping AX center `(201,262)` changes status to `Opened topic 42 · Read-only`, with the process still alive and no visible overlap/crop.
-  Evidence is `.build/ui-probe-evidence/forum-topics-*` and Simulator remains booted.
-- Next slice: add explicit forum-topic write plumbing end to end: `topicId` for text/media/voice/video/drafts/actions/retries, account+topic
-  durable draft keys, a topic-aware Forward picker, and Telegram all-messages topic-run headers. Keep the current fail-closed list route
-  until every write and restoration path carries that identity.
+- Current slice: remove Liquid Glass/floating-lens shell markers and restore classic pre-Liquid folder tabs/context-menu material.
+- Telegram reference: pre-Liquid `ChatListFilterTabContainerNode.swift` lays out one scrollable bar and a selected line at
+  `y = height - 3`, spanning the selected segment. BetterTG now uses the same three-point geometry on one edge-to-edge
+  `.systemChromeMaterial` bar through the bottom safe area; the former 16pt-inset rounded control and capsule selection are gone.
+- Context menus: `UIGlassEffect` and iOS 26 corner configuration are replaced by `.systemMaterial` plus a 16pt continuous corner and
+  10pt row highlight. Existing extraction, tracking, action grouping and background dim/blur behavior are unchanged.
+- Verification: one SwiftFormat invocation covers both changed Swift files. Xcode 26.6 build
+  `.build/logs/xcodebuild/build-Debug-20260831-062914-33482-14249.log` succeeds with no warnings. `rg` finds zero
+  `UIGlassEffect`, `glassEffect` or `cornerConfiguration` in application Swift. Real-state `./build.sh run --skip-build` on iPhone 17 Pro
+  / iOS 26.5 produced PID 33820. Hierarchy shows 50pt contiguous folder buttons from x=0; screenshot proves a 60×3pt blue `All` line and
+  full-width blur through the safe area. A 0.4s long press at AX center `(122,807)` opens six readable, non-overlapping material actions;
+  PID remains alive. Evidence is `.build/ui-probe-evidence/classic-shell-*`; Simulator remains booted.
+- Next slice: the same screenshot exposes rounded/inset floating chat-list cards. Convert them to Telegram's contiguous full-width rows
+  with 76pt-classic geometry, avatar/title/preview/date/unread/pin layout and separators, then repeat real-state idb proof. After that,
+  resume explicit forum-topic write plumbing recorded in the Forum topic slice.
+
+### Classic shell blur slice
+
+- **P2 flow:** full-width folder/tab chrome and context-menu material, based on pre-Liquid `ChatListFilterTabContainerNode` selection
+  geometry and classic UIKit material rather than Liquid Glass.
+- Implemented: edge-to-edge bottom blur including safe area; rectangular scroll viewport; exact three-point segment line; selected accent
+  text; ordinary system-material context menu; classic 16/10pt menu/highlight corners; all Glass-only APIs and marker strings removed.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-062914-33482-14249.log`; real account hierarchy/screenshot and long-press
+  menu evidence `.build/ui-probe-evidence/classic-shell-*`; PID 33820 alive; Simulator booted.
+- Deferred: contiguous classic chat rows are the next visible shell gap; remaining navigation/search/action surfaces still need a complete
+  full-width/no-floating audit.
 
 ### Forum topic browsing slice
 

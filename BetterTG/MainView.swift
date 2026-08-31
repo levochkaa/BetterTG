@@ -478,8 +478,8 @@ enum FolderMenuAction {
 
 // MARK: - FolderPickerView
 
-/// Telegram's iOS 26 folder strip: a clipped scrolling lens with a continuously
-/// moving selection capsule and content-sized (or evenly filled) tabs.
+/// Telegram's classic folder strip: a full-width blurred bar with a continuously
+/// moving three-point selection line and content-sized (or evenly filled) tabs.
 final class FolderPickerView: UIView {
     // MARK: Internal
 
@@ -490,20 +490,9 @@ final class FolderPickerView: UIView {
     // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let controlEffectView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        return UIVisualEffectView(effect: effect)
-    }()
-
     private let controlContainer = FolderPickerScrollView()
     private let buttonStack = UIStackView()
-    private let selectionEffectView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        effect.tintColor = UIColor.label.withAlphaComponent(0.08)
-        return UIVisualEffectView(effect: effect)
-    }()
+    private let selectionView = UIView()
 
     private var folders = [CustomFolder]()
     private var selectedID: Int?
@@ -580,26 +569,18 @@ final class FolderPickerView: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
-        controlEffectView.translatesAutoresizingMaskIntoConstraints = false
-        controlEffectView.layer.cornerCurve = .continuous
-        controlEffectView.layer.cornerRadius = 21
-        controlEffectView.cornerConfiguration = .capsule()
-        controlEffectView.clipsToBounds = true
-        addSubview(controlEffectView)
-
         controlContainer.translatesAutoresizingMaskIntoConstraints = false
         controlContainer.showsHorizontalScrollIndicator = false
         controlContainer.isDirectionalLockEnabled = true
         controlContainer.delaysContentTouches = false
         controlContainer.canCancelContentTouches = true
         controlContainer.clipsToBounds = true
-        controlContainer.layer.cornerCurve = .continuous
-        controlEffectView.contentView.addSubview(controlContainer)
+        addSubview(controlContainer)
 
-        selectionEffectView.isUserInteractionEnabled = false
-        selectionEffectView.layer.cornerCurve = .continuous
-        selectionEffectView.clipsToBounds = true
-        controlContainer.addSubview(selectionEffectView)
+        selectionView.backgroundColor = .systemBlue
+        selectionView.isUserInteractionEnabled = false
+        selectionView.layer.cornerRadius = 1.5
+        controlContainer.addSubview(selectionView)
 
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
         buttonStack.axis = .horizontal
@@ -618,20 +599,10 @@ final class FolderPickerView: UIView {
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            controlEffectView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            controlEffectView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            controlEffectView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            controlEffectView.heightAnchor.constraint(equalToConstant: 42),
-            controlContainer.topAnchor.constraint(equalTo: controlEffectView.contentView.topAnchor, constant: 3),
-            controlContainer.leadingAnchor.constraint(
-                equalTo: controlEffectView.contentView.leadingAnchor,
-                constant: 3,
-            ),
-            controlContainer.trailingAnchor.constraint(
-                equalTo: controlEffectView.contentView.trailingAnchor,
-                constant: -3,
-            ),
-            controlContainer.bottomAnchor.constraint(equalTo: controlEffectView.contentView.bottomAnchor, constant: -3),
+            controlContainer.topAnchor.constraint(equalTo: topAnchor),
+            controlContainer.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            controlContainer.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            controlContainer.heightAnchor.constraint(equalToConstant: 50),
             buttonStack.topAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.topAnchor),
             buttonStack.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor),
             buttonStack.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor),
@@ -734,7 +705,7 @@ final class FolderPickerView: UIView {
 
     private func layoutSelection(animated: Bool) {
         guard !buttons.isEmpty else {
-            selectionEffectView.alpha = 0
+            selectionView.alpha = 0
             return
         }
         let frame: CGRect? = {
@@ -761,13 +732,17 @@ final class FolderPickerView: UIView {
             }
         }()
         guard let frame else {
-            selectionEffectView.alpha = 0
+            selectionView.alpha = 0
             return
         }
         let changes = {
-            self.selectionEffectView.frame = frame.insetBy(dx: 1, dy: 1)
-            self.selectionEffectView.layer.cornerRadius = self.selectionEffectView.bounds.height / 2
-            self.selectionEffectView.alpha = 1
+            self.selectionView.frame = CGRect(
+                x: frame.minX,
+                y: max(0, self.controlContainer.bounds.height - 3),
+                width: frame.width,
+                height: 3,
+            )
+            self.selectionView.alpha = 1
         }
         guard animated else {
             changes()
@@ -803,7 +778,9 @@ final class FolderPickerView: UIView {
                     folders[index].id == selectedID ? 1 : 0
                 }
             button.updateAppearance(
-                titleColor: UIColor.label.withAlphaComponent(0.68 + selectedAlpha * 0.32),
+                titleColor: selectedAlpha > 0
+                    ? UIColor.systemBlue.withAlphaComponent(0.55 + selectedAlpha * 0.45)
+                    : .secondaryLabel,
             )
         }
     }
@@ -892,11 +869,6 @@ final class FolderPickerView: UIView {
 // MARK: - FolderPickerScrollView
 
 private final class FolderPickerScrollView: UIScrollView {
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.cornerRadius = bounds.height / 2
-    }
-
     override func touchesShouldCancel(in _: UIView) -> Bool {
         true
     }
