@@ -3,7 +3,7 @@ version = 1
 name = "BetterTG"
 
 [setup]
-script = ""
+script = "./script/prepare_worktree.sh"
 
 [[actions]]
 name = "Run on iPhone"
