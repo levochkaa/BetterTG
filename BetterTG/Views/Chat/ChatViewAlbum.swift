@@ -699,6 +699,35 @@ private enum MediaGallerySaveError: LocalizedError {
     }
 }
 
+// MARK: - MediaGalleryDeleteError
+
+private enum MediaGalleryDeleteError: LocalizedError {
+    case accountChanged
+    case noPermission
+    case notConfirmed
+    case unavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .accountChanged:
+            "The active Telegram account or selected item changed."
+        case .noPermission:
+            "These messages can no longer be deleted together."
+        case .notConfirmed:
+            "Telegram didn't confirm deletion. Check whether the media remains before trying again."
+        case .unavailable:
+            "The selected media is no longer available in the original chat."
+        }
+    }
+}
+
+// MARK: - MediaGalleryDeleteCapabilities
+
+private struct MediaGalleryDeleteCapabilities {
+    let canDeleteForAllUsers: Bool
+    let canDeleteOnlyForSelf: Bool
+}
+
 // MARK: - MediaGalleryTemporaryFileLease
 
 private final class MediaGalleryTemporaryFileLease: @unchecked Sendable {
@@ -810,6 +839,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var messageUpdateInProgress = false
     private var pendingMessageUpdate: [Message]?
     private var pendingDeletedPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    private var pendingDeletedMessageIDsByChat = [Int64: Set<Int64>]()
     private var contextWasInvalidated = false
     private var contextInvalidationCompletion: (() -> Void)?
     private var forcedDismissalSnapshot: UIView?
@@ -831,6 +861,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private let counterLabel = UILabel()
     private var activeShareLease: MediaGalleryTemporaryFileLease?
     private var actionStatusText: String?
+    private var deleteTask: Task<Void, Never>?
+    private var deleteGeneration: UUID?
     private var exportTask: Task<Void, Never>?
     private var exportGeneration: UUID?
     private var forwardTask: Task<Void, Never>?
@@ -839,6 +871,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var openInChatDismissalGeneration: UUID?
     private var openInChatGeneration: UUID?
     private var statusResetTask: Task<Void, Never>?
+    private var deleteMessagesCancellable: AnyCancellable?
     private var voiceOverCancellable: AnyCancellable?
     private var contentSizeCancellable: AnyCancellable?
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -876,6 +909,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         guard hasCurrentContext,
               !didReleasePlaybackOwners,
               openInChatTask == nil,
+              deleteTask == nil,
               exportTask == nil,
               forwardTask == nil,
               !isBeingDismissed,
@@ -946,6 +980,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     deinit {
         openInChatTask?.cancel()
         exportTask?.cancel()
+        deleteTask?.cancel()
         forwardTask?.cancel()
         statusResetTask?.cancel()
     }
@@ -957,6 +992,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         configureCollectionView()
         configureToolbar()
         configureCaption()
+        observePermanentMessageDeletes()
         observeVoiceOver()
         observeContentSizeCategory()
     }
@@ -1002,6 +1038,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
             cancelExport()
             cancelForward()
+            cancelDelete()
             if openInChatDismissalGeneration == nil {
                 cancelOpenInChat()
             }
@@ -1147,57 +1184,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func playbackOwnerWasDeleted(_ owner: GalleryVideoPlaybackOwner) {
         guard hasCurrentContext, !didReleasePlaybackOwners else { return }
-        if messageUpdateInProgress || mediaTransitionController?.isInteractiveDismissalInProgress == true {
-            pendingDeletedPlaybackOwners[owner.messageID] = owner
-            return
-        }
-        guard !isBeingDismissed,
-              let deletedIndex = messages.firstIndex(where: {
-                  $0.chatId == owner.chatID && $0.id == owner.messageID
-              }) else { return }
-        if deletedIndex == selectedIndex
-            || GalleryPictureInPictureCoordinator.shared.isRetaining(owner)
-        {
-            cancelExport()
-            cancelForward()
-            cancelOpenInChat()
-            forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
-            forcesFadeDismissal = true
-            shouldReleasePlaybackOwnersAfterDisappearance = true
-            dismiss(animated: true)
-            return
-        }
-        let selectedMessageID = messages.indices.contains(selectedIndex)
-            ? messages[selectedIndex].id
-            : nil
-        videoPlaybackOwners.removeValue(forKey: owner.messageID)
-        owner.galleryController = nil
-        owner.invalidate()
-        messages.remove(at: deletedIndex)
-        selectedIndex =
-            if let selectedMessageID,
-            let preservedIndex = messages.firstIndex(where: { $0.id == selectedMessageID }) {
-                preservedIndex
-            } else {
-                min(selectedIndex, max(0, messages.count - 1))
-            }
-        collectionView.reloadData()
-        updateCounter()
-        guard messages.indices.contains(selectedIndex) else {
-            dismiss(animated: true)
-            return
-        }
-        collectionView.layoutIfNeeded()
-        collectionView.scrollToItem(
-            at: IndexPath(item: selectedIndex, section: 0),
-            at: .centeredHorizontally,
-            animated: false,
-        )
-        collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
-            .flatMap { $0 as? MediaGalleryCell }?
-            .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
-        bindSelectedCellChrome()
-        prunePlaybackOwners(around: selectedIndex)
+        pendingDeletedPlaybackOwners[owner.messageID] = owner
+        pendingDeletedMessageIDsByChat[owner.chatID, default: []].insert(owner.messageID)
+        drainPendingMessageUpdates()
     }
 
     func restorePictureInPicture(
@@ -1262,7 +1251,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let previousIDs = messages.map(\.id)
         let updatedIDs = updatedMessages.map(\.id)
         if previousIDs == updatedIDs {
-            if exportTask != nil || forwardTask != nil,
+            if exportTask != nil || forwardTask != nil || deleteTask != nil,
                let selectedMessageID,
                let previous = messages.first(where: { $0.id == selectedMessageID }),
                let updated = updatedMessages.first(where: { $0.id == selectedMessageID }),
@@ -1270,6 +1259,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             {
                 cancelExport()
                 cancelForward()
+                cancelDelete()
             }
             messages = updatedMessages
             if isViewLoaded {
@@ -1281,8 +1271,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if let selectedMessageID, !updatedIDs.contains(selectedMessageID) {
             cancelExport()
             cancelForward()
+            cancelDelete()
             cancelOpenInChat()
-            forcedDismissalSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
+            forcedDismissalSnapshot = forcedDismissalSnapshot ?? selectedGalleryCell()?.makeTransitionSnapshot()
             forcesFadeDismissal = true
             shouldReleasePlaybackOwnersAfterDisappearance = true
             dismiss(animated: true)
@@ -1357,6 +1348,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     func invalidateForContextChange(completion: @escaping () -> Void) {
         cancelExport()
         cancelForward()
+        cancelDelete()
         cancelOpenInChat()
         contextWasInvalidated = true
         contextInvalidationCompletion = completion
@@ -1364,6 +1356,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         paginationRequestedMessageCount = messages.count
         pendingMessageUpdate = nil
         pendingDeletedPlaybackOwners = [:]
+        pendingDeletedMessageIDsByChat = [:]
         forcesFadeDismissal = true
         shouldReleasePlaybackOwnersAfterDisappearance = true
         if mediaTransitionController?.isInteractiveDismissalInProgress == true {
@@ -1397,6 +1390,30 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     fileprivate func presentationTransitionDidCancel() {
         releasePlaybackOwnersForDismissal()
+    }
+
+    private func observePermanentMessageDeletes() {
+        deleteMessagesCancellable = tdlib.deleteMessageUpdates
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                self?.handlePermanentMessageDeletes(update)
+            }
+    }
+
+    private func handlePermanentMessageDeletes(_ update: UpdateDeleteMessages) {
+        guard hasCurrentContext,
+              !update.fromCache,
+              update.isPermanent
+        else { return }
+        let deletedIDs = Set(update.messageIds)
+        let hasMatchingMessage = messages.contains { message in
+            message.chatId == update.chatId && deletedIDs.contains(message.id)
+        } || pendingMessageUpdate?.contains(where: { message in
+            message.chatId == update.chatId && deletedIDs.contains(message.id)
+        }) == true
+        guard hasMatchingMessage else { return }
+        pendingDeletedMessageIDsByChat[update.chatId, default: []].formUnion(deletedIDs)
+        drainPendingMessageUpdates()
     }
 
     private func makeKeyCommand(
@@ -1710,6 +1727,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         cancelExport()
         cancelForward()
+        cancelDelete()
         cancelOpenInChat()
         clearActionStatus()
         if let previousCell = collectionView.cellForItem(
@@ -1742,16 +1760,50 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func drainPendingMessageUpdates() {
-        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
-        let deletedOwners = Array(pendingDeletedPlaybackOwners.values)
-        pendingDeletedPlaybackOwners = [:]
-        for owner in deletedOwners {
-            playbackOwnerWasDeleted(owner)
-            guard !isBeingDismissed else { return }
+        guard hasCurrentContext,
+              !didReleasePlaybackOwners,
+              !messageUpdateInProgress,
+              mediaTransitionController?.isInteractiveDismissalInProgress != true
+        else { return }
+        for owner in pendingDeletedPlaybackOwners.values {
+            pendingDeletedMessageIDsByChat[owner.chatID, default: []].insert(owner.messageID)
         }
-        guard let pendingMessageUpdate else { return }
-        self.pendingMessageUpdate = nil
-        updateMessages(pendingMessageUpdate)
+        pendingDeletedPlaybackOwners = [:]
+        let deletedIDsByChat = pendingDeletedMessageIDsByChat
+        pendingDeletedMessageIDsByChat = [:]
+        let baseMessages = pendingMessageUpdate ?? messages
+        pendingMessageUpdate = nil
+        guard !deletedIDsByChat.isEmpty else {
+            if baseMessages != messages {
+                updateMessages(baseMessages)
+            }
+            return
+        }
+        let isDeleted: (Message) -> Bool = { message in
+            deletedIDsByChat[message.chatId]?.contains(message.id) == true
+        }
+        let deletedCurrentMessages = messages.filter(isDeleted)
+        let selectedWasDeleted = messages.indices.contains(selectedIndex) && isDeleted(messages[selectedIndex])
+        let snapshot = selectedWasDeleted ? selectedGalleryCell()?.makeTransitionSnapshot() : nil
+        for message in deletedCurrentMessages {
+            if let owner = videoPlaybackOwners.removeValue(forKey: message.id) {
+                owner.confirmPermanentDeletionFromGallery()
+                owner.galleryController = nil
+            }
+        }
+        if let totalMessageCount, !deletedCurrentMessages.isEmpty {
+            self.totalMessageCount = max(
+                messages.count - deletedCurrentMessages.count,
+                totalMessageCount - deletedCurrentMessages.count,
+            )
+        }
+        if selectedWasDeleted {
+            forcedDismissalSnapshot = forcedDismissalSnapshot ?? snapshot
+        }
+        let filteredMessages = baseMessages.filter { !isDeleted($0) }
+        if filteredMessages != messages || selectedWasDeleted {
+            updateMessages(filteredMessages)
+        }
     }
 
     private func playbackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
@@ -1818,6 +1870,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     @objc private func close() {
         cancelExport()
         cancelForward()
+        cancelDelete()
         cancelOpenInChat()
         dismiss(animated: true)
     }
@@ -1981,10 +2034,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Still Photo" : "Share"
         let canOpen = hasActionContext && onOpenMessageID != nil
         let canForward = hasActionContext && actionSourceLocation != nil
+        let selectedMessage = messages.indices.contains(selectedIndex) ? messages[selectedIndex] : nil
+        let canDelete = hasActionContext
+            && actionSourceLocation != nil
+            && selectedMessage?.selfDestructType == nil
+            && selectedMessage?.selfDestructIn == 0
+            && selectedAsset?.isSecretMedia == false
         let saveAsset = hasActionContext ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
         let canSave = saveAsset?.photosKind != nil
-        moreButton.isHidden = !canOpen && !canForward && !canSave
-        guard canOpen || canForward || canSave else {
+        moreButton.isHidden = !canOpen && !canForward && !canSave && !canDelete
+        guard canOpen || canForward || canSave || canDelete else {
             moreButton.menu = nil
             return
         }
@@ -2013,11 +2072,21 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 self?.exportSelectedMedia(.saveToPhotos)
             })
         }
+        if canDelete {
+            actions.append(UIAction(
+                title: "Delete",
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive,
+            ) { [weak self] _ in
+                self?.deleteSelectedMedia()
+            })
+        }
         moreButton.menu = UIMenu(children: actions)
     }
 
     private func openSelectedMessageInChat() {
         guard openInChatTask == nil,
+              deleteTask == nil,
               exportTask == nil,
               forwardTask == nil,
               presentedViewController == nil,
@@ -2093,6 +2162,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func forwardSelectedMedia() {
         guard forwardTask == nil,
+              deleteTask == nil,
               exportTask == nil,
               openInChatTask == nil,
               openInChatDismissalGeneration == nil,
@@ -2319,7 +2389,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             message: "Choose whether to forward only this item or all \(albumMessageIDs.count) items in the album.",
             preferredStyle: .actionSheet,
         )
-        alert.addAction(UIAlertAction(title: "This Item", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: "This Item", style: .destructive) { [weak self, weak alert] _ in
             alert?.dismiss(animated: true) { [weak self] in
                 self?.presentForwardPicker(
                     messageIDs: [selectedMessageID],
@@ -2329,7 +2399,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
             }
         })
-        alert.addAction(UIAlertAction(title: "All \(albumMessageIDs.count) Items", style: .default) { [
+        alert.addAction(UIAlertAction(title: "All \(albumMessageIDs.count) Items", style: .destructive) { [
             weak self,
             weak alert,
         ] _ in
@@ -2396,6 +2466,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         forwardTask?.cancel()
         forwardTask = nil
         if exportTask == nil,
+           deleteTask == nil,
            openInChatTask == nil,
            openInChatDismissalGeneration == nil,
            isViewLoaded
@@ -2421,8 +2492,442 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         present(alert, animated: true)
     }
 
+    private func deleteSelectedMedia() {
+        guard deleteTask == nil,
+              exportTask == nil,
+              forwardTask == nil,
+              openInChatTask == nil,
+              openInChatDismissalGeneration == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              messages.indices.contains(selectedIndex),
+              let accountID = actionAccountID,
+              let client = actionClient,
+              let clientID = actionClientID,
+              let sourceLocation = actionSourceLocation,
+              sourceLocation.accountID == accountID,
+              sourceLocation.clientID == clientID,
+              client.id == clientID
+        else { return }
+        let selectedIdentity = MediaGalleryMessageIdentity(messages[selectedIndex])
+        guard selectedIdentity.chatID == sourceLocation.chatID else { return }
+        let generation = UUID()
+        deleteGeneration = generation
+        setActionBusy(true, source: .more)
+        UIAccessibility.post(notification: .announcement, argument: "Checking media deletion options")
+        deleteTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let selectedMessage = try await client.getMessage(
+                    chatId: selectedIdentity.chatID,
+                    messageId: selectedIdentity.messageID,
+                )
+                try Task.checkCancellation()
+                try validateDeleteContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: MediaGalleryMessageIdentity(selectedMessage),
+                )
+                guard sourceLocation.matches(message: selectedMessage) else {
+                    throw MediaGalleryDeleteError.unavailable
+                }
+                let albumMessageIDs = try await resolvedAlbumMessageIDs(
+                    selectedMessage: selectedMessage,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                )
+                try Task.checkCancellation()
+                try validateDeleteContext(
+                    accountID: accountID,
+                    clientID: clientID,
+                    generation: generation,
+                    selectedIdentity: selectedIdentity,
+                    resolvedIdentity: MediaGalleryMessageIdentity(selectedMessage),
+                )
+                finishDelete(generation: generation)
+                if albumMessageIDs.count > 1 {
+                    presentDeleteScopeChoice(
+                        selectedMessageID: selectedMessage.id,
+                        albumMessageIDs: albumMessageIDs,
+                        sourceLocation: sourceLocation,
+                        client: client,
+                        accountID: accountID,
+                    )
+                } else {
+                    prepareDeleteConfirmation(
+                        messageIDs: [selectedMessage.id],
+                        sourceLocation: sourceLocation,
+                        client: client,
+                        accountID: accountID,
+                    )
+                }
+            } catch is CancellationError {
+                finishDelete(generation: generation)
+            } catch {
+                guard deleteGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishDelete(generation: generation)
+                presentDeleteError(error)
+            }
+        }
+    }
+
+    private func presentDeleteScopeChoice(
+        selectedMessageID: Int64,
+        albumMessageIDs: [Int64],
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+    ) {
+        guard hasCurrentContext,
+              presentedViewController == nil,
+              self.selectedMessageID == selectedMessageID,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        let alert = UIAlertController(
+            title: "Delete Media",
+            message: "Choose whether to delete only this item or all \(albumMessageIDs.count) items in the album.",
+            preferredStyle: .actionSheet,
+        )
+        alert.addAction(UIAlertAction(title: "This Item", style: .default) { [weak self, weak alert] _ in
+            alert?.dismiss(animated: true) { [weak self] in
+                self?.prepareDeleteConfirmation(
+                    messageIDs: [selectedMessageID],
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                )
+            }
+        })
+        alert.addAction(UIAlertAction(title: "All \(albumMessageIDs.count) Items", style: .default) { [
+            weak self,
+            weak alert,
+        ] _ in
+            alert?.dismiss(animated: true) { [weak self] in
+                self?.prepareDeleteConfirmation(
+                    messageIDs: albumMessageIDs,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                )
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.popoverPresentationController?.sourceView = moreButton
+        alert.popoverPresentationController?.sourceRect = moreButton.bounds
+        present(alert, animated: true)
+    }
+
+    private func prepareDeleteConfirmation(
+        messageIDs: [Int64],
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+    ) {
+        guard deleteTask == nil,
+              exportTask == nil,
+              forwardTask == nil,
+              openInChatTask == nil,
+              openInChatDismissalGeneration == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              let selectedMessageID,
+              messageIDs.contains(selectedMessageID),
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        let generation = UUID()
+        deleteGeneration = generation
+        setActionBusy(true, source: .more)
+        deleteTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let capabilities = try await deleteCapabilities(
+                    messageIDs: messageIDs,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                    generation: generation,
+                    selectedMessageID: selectedMessageID,
+                )
+                try Task.checkCancellation()
+                finishDelete(generation: generation)
+                presentDeleteConfirmation(
+                    messageIDs: messageIDs,
+                    capabilities: capabilities,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                )
+            } catch is CancellationError {
+                finishDelete(generation: generation)
+            } catch {
+                guard deleteGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishDelete(generation: generation)
+                presentDeleteError(error)
+            }
+        }
+    }
+
+    private func deleteCapabilities(
+        messageIDs: [Int64],
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+        generation: UUID,
+        selectedMessageID: Int64,
+    ) async throws -> MediaGalleryDeleteCapabilities {
+        var canDeleteOnlyForSelf = true
+        var canDeleteForAllUsers = true
+        for messageID in messageIDs {
+            try Task.checkCancellation()
+            async let messageRequest = client.getMessage(
+                chatId: sourceLocation.chatID,
+                messageId: messageID,
+            )
+            async let propertiesRequest = client.getMessageProperties(
+                chatId: sourceLocation.chatID,
+                messageId: messageID,
+            )
+            let (message, properties) = try await (messageRequest, propertiesRequest)
+            guard deleteGeneration == generation,
+                  hasCurrentContext,
+                  self.selectedMessageID == selectedMessageID,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { throw MediaGalleryDeleteError.accountChanged }
+            guard message.chatId == sourceLocation.chatID,
+                  message.id == messageID,
+                  sourceLocation.matches(message: message)
+            else { throw MediaGalleryDeleteError.unavailable }
+            guard
+                message.selfDestructType == nil,
+                message.selfDestructIn == 0,
+                !isSecretGalleryMedia(message)
+            else { throw MediaGalleryDeleteError.noPermission }
+            canDeleteOnlyForSelf = canDeleteOnlyForSelf && properties.canBeDeletedOnlyForSelf
+            canDeleteForAllUsers = canDeleteForAllUsers && properties.canBeDeletedForAllUsers
+        }
+        guard canDeleteOnlyForSelf || canDeleteForAllUsers else {
+            throw MediaGalleryDeleteError.noPermission
+        }
+        return MediaGalleryDeleteCapabilities(
+            canDeleteForAllUsers: canDeleteForAllUsers,
+            canDeleteOnlyForSelf: canDeleteOnlyForSelf,
+        )
+    }
+
+    private func isSecretGalleryMedia(_ message: Message) -> Bool {
+        switch message.content {
+        case .messageAnimation(let content): content.isSecret
+        case .messagePhoto(let content): content.isSecret
+        case .messageVideo(let content): content.isSecret
+        default: false
+        }
+    }
+
+    private func presentDeleteConfirmation(
+        messageIDs: [Int64],
+        capabilities: MediaGalleryDeleteCapabilities,
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+    ) {
+        guard hasCurrentContext,
+              presentedViewController == nil,
+              let selectedMessageID,
+              messageIDs.contains(selectedMessageID),
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        let count = messageIDs.count
+        let alert = UIAlertController(
+            title: count == 1 ? "Delete Message?" : "Delete \(count) Messages?",
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
+        if capabilities.canDeleteOnlyForSelf {
+            alert.addAction(UIAlertAction(title: "Delete for Me", style: .destructive) { [weak self, weak alert] _ in
+                alert?.dismiss(animated: true) { [weak self] in
+                    self?.performDelete(
+                        messageIDs: messageIDs,
+                        revoke: false,
+                        sourceLocation: sourceLocation,
+                        client: client,
+                        accountID: accountID,
+                    )
+                }
+            })
+        }
+        if capabilities.canDeleteForAllUsers {
+            alert.addAction(UIAlertAction(title: "Delete for Everyone", style: .destructive) { [
+                weak self,
+                weak alert,
+            ] _ in
+                alert?.dismiss(animated: true) { [weak self] in
+                    self?.performDelete(
+                        messageIDs: messageIDs,
+                        revoke: true,
+                        sourceLocation: sourceLocation,
+                        client: client,
+                        accountID: accountID,
+                    )
+                }
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.popoverPresentationController?.sourceView = moreButton
+        alert.popoverPresentationController?.sourceRect = moreButton.bounds
+        present(alert, animated: true)
+    }
+
+    private func performDelete(
+        messageIDs: [Int64],
+        revoke: Bool,
+        sourceLocation: ChatLocation,
+        client: TDLibClient,
+        accountID: UUID,
+    ) {
+        guard deleteTask == nil,
+              exportTask == nil,
+              forwardTask == nil,
+              openInChatTask == nil,
+              openInChatDismissalGeneration == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              let selectedMessageID,
+              messageIDs.contains(selectedMessageID),
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        let generation = UUID()
+        deleteGeneration = generation
+        setActionBusy(true, source: .more)
+        deleteTask = Task { [weak self] in
+            guard let self else { return }
+            var mutationStarted = false
+            do {
+                let capabilities = try await deleteCapabilities(
+                    messageIDs: messageIDs,
+                    sourceLocation: sourceLocation,
+                    client: client,
+                    accountID: accountID,
+                    generation: generation,
+                    selectedMessageID: selectedMessageID,
+                )
+                guard revoke ? capabilities.canDeleteForAllUsers : capabilities.canDeleteOnlyForSelf else {
+                    throw MediaGalleryDeleteError.noPermission
+                }
+                try Task.checkCancellation()
+                guard deleteGeneration == generation,
+                      hasCurrentContext,
+                      self.selectedMessageID == selectedMessageID,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { throw MediaGalleryDeleteError.accountChanged }
+                let deletionSnapshot = selectedGalleryCell()?.makeTransitionSnapshot()
+                mutationStarted = true
+                _ = try await client.deleteMessages(
+                    chatId: sourceLocation.chatID,
+                    messageIds: messageIDs,
+                    revoke: revoke,
+                )
+                for messageID in messageIDs {
+                    if let owner = videoPlaybackOwners.removeValue(forKey: messageID) {
+                        owner.confirmPermanentDeletionFromGallery()
+                        owner.galleryController = nil
+                    }
+                }
+                try Task.checkCancellation()
+                guard deleteGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishDelete(generation: generation)
+                forcedDismissalSnapshot = deletionSnapshot
+                forcesFadeDismissal = true
+                shouldReleasePlaybackOwnersAfterDisappearance = true
+                dismiss(animated: true)
+            } catch is CancellationError {
+                finishDelete(generation: generation)
+            } catch {
+                guard deleteGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed
+                else { return }
+                finishDelete(generation: generation)
+                if error is MediaGalleryDeleteError {
+                    presentDeleteError(error)
+                } else if mutationStarted {
+                    presentDeleteError(MediaGalleryDeleteError.notConfirmed)
+                } else {
+                    presentDeleteError(MediaGalleryDeleteError.unavailable)
+                }
+            }
+        }
+    }
+
+    private func validateDeleteContext(
+        accountID: UUID,
+        clientID: Int32,
+        generation: UUID,
+        selectedIdentity: MediaGalleryMessageIdentity,
+        resolvedIdentity: MediaGalleryMessageIdentity,
+    ) throws {
+        guard deleteGeneration == generation,
+              hasCurrentContext,
+              !isBeingDismissed,
+              selectedMessageID == selectedIdentity.messageID,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == clientID
+        else { throw MediaGalleryDeleteError.accountChanged }
+        guard resolvedIdentity.chatID == selectedIdentity.chatID,
+              resolvedIdentity.messageID == selectedIdentity.messageID,
+              !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
+        else { throw MediaGalleryDeleteError.unavailable }
+    }
+
+    private func cancelDelete() {
+        deleteGeneration = nil
+        deleteTask?.cancel()
+        deleteTask = nil
+        if exportTask == nil,
+           forwardTask == nil,
+           openInChatTask == nil,
+           openInChatDismissalGeneration == nil,
+           isViewLoaded
+        {
+            setActionBusy(false)
+        }
+    }
+
+    private func finishDelete(generation: UUID) {
+        guard deleteGeneration == generation else { return }
+        deleteGeneration = nil
+        deleteTask = nil
+        setActionBusy(false)
+    }
+
+    private func presentDeleteError(_ error: Swift.Error) {
+        let message = error.localizedDescription
+        UIAccessibility.post(notification: .announcement, argument: message)
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: "Can't Delete", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
     private func exportSelectedMedia(_ action: MediaGalleryExportAction) {
         guard exportTask == nil,
+              deleteTask == nil,
               openInChatTask == nil,
               openInChatDismissalGeneration == nil,
               forwardTask == nil,
@@ -2867,6 +3372,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if openInChatTask == nil,
            openInChatDismissalGeneration == nil,
            forwardTask == nil,
+           deleteTask == nil,
            isViewLoaded
         {
             setActionBusy(false)
@@ -2930,7 +3436,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         openInChatDismissalGeneration = nil
         openInChatTask?.cancel()
         openInChatTask = nil
-        if exportTask == nil, forwardTask == nil, isViewLoaded {
+        if exportTask == nil, forwardTask == nil, deleteTask == nil, isViewLoaded {
             setActionBusy(false)
         }
     }
@@ -4310,6 +4816,10 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         return onReturnToInline(self)
     }
 
+    func confirmPermanentDeletionFromGallery() {
+        handlePermanentDeletion(notifyGallery: false)
+    }
+
     func invalidate() {
         guard !isInvalidated else { return }
         if isPictureInPictureStartRequested {
@@ -4650,12 +5160,14 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             .store(in: &tdUpdateCancellables)
     }
 
-    private func handlePermanentDeletion() {
+    private func handlePermanentDeletion(notifyGallery: Bool = true) {
         guard !isDeleted else { return }
         isDeleted = true
         onPermanentDeletion?(self)
         GalleryPictureInPictureCoordinator.shared.messageWasDeleted(owner: self)
-        galleryController?.playbackOwnerWasDeleted(self)
+        if notifyGallery {
+            galleryController?.playbackOwnerWasDeleted(self)
+        }
         if isPictureInPictureStartRequested {
             pendingInvalidationAfterPictureInPicture = true
             cancelPendingPictureInPictureStart(rejectLateStart: true)
