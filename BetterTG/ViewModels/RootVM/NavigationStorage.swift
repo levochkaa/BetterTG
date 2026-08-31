@@ -44,7 +44,7 @@ import UIKit
                   resolvedLocation.chatID == customChat.id
             else { return }
             if resolvedLocation.forumTopicID == nil,
-               customChat.chat.viewAsTopics || customChat.supergroup?.isForum == true
+               customChat.chat.viewAsTopics
             {
                 controller = ForumTopicsViewController(
                     customChat: customChat,

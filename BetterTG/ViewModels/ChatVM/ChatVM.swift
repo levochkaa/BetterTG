@@ -147,6 +147,9 @@ import UIKit
     private var pinnedMessageAuthoritativeRevision = UInt64.zero
     private var forumTopicTask: Task<Void, Never>?
     private var forumTopicTasks = [Int: Task<Void, Never>]()
+    private var activeChatAction: ChatAction?
+    private var activeChatActionContext: ResolvedSendContext?
+    private var chatActionRouteRevision = UInt64.zero
     private var composerRevision = UInt64.zero
     private var composerIsDirty = false
     private var awaitingAuthoritativeDraftClear = false
@@ -189,8 +192,19 @@ import UIKit
             && !customChat.chat.viewAsTopics
     }
 
+    var acceptedChatActionTopic: MessageTopic? {
+        isAllMessagesForum ? activeChatActionContext?.destinationTopic : location.topic
+    }
+
     var canWriteBasicMessages: Bool {
-        (try? resolveSendContext(for: .text, replyingTo: nil)) != nil
+        if let message = editCustomMessage?.message {
+            return (try? resolveEditContext(for: message)) != nil
+        }
+        return (try? resolveSendContext(
+            for: .text,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
     }
 
     var canAttachPhotos: Bool {
@@ -206,7 +220,8 @@ import UIKit
     }
 
     var canRecordVoiceNote: Bool {
-        (try? resolveSendContext(
+        guard !isAllMessagesForum else { return false }
+        return (try? resolveSendContext(
             for: .voiceNote,
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
@@ -214,7 +229,8 @@ import UIKit
     }
 
     var canRecordVideoNote: Bool {
-        (try? resolveSendContext(
+        guard !isAllMessagesForum else { return false }
+        return (try? resolveSendContext(
             for: .videoNote,
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
@@ -222,6 +238,15 @@ import UIKit
     }
 
     var composerPlaceholder: String {
+        if isAllMessagesForum {
+            let info = replyMessage
+                .flatMap { forumTopicInfo(for: $0.message.topicId) }
+                ?? generalForumTopic?.info
+            guard let topicName = info?.name else { return "Message…" }
+            return replyMessage == nil
+                ? "Message in \(topicName)"
+                : "Reply in \(topicName)"
+        }
         guard let topicName = forumTopicInfo?.name, location.isTopicScoped else {
             return "Message…"
         }
@@ -231,6 +256,17 @@ import UIKit
     }
 
     var composerRestrictionText: String {
+        if isAllMessagesForum {
+            if let replyMessage,
+               let info = forumTopicInfo(for: replyMessage.message.topicId),
+               info.isClosed || info.isHidden
+            {
+                return "Replies are disabled in this closed topic."
+            }
+            if generalForumTopic == nil {
+                return "Loading the General topic…"
+            }
+        }
         if forumTopicInfo?.isClosed == true || forumTopicInfo?.isHidden == true {
             return "Only the topic creator or an administrator can post here."
         }
@@ -413,6 +449,21 @@ import UIKit
         return nil
     }
 
+    private var canManageForumTopics: Bool {
+        customChat.adminRights?.canManageTopics == true
+            || {
+                if case .chatMemberStatusCreator = customChat.supergroup?.status {
+                    true
+                } else {
+                    false
+                }
+            }()
+    }
+
+    private var generalForumTopic: ForumTopic? {
+        forumTopicsByID.values.first(where: { $0.info.isGeneral })
+    }
+
     init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -450,6 +501,9 @@ import UIKit
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
+        if isAllMessagesForum {
+            refreshForumTopic(id: 1)
+        }
         if isReadOnlyTopic, forumTopicInfo == nil {
             loadForumTopic()
         }
@@ -460,9 +514,14 @@ import UIKit
             Media.shared.onChatOpen(title: customChat.displayTitle)
         }
 
-        let routeDraftMessage = previewing || !canWriteBasicMessages
-            ? nil
-            : (resolvedLocation.isTopicScoped ? forumTopic?.draftMessage : customChat.draftMessage)
+        let routeDraftMessage: DraftMessage? =
+            if previewing {
+                nil
+            } else if resolvedLocation.isTopicScoped {
+                canWriteBasicMessages ? forumTopic?.draftMessage : nil
+            } else {
+                customChat.draftMessage
+            }
         applyAuthoritativeDraft(routeDraftMessage, expectedRevision: composerRevision)
         Task { [weak self] in
             guard let self else { return }
@@ -598,34 +657,55 @@ import UIKit
             throw ChatSendContextError.chatPermissionDenied
         }
 
-        if location.topic == nil,
-           customChat.chat.viewAsTopics || customChat.supergroup?.isForum == true
-        {
-            throw ChatSendContextError.forumTopicRequired
-        }
-        if case .messageTopicForum = location.topic {
-            guard let info = forumTopicInfo,
-                  info.chatId == location.chatID,
-                  info.forumTopicId == location.forumTopicID
-            else { throw ChatSendContextError.topicMetadataUnavailable }
-            let topicIsRestricted = info.isClosed || info.isHidden
-            let canManageTopics = customChat.adminRights?.canManageTopics == true
-                || {
-                    if case .chatMemberStatusCreator = customChat.supergroup?.status {
-                        true
-                    } else {
-                        false
-                    }
-                }()
-            guard !topicIsRestricted || info.isOutgoing || canManageTopics else {
-                throw ChatSendContextError.topicReadOnly
+        let destinationTopic: MessageTopic?
+        let draftTopic: MessageTopic?
+        if isAllMessagesForum {
+            draftTopic = nil
+            if let reply {
+                guard reply.message.chatId == location.chatID,
+                      reply.properties.canBeReplied,
+                      let topic = reply.message.topicId,
+                      case .messageTopicForum = topic,
+                      let info = forumTopicInfo(for: topic)
+                else { throw ChatSendContextError.crossTopicReply }
+                guard !info.isClosed, !info.isHidden else {
+                    throw ChatSendContextError.topicReadOnly
+                }
+                destinationTopic = topic
+            } else {
+                guard let general = generalForumTopic,
+                      general.info.chatId == location.chatID,
+                      general.info.isGeneral
+                else { throw ChatSendContextError.topicMetadataUnavailable }
+                if general.info.isClosed || general.info.isHidden {
+                    guard canManageForumTopics else { throw ChatSendContextError.topicReadOnly }
+                }
+                destinationTopic = .messageTopicForum(.init(forumTopicId: general.info.forumTopicId))
             }
-        }
-        if let reply,
-           reply.message.chatId == location.chatID,
-           reply.message.topicId != location.topic
-        {
-            throw ChatSendContextError.crossTopicReply
+        } else {
+            if location.topic == nil,
+               customChat.chat.viewAsTopics || customChat.supergroup?.isForum == true
+            {
+                throw ChatSendContextError.forumTopicRequired
+            }
+            if case .messageTopicForum = location.topic {
+                guard let info = forumTopicInfo,
+                      info.chatId == location.chatID,
+                      info.forumTopicId == location.forumTopicID
+                else { throw ChatSendContextError.topicMetadataUnavailable }
+                let topicIsRestricted = info.isClosed || info.isHidden
+                guard !topicIsRestricted || info.isOutgoing || canManageForumTopics else {
+                    throw ChatSendContextError.topicReadOnly
+                }
+            }
+            if let reply,
+               reply.message.chatId == location.chatID,
+               reply.message.topicId != location.topic
+            {
+                throw ChatSendContextError.crossTopicReply
+            }
+            destinationTopic = location.topic
+            draftTopic = location.topic
         }
         if reply == nil,
            useCurrentReplyOverride,
@@ -645,8 +725,8 @@ import UIKit
             accountID: accountID,
             chatID: location.chatID,
             clientID: location.clientID,
-            destinationTopic: location.topic,
-            draftTopic: location.topic,
+            destinationTopic: destinationTopic,
+            draftTopic: draftTopic,
             replyTo: resolvedReplyTo,
         )
     }
@@ -1182,16 +1262,23 @@ import UIKit
 
     func beginReply(to message: CustomMessage) {
         guard location.matches(message: message.message) else { return }
+        if isAllMessagesForum, let topicID = message.forumTopicID {
+            refreshForumTopic(id: topicID)
+        }
         markComposerDirty()
         replySelectionGeneration &+= 1
         replyMessage = message
         replyQuote = nil
         replyInputOverride = nil
         replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
     }
 
     func beginQuoteReply(to message: CustomMessage) {
         guard location.matches(message: message.message) else { return }
+        if isAllMessagesForum, let topicID = message.forumTopicID {
+            refreshForumTopic(id: topicID)
+        }
         guard let formattedText = message.formattedText, !formattedText.text.isEmpty else {
             beginReply(to: message)
             return
@@ -1203,6 +1290,7 @@ import UIKit
         replyQuote = nil
         replyInputOverride = nil
         replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
         let client = client
         Task { [weak self, weak message] in
             guard let self, let message else { return }
@@ -1231,6 +1319,7 @@ import UIKit
         replyQuote = nil
         replyInputOverride = nil
         replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
     }
 
     func updateComposerTextFromUser(_ value: AttributedString) {
@@ -1352,12 +1441,7 @@ import UIKit
         let images = displayedImages
         guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
         let caption = FormattedText(entities: getEntities(from: text), text: text.string)
-        try await client.sendChatAction(
-            action: .chatActionUploadingPhoto(.init(progress: 0)),
-            businessConnectionId: nil,
-            chatId: context.chatID,
-            topicId: context.destinationTopic,
-        )
+        try await sendChatAction(.chatActionUploadingPhoto(.init(progress: 0)), in: context)
         do {
             var messageContents = [InputMessageContent]()
             for image in images {
@@ -1778,10 +1862,10 @@ import UIKit
     }
 
     func editMessage() async throws -> ResolvedSendContext {
-        let context = try resolveSendContext(for: .text, replyingTo: nil)
-        guard let message = editCustomMessage?.message,
-              context.matches(message: message)
-        else { throw ChatSendContextError.unexpectedDestination }
+        guard let message = editCustomMessage?.message else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        let context = try resolveEditContext(for: message)
         
         switch message.content {
         case .messageText:
@@ -1914,32 +1998,26 @@ import UIKit
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
         guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
         if case .chatActionCancel = chatAction {
-            try await client.sendChatAction(
-                action: chatAction,
-                businessConnectionId: nil,
-                chatId: location.chatID,
-                topicId: location.topic,
-            )
+            chatActionRouteRevision &+= 1
+            if let context = activeChatActionContext {
+                try await cancelChatAction(in: context)
+            } else if !isAllMessagesForum {
+                try await client.sendChatAction(
+                    action: chatAction,
+                    businessConnectionId: nil,
+                    chatId: location.chatID,
+                    topicId: location.topic,
+                )
+            }
             return
         }
-        let kind: ChatSendContentKind =
-            switch chatAction {
-            case .chatActionRecordingVoiceNote, .chatActionUploadingVoiceNote:
-                .voiceNote
-            case .chatActionRecordingVideoNote, .chatActionUploadingVideoNote:
-                .videoNote
-            case .chatActionUploadingPhoto:
-                .photo
-            default:
-                .text
-            }
-        let context = try resolveSendContext(for: kind, replyingTo: nil)
-        try await client.sendChatAction(
-            action: chatAction,
-            businessConnectionId: nil,
-            chatId: context.chatID,
-            topicId: context.destinationTopic,
+        let kind = sendContentKind(for: chatAction)
+        let context = try resolveSendContext(
+            for: kind,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
         )
+        try await sendChatAction(chatAction, in: context)
     }
 
     @MainActor func mediaStartRecordingVoice() async -> Bool {
@@ -2232,6 +2310,115 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func forumTopicInfo(for topic: MessageTopic?) -> ForumTopicInfo? {
+        guard case .messageTopicForum(let forumTopic) = topic else { return nil }
+        return forumTopicsByID[forumTopic.forumTopicId]?.info
+    }
+
+    private func resolveEditContext(for message: Message) throws -> ResolvedSendContext {
+        guard isAllMessagesForum else {
+            let context = try resolveSendContext(for: .text, replyingTo: nil)
+            guard context.matches(message: message) else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            return context
+        }
+        guard let accountID = location.accountID,
+              locationContextIsCurrent,
+              permissionAllows(.text),
+              location.matches(message: message),
+              let topic = message.topicId,
+              case .messageTopicForum = topic,
+              let info = forumTopicInfo(for: topic)
+        else { throw ChatSendContextError.topicMetadataUnavailable }
+        let topicIsRestricted = info.isClosed || info.isHidden
+        guard !topicIsRestricted || info.isOutgoing || canManageForumTopics else {
+            throw ChatSendContextError.topicReadOnly
+        }
+        return ResolvedSendContext(
+            accountID: accountID,
+            chatID: location.chatID,
+            clientID: location.clientID,
+            destinationTopic: topic,
+            draftTopic: nil,
+            replyTo: nil,
+        )
+    }
+
+    private func sendChatAction(
+        _ action: ChatAction,
+        in context: ResolvedSendContext,
+    ) async throws {
+        if let active = activeChatActionContext,
+           !sameChatActionDestination(active, context)
+        {
+            _ = try? await client.sendChatAction(
+                action: .chatActionCancel,
+                businessConnectionId: nil,
+                chatId: active.chatID,
+                topicId: active.destinationTopic,
+            )
+        }
+        try await client.sendChatAction(
+            action: action,
+            businessConnectionId: nil,
+            chatId: context.chatID,
+            topicId: context.destinationTopic,
+        )
+        activeChatAction = action
+        activeChatActionContext = context
+    }
+
+    private func reconcileActiveChatActionAfterReplyChange() {
+        guard let previousContext = activeChatActionContext,
+              let previousAction = activeChatAction
+        else { return }
+        let nextContext = try? resolveSendContext(
+            for: sendContentKind(for: previousAction),
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        guard nextContext.map({ !sameChatActionDestination(previousContext, $0) }) ?? true else { return }
+        chatActionRouteRevision &+= 1
+        let revision = chatActionRouteRevision
+        activeChatAction = nil
+        activeChatActionContext = nil
+        let client = client
+        Task { [weak self] in
+            _ = try? await client.sendChatAction(
+                action: .chatActionCancel,
+                businessConnectionId: nil,
+                chatId: previousContext.chatID,
+                topicId: previousContext.destinationTopic,
+            )
+            guard let self,
+                  chatActionRouteRevision == revision,
+                  locationContextIsCurrent,
+                  case .chatActionTyping = previousAction,
+                  !text.characters.isEmpty,
+                  let nextContext = try? resolveSendContext(
+                      for: .text,
+                      replyingTo: replyMessage,
+                      useCurrentReplyOverride: true,
+                  )
+            else { return }
+            _ = try? await sendChatAction(.chatActionTyping, in: nextContext)
+        }
+    }
+
+    private func sendContentKind(for action: ChatAction) -> ChatSendContentKind {
+        switch action {
+        case .chatActionRecordingVoiceNote, .chatActionUploadingVoiceNote:
+            .voiceNote
+        case .chatActionRecordingVideoNote, .chatActionUploadingVideoNote:
+            .videoNote
+        case .chatActionUploadingPhoto:
+            .photo
+        default:
+            .text
+        }
+    }
+
     private func canonicalMessages(
         merging existing: [CustomMessage],
         with incoming: [CustomMessage],
@@ -2371,6 +2558,23 @@ import UIKit
             chatId: context.chatID,
             topicId: context.destinationTopic,
         )
+        if let activeChatActionContext,
+           sameChatActionDestination(activeChatActionContext, context)
+        {
+            chatActionRouteRevision &+= 1
+            activeChatAction = nil
+            self.activeChatActionContext = nil
+        }
+    }
+
+    private func sameChatActionDestination(
+        _ lhs: ResolvedSendContext,
+        _ rhs: ResolvedSendContext,
+    ) -> Bool {
+        lhs.accountID == rhs.accountID
+            && lhs.clientID == rhs.clientID
+            && lhs.chatID == rhs.chatID
+            && lhs.destinationTopic == rhs.destinationTopic
     }
 
     private func loadHistory(
@@ -2553,6 +2757,9 @@ import UIKit
         message: CustomMessage?,
         input: InputMessageReplyTo?,
     ) {
+        if isAllMessagesForum, let topicID = message?.forumTopicID {
+            refreshForumTopic(id: topicID)
+        }
         replySelectionGeneration &+= 1
         replyMessage = message
         replyQuote = inputQuote(from: input)
@@ -2560,6 +2767,7 @@ import UIKit
         replyFallbackPresentation = message == nil
             ? input.map { MessageReplyPresentation.fallback(for: $0, currentChatID: chatID) }
             : nil
+        reconcileActiveChatActionAfterReplyChange()
     }
 
     private func restoreVideoReplyIfNeeded(

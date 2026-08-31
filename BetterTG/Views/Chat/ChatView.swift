@@ -142,7 +142,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private var showsComposer: Bool {
         presentationMode == .full
-            && (location.isTopicScoped || chatVM.canShowComposer)
+            && (location.isTopicScoped || chatVM.isAllMessagesForum || chatVM.canShowComposer)
     }
 
     private var isNearLatest: Bool {

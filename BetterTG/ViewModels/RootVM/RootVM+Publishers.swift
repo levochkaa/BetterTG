@@ -59,6 +59,9 @@ extension RootVM {
         nc.publisher(&cancellables, for: .updateChatAccentColors) { [weak self] update in
             self?.refreshChat(id: update.chatId)
         }
+        nc.publisher(&cancellables, for: .updateChatViewAsTopics) { [weak self] update in
+            self?.refreshChat(id: update.chatId)
+        }
         nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
             guard let self else { return }
             for folder in allFolders {

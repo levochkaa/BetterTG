@@ -182,7 +182,9 @@ extension ChatVM {
             guard let self,
                   locationContextIsCurrent,
                   update.chatId == customChat.id,
-                  location.topic == nil || update.topicId == location.topic
+                  isAllMessagesForum
+                  ? update.topicId == acceptedChatActionTopic
+                  : (location.topic == nil || update.topicId == location.topic)
             else { return }
             updateChatAction(update)
         }
