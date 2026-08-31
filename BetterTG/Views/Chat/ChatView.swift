@@ -56,6 +56,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private let pinnedMessageBanner = PinnedMessageBannerView()
+    private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
+    private var displayedPinnedMessage: Message?
+    private var pinnedMessageBannerTransitionGeneration = UInt64.zero
     private lazy var composerView = ChatComposerView(chatVM: chatVM)
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
@@ -66,6 +70,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPresentVoiceNoteError = false
     private var didPresentVideoNoteError = false
     private var didPresentReactionError = false
+    private var didPresentPinError = false
     private var lastHighlightedMessageID: Int64?
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
@@ -403,6 +408,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 customNavigationBar.setSearchResultFound(nil)
             }
             view.setNeedsLayout()
+            updatePinnedMessageBanner(animated: true)
         }
         if presentationMode == .contextPreview {
             customNavigationBar.isUserInteractionEnabled = false
@@ -418,8 +424,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             customNavigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBarHeightConstraint,
         ])
+        configurePinnedMessageBanner()
         updateChatHeader()
         updateStatus()
+    }
+
+    private func configurePinnedMessageBanner() {
+        pinnedMessageBanner.translatesAutoresizingMaskIntoConstraints = false
+        pinnedMessageBanner.isHidden = true
+        view.addSubview(pinnedMessageBanner)
+        pinnedMessageBannerHeightConstraint = pinnedMessageBanner.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            pinnedMessageBanner.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            pinnedMessageBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pinnedMessageBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pinnedMessageBannerHeightConstraint,
+        ])
+        updatePinnedMessageBanner(animated: false)
     }
 
     private func configureCollectionView() {
@@ -877,10 +898,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     updateStatus()
                     composerView.update(from: chatVM)
                     updateHighlightState()
+                    updatePinnedMessageBanner(animated: true)
                     presentMicrophoneErrorIfNeeded()
                     presentVoiceNoteErrorIfNeeded()
                     presentVideoNoteSendErrorIfNeeded()
                     presentReactionErrorIfNeeded()
+                    presentPinErrorIfNeeded()
                     restoreVideoRecordingIfNeeded()
                 }
             }
@@ -951,6 +974,69 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         unreadBadgeLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
         unreadBadgeLabel.isHidden = unreadCount == 0
         scrollToLatestButton.accessibilityValue = unreadCount == 0 ? nil : "\(unreadCount) unread"
+    }
+
+    private func updatePinnedMessageBanner(animated: Bool) {
+        guard pinnedMessageBannerHeightConstraint != nil else { return }
+        let message: Message? =
+            if presentationMode == .full,
+            !messageSearchActive,
+            !isSelectingMessages {
+                chatVM.visiblePinnedMessage
+            } else {
+                nil
+            }
+        if let message {
+            if displayedPinnedMessage != message {
+                displayedPinnedMessage = message
+                pinnedMessageBanner.configure(
+                    message: message,
+                    onOpen: { [weak self] in
+                        self?.scrollToMessage(id: message.id)
+                    },
+                    onHide: { [weak self] in
+                        self?.chatVM.hidePinnedMessageBanner()
+                    },
+                )
+            }
+            pinnedMessageBanner.isHidden = false
+        }
+        let desiredHeight = message == nil ? CGFloat.zero : PinnedMessageBannerView.contentHeight
+        guard abs(pinnedMessageBannerHeightConstraint.constant - desiredHeight) > 0.5 else {
+            view.setNeedsLayout()
+            return
+        }
+        pinnedMessageBannerTransitionGeneration &+= 1
+        let transitionGeneration = pinnedMessageBannerTransitionGeneration
+        view.layoutIfNeeded()
+        pinnedMessageBannerHeightConstraint.constant = desiredHeight
+        let changes = {
+            self.pinnedMessageBanner.alpha = desiredHeight == 0 ? 0 : 1
+            self.view.layoutIfNeeded()
+        }
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self,
+                  pinnedMessageBannerTransitionGeneration == transitionGeneration
+            else { return }
+            if desiredHeight == 0 {
+                pinnedMessageBanner.isHidden = true
+                pinnedMessageBanner.prepareForReuse()
+                displayedPinnedMessage = nil
+            }
+            updateHistoryInsets()
+        }
+        guard animated else {
+            changes()
+            completion(true)
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            animations: changes,
+            completion: completion,
+        )
     }
 
     private func updateSnapshot(animated: Bool) {
@@ -1031,7 +1117,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else {
                 view.safeAreaInsets.bottom + 8
             }
-        let visualTopInset = customNavigationBar.frame.maxY + 8
+        let visualTopInset = (
+            pinnedMessageBannerHeightConstraint?.constant ?? 0,
+        ) > 0
+            ? pinnedMessageBanner.frame.maxY + 8
+            : customNavigationBar.frame.maxY + 8
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
         guard abs(collectionView.contentInset.top - updatedInsets.top) > 0.5
             || abs(collectionView.contentInset.bottom - updatedInsets.bottom) > 0.5
@@ -1615,6 +1705,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
+    private func presentPinErrorIfNeeded() {
+        guard let message = chatVM.pinErrorMessage,
+              !didPresentPinError,
+              presentedViewController == nil
+        else { return }
+        didPresentPinError = true
+        chatVM.pinErrorMessage = nil
+        let alert = UIAlertController(title: "Pinned Message", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.didPresentPinError = false
+        })
+        present(alert, animated: true)
+    }
+
     @objc private func messageLongPressed(_ gesture: TelegramContextGestureRecognizer) {
         guard gesture.state == .began, !isSelectingMessages else { return }
         cancelHistoryPanGesture()
@@ -1708,6 +1812,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.presentReactionPicker(for: message)
             })
         }
+        if canOfferPinAction(for: message) {
+            elements.append(TelegramContextMenuAction(
+                title: message.isPinned ? "Unpin" : "Pin",
+                image: UIImage(systemName: message.isPinned ? "pin.slash" : "pin"),
+            ) { [weak self, weak message] in
+                guard let message else { return }
+                if message.isPinned {
+                    self?.presentUnpinConfirmation(for: message)
+                } else {
+                    self?.presentPinOptions(for: message)
+                }
+            })
+        }
         if canForwardMessageContent(message),
            message.properties.canBeForwarded || message.properties.canBeCopied
         {
@@ -1772,6 +1889,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             translationX: 0,
             y: MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom,
         )
+        updatePinnedMessageBanner(animated: true)
         updateMessageSelectionChrome()
         UIView.animate(
             withDuration: 0.2,
@@ -1837,6 +1955,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageContextGesture.isEnabled = presentationMode == .full
         customNavigationBar.setSelectionCount(nil)
         composerView.setHiddenForSearch(messageSearchActive)
+        updatePinnedMessageBanner(animated: true)
         UIView.animate(
             withDuration: 0.2,
             delay: 0,
@@ -1917,6 +2036,104 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             && message.message.ephemeralMessageId == 0
             && message.message.sendingState == nil
             && chatVM.canAddReactions
+    }
+
+    private func canOfferPinAction(for message: CustomMessage) -> Bool {
+        chatVM.supportsPinnedMessages
+            && message.album.isEmpty
+            && message.message.topicId == nil
+            && !message.contentPresentation.isService
+            && message.message.sendingState == nil
+            && message.properties.canBePinned
+    }
+
+    private func presentPinOptions(for message: CustomMessage) {
+        guard canOfferPinAction(for: message),
+              presentedViewController == nil
+        else { return }
+        let alertMessage = chatVM.pinnedMessage != nil
+            ? "This message will become the newest pinned message."
+            : nil
+        let alert = UIAlertController(
+            title: "Pin Message?",
+            message: alertMessage,
+            preferredStyle: .actionSheet,
+        )
+        if chatVM.customChat.isSavedMessages {
+            alert.addAction(UIAlertAction(title: "Pin", style: .default) { [weak self, weak message] _ in
+                guard let self, let message else { return }
+                chatVM.pinMessage(message, mode: .savedMessages)
+            })
+        } else {
+            switch chatVM.customChat.type {
+            case .bot, .user:
+                alert.addAction(UIAlertAction(title: "Pin for Both", style: .default) { [weak self, weak message] _ in
+                    guard let self, let message else { return }
+                    chatVM.pinMessage(message, mode: .privateForBoth)
+                })
+                alert.addAction(UIAlertAction(title: "Pin for Me", style: .default) { [weak self, weak message] _ in
+                    guard let self, let message else { return }
+                    chatVM.pinMessage(message, mode: .privateForSelf)
+                })
+            case .group:
+                addGroupPinActions(to: alert, message: message)
+            case .supergroup(let supergroup):
+                if supergroup.isChannel {
+                    alert.addAction(UIAlertAction(title: "Pin", style: .default) { [weak self, weak message] _ in
+                        guard let self, let message else { return }
+                        chatVM.pinMessage(message, mode: .channel)
+                    })
+                } else {
+                    addGroupPinActions(to: alert, message: message)
+                }
+            }
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        configureActionSheetPopover(alert)
+        present(alert, animated: true)
+    }
+
+    private func addGroupPinActions(
+        to alert: UIAlertController,
+        message: CustomMessage,
+    ) {
+        alert.addAction(UIAlertAction(title: "Pin and Notify", style: .default) { [weak self, weak message] _ in
+            guard let self, let message else { return }
+            chatVM.pinMessage(message, mode: .groupNotify)
+        })
+        alert.addAction(UIAlertAction(title: "Only Pin", style: .default) { [weak self, weak message] _ in
+            guard let self, let message else { return }
+            chatVM.pinMessage(message, mode: .groupSilent)
+        })
+    }
+
+    private func presentUnpinConfirmation(for message: CustomMessage) {
+        guard canOfferPinAction(for: message),
+              presentedViewController == nil
+        else { return }
+        let alert = UIAlertController(
+            title: "Unpin Message?",
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
+        alert.addAction(UIAlertAction(title: "Unpin", style: .destructive) { [weak self, weak message] _ in
+            guard let self, let message else { return }
+            chatVM.unpinMessage(message)
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        configureActionSheetPopover(alert)
+        present(alert, animated: true)
+    }
+
+    private func configureActionSheetPopover(_ alert: UIAlertController) {
+        guard let popover = alert.popoverPresentationController else { return }
+        popover.sourceView = view
+        popover.sourceRect = CGRect(
+            x: view.bounds.midX,
+            y: view.bounds.maxY - view.safeAreaInsets.bottom,
+            width: 1,
+            height: 1,
+        )
     }
 
     private func presentReactionPicker(for message: CustomMessage) {

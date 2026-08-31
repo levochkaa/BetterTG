@@ -129,6 +129,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             MessageMetadataDebugProbe.runIfRequested(in: window)
             MessageForwardingDebugProbe.runIfRequested(in: window)
             MessageReactionDebugProbe.runIfRequested(in: window)
+            PinnedMessageDebugProbe.runIfRequested(in: window)
         #endif
 
         if let response = connectionOptions.notificationResponse {
