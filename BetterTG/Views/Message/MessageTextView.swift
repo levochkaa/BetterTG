@@ -147,6 +147,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
         accessibilityLabel = TelegramSpoilers.accessibilityText(formattedText, revealed: spoilersRevealed)
+        // UITextView otherwise exposes its underlying unredacted text as Value.
+        accessibilityValue = ""
         accessibilityCustomActions = !spoilersRevealed && !spoilerRanges.isEmpty
             ? [UIAccessibilityCustomAction(name: "Reveal spoiler") { [weak self] _ in self?.revealSpoilers() ?? false }]
             : nil

@@ -23,7 +23,14 @@ import UIKit
         guard size.width > 0, size.height > 0, size.width <= 4096, size.height <= 2048 else { return nil }
         label.frame = CGRect(origin: .zero, size: size)
         label.layoutIfNeeded()
-        let image = UIGraphicsImageRenderer(size: size).image { context in label.layer.render(in: context.cgContext) }
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            // SwiftMath lays out glyphs in a bottom-left coordinate system.
+            // Drawing the list directly avoids CALayer.render applying the
+            // label's flipped geometry a second time to the exported bitmap.
+            context.cgContext.translateBy(x: 0, y: size.height)
+            context.cgContext.scaleBy(x: 1, y: -1)
+            label.displayList?.draw(context.cgContext)
+        }
         return Rendered(image: image, descent: label.displayList?.descent ?? 0)
     }
 
