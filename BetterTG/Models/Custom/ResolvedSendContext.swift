@@ -24,6 +24,7 @@ struct ResolvedSendContext {
     let destinationTopic: MessageTopic?
     let draftTopic: MessageTopic?
     let replyTo: InputMessageReplyTo?
+    var allowsSavedMessagesTopic = false
 
     var draftKey: ChatDraftKey {
         ChatDraftKey(
@@ -34,7 +35,13 @@ struct ResolvedSendContext {
     }
 
     func matches(message: Message) -> Bool {
-        message.chatId == chatID && message.topicId == destinationTopic
+        guard message.chatId == chatID else { return false }
+        if message.topicId == destinationTopic { return true }
+        // TDLib assigns a Saved Messages topic even when sendMessage was called
+        // from the unscoped self chat. This is an accepted send, not a retry.
+        if destinationTopic == nil, allowsSavedMessagesTopic,
+           case .messageTopicSavedMessages = message.topicId { return true }
+        return false
     }
 }
 

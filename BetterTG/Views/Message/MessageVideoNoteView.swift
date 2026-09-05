@@ -137,33 +137,19 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
     }
 
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window == nil { setPlaybackVisible(false) }
-        concealIfCaptureUnavailable()
-    }
-
-    private static func isSecret(_ message: Message) -> Bool {
-        guard case .messageVideoNote(let value) = message.content else { return false }
-        return value.isSecret
-    }
-
-    func configure(message: Message, client: TDLibClient, context: MediaGalleryPlaybackContext?) {
-        let acceptsContext = context.map { $0.isCurrent && $0.location.matches(message: message) }
-            ?? !Self.isSecret(message)
-        configure(
-            message: message,
-            backend: acceptsContext
-                ? VideoNotePlaybackBackend.captured(client: client, context: context)
-                : nil,
-        )
-        guard backend?.isCurrent() == true, !isRevoked else { return }
-        if !isSecret, let thumbnail = videoNote?.thumbnail {
-            thumbnailView.load(file: thumbnail.file, placeholderData: videoNote?.minithumbnail?.data, client: client)
+    func configure(
+        videoNote: VideoNote,
+        isSecret: Bool,
+        chatID: Int64,
+        messageID: Int64,
+    ) {
+        if self.chatID == chatID, self.messageID == messageID,
+           self.videoNote?.video.id == videoNote.video.id, self.isSecret == isSecret
+        {
+            self.videoNote = videoNote
+            update(file: videoNote.video)
+            return
         }
-    }
-
-    func configure(message: Message, backend: VideoNotePlaybackBackend?) {
         prepareForReuse()
         guard case .messageVideoNote(let value) = message.content else { return }
         let videoNote = value.videoNote
@@ -232,7 +218,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     private func configureViews() {
-        clipsToBounds = true
+        clipsToBounds = false
         backgroundColor = .black
         isAccessibilityElement = true
         accessibilityTraits = [.button]
@@ -245,6 +231,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         playerSurface.translatesAutoresizingMaskIntoConstraints = false
         playerSurface.playerLayer.videoGravity = .resizeAspectFill
         playerSurface.clipsToBounds = true
+        playerSurface.isUserInteractionEnabled = false
         playerSurface.isHidden = true
         player.attach(to: playerSurface.playerLayer)
         player.setMuted(false)
@@ -297,9 +284,9 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             playerSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
             playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            durationLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            durationLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            durationLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            durationLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
             durationLabel.heightAnchor.constraint(equalToConstant: 18),
             secretBlurView.topAnchor.constraint(equalTo: topAnchor),
             secretBlurView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -320,7 +307,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             .sink { [weak self] time in
                 guard let self, let videoNote, videoNote.duration > 0 else { return }
                 progressLayer.strokeEnd = min(1, max(0, time / Double(videoNote.duration)))
-                durationLabel.text = "\(format(Int(time))) / \(format(videoNote.duration))"
+                durationLabel.text = format(max(0, videoNote.duration - Int(time)))
             }
             .store(in: &cancellables)
         Media.shared
@@ -410,7 +397,6 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             file.local.isDownloadingCompleted,
             !file.local.path.isEmpty
         else { return }
-        ownsDownload = false
         guard representedPath != file.local.path else { return }
         representedPath = file.local.path
         player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)

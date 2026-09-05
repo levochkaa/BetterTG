@@ -1149,7 +1149,11 @@ import UIKit
             }
             if let reply,
                reply.message.chatId == location.chatID,
-               reply.message.topicId != location.topic
+               reply.message.topicId != location.topic,
+               !(customChat.isSavedMessages && location.topic == nil
+                   && reply.message.topicId.map { if case .messageTopicSavedMessages = $0 { return true }
+                       return false
+                   } == true)
             {
                 throw ChatSendContextError.crossTopicReply
             }
@@ -1177,6 +1181,7 @@ import UIKit
             destinationTopic: destinationTopic,
             draftTopic: draftTopic,
             replyTo: resolvedReplyTo,
+            allowsSavedMessagesTopic: customChat.isSavedMessages && location.topic == nil,
         )
     }
 
@@ -3709,6 +3714,7 @@ import UIKit
             destinationTopic: resolvedSendTopic,
             draftTopic: current.draftTopic,
             replyTo: replyTo,
+            allowsSavedMessagesTopic: current.allowsSavedMessagesTopic,
         )
     }
 

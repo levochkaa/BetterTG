@@ -34,6 +34,17 @@ final class MessageMediaView: UIView {
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
+        if case .messageVideoNote(let video) = message.message.content,
+           let existing = contentView as? VideoNotePlaybackView
+        {
+            existing.configure(
+                videoNote: video.videoNote,
+                isSecret: video.isSecret,
+                chatID: message.message.chatId,
+                messageID: message.id,
+            )
+            return true
+        }
         prepareForReuse()
         revealPermits = Dictionary(uniqueKeysWithValues: message.sourceMessages.compactMap { source in
             mediaRevealSession?.permit(for: source).map { (source.id, $0) }

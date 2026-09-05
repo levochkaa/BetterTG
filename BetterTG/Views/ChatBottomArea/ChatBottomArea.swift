@@ -80,12 +80,14 @@ final class ChatComposerView: UIView {
     private let recordingTrimView = VoiceRecordingTrimView()
     private let videoNoteThumbnailStrip = VideoNoteThumbnailStripView()
     private let recordingLabel = UILabel()
+    private let recordingGestureOverlay = RecordingGestureOverlayView()
     private let recordingSendButton = UIButton(type: .system)
     private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
         let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(actionLongPressed(_:)))
         recognizer.minimumPressDuration = 0
         recognizer.allowableMovement = 1000
         recognizer.cancelsTouchesInView = false
+        recognizer.delegate = self
         return recognizer
     }()
 
@@ -110,6 +112,7 @@ final class ChatComposerView: UIView {
     private var pendingVoiceGestureOutcome: VoiceGestureOutcome?
     private var voiceGestureFinished = false
     private var voiceGestureIsArmed = false
+    private var recordingStartInFlight = false
     private var voiceGestureIsTracking = false
     private var voiceGestureGeneration = 0
     private var voiceGestureArmTask: Task<Void, Never>?
@@ -172,40 +175,9 @@ final class ChatComposerView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    static func restorationSelection(_ selection: NSRange, length: Int) -> NSRange {
-        let start = min(selection.location, length)
-        return NSRange(location: start, length: min(selection.length, length - start))
-    }
-
-    func clientRestorationState() -> ClientViewState? {
-        guard textView.permitsClientRestoration, !voiceGestureIsTracking, !voiceGestureIsArmed,
-              voiceGestureArmTask == nil, !videoNoteState.isActive, !videoNoteTrimEditing, !videoNoteTrimSaving
-        else { return nil }
-        return ClientViewState(
-            selection: textView.selectedRange, wasFocused: isInputFocused, recordingMode: selectedMediaRecordingMode,
-        )
-    }
-
-    func restoreClientViewState(_ state: ClientViewState, focus: Bool) {
-        selectedMediaRecordingMode = state.recordingMode
-        let length = textView.attributedText.length
-        textView.selectedRange = Self.restorationSelection(state.selection, length: length)
-        updateActionButton()
-        func containsOtherResponder(_ view: UIView) -> Bool {
-            view !== textView && view.isFirstResponder || view.subviews.contains(where: containsOtherResponder)
-        }
-        if focus, state.wasFocused, let window = textView.window, !containsOtherResponder(window) {
-            textView.becomeFirstResponder()
-        }
-    }
-
-    func retireClientView() {
-        draftTask?.cancel()
-        typingTask?.cancel()
-        onInteractionSettled = nil
-        onUserInteraction = nil
-        onPasteImages = nil
-        if textView.isFirstResponder { textView.resignFirstResponder() }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateRecordingGesturePresentation()
     }
 
     func focusInput() {
@@ -528,7 +500,7 @@ final class ChatComposerView: UIView {
             }
             updateRecordingStatus()
         } else {
-            if voiceGestureIsArmed, !chatVM.startingVoiceNote {
+            if voiceGestureIsArmed, !chatVM.startingVoiceNote, !recordingStartInFlight {
                 finishVoiceGestureAfterExternalStop()
             }
             if chatVM.timer != nil {
@@ -539,6 +511,7 @@ final class ChatComposerView: UIView {
             }
         }
         updateActionButton()
+        updateRecordingGesturePresentation()
         isApplyingState = false
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
@@ -551,8 +524,11 @@ final class ChatComposerView: UIView {
         layer.cornerRadius = 22
         layer.cornerCurve = .continuous
         layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        clipsToBounds = true
+        clipsToBounds = false
 
+        blurView.clipsToBounds = true
+        blurView.layer.cornerRadius = 22
+        blurView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
@@ -817,7 +793,8 @@ final class ChatComposerView: UIView {
         actionButton.addTarget(self, action: #selector(actionTouchDown(_:)), for: .touchDown)
         actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
-        actionButton.addGestureRecognizer(recordingGestureRecognizer)
+        addGestureRecognizer(recordingGestureRecognizer)
+        addSubview(recordingGestureOverlay)
 
         textView.onTextChange = { [weak self] text in self?.textChanged(text) }
         textView.onPasteImages = { [weak self] in self?.onPasteImages?($0) }
@@ -1115,6 +1092,7 @@ final class ChatComposerView: UIView {
     }
 
     private func updateRecordingStatus() {
+        defer { updateRecordingGesturePresentation() }
         if videoNoteState.isActive {
             updateVideoRecordingStatus()
             return
@@ -1140,13 +1118,7 @@ final class ChatComposerView: UIView {
             recordingPauseResumeButton.alpha = chatVM.canPauseVoiceRecording ? 1 : 0.45
             recordingSendButton.isHidden = false
         case .holding:
-            if voiceGestureTranslation.x <= -70 {
-                recordingLabel.text = "← Release to cancel"
-            } else if voiceGestureTranslation.y <= -45 {
-                recordingLabel.text = "↑ Release to lock"
-            } else {
-                recordingLabel.text = "● \(chatVM.formattedTimerCount)  ← Cancel  ↑ Lock"
-            }
+            recordingLabel.text = "● \(chatVM.formattedTimerCount)"
             recordingLabel.accessibilityLabel = "Recording voice message, \(chatVM.formattedTimerCount)"
             recordingSendButton.isHidden = true
         case .preview:
@@ -1215,13 +1187,7 @@ final class ChatComposerView: UIView {
             recordingLabel.text = "Preparing camera…"
             recordingLabel.accessibilityLabel = "Preparing video-message camera"
         case .holding(let duration):
-            if voiceGestureTranslation.x <= -70 {
-                recordingLabel.text = "← Release to cancel"
-            } else if voiceGestureTranslation.y <= -45 {
-                recordingLabel.text = "↑ Release to lock"
-            } else {
-                recordingLabel.text = "● \(formatVideoDuration(duration))  ← Cancel  ↑ Lock"
-            }
+            recordingLabel.text = "● \(formatVideoDuration(duration))"
             recordingLabel.accessibilityLabel = "Recording video message, \(formatVideoDuration(duration))"
         case .locked(let duration):
             recordingLabel.text = "● \(formatVideoDuration(duration))  Locked"
@@ -1269,6 +1235,23 @@ final class ChatComposerView: UIView {
             recordingLabel.text = nil
             recordingLabel.accessibilityLabel = nil
         }
+    }
+
+    private func updateRecordingGesturePresentation() {
+        guard recordingGestureOverlay.superview != nil else { return }
+        let holding = voiceGestureIsTracking && !voiceGestureFinished
+            && (recordingStartInFlight || chatVM.voiceRecordingInteractionState == .holding || isHoldingVideoNote)
+        recordingGestureOverlay.frame = bounds
+        let row = recordingRow.convert(recordingRow.bounds, to: self)
+        recordingGestureOverlay.update(
+            active: holding,
+            video: activeMediaRecordingMode == .video,
+            translation: voiceGestureTranslation,
+            anchor: CGPoint(x: bounds.width - 29, y: row.midY),
+        )
+        cancelRecordingButton.isHidden = holding
+        recordingLabel.textAlignment = holding ? .left : .center
+        bringSubviewToFront(recordingGestureOverlay)
     }
 
     private func formatVideoDuration(_ duration: Double) -> String {
@@ -1461,7 +1444,9 @@ final class ChatComposerView: UIView {
                 else { return }
                 voiceGestureIsArmed = true
                 voiceGestureSuppressesButtonAction = true
+                recordingStartInFlight = true
                 let started = await beginRecording(mode: recordingMode)
+                recordingStartInFlight = false
                 guard voiceGestureGeneration == generation else {
                     if started {
                         cancelRecordingForMode(recordingMode)
@@ -1800,5 +1785,17 @@ final class ChatComposerView: UIView {
 
     private func seekRecordingPreview(to progress: CGFloat) {
         chatVM.seekVoiceRecordingPreview(to: progress)
+    }
+}
+
+// MARK: UIGestureRecognizerDelegate
+
+/// The recognizer lives on the persistent composer, so hiding the input row when
+/// recording starts cannot cancel the touch sequence.
+extension ChatComposerView: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === recordingGestureRecognizer else { return true }
+        return !inputRow.isHidden && !actionButton.isHidden
+            && actionButton.bounds.contains(touch.location(in: actionButton))
     }
 }

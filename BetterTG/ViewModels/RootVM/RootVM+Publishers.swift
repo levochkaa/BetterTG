@@ -160,6 +160,7 @@ extension RootVM {
                 }
                 #if DEBUG
                 ChatListStoreDebugProbe.runIfRequested(seed: latest)
+                SavedMediaDebugProbe.runIfRequested(chat: latest)
                 #endif
                 if let existing = updated.first(where: { $0.id == id }) {
                     existing.chat = latest.chat
