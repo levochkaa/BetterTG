@@ -46,7 +46,7 @@ import TDLibKit
                         }
                         lines
                             .append(
-                                "kind=\(kind) topic=\(topic) sent=\(message.sendingState == nil) downloaded=\(file.local.isDownloadingCompleted) fileExtension=\(URL(filePath: file.local.path).pathExtension)",
+                                "kind=\(kind) id=\(message.id) date=\(message.date) topic=\(topic) sent=\(message.sendingState == nil) downloaded=\(file.local.isDownloadingCompleted) fileExtension=\(URL(filePath: file.local.path).pathExtension)",
                             )
                     }
                 } catch { lines.append("read failed: \(error)") }

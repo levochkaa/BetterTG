@@ -711,9 +711,30 @@ actor VoiceNoteDraftStore {
             guard url.pathExtension == "json",
                   let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
             else { return nil }
-            // Missing, malformed or temporarily unreadable drafts remain on disk
-            // for recovery. A sandbox move is never grounds for deletion.
-            return loadCanonicalDraft(id: id)
+            guard
+                let data = try? Data(contentsOf: url),
+                var draft = try? JSONDecoder().decode(VoiceNoteSendDraft.self, from: data)
+            else {
+                try? fileManager.removeItem(at: url)
+                return nil
+            }
+            // iOS can move the app container on an update. The managed filename
+            // is stable, so recover only this draft's UUID-named local recording.
+            if !isManagedFile(draft.fileURL),
+               draft.fileURL.deletingPathExtension().lastPathComponent == draft.id.uuidString,
+               ["wav", "ogg", "oga"].contains(draft.fileURL.pathExtension.lowercased())
+            {
+                let movedURL = directoryURL.appendingPathComponent(draft.fileURL.lastPathComponent)
+                if fileManager.fileExists(atPath: movedURL.path) {
+                    draft.fileURL = movedURL
+                    try? save(draft)
+                }
+            }
+            guard isManagedFile(draft.fileURL), fileManager.fileExists(atPath: draft.fileURL.path) else {
+                try? fileManager.removeItem(at: url)
+                return nil
+            }
+            return draft
         }
     }
 

@@ -519,7 +519,7 @@ import UIKit
 
     var voiceRecordingPreviewPath: String? {
         guard voiceRecordingInteractionState == .preview else { return nil }
-        return activeVoiceRecordingDraft?.fileURL.path()
+        return activeVoiceRecordingDraft?.fileURL.path(percentEncoded: false)
     }
 
     var voiceRecordingPreviewWaveform: [CGFloat] {
@@ -2434,7 +2434,7 @@ import UIKit
         caption: FormattedText,
         livePhotoVideoURL: URL? = nil,
     ) async -> InputMessageContent {
-        let path = url.path()
+        let path = url.path(percentEncoded: false)
         let dimensions = await Task.detached(priority: .userInitiated) {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
@@ -4978,7 +4978,7 @@ import UIKit
             inputMessageContent: .inputMessageVoiceNote(
                 InputMessageVoiceNote(
                     voiceNote: .init(
-                        voiceNote: .inputFileLocal(InputFileLocal(path: fileURL.path())),
+                        voiceNote: .inputFileLocal(InputFileLocal(path: fileURL.path(percentEncoded: false))),
                         duration: draft.duration,
                         waveform: draft.waveform,
                     ),
