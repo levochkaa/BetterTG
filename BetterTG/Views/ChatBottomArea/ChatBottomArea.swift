@@ -862,6 +862,35 @@ final class ChatComposerView: UIView {
             }, for: .touchUpInside)
             container.addSubview(imageView)
             container.addSubview(removeButton)
+            if selectedImage.livePhotoVideoURL != nil {
+                let liveButton = UIButton(type: .system)
+                liveButton.translatesAutoresizingMaskIntoConstraints = false
+                liveButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+                liveButton.layer.cornerRadius = 5
+                liveButton.tintColor = .white
+                liveButton.titleLabel?.font = .systemFont(ofSize: 10, weight: .semibold)
+                let liveEnabled = selectedImage.isLivePhotoEnabled && chatVM.canSendLivePhotos
+                liveButton.setTitle(liveEnabled ? "◉ LIVE" : "LIVE OFF", for: .normal)
+                liveButton.accessibilityLabel = "Live Photo"
+                liveButton.accessibilityValue = liveEnabled ? "On" : "Off"
+                liveButton.isEnabled = chatVM.canSendLivePhotos
+                liveButton.addAction(UIAction { [weak self, weak liveButton] _ in
+                    guard let self,
+                          let index = chatVM.displayedImages.firstIndex(where: { $0.id == selectedImage.id })
+                    else { return }
+                    chatVM.displayedImages[index].isLivePhotoEnabled.toggle()
+                    let enabled = chatVM.displayedImages[index].isLivePhotoEnabled
+                    liveButton?.setTitle(enabled ? "◉ LIVE" : "LIVE OFF", for: .normal)
+                    liveButton?.accessibilityValue = enabled ? "On" : "Off"
+                }, for: .touchUpInside)
+                container.addSubview(liveButton)
+                NSLayoutConstraint.activate([
+                    liveButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+                    liveButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+                    liveButton.widthAnchor.constraint(equalToConstant: 58),
+                    liveButton.heightAnchor.constraint(equalToConstant: 22),
+                ])
+            }
             NSLayoutConstraint.activate([
                 container.widthAnchor.constraint(equalToConstant: 92),
                 imageView.topAnchor.constraint(equalTo: container.topAnchor),

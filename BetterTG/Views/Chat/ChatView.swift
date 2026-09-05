@@ -3384,6 +3384,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configuration.filter = .images
         configuration.selectionLimit = 10
         configuration.selection = .ordered
+        configuration.preferredAssetRepresentationMode = .current
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = self
         picker.presentationController?.delegate = self

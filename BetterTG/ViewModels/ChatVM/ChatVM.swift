@@ -248,6 +248,14 @@ import UIKit
     private var latestRestorationFailed = false
     private var messageReplacementIDs = [Int64: Int64]()
 
+    var canSendLivePhotos: Bool {
+        if case .chatTypeSecret = customChat.chat.type {
+            false
+        } else {
+            true
+        }
+    }
+
     var visiblePinnedMessage: Message? {
         PinnedMessageState.visibleMessage(
             newest: pinnedMessage,
@@ -2370,7 +2378,14 @@ import UIKit
             let sentMessages: [Message]
             var messageContents = [InputMessageContent]()
             for image in images {
-                await messageContents.append(makeInputMessageContent(for: image.url, caption: caption))
+                await messageContents.append(makeInputMessageContent(
+                    for: image.url,
+                    caption: caption,
+                    livePhotoVideoURL: image
+                        .isLivePhotoEnabled && canSendLivePhotos
+                        ? image.livePhotoVideoURL
+                        : nil,
+                ))
             }
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
             if messageContents.count == 1, let content = messageContents.first {
@@ -2417,6 +2432,7 @@ import UIKit
     func makeInputMessageContent(
         for url: URL,
         caption: FormattedText,
+        livePhotoVideoURL: URL? = nil,
     ) async -> InputMessageContent {
         let path = url.path()
         let dimensions = await Task.detached(priority: .userInitiated) {
@@ -2437,7 +2453,7 @@ import UIKit
                 thumbnail: input,
                 width: Int(dimensions.width),
             ),
-            video: nil,
+            video: livePhotoVideoURL.map { .inputFileLocal(InputFileLocal(path: $0.path)) },
             width: Int(dimensions.width),
         )
         return .inputMessagePhoto(

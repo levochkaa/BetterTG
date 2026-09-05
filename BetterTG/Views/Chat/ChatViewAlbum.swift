@@ -51,7 +51,10 @@ struct VideoPlaybackAttachmentToken: Hashable {
     let cornerRadius: CGFloat
     let maskedCorners: CACornerMask
 
-    private let capturedSnapshot: UIView?
+    private let sourceBounds: CGRect
+    private let visibleSourceRect: CGRect
+    private var sourceContentMode = UIView.ContentMode.scaleAspectFill
+
     private weak var sourceView: UIView?
     private weak var coordinateWindow: UIWindow?
     private let validation: () -> Bool
@@ -90,19 +93,32 @@ struct VideoPlaybackAttachmentToken: Hashable {
         self.cornerRadius = sourceView.layer.cornerRadius
         self.maskedCorners = sourceView.layer.maskedCorners
         self.validation = validation
+        self.sourceBounds = sourceView.bounds
+        self.visibleSourceRect = sourceView.convert(frameInWindow, from: window).intersection(sourceView.bounds)
         if capturesSnapshot {
-            let cropRect = sourceView.convert(frameInWindow, from: window).intersection(sourceView.bounds)
+            let cropRect = visibleSourceRect
             if let customSnapshot = snapshotFactory?() {
-                customSnapshot.frame = sourceView.bounds
-                customSnapshot.layoutIfNeeded()
-                let image = UIGraphicsImageRenderer(size: cropRect.size).image { context in
-                    context.cgContext.translateBy(x: -cropRect.minX, y: -cropRect.minY)
-                    customSnapshot.layer.render(in: context.cgContext)
+                if let imageView = customSnapshot as? UIImageView, let image = imageView.image {
+                    self.sourceContentMode = imageView.contentMode
+                    let contentFrame = MediaGalleryImageTransitionView.imageFrame(
+                        size: image.size,
+                        bounds: sourceView.bounds,
+                        contentMode: imageView.contentMode,
+                    )
+                    .offsetBy(dx: -cropRect.minX, dy: -cropRect.minY)
+                    self.snapshotView = MediaGalleryImageTransitionView(image: image, imageFrame: contentFrame)
+                } else {
+                    customSnapshot.frame = sourceView.bounds
+                    customSnapshot.layoutIfNeeded()
+                    let image = UIGraphicsImageRenderer(size: cropRect.size).image { context in
+                        context.cgContext.translateBy(x: -cropRect.minX, y: -cropRect.minY)
+                        customSnapshot.layer.render(in: context.cgContext)
+                    }
+                    let imageView = UIImageView(image: image)
+                    imageView.contentMode = .scaleToFill
+                    imageView.clipsToBounds = true
+                    self.snapshotView = imageView
                 }
-                let imageView = UIImageView(image: image)
-                imageView.contentMode = .scaleToFill
-                imageView.clipsToBounds = true
-                self.capturedSnapshot = imageView
             } else {
                 self.capturedSnapshot = sourceView.resizableSnapshotView(
                     from: cropRect,
@@ -119,6 +135,11 @@ struct VideoPlaybackAttachmentToken: Hashable {
     func frame(in coordinateSpace: UIView) -> CGRect? {
         guard let coordinateWindow else { return nil }
         return coordinateSpace.convert(frameInWindow, from: coordinateWindow)
+    }
+
+    func imageFrame(for size: CGSize) -> CGRect {
+        MediaGalleryImageTransitionView.imageFrame(size: size, bounds: sourceBounds, contentMode: sourceContentMode)
+            .offsetBy(dx: -visibleSourceRect.minX, dy: -visibleSourceRect.minY)
     }
 }
 
@@ -546,6 +567,7 @@ private struct MediaGalleryExportAsset {
     let creationDate: Foundation.Date
     let fileID: Int
     let isLivePhoto: Bool
+    let livePhotoVideo: File?
     let isSecretMedia: Bool
     let mimeType: String
     let originalFilename: String
@@ -602,8 +624,8 @@ private struct MediaGalleryExportAsset {
             self.originalFilename = "bettertg-photo-\(message.id).jpg"
             self.photosKind = .photo
             self.requiresWebPStillConversion = false
-            self.saveActionTitle = content.video == nil ? "Save Photo" : "Save Still Photo"
-            self.saveSuccessText = content.video == nil ? "Photo saved" : "Still photo saved"
+            self.saveActionTitle = content.video == nil ? "Save Photo" : "Save Live Photo"
+            self.saveSuccessText = content.video == nil ? "Photo saved" : "Live Photo saved"
             self.shareFileExtension = nil
         case .messageSticker(let content):
             file = content.sticker.sticker
@@ -659,6 +681,12 @@ private struct MediaGalleryExportAsset {
             return nil
         }
         self.fileID = file.id
+        self.livePhotoVideo =
+            if case .messagePhoto(let photo) = message.content {
+                photo.video?.video
+            } else {
+                nil
+            }
         self.completedLocalPath = file.local.isDownloadingCompleted && !file.local.path.isEmpty
             ? file.local.path
             : nil
@@ -735,14 +763,16 @@ private struct MediaGalleryDeleteCapabilities {
 
 private final class MediaGalleryTemporaryFileLease: @unchecked Sendable {
     let fileURL: URL
+    let additionalFileURLs: [URL]
 
     private let directoryURL: URL
     private let lock = NSLock()
     private var cleanedUp = false
 
-    init(directoryURL: URL, fileURL: URL) {
+    init(directoryURL: URL, fileURL: URL, additionalFileURLs: [URL] = []) {
         self.directoryURL = directoryURL
         self.fileURL = fileURL
+        self.additionalFileURLs = additionalFileURLs
     }
 
     deinit {
@@ -868,6 +898,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private let shareButton = UIButton(type: .system)
     private let shareActivityIndicator = UIActivityIndicatorView(style: .medium)
     private let counterLabel = UILabel()
+    private let topBar = UIView()
+    private let authorLabel = UILabel()
+    private let dateLabel = UILabel()
+    private let deleteButton = UIButton(type: .system)
+    private let thumbnailStrip = GalleryThumbnailStripView()
+    private var thumbnailHeightConstraint: NSLayoutConstraint!
+    private var authorTask: Task<Void, Never>?
+    private var displayedAuthorMessageID: Int64?
     private var activeShareLease: MediaGalleryTemporaryFileLease?
     private var actionStatusText: String?
     private var deleteTask: Task<Void, Never>?
@@ -1185,6 +1223,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if touch.view?.isDescendant(of: thumbnailStrip) == true { return false }
         var touchedView = touch.view
         while let view = touchedView {
             if view is UIControl {
@@ -1500,6 +1539,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         return forcedDismissalSnapshot ?? selectedGalleryCell()?.makeTransitionSnapshot()
     }
 
+    fileprivate func setTransitionContentHidden(_ hidden: Bool) {
+        selectedGalleryCell()?.contentView.isHidden = hidden
+    }
+
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
         guard !forcesFadeDismissal else { return nil }
         guard let selectedMessageID else { return nil }
@@ -1572,91 +1615,134 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func configureToolbar() {
+        toolbar.effect = nil
+        toolbar.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbar.accessibilityIdentifier = "gallery-footer"
-        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .regular)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: symbolConfiguration), for: .normal)
-        closeButton.tintColor = .white
-        closeButton.accessibilityLabel = "Close"
+        topBar.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+        topBar.accessibilityIdentifier = "gallery-navigation"
+        view.addSubview(toolbar)
+        view.addSubview(topBar)
+        let symbol = UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+        closeButton.setImage(UIImage(systemName: "chevron.backward", withConfiguration: symbol), for: .normal)
+        closeButton.setTitle(" " + L10n.telegram("Common.Back"), for: .normal)
+        closeButton.titleLabel?.font = .systemFont(ofSize: 17)
+        closeButton.contentHorizontalAlignment = .leading
+        closeButton.accessibilityLabel = L10n.telegram("Common.Back")
         closeButton.accessibilityIdentifier = "gallery-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
-        toolbar.contentView.addSubview(closeButton)
-        shareButton.translatesAutoresizingMaskIntoConstraints = false
-        shareButton.setImage(
-            UIImage(systemName: "square.and.arrow.up", withConfiguration: symbolConfiguration),
-            for: .normal,
-        )
-        shareButton.tintColor = .white
-        shareButton.accessibilityLabel = "Share"
-        shareButton.accessibilityIdentifier = "gallery-share"
-        shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
-        toolbar.contentView.addSubview(shareButton)
-        shareActivityIndicator.translatesAutoresizingMaskIntoConstraints = false
-        shareActivityIndicator.color = .white
-        shareActivityIndicator.hidesWhenStopped = true
-        shareActivityIndicator.isUserInteractionEnabled = false
-        toolbar.contentView.addSubview(shareActivityIndicator)
-        moreButton.translatesAutoresizingMaskIntoConstraints = false
-        moreButton.setImage(
-            UIImage(systemName: "ellipsis", withConfiguration: symbolConfiguration),
-            for: .normal,
-        )
-        moreButton.tintColor = .white
+        moreButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: symbol), for: .normal)
         moreButton.accessibilityLabel = "More actions"
         moreButton.accessibilityIdentifier = "gallery-more-actions"
         moreButton.showsMenuAsPrimaryAction = true
-        toolbar.contentView.addSubview(moreButton)
-        moreActivityIndicator.translatesAutoresizingMaskIntoConstraints = false
-        moreActivityIndicator.color = .white
-        moreActivityIndicator.hidesWhenStopped = true
-        moreActivityIndicator.isUserInteractionEnabled = false
-        toolbar.contentView.addSubview(moreActivityIndicator)
+        shareButton.setImage(UIImage(systemName: "square.and.arrow.up", withConfiguration: symbol), for: .normal)
+        shareButton.accessibilityLabel = "Share"
+        shareButton.accessibilityIdentifier = "gallery-share"
+        shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
+        deleteButton.setImage(UIImage(systemName: "trash", withConfiguration: symbol), for: .normal)
+        deleteButton.accessibilityLabel = L10n.telegram("Common.Delete")
+        deleteButton.accessibilityIdentifier = "gallery-delete"
+        deleteButton.addAction(UIAction { [weak self] _ in self?.deleteSelectedMedia() }, for: .touchUpInside)
+        for button in [closeButton, moreButton, shareButton, deleteButton] {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.tintColor = .white
+            button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        }
+        topBar.addSubview(closeButton)
+        topBar.addSubview(moreButton)
+        toolbar.contentView.addSubview(shareButton)
+        toolbar.contentView.addSubview(deleteButton)
+        for spinner in [shareActivityIndicator, moreActivityIndicator] {
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            spinner.color = .white
+            spinner.hidesWhenStopped = true
+            spinner.isUserInteractionEnabled = false
+        }
+        toolbar.contentView.addSubview(shareActivityIndicator)
+        topBar.addSubview(moreActivityIndicator)
         counterLabel.translatesAutoresizingMaskIntoConstraints = false
         counterLabel.textColor = .white
-        counterLabel.font = .preferredFont(forTextStyle: .subheadline)
-        counterLabel.adjustsFontForContentSizeCategory = true
+        counterLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        counterLabel.textAlignment = .center
         counterLabel.adjustsFontSizeToFitWidth = true
         counterLabel.minimumScaleFactor = 0.75
-        counterLabel.textAlignment = .center
         counterLabel.accessibilityIdentifier = "gallery-counter"
         counterLabel.accessibilityTraits = [.staticText, .updatesFrequently]
-        toolbar.contentView.addSubview(counterLabel)
-        view.addSubview(toolbar)
+        topBar.addSubview(counterLabel)
+        let metadata = UIStackView(arrangedSubviews: [authorLabel, dateLabel])
+        metadata.axis = .vertical
+        metadata.spacing = 0
+        metadata.alignment = .fill
+        metadata.translatesAutoresizingMaskIntoConstraints = false
+        authorLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        dateLabel.font = .systemFont(ofSize: 14)
+        for label in [authorLabel, dateLabel] {
+            label.textColor = .white
+            label.textAlignment = .center
+            label.lineBreakMode = .byTruncatingTail
+        }
+        toolbar.contentView.addSubview(metadata)
+        thumbnailStrip.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailStrip.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        thumbnailHeightConstraint = thumbnailStrip.heightAnchor.constraint(equalToConstant: 0)
+        thumbnailStrip.onSelect = { [weak self] index in
+            guard let self, messages.indices.contains(index), exportTask == nil, deleteTask == nil else { return }
+            collectionView.scrollToItem(
+                at: IndexPath(item: index, section: 0),
+                at: .centeredHorizontally,
+                animated: false,
+            )
+            updateSelection(from: collectionView)
+        }
+        view.addSubview(thumbnailStrip)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -50),
+            topBar.topAnchor.constraint(equalTo: view.topAnchor),
+            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44),
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            closeButton.widthAnchor.constraint(equalToConstant: 86),
+            moreButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            moreButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
+            moreButton.widthAnchor.constraint(equalToConstant: 44),
+            counterLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            counterLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            counterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 4),
+            counterLabel.trailingAnchor.constraint(lessThanOrEqualTo: moreButton.leadingAnchor, constant: -4),
+            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -44),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            closeButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
-            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
-            closeButton.widthAnchor.constraint(equalToConstant: 52),
-            closeButton.heightAnchor.constraint(equalToConstant: 50),
             shareButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
-            shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
-            shareButton.widthAnchor.constraint(equalToConstant: 52),
-            shareButton.heightAnchor.constraint(equalToConstant: 50),
+            shareButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            shareButton.widthAnchor.constraint(equalToConstant: 44),
+            deleteButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
+            deleteButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            deleteButton.widthAnchor.constraint(equalToConstant: 44),
+            metadata.centerXAnchor.constraint(equalTo: toolbar.contentView.centerXAnchor),
+            metadata.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
+            metadata.leadingAnchor.constraint(greaterThanOrEqualTo: shareButton.trailingAnchor, constant: 8),
+            metadata.trailingAnchor.constraint(lessThanOrEqualTo: deleteButton.leadingAnchor, constant: -8),
             shareActivityIndicator.centerXAnchor.constraint(equalTo: shareButton.centerXAnchor),
             shareActivityIndicator.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
-            moreButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
-            moreButton.trailingAnchor.constraint(equalTo: shareButton.leadingAnchor),
-            moreButton.widthAnchor.constraint(equalToConstant: 52),
-            moreButton.heightAnchor.constraint(equalToConstant: 50),
             moreActivityIndicator.centerXAnchor.constraint(equalTo: moreButton.centerXAnchor),
             moreActivityIndicator.centerYAnchor.constraint(equalTo: moreButton.centerYAnchor),
-            counterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 8),
-            counterLabel.trailingAnchor.constraint(lessThanOrEqualTo: moreButton.leadingAnchor, constant: -8),
-            counterLabel.centerXAnchor.constraint(equalTo: toolbar.contentView.centerXAnchor),
-            counterLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            thumbnailStrip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            thumbnailStrip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            thumbnailStrip.bottomAnchor.constraint(equalTo: toolbar.topAnchor), thumbnailHeightConstraint,
         ])
         updateMoreMenu()
     }
 
     private func configureCaption() {
+        captionView.effect = nil
+        captionView.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         captionView.translatesAutoresizingMaskIntoConstraints = false
         captionView.accessibilityIdentifier = "gallery-caption"
         captionView.isHidden = true
@@ -1679,7 +1765,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         NSLayoutConstraint.activate([
             captionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             captionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            captionView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            captionView.bottomAnchor.constraint(equalTo: thumbnailStrip.topAnchor),
             captionHeightConstraint,
             captionTextView.topAnchor.constraint(equalTo: captionView.contentView.topAnchor, constant: 8),
             captionTextView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
@@ -1691,8 +1777,39 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func updateCounter() {
         let count = max(messages.count, totalMessageCount ?? messages.count)
         counterLabel.text = actionStatusText ?? (count > 1 ? "\(selectedIndex + 1) of \(count)" : "")
+        thumbnailStrip.isHidden = messages.count <= 1
+        thumbnailHeightConstraint.constant = messages.count <= 1 ? 0 : 52
+        thumbnailStrip.configure(messages: messages, selectedIndex: selectedIndex)
+        updateAuthor()
         updateMoreMenu()
         updateCaption()
+    }
+
+    private func updateAuthor() {
+        guard messages.indices.contains(selectedIndex) else { return }
+        let message = messages[selectedIndex]
+        guard displayedAuthorMessageID != message.id else { return }
+        displayedAuthorMessageID = message.id
+        authorTask?.cancel()
+        authorLabel.text = message.authorSignature
+        dateLabel.text = DateFormatter.localizedString(
+            from: Foundation.Date(timeIntervalSince1970: TimeInterval(message.date)),
+            dateStyle: .medium,
+            timeStyle: .short,
+        )
+        guard let client = actionClient, hasCurrentContext else { return }
+        authorTask = Task { [weak self] in
+            let title: String?
+            switch message.senderId {
+            case .messageSenderUser(let sender):
+                let user = try? await client.getUser(userId: sender.userId)
+                title = user.map { [$0.firstName, $0.lastName].filter { !$0.isEmpty }.joined(separator: " ") }
+            case .messageSenderChat(let sender):
+                title = try? await client.getChat(chatId: sender.chatId).title
+            }
+            guard let self, !Task.isCancelled, hasCurrentContext, selectedMessageID == message.id else { return }
+            if message.authorSignature.isEmpty { authorLabel.text = title }
+        }
     }
 
     private func updateCaption() {
@@ -1811,12 +1928,18 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func setChromeVisible(_ visible: Bool, animated: Bool) {
         guard chromeIsVisible != visible else { return }
         chromeIsVisible = visible
+        topBar.isUserInteractionEnabled = visible
+        topBar.accessibilityElementsHidden = !visible
+        thumbnailStrip.isUserInteractionEnabled = visible
+        thumbnailStrip.accessibilityElementsHidden = !visible
         toolbar.isUserInteractionEnabled = visible
         toolbar.accessibilityElementsHidden = !visible
         captionView.isUserInteractionEnabled = visible
         captionView.accessibilityElementsHidden = !visible
         selectedGalleryCell()?.setGalleryChromeVisible(visible, animated: animated)
         let updates = {
+            self.topBar.alpha = visible ? 1 : 0
+            self.thumbnailStrip.alpha = visible ? 1 : 0
             self.toolbar.alpha = visible ? 1 : 0
             self.captionView.alpha = visible ? 1 : 0
         }
@@ -2103,7 +2226,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cell?.bindGalleryChrome(isVisible: chromeIsVisible) { [weak self] visible in
             self?.setChromeVisible(visible, animated: !UIAccessibility.isReduceMotionEnabled)
         }
-        cell?.setGalleryChromeBottomInset(50 + (captionView.isHidden ? 0 : captionHeightConstraint.constant))
+        cell?.setGalleryChromeBottomInset(44 + thumbnailHeightConstraint.constant + (captionView.isHidden
+                ? 0
+                : captionHeightConstraint.constant))
         cell?.setGalleryChromeInteractionActive(captionInteractionIsActive)
     }
 
@@ -2139,28 +2264,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func share() {
-        guard presentedViewController == nil,
-              messages.indices.contains(selectedIndex),
-              let asset = MediaGalleryExportAsset(messages[selectedIndex])
-        else { return }
-        guard asset.isLivePhoto else {
-            exportSelectedMedia(.share)
-            return
-        }
-        let alert = UIAlertController(
-            title: "Share Still Photo?",
-            message: "The motion part of this Live Photo won't be included.",
-            preferredStyle: .actionSheet,
-        )
-        alert.addAction(UIAlertAction(title: "Share Still Photo", style: .default) { [weak self, weak alert] _ in
-            alert?.dismiss(animated: true) { [weak self] in
-                self?.exportSelectedMedia(.share)
-            }
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.popoverPresentationController?.sourceView = shareButton
-        alert.popoverPresentationController?.sourceRect = shareButton.bounds
-        present(alert, animated: true)
+        guard presentedViewController == nil else { return }
+        exportSelectedMedia(.share)
     }
 
     private func updateMoreMenu() {
@@ -2173,7 +2278,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let selectedAsset = messages.indices.contains(selectedIndex)
             ? MediaGalleryExportAsset(messages[selectedIndex])
             : nil
-        shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Still Photo" : "Share"
+        shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Live Photo files" : "Share"
         let canOpen = hasActionContext && onOpenMessageID != nil
         let canForward = hasActionContext && actionSourceLocation != nil
         let selectedMessage = messages.indices.contains(selectedIndex) ? messages[selectedIndex] : nil
@@ -2184,6 +2289,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             && selectedAsset?.isSecretMedia == false
         let saveAsset = hasActionContext ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
         let canSave = saveAsset?.photosKind != nil
+        deleteButton.isHidden = !canDelete
         moreButton.isHidden = !canOpen && !canForward && !canSave && !canDelete
         guard canOpen || canForward || canSave || canDelete else {
             moreButton.menu = nil
@@ -3161,8 +3267,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
                 try validateExportPermission(message: latestMessage, properties: latestProperties)
                 guard let latestAsset = MediaGalleryExportAsset(latestMessage),
-                      latestAsset.fileID == asset.fileID
+                      latestAsset.fileID == asset.fileID, latestAsset.livePhotoVideo?.id == asset.livePhotoVideo?.id
                 else { throw MediaGallerySaveError.messageUnavailable }
+                let liveResources = try await preparedLivePhotoResources(
+                    asset: latestAsset,
+                    photoURL: localURL,
+                    client: client,
+                )
+                var shareOwnsLiveResources = false
+                defer { if !shareOwnsLiveResources { liveResources?.cleanup() } }
                 var completedShareLease: MediaGalleryTemporaryFileLease?
                 if action == .saveToPhotos {
                     let convertedLease = latestAsset.requiresWebPStillConversion
@@ -3192,12 +3305,22 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     )
                     try validateExportPermission(message: commitMessage, properties: commitProperties)
                     guard let commitAsset = MediaGalleryExportAsset(commitMessage),
-                          commitAsset.fileID == latestAsset.fileID
+                          commitAsset.fileID == latestAsset.fileID,
+                          commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
-                    try await saveToPhotos(asset: commitAsset, localURL: photosURL, filename: filename)
+                    if let liveResources { try await liveResources.save(creationDate: commitAsset.creationDate) }
+                    else { try await saveToPhotos(asset: commitAsset, localURL: photosURL, filename: filename) }
                     convertedLease?.cleanup()
                 } else {
-                    let shareLease = try await preparedShareLease(asset: latestAsset, sourceURL: localURL)
+                    let shareLease: MediaGalleryTemporaryFileLease
+                    if let liveResources {
+                        shareLease = MediaGalleryTemporaryFileLease(
+                            directoryURL: liveResources.directory,
+                            fileURL: liveResources.photo,
+                            additionalFileURLs: [liveResources.video],
+                        )
+                        shareOwnsLiveResources = true
+                    } else { shareLease = try await preparedShareLease(asset: latestAsset, sourceURL: localURL) }
                     try Task.checkCancellation()
                     let (commitMessage, commitProperties) = try await (
                         client.getMessage(
@@ -3220,7 +3343,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     )
                     try validateExportPermission(message: commitMessage, properties: commitProperties)
                     guard let commitAsset = MediaGalleryExportAsset(commitMessage),
-                          commitAsset.fileID == latestAsset.fileID
+                          commitAsset.fileID == latestAsset.fileID,
+                          commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
                     completedShareLease = shareLease
                 }
@@ -3310,6 +3434,25 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               FileManager.default.fileExists(atPath: downloaded.local.path)
         else { throw MediaGallerySaveError.downloadFailed }
         return URL(filePath: downloaded.local.path)
+    }
+
+    private func preparedLivePhotoResources(
+        asset: MediaGalleryExportAsset,
+        photoURL: URL,
+        client: TDLibClient,
+    ) async throws -> LivePhotoResources? {
+        guard let video = asset.livePhotoVideo else { return nil }
+        let file = video.local.isDownloadingCompleted ? video : try await client.downloadFile(
+            fileId: video.id,
+            limit: 0,
+            offset: 0,
+            priority: 16,
+            synchronous: true,
+        )
+        guard file.local.isDownloadingCompleted,
+              !file.local.path.isEmpty else { throw MediaGallerySaveError.downloadFailed }
+        try Task.checkCancellation()
+        return try await LivePhotoResources.prepare(photo: photoURL, video: URL(fileURLWithPath: file.local.path))
     }
 
     private func preparedShareLease(
@@ -3493,7 +3636,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         guard hasCurrentContext, presentedViewController == nil else { return }
         activeShareLease?.cleanup()
         activeShareLease = lease
-        let activity = UIActivityViewController(activityItems: [lease.fileURL], applicationActivities: nil)
+        let activity = UIActivityViewController(
+            activityItems: [lease.fileURL] + lease.additionalFileURLs,
+            applicationActivities: nil,
+        )
         activity.popoverPresentationController?.sourceView = shareButton
         activity.popoverPresentationController?.sourceRect = shareButton.bounds
         activity.completionWithItemsHandler = { [weak self, lease] _, _, _, _ in
@@ -3597,6 +3743,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         _ busy: Bool,
         source: MediaGalleryActionButton? = nil,
     ) {
+        deleteButton.isEnabled = !busy
+        thumbnailStrip.isUserInteractionEnabled = !busy
         moreButton.isEnabled = !busy
         shareButton.isEnabled = !busy
         collectionView.isScrollEnabled = !busy
@@ -3852,6 +4000,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         snapshot.layer.maskedCorners = target.maskedCorners
         snapshot.clipsToBounds = true
         container.addSubview(snapshot)
+        gallery.setTransitionContentHidden(true)
         toView.alpha = 0
         UIView.animate(
             withDuration: Self.duration,
@@ -3862,6 +4011,10 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         ) {
             toView.alpha = 1
             snapshot.frame = destinationFrame
+            (snapshot as? MediaGalleryImageTransitionView)?.setImageFrame(CGRect(
+                origin: .zero,
+                size: destinationFrame.size,
+            ))
             snapshot.layer.cornerRadius = 0
         } completion: { _ in
             let completed = !transitionContext.transitionWasCancelled
@@ -3869,6 +4022,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                 sourceView?.isHidden = sourceWasHidden
             }
             snapshot.removeFromSuperview()
+            gallery.setTransitionContentHidden(false)
             if !completed {
                 toView.removeFromSuperview()
             }
@@ -3898,16 +4052,17 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             : gallery.currentTransitionTarget()
         let sourceView = sourceTarget?.validatedSourceView
         let sourceWasHidden = sourceView?.isHidden ?? false
-        let snapshot = gallery.makeTransitionSnapshot()
+        var snapshot = gallery.makeTransitionSnapshot()
         let sourceFrame = sourceTarget?.frame(in: container)
         let startFrame = gallery.transitionContentFrame(in: container)
+        if let image = (snapshot as? UIImageView)?.image, let startFrame {
+            snapshot = MediaGalleryImageTransitionView(
+                image: image,
+                imageFrame: CGRect(origin: .zero, size: startFrame.size),
+            )
+        }
         sourceView?.isHidden = true
         guard let snapshot, let sourceTarget, let sourceFrame, let startFrame else {
-            if let snapshot, let startFrame {
-                snapshot.frame = fromView.convert(startFrame, from: container)
-                snapshot.clipsToBounds = true
-                fromView.addSubview(snapshot)
-            }
             animateFade(
                 appearingView: toView,
                 disappearingView: fromView,
@@ -3930,6 +4085,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         snapshot.clipsToBounds = true
         snapshot.layer.cornerRadius = 0
         container.addSubview(snapshot)
+        gallery.setTransitionContentHidden(true)
         UIView.animate(
             withDuration: Self.duration,
             delay: 0,
@@ -3937,6 +4093,9 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         ) {
             fromView.alpha = 0
             snapshot.frame = sourceFrame
+            if let imageSnapshot = snapshot as? MediaGalleryImageTransitionView {
+                imageSnapshot.setImageFrame(sourceTarget.imageFrame(for: imageSnapshot.image.size))
+            }
             snapshot.layer.cornerRadius = sourceTarget.cornerRadius
             snapshot.layer.maskedCorners = sourceTarget.maskedCorners
         } completion: { _ in
@@ -3953,6 +4112,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                         sourceView?.isHidden = sourceWasHidden
                     }
                     snapshot.removeFromSuperview()
+                    gallery.setTransitionContentHidden(false)
                 },
             )
         }
@@ -6536,75 +6696,37 @@ final class MediaGalleryCell: UICollectionViewCell {
             return
         }
         let view: UIView & GalleryMediaView
-        if !canDisplay {
-            view = MediaConcealmentView(message: message, onTap: onReveal)
-        } else {
-            guard let playbackContext, playbackContext.isCurrent, let client = playbackContext.client else { return }
-            switch message.content {
-            case .messagePhoto(let photo):
+        switch message.content {
+        case .messagePhoto(let photo):
+            if photo.video != nil, !photo.isSecret {
+                let livePhoto = GalleryLivePhotoView()
+                livePhoto.configure(photo)
+                view = livePhoto
+            } else {
                 let imageView = ZoomableGalleryImageView()
-                imageView.configure(photo: photo.photo, client: client)
+                imageView.configure(photo: photo.photo)
                 view = imageView
-            case .messageAnimation(let animation):
-                if telegramAnimationUsesFFmpeg(animation.animation) {
-                    let animationView = FFmpegAnimatedVideoView(frame: .zero)
-                    animationView.configure(
-                        file: animation.animation.animation,
-                        client: client,
-                        thumbnail: animation.animation.thumbnail,
-                        displaySize: nil,
-                        onTap: nil,
-                    )
-                    view = animationView
-                } else {
-                    let player = GalleryFilePlayerView()
-                    player.configure(
-                        file: animation.animation.animation,
-                        thumbnail: animation.animation.thumbnail,
-                        minithumbnail: animation.animation.minithumbnail,
-                        canPlay: false,
-                        loops: true,
-                        vodRanges: playbackContext.vodRanges,
-                        previewContext: playbackContext,
-                    )
-                    view = player
-                }
-            case .messageVideo:
-                view = ZoomableGalleryImageView()
-            case .messageSticker(let sticker):
-                if sticker.sticker.format == .stickerFormatTgs {
-                    let stickerView = TGSStickerView(frame: .zero)
-                    stickerView.configure(
-                        file: sticker.sticker.sticker,
-                        client: client,
-                        thumbnail: sticker.sticker.thumbnail,
-                        displaySize: nil,
-                        onTap: nil,
-                    )
-                    view = stickerView
-                } else if sticker.sticker.format == .stickerFormatWebp {
-                    let stickerView = AnimatedWebPView(frame: .zero)
-                    stickerView.configure(
-                        file: sticker.sticker.sticker,
-                        client: client,
-                        thumbnail: sticker.sticker.thumbnail,
-                        displaySize: nil,
-                        onTap: nil,
-                    )
-                    view = stickerView
-                } else {
-                    let stickerView = FFmpegAnimatedVideoView(frame: .zero)
-                    stickerView.configure(
-                        file: sticker.sticker.sticker,
-                        client: client,
-                        thumbnail: sticker.sticker.thumbnail,
-                        displaySize: nil,
-                        onTap: nil,
-                    )
-                    view = stickerView
-                }
-            default:
-                view = ZoomableGalleryImageView()
+            }
+        case .messageAnimation(let animation):
+            if telegramAnimationUsesFFmpeg(animation.animation) {
+                let animationView = FFmpegAnimatedVideoView(frame: .zero)
+                animationView.configure(
+                    file: animation.animation.animation,
+                    thumbnail: animation.animation.thumbnail,
+                    displaySize: nil,
+                    onTap: nil,
+                )
+                view = animationView
+            } else {
+                let player = GalleryFilePlayerView()
+                player.configure(
+                    file: animation.animation.animation,
+                    thumbnail: animation.animation.thumbnail,
+                    minithumbnail: animation.animation.minithumbnail,
+                    canPlay: true,
+                    loops: true,
+                )
+                view = player
             }
         }
         contentMediaView = view
@@ -6714,6 +6836,7 @@ final class MediaGalleryCell: UICollectionViewCell {
         if let videoPlaybackOwner {
             return videoPlaybackOwner.makeTransitionSnapshot(contentMode: .scaleAspectFit)
         }
+        if let snapshot = contentMediaView?.makeTransitionSnapshot() { return snapshot }
         guard let transitionMediaSize else { return contentView.snapshotView(afterScreenUpdates: false) }
         let contentFrame = AVMakeRect(aspectRatio: transitionMediaSize, insideRect: contentView.bounds)
         return contentView.resizableSnapshotView(
@@ -6727,6 +6850,7 @@ final class MediaGalleryCell: UICollectionViewCell {
 // MARK: - GalleryMediaView
 
 protocol GalleryMediaView: AnyObject {
+    func makeTransitionSnapshot() -> UIView?
     func canBeginInteractiveDismissal(at point: CGPoint) -> Bool
     func performPlaybackCommand(_ command: GalleryPlaybackCommand)
     func prepareForReuse()
@@ -6739,6 +6863,7 @@ protocol GalleryMediaView: AnyObject {
 }
 
 extension GalleryMediaView {
+    func makeTransitionSnapshot() -> UIView? { nil }
     func canBeginInteractiveDismissal(at _: CGPoint) -> Bool { true }
     func performPlaybackCommand(_: GalleryPlaybackCommand) {}
     func setGalleryChromeController(_: ((Bool) -> Void)?) {}
@@ -6797,6 +6922,8 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
     func configure(photo: Photo, client: TDLibClient) {
         imageView.load(photo: photo, preferredSize: .yBox, maximumPixelSize: 2048, client: client)
     }
+
+    func makeTransitionSnapshot() -> UIView? { imageView.makeImageSnapshot(contentMode: .scaleAspectFit) }
 
     func prepareForReuse() {
         setZoomScale(1, animated: false)

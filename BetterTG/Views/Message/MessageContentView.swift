@@ -78,7 +78,10 @@ final class MessageMediaView: UIView {
             switch message.message.content {
             case .messagePhoto(let photo):
                 let photoView = SinglePhotoView()
-                photoView.configure(photo: photo.photo, client: client) { onTap([message.message], message.id) }
+                photoView.configure(photo: photo.photo, isLivePhoto: photo.video != nil) { onTap(
+                    [message.message],
+                    message.id,
+                ) }
                 view = photoView
             case .messageVoiceNote(let voice):
                 let voiceView = VoiceNotePlaybackView()
@@ -324,6 +327,7 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     // MARK: Private
 
     private let imageView = TDImageLoadingView()
+    private let livePhotoBadge = LivePhotoBadgeView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
@@ -334,6 +338,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         addSubview(imageView)
+        addSubview(livePhotoBadge)
+        livePhotoBadge.frame = CGRect(x: 8, y: 8, width: 21, height: 21)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -351,8 +357,10 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
 
     // MARK: Internal
 
-    func configure(photo: Photo, client: TDLibClient, onTap: @escaping () -> Void) {
+    func configure(photo: Photo, isLivePhoto: Bool = false, onTap: @escaping () -> Void) {
         self.onTap = onTap
+        livePhotoBadge.isHidden = !isLivePhoto
+        accessibilityLabel = isLivePhoto ? "Open Live Photo" : "Open photo"
         let displaySize = telegramMediaDisplaySize(source: telegramPhotoSize(photo))
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
@@ -511,6 +519,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
 
     private let imageView = TDImageLoadingView()
     private let playIcon = UIImageView()
+    private let livePhotoBadge = LivePhotoBadgeView()
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
     private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
     private var onTap: (() -> Void)?
@@ -546,6 +555,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         playIcon.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
         addSubview(playIcon)
+        addSubview(livePhotoBadge)
+        livePhotoBadge.frame = CGRect(x: 8, y: 8, width: 21, height: 21)
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tapGesture.cancelsTouchesInView = false
         tapGesture.delegate = self
@@ -612,7 +623,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         switch message.content {
         case .messagePhoto(let photo):
             playIcon.isHidden = true
-            imageView.load(photo: photo.photo, preferredSize: .yBox, client: client)
+            livePhotoBadge.isHidden = photo.video == nil
+            imageView.load(photo: photo.photo, preferredSize: .yBox)
         case .messageVideo(let video):
             playIcon.isHidden = false
             if let thumbnail = video.video.thumbnail {
@@ -667,6 +679,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         imageView.cancel()
         imageView.isHidden = false
         onTap = nil
+        livePhotoBadge.isHidden = true
         messageID = nil
         #if DEBUG
             debugHasVideoPlaybackOwner = false
