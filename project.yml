@@ -29,7 +29,7 @@ settings:
 packages:
   TDLibKit:
     url: https://github.com/levochkaa/TDLibKit.git
-    revision: 4745aedb1e37b6d6242293eddb0941b2f8eef217
+    revision: 2f61abbf577046d63e5aea3614423960e75a731f
   MobileVLCKit:
     url: https://github.com/levochkaa/MobileVLCKit
     exactVersion: 3.7.3

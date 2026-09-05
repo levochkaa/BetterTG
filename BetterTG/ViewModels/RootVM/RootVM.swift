@@ -17,37 +17,6 @@ enum Route {
     case archive(CustomFolder)
 }
 
-// MARK: - ChatListDescriptor
-
-private enum ChatListDescriptor {
-    case main
-    case archive
-    case folder(Int)
-
-    var makeChatList: ChatList {
-        switch self {
-        case .main:
-            .chatListMain
-        case .archive:
-            .chatListArchive
-        case .folder(let id):
-            .chatListFolder(.init(chatFolderId: id))
-        }
-    }
-
-    init(_ chatList: ChatList) {
-        self =
-            switch chatList {
-            case .chatListMain:
-                .main
-            case .chatListArchive:
-                .archive
-            case .chatListFolder(let folder):
-                .folder(folder.chatFolderId)
-            }
-    }
-}
-
 // MARK: - RootVM
 
 @MainActor final class RootVM: ObservableObject {
@@ -163,13 +132,11 @@ private enum ChatListDescriptor {
     }
 
     func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {
-        let descriptor = ChatListDescriptor(chatList)
-        // Native request objects are consumed on send, so every request and comparison needs a fresh value.
-        _ = try? await td.send(TDNativeRequests.loadChats(chatList: descriptor.makeChatList, limit: 200))
-        guard let ids = try? await td.getChats(chatList: descriptor.makeChatList, limit: 200).chatIds
+        _ = try? await td.send(TDNativeRequests.loadChats(chatList: chatList, limit: 200))
+        guard let ids = try? await td.getChats(chatList: chatList, limit: 200).chatIds
         else { return nil }
         return await ids.asyncCompactMap {
-            await getCustomChat(from: $0, for: descriptor.makeChatList)
+            await getCustomChat(from: $0, for: chatList)
         }
     }
 }
