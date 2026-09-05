@@ -4132,9 +4132,9 @@ Evidence is stored under `.build/ui-probe-evidence/parity-fixes-20260905/`. Test
   renderer. Search uses an owned provider instead of registering a native bottom search toolbar. The host reserves only its own safe-area height and restores it on removal.
 - List/chat searches retain their 36pt field at the safe-area top with 8pt bottom padding, inside 44pt chrome. The shared
   chat/pinned blur retains a pixel divider between navigation and the pinned message.
-- Forum search owns pull-down without a competing refresh control. A minimum table content extent
-  preserves its 44pt travel through estimated/measured heights; initial offset is applied after topic
-  hydration until the user starts interacting, then subsequent scrolling remains user-owned.
+- Forum search uses the chat list's one-time initial offset and drag-end snapping. A native table
+  footer reserves 44pt of search travel for short lists; UITableView owns its content size. Topic
+  updates and later layouts do not reposition the list.
 - Profile and folder tabs recalculate after their scrolling viewport receives its actual width:
   fitting tabs fill equal shares; overflowing tabs retain their content widths and scroll.
 - Reactions appear at their final position without a sideways layout animation. There is no root Quote
@@ -4144,7 +4144,7 @@ Evidence is stored under `.build/ui-probe-evidence/parity-fixes-20260905/`. Test
 - Rich math renders its display list in explicit bottom-left coordinates; UITextView's implicit
   accessibility value is cleared so the redacted label remains authoritative for hidden spoilers.
 - Source/build verification: `build-Debug-20260906-014542-65464-8267.log` passed without warnings.
-  Live Photo, rich messages, selected-text Quote, the single Settings search, equal profile tabs and the Deleted Account fallback passed simulator readback. The short two-topic forum now opens with its first row directly at y106 and search hidden; pull/release reveals the 36pt field with an 8pt bottom gap, and collapse remains stable. The own Live Photo also passed the 131×131 profile-grid crop → fullscreen 4:3 → same grid tile transition without a duplicate source image.
+  Live Photo, rich messages, selected-text Quote, the single Settings search, equal profile tabs and the Deleted Account fallback passed simulator readback. Short forum snapshots showed the expected hidden/revealed search geometry, but missed the idle animation regression investigated below. The own Live Photo also passed the 131×131 profile-grid crop → fullscreen 4:3 → same grid tile transition without a duplicate source image.
 
 
 Final simulator evidence for this follow-up is under `.build/ui-probe-evidence/parity-fixes-20260906/`:
@@ -4161,3 +4161,21 @@ The own Live Photo message was read back as sent with a native video component i
 The final no-selection Photos picker Cancel check also passed: one tap returned to Saved Messages
 with an empty composer and no extra navigation pop, asset selection, send or save. The earlier
 unresponsive Cancel observation was not reproduced after the context-menu ownership fixes.
+
+### September 6 forum idle-scroll regression
+
+The user reproduced continuous jumping with search hidden. A 12-second recording and six snapshots
+confirmed about 80pt of visible movement despite unchanged accessibility row frames. LLDB caught
+repeated 44pt additive table-bounds spring animations during diffable updates. Two mechanisms fed
+the regression: the table's overridden content size conflicted with UIKit's update geometry, and
+`updateForumTopic` requested `getForumTopic`, whose response emits another `updateForumTopic`.
+
+Forum positioning now follows the chat list: set the initial offset once and snap only at drag end.
+A native footer reserves search travel for short lists without overriding content size. Incoming
+topic fields are applied directly; pin, inbox-read or draft-date changes fetch the missing full-topic
+order/unread count only after those fields have been updated, so the echoed event cannot refetch.
+Full responses merge and sort in a single publication.
+
+`build-Debug-20260906-021227-74509-29734.log` passed with zero warnings. The fix was installed on the
+same simulator as PID 74854, and the user confirmed the jumping was gone. Baseline video, pixel
+measurements and debugger stacks are in `forum-jump` under the simulator evidence directory above.

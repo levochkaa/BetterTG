@@ -52,7 +52,6 @@ import UIKit
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var searchQuery = ""
     private var didSetInitialSearchOffset = false
-    private var didInteractWithTopics = false
     private var topicsByID = [Int: ForumTopic]()
     private var isApplyingSnapshot = false
     private var pendingTopics: [ForumTopic]?
@@ -148,7 +147,6 @@ import UIKit
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        positionInitialTopicsIfNeeded()
         guard !didSetInitialSearchOffset, tableView.bounds.height > 0 else { return }
         didSetInitialSearchOffset = true
         tableView.setContentOffset(
@@ -156,16 +154,6 @@ import UIKit
             animated: false,
         )
         updateNavigationBar()
-    }
-
-    func scrollViewWillBeginDragging(_: UIScrollView) {
-        // A late initial page must not replace the user's chosen search position.
-        didInteractWithTopics = true
-    }
-
-    func scrollViewShouldScrollToTop(_: UIScrollView) -> Bool {
-        didInteractWithTopics = true
-        return true
     }
 
     func scrollViewWillEndDragging(
@@ -195,19 +183,6 @@ import UIKit
         if contextIsCurrent, snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
             viewModel.loadMore()
         }
-    }
-
-    private func positionInitialTopicsIfNeeded() {
-        guard !didInteractWithTopics, !isApplyingSnapshot,
-              tableView.bounds.height > 0, tableView.numberOfSections > 0,
-              tableView.numberOfRows(inSection: 0) > 0 else { return }
-        tableView.layoutIfNeeded()
-        didSetInitialSearchOffset = true
-        let target = -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight
-        if abs(tableView.contentOffset.y - target) > 0.5 {
-            tableView.setContentOffset(CGPoint(x: 0, y: target), animated: false)
-        }
-        updateNavigationBar()
     }
 
     private func updateNavigationBar() {
@@ -259,7 +234,6 @@ import UIKit
         }
         navigationBarView.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
-            if active { didInteractWithTopics = true }
             tableView.searchScrollRange = active ? 0 : ChatListNavigationSearchView.scrollHeight
             let height = active
                 ? ChatListNavigationSearchView.scrollHeight
@@ -333,7 +307,6 @@ import UIKit
             let retainedIDs = Set(topicIDs)
             topicsByID = topicsByID.filter { retainedIDs.contains($0.key) }
             isApplyingSnapshot = false
-            positionInitialTopicsIfNeeded()
             if let pending = pendingTopics {
                 pendingTopics = nil
                 applySnapshot(pending)
@@ -494,23 +467,15 @@ import UIKit
 
 // MARK: - ForumTopicsTableView
 
-/// Keep the search travel in the scroll view's content geometry. Repeatedly
-/// changing content insets races UITableView's estimated-to-measured row heights
-/// and UIRefreshControl's inset restoration, making release jump between states.
+/// A native footer gives short lists enough travel to hide search. UITableView
+/// must own contentSize: overriding it makes its self-sizing row layout repeatedly
+/// reconcile different content extents and animate the rows while idle.
 private final class ForumTopicsTableView: UITableView {
-    override var contentSize: CGSize {
-        get { super.contentSize }
-        set {
-            measuredContentSize = newValue
-            updateScrollExtent()
-        }
-    }
-
     var searchScrollRange = ChatListNavigationSearchView.scrollHeight {
         didSet { updateScrollExtent() }
     }
 
-    private var measuredContentSize = CGSize.zero
+    private let searchTravelFooter = UIView()
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -523,13 +488,23 @@ private final class ForumTopicsTableView: UITableView {
     }
 
     private func updateScrollExtent() {
+        guard bounds.height > 0 else { return }
         let minimumHeight = max(
             0,
             bounds.height - adjustedContentInset.top
                 - adjustedContentInset.bottom + searchScrollRange,
         )
-        let size = CGSize(width: measuredContentSize.width, height: max(measuredContentSize.height, minimumHeight))
-        if super.contentSize != size { super.contentSize = size }
+        // Section geometry excludes the table footer, so its own height cannot
+        // feed back into the next calculation as contentSize would.
+        let rowsBottom = numberOfSections > 0
+            ? rect(forSection: numberOfSections - 1).maxY
+            : tableHeaderView?.frame.maxY ?? 0
+        let height = max(0, minimumHeight - rowsBottom)
+        guard tableFooterView !== searchTravelFooter
+            || abs(searchTravelFooter.frame.height - height) > 0.5
+            || searchTravelFooter.frame.width != bounds.width else { return }
+        searchTravelFooter.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        tableFooterView = searchTravelFooter
     }
 }
 
