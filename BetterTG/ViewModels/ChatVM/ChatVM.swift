@@ -439,6 +439,7 @@ import UIKit
     }
 
     var headerStatus: String {
+        guard !customChat.isSavedMessages else { return "" }
         guard actionStatus.isEmpty else { return actionStatus }
         switch customChat.type {
         case .bot, .user:

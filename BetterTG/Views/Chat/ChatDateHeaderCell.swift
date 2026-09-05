@@ -6,27 +6,33 @@ final class ChatDateHeaderCell: UICollectionViewCell {
     static let reuseIdentifier = "ChatDateHeaderCell"
 
     private let titleLabel = UILabel()
+    private let pillView = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.backgroundColor = .secondarySystemBackground
+        pillView.backgroundColor = .secondarySystemBackground
+        pillView.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .secondaryLabel
         titleLabel.textAlignment = .center
-        titleLabel.layer.cornerCurve = .continuous
-        titleLabel.layer.cornerRadius = 11
-        titleLabel.clipsToBounds = true
+        pillView.layer.cornerCurve = .continuous
+        pillView.layer.cornerRadius = 11
+        pillView.clipsToBounds = true
         titleLabel.isAccessibilityElement = true
         titleLabel.accessibilityTraits = .header
-        contentView.addSubview(titleLabel)
+        contentView.addSubview(pillView)
+        pillView.addSubview(titleLabel)
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-            titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            titleLabel.heightAnchor.constraint(equalToConstant: 22),
-            titleLabel.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, constant: -32),
+            pillView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            pillView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            pillView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            pillView.heightAnchor.constraint(equalToConstant: 22),
+            pillView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, constant: -32),
+            titleLabel.leadingAnchor.constraint(equalTo: pillView.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: pillView.trailingAnchor, constant: -10),
+            titleLabel.centerYAnchor.constraint(equalTo: pillView.centerYAnchor),
         ])
     }
 
@@ -59,7 +65,7 @@ final class ChatDateHeaderCell: UICollectionViewCell {
         isUserInteractionEnabled = true
         let date = Date(timeIntervalSince1970: TimeInterval(id.dayTimestamp))
         let text = Self.title(for: date)
-        titleLabel.text = "  \(text)  "
+        titleLabel.text = text
         titleLabel.accessibilityLabel = text
         titleLabel.accessibilityIdentifier = "chat-date-\(id.dayTimestamp)"
     }
