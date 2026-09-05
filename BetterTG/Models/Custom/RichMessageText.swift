@@ -33,51 +33,51 @@ enum RichMessageText {
         return values.prefix(512)
             .compactMap { block -> String? in
                 switch block {
-                case .pageBlockTitle(let value): return text(value.title)
-                case .pageBlockSubtitle(let value): return text(value.subtitle)
-                case .pageBlockHeader(let value): return text(value.header)
-                case .pageBlockSubheader(let value): return text(value.subheader)
-                case .pageBlockSectionHeading(let value): return text(value.text)
-                case .pageBlockKicker(let value): return text(value.kicker)
-                case .pageBlockParagraph(let value): return text(value.text)
-                case .pageBlockPreformatted(let value): return text(value.text)
-                case .pageBlockFooter(let value): return text(value.footer)
-                case .pageBlockThinking(let value): return text(value.text)
-                case .pageBlockList(let value): return value.items
+                case .pageBlockTitle(let value): text(value.title)
+                case .pageBlockSubtitle(let value): text(value.subtitle)
+                case .pageBlockHeader(let value): text(value.header)
+                case .pageBlockSubheader(let value): text(value.subheader)
+                case .pageBlockSectionHeading(let value): text(value.text)
+                case .pageBlockKicker(let value): text(value.kicker)
+                case .pageBlockParagraph(let value): text(value.text)
+                case .pageBlockPreformatted(let value): text(value.text)
+                case .pageBlockFooter(let value): text(value.footer)
+                case .pageBlockThinking(let value): text(value.text)
+                case .pageBlockList(let value): value.items
                     .map { $0.label + " " + nested($0.blocks) }
                     .joined(separator: "\n")
-                case .pageBlockBlockQuote(let value): return nested(value.blocks)
-                case .pageBlockExpandableBlockQuote(let value): return text(value.text)
-                case .pageBlockPullQuote(let value): return text(value.text)
-                case .pageBlockTable(let value): return value.cells
+                case .pageBlockBlockQuote(let value): nested(value.blocks)
+                case .pageBlockExpandableBlockQuote(let value): text(value.text)
+                case .pageBlockPullQuote(let value): text(value.text)
+                case .pageBlockTable(let value): value.cells
                     .map { $0.compactMap { $0.text.map(text) }.joined(separator: "\t") }
                     .joined(separator: "\n")
-                case .pageBlockDetails(let value): return text(value.header) + "\n" + nested(value.blocks)
-                case .pageBlockPhoto(let value): return value.hasSpoiler && !revealSpoilers
+                case .pageBlockDetails(let value): text(value.header) + "\n" + nested(value.blocks)
+                case .pageBlockPhoto(let value): value.hasSpoiler && !revealSpoilers
                     ? "Spoiler"
                     : value.caption.map { text($0.text) } ?? "Photo"
-                case .pageBlockVideo(let value): return value.hasSpoiler && !revealSpoilers
+                case .pageBlockVideo(let value): value.hasSpoiler && !revealSpoilers
                     ? "Spoiler"
                     : value.caption.map { text($0.text) } ?? "Video"
-                case .pageBlockAnimation(let value): return value.hasSpoiler && !revealSpoilers
+                case .pageBlockAnimation(let value): value.hasSpoiler && !revealSpoilers
                     ? "Spoiler"
                     : value.caption.map { text($0.text) } ?? "Animation"
-                case .pageBlockAudio(let value): return value.caption.map { text($0.text) } ?? value.audio.title
-                case .pageBlockDocument(let value): return value.caption.map { text($0.text) } ?? value.document
+                case .pageBlockAudio(let value): value.caption.map { text($0.text) } ?? value.audio.title
+                case .pageBlockDocument(let value): value.caption.map { text($0.text) } ?? value.document
                     .fileName
-                case .pageBlockVoiceNote(let value): return value.caption.map { text($0.text) } ?? "Voice message"
-                case .pageBlockCover(let value): return nested([value.cover])
-                case .pageBlockCollage(let value): return nested(value.blocks)
-                case .pageBlockSlideshow(let value): return nested(value.blocks)
-                case .pageBlockEmbeddedPost(let value): return nested(value.blocks)
-                case .pageBlockEmbedded(let value): return value.caption.map { text($0.text) } ?? value.url
-                case .pageBlockChatLink(let value): return value.title
-                case .pageBlockButtonRow(let value): return value.buttons.map { text($0.text) }.joined(separator: " · ")
-                case .pageBlockMathematicalExpression(let value): return value.expression
-                case .pageBlockAuthorDate(let value): return text(value.author)
-                case .pageBlockRelatedArticles(let value): return text(value.header)
-                case .pageBlockMap: return "Location"
-                case .pageBlockAnchor, .pageBlockDivider, .pageBlockUnsupported: return nil
+                case .pageBlockVoiceNote(let value): value.caption.map { text($0.text) } ?? "Voice message"
+                case .pageBlockCover(let value): nested([value.cover])
+                case .pageBlockCollage(let value): nested(value.blocks)
+                case .pageBlockSlideshow(let value): nested(value.blocks)
+                case .pageBlockEmbeddedPost(let value): nested(value.blocks)
+                case .pageBlockEmbedded(let value): value.caption.map { text($0.text) } ?? value.url
+                case .pageBlockChatLink(let value): value.title
+                case .pageBlockButtonRow(let value): value.buttons.map { text($0.text) }.joined(separator: " · ")
+                case .pageBlockMathematicalExpression(let value): value.expression
+                case .pageBlockAuthorDate(let value): text(value.author)
+                case .pageBlockRelatedArticles(let value): text(value.header)
+                case .pageBlockMap: "Location"
+                case .pageBlockAnchor, .pageBlockDivider, .pageBlockUnsupported: nil
                 }
             }
             .filter { !$0.isEmpty }
