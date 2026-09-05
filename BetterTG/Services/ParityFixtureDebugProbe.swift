@@ -75,9 +75,42 @@ import TDLibKit
             do {
                 save()
                 try checkAccount()
+                if manifest.chatID != 0, manifest.messageIDs.isEmpty {
+                    let existing = try await client.getChat(chatId: manifest.chatID)
+                    if existing.title == "BetterTG test", case .chatTypeSupergroup(let type) = existing.type {
+                        let group = try await client
+                            .send(TDNativeRequests.getSupergroup(supergroupId: type.supergroupId))
+                        if group.isChannel, group.memberCount <= 1, group.usernames?.activeUsernames.isEmpty != false,
+                           case .chatMemberStatusCreator = group.status
+                        {
+                            let history = try await client.getChatHistory(
+                                chatId: existing.id,
+                                fromMessageId: 0,
+                                limit: 100,
+                                offset: 0,
+                                onlyLocal: false,
+                            )
+                            guard history.messages
+                                .allSatisfy({
+                                    if case .messageSupergroupChatCreate = $0.content {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }) else { return }
+                            try checkAccount()
+                            // Undo only the empty private fixture this probe created.
+                            _ = try await client
+                                .send(TDNativeRequests.deleteChat(chatId: existing.id))
+                            manifest.chatID = 0
+                            manifest.topicID = nil
+                            save()
+                        }
+                    }
+                }
                 if manifest.chatID == 0 {
                     let created = try await client.send(TDNativeRequests.createNewSupergroupChat(
-                        title: "BetterTG test", isForum: true, isChannel: false,
+                        title: "BetterTG test", isForum: false, isChannel: false,
                         description: "Private BetterTG UI test fixtures. Created by Codex; no other members are invited.",
                         location: nil, messageAutoDeleteTime: 0, forImport: false,
                     ))
