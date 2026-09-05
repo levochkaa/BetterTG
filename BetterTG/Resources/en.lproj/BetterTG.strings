@@ -57,3 +57,11 @@
 "Accessibility.FolderActions" = "Actions for %@";
 
 "Localization.Preview" = "Use %1$@ as the app language?\n\nTranslation: %2$d%% complete. You can change the language back in Settings.";
+
+"CustomEmoji.Tab" = "Custom Emoji";
+
+"CustomEmoji.Search" = "Search custom emoji";
+
+"CustomEmoji.Empty" = "No custom emoji found";
+
+"CustomEmoji.PremiumRequired" = "Telegram Premium is required to send custom emoji in this chat. You can use them in Saved Messages.";

@@ -3400,7 +3400,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func showComposerMediaPicker() {
-        guard chatVM.canSendStickersAndAnimations,
+        guard chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations,
               let accountID = chatVM.accountID
         else { return }
         let picker = ComposerMediaPickerViewController(
@@ -3408,8 +3408,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatID: chatVM.chatID,
             client: chatVM.client,
         )
-        picker.onEmoji = { [weak chatVM] emoji in
-            chatVM?.appendComposerEmoji(emoji)
+        picker.onEmoji = { [weak self] emoji in
+            self?.composerView.insertEmoji(emoji)
+        }
+        picker.onCustomEmoji = { [weak self] sticker in
+            guard case .stickerFullTypeCustomEmoji(let type) = sticker.fullType else { return }
+            self?.composerView.insertEmoji(sticker.emoji, customID: type.customEmojiId)
         }
         picker.onDismiss = { [weak self] in self?.retryClientRestoration() }
         picker.onSticker = { [weak self, weak picker, weak chatVM] sticker in

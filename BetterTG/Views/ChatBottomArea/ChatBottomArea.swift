@@ -180,6 +180,10 @@ final class ChatComposerView: UIView {
         updateRecordingGesturePresentation()
     }
 
+    func insertEmoji(_ emoji: String, customID: Int64? = nil) {
+        textView.insertEmoji(emoji, customID: customID)
+    }
+
     func focusInput() {
         textView.becomeFirstResponder()
     }
@@ -336,6 +340,7 @@ final class ChatComposerView: UIView {
         let canAttach = chatVM.canAttachPhotos
             || chatVM.canAttachDocuments
             || chatVM.canSendStickersAndAnimations
+            || chatVM.canWriteBasicMessages
         attachmentButton.isHidden = !canAttach
         attachmentButton.isEnabled = canAttach
         if selectedMediaRecordingMode == .voice,

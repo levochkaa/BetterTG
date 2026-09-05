@@ -28,7 +28,7 @@ func getAttributedString(
         attributedString.append(NSMutableAttributedString.dateString)
     }
 
-    return AttributedString(attributedString)
+    return AttributedString(telegramText: attributedString)
 }
 
 func setEntity(_ entity: TextEntity, base text: String, for attributedString: NSMutableAttributedString) {
@@ -57,16 +57,63 @@ func setEntity(_ entity: TextEntity, base text: String, for attributedString: NS
         attributedString.addAttribute(.link, value: getUrl(from: textUrl.url) as Any, range: range)
     case .textEntityTypeSpoiler:
         attributedString.addAttribute(.backgroundColor, value: UIColor.gray, range: range)
-//        case .textEntityTypeCustomEmoji: // (let textEntityTypeCustomEmoji)
-//            guard showAnimojis else { break }
-//            attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
+    case .textEntityTypeCustomEmoji(let emoji):
+        attributedString.addAttribute(.telegramCustomEmoji, value: NSNumber(value: emoji.customEmojiId), range: range)
     default:
         break
     }
 }
 
 func getEntities(from text: AttributedString) -> [TextEntity] {
-    ComposerText.formatted(text).entities
+    var entities = [TextEntity]()
+    let attributedText = text.telegramNSAttributedString
+    let textRange = NSRange(location: 0, length: attributedText.length)
+    attributedText.enumerateAttributes(in: textRange) { attributes, range, _ in
+        for attribute in attributes {
+            if attribute.key == .telegramCustomEmoji { continue }
+            guard let entity = getEntity(from: attribute, using: range) else { continue }
+            entities.append(entity)
+        }
+    }
+    entities += TelegramCustomEmojiRun.extract(from: attributedText).map {
+        TextEntity(.textEntityTypeCustomEmoji(TextEntityTypeCustomEmoji(customEmojiId: $0.id)), range: $0.range)
+    }
+    return entities
+}
+
+func getEntity(from attribute: (key: NSAttributedString.Key, value: Any), using range: NSRange) -> TextEntity? {
+    switch attribute.key {
+    case .telegramCustomEmoji:
+        guard let identifier = attribute.value as? NSNumber else { return nil }
+        return .init(
+            .textEntityTypeCustomEmoji(TextEntityTypeCustomEmoji(customEmojiId: identifier.int64Value)),
+            range: range,
+        )
+    case .font:
+        guard let uiFont = attribute.value as? UIFont else { return nil }
+        switch uiFont {
+        case UIFont.bold:
+            return .init(.textEntityTypeBold, range: range)
+        case UIFont.italic:
+            return .init(.textEntityTypeItalic, range: range)
+        case UIFont.monospaced:
+            return .init(.textEntityTypeCode, range: range)
+        default:
+            break
+        }
+    case .link:
+        guard let url = attribute.value as? URL else { return nil }
+        return .init(.textEntityTypeTextUrl(TextEntityTypeTextUrl(url: url.absoluteString)), range: range)
+    case .strikethroughStyle:
+        return .init(.textEntityTypeStrikethrough, range: range)
+    case .underlineStyle:
+        return .init(.textEntityTypeUnderline, range: range)
+    case .backgroundColor:
+        return .init(.textEntityTypeSpoiler, range: range)
+    default:
+        return nil
+    }
+    return nil
 }
 
 func getUrl(from string: String) -> URL? {

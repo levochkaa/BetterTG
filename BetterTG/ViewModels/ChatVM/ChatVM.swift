@@ -1913,23 +1913,6 @@ import UIKit
         text = value
     }
 
-    func appendComposerEmoji(_ emoji: String) {
-        guard !emoji.isEmpty else { return }
-        markComposerDirty()
-        if editCustomMessage == nil {
-            text.append(AttributedString(emoji))
-        } else {
-            editMessageText.append(AttributedString(emoji))
-        }
-        composerMediaDraftTask?.cancel()
-        composerMediaDraftTask = Task { [weak self] in
-            try? await Task<Never, Never>.sleep(for: .milliseconds(350))
-            guard let self, !Task.isCancelled else { return }
-            await updateDraft()
-            composerMediaDraftTask = nil
-        }
-    }
-
     func replaceDisplayedDocuments(_ documents: [SelectedDocument]) {
         let previousURLs = displayedDocuments.map(\.url)
         displayedDocuments = documents

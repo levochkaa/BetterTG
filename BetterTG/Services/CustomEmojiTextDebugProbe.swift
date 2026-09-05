@@ -1,0 +1,72 @@
+// CustomEmojiTextDebugProbe.swift
+
+#if DEBUG
+import TDLibKit
+import UIKit
+
+@MainActor enum CustomEmojiTextDebugProbe {
+    private static var didRun = false
+
+    static func runIfRequested() {
+        guard !didRun, ProcessInfo.processInfo.arguments.contains("-custom-emoji-text-probe") else { return }
+        didRun = true
+        let value = NSMutableAttributedString(string: "a🙂🙂b", attributes: defaultAttributes())
+        let id: Int64 = 5_000_000_000_123
+        value.addAttribute(.telegramCustomEmoji, value: NSNumber(value: id), range: NSRange(location: 1, length: 4))
+        value.addAttribute(.font, value: UIFont.bold, range: NSRange(location: 1, length: 2))
+        var lines = [String]()
+        func check(_ name: String, _ condition: Bool) { lines.append("\(condition ? "PASS" : "FAIL") \(name)") }
+        let state = AttributedString(telegramText: value)
+        let roundTrip = state.telegramNSAttributedString
+        let runs = TelegramCustomEmojiRun.extract(from: roundTrip)
+        check("scope retains 64-bit custom emoji ids", runs.count == 2 && runs.allSatisfy { $0.id == id })
+        check(
+            "adjacent emoji remain two UTF-16 ranges",
+            runs.map(\.range) == [NSRange(location: 1, length: 2), NSRange(location: 3, length: 2)],
+        )
+        let entities = getEntities(from: state)
+        let custom = entities.filter {
+            if case .textEntityTypeCustomEmoji = $0.type {
+                true
+            } else {
+                false
+            }
+        }
+        check("outgoing entities retain separate emoji", custom.count == 2 && custom.map(\.offset) == [1, 3])
+        check(
+            "overlapping formatting survives",
+            entities
+            .contains {
+                if case .textEntityTypeBold = $0.type {
+                    $0.offset == 1 && $0.length == 2
+                } else {
+                    false
+                }
+            },
+        )
+        let restored = getAttributedString(from: FormattedText(entities: entities, text: value.string))
+        check(
+            "draft round trip preserves emoji",
+            TelegramCustomEmojiRun.extract(from: restored.telegramNSAttributedString).map(\.range) == runs.map(\.range),
+        )
+        let payload = TelegramEmojiPasteboardPayload(roundTrip)
+        let pasted = NSMutableAttributedString(string: value.string, attributes: defaultAttributes())
+        if let data = try? JSONEncoder().encode(payload), let decoded = try? JSONDecoder().decode(
+            TelegramEmojiPasteboardPayload.self,
+            from: data,
+        ) {
+            decoded.apply(to: pasted)
+        }
+        check("copy payload preserves repeated emoji", TelegramCustomEmojiRun.extract(from: pasted).count == 2)
+        pasted.replaceCharacters(in: NSRange(location: 1, length: 2), with: "")
+        let remaining = TelegramCustomEmojiRun.extract(from: pasted)
+        check(
+            "deleting one emoji retains its neighbor",
+            remaining.count == 1 && remaining.first?.range == NSRange(location: 1, length: 2),
+        )
+        let path = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("custom-emoji-text-probe.txt")
+        try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
+    }
+}
+#endif

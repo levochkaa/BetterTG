@@ -160,6 +160,7 @@ extension RootVM {
                 }
                 #if DEBUG
                 ChatListStoreDebugProbe.runIfRequested(seed: latest)
+                CustomEmojiTextDebugProbe.runIfRequested()
                 SavedMediaDebugProbe.runIfRequested(chat: latest)
                 ParityFixtureDebugProbe.runIfRequested(chat: latest)
                 #endif

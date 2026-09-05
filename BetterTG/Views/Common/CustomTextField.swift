@@ -28,17 +28,16 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     private let placeholderLabel = UILabel()
     private var lastWidth = CGFloat.zero
     private var isApplyingValue = false
-    private var isApplyingUserText = false
-
-    var permitsClientRestoration: Bool {
-        markedTextRange == nil && !isApplyingUserText && !isPresentingEditMenu && !isTracking && !isDragging &&
-            !isDecelerating
-            && !(gestureRecognizers ?? []).contains { $0.state == .began || $0.state == .changed }
-    }
+    private lazy var emojiRenderer = ComposerCustomEmojiRenderer(textView: self)
 
     init(placeholder: String) {
         self.placeholder = placeholder
-        super.init(frame: .zero, textContainer: nil)
+        let storage = NSTextStorage()
+        let manager = ComposerEmojiLayoutManager()
+        storage.addLayoutManager(manager)
+        let container = NSTextContainer(size: .zero)
+        manager.addTextContainer(container)
+        super.init(frame: .zero, textContainer: container)
         delegate = self
         font = .body
         textColor = .label
@@ -70,15 +69,27 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     override func layoutSubviews() {
         let previousWidth = lastWidth
         super.layoutSubviews()
+        emojiRenderer.layout()
         lastWidth = bounds.width
         if abs(previousWidth - bounds.width) > 0.5 {
             invalidateIntrinsicContentSize()
         }
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        onUserInteraction?()
-        super.touchesBegan(touches, with: event)
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        emojiRenderer.layout()
+    }
+
+    override func copy(_: Any?) {
+        guard selectedRange.length > 0 else { return }
+        UIPasteboard.setTelegramAttributedText(attributedText.attributedSubstring(from: selectedRange))
+    }
+
+    override func cut(_ sender: Any?) {
+        guard isEditable, selectedRange.length > 0 else { return }
+        copy(sender)
+        insertTelegramText(NSAttributedString(string: ""))
     }
 
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
@@ -106,7 +117,23 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         return super.canPerformAction(action, withSender: sender)
     }
 
-    override func paste(_: Any?) {
+    override func paste(_ sender: Any?) {
+        if let data = UIPasteboard.general.data(forPasteboardType: TelegramEmojiPasteboardPayload.type),
+           let payload = try? JSONDecoder().decode(TelegramEmojiPasteboardPayload.self, from: data)
+        {
+            let value =
+                if let item = UIPasteboard.general.items.first,
+                let raw = item[UTType.rtf.identifier],
+                let rtf = (raw as? Data) ?? (raw as? String)?.data(using: .utf8),
+                let formatted = try? NSAttributedString(data: rtf, documentAttributes: nil) {
+                    NSMutableAttributedString(attributedString: formatted)
+                } else {
+                    NSMutableAttributedString(string: payload.text, attributes: defaultAttributes())
+                }
+            payload.apply(to: value)
+            insertTelegramText(value)
+            return
+        }
         if let images = UIPasteboard.general.images, !images.isEmpty {
             receivePastedImages(images)
             return
@@ -122,17 +149,30 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         }
     }
 
-    func receivePastedImages(_ images: [UIImage]) { onPasteImages?(Array(images.prefix(10))) }
+    func insertEmoji(_ emoji: String, customID: Int64? = nil) {
+        let value = NSMutableAttributedString(string: emoji, attributes: defaultAttributes())
+        if let customID { value.addAttribute(
+            .telegramCustomEmoji,
+            value: NSNumber(value: customID),
+            range: NSRange(location: 0, length: value.length),
+        ) }
+        insertTelegramText(value)
+    }
 
     func setAttributedText(_ value: AttributedString) {
-        let value = ComposerText.uiKit(value)
+        let value = value.telegramNSAttributedString
         guard attributedText != value else { return }
         isApplyingValue = true
+        let selection = selectedRange
         attributedText = value.length == 0
             ? NSAttributedString(string: "", attributes: defaultAttributes())
             : value
         isApplyingValue = false
-        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
+        selectedRange = NSRange(
+            location: min(selection.location, value.length),
+            length: min(selection.length, max(0, value.length - selection.location)),
+        )
+        emojiRenderer.update()
         updatePlaceholder()
         invalidateIntrinsicContentSize()
     }
@@ -152,80 +192,53 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         invalidateIntrinsicContentSize()
         isScrollEnabled = intrinsicContentSize.height >= 240
         guard !isApplyingValue else { return }
-        onUserInteraction?()
-        onTextChange?(ComposerText.value(attributedText))
-        onInteractionSettled?()
-    }
-
-    func textViewDidChangeSelection(_: UITextView) {
-        if markedTextRange == nil {
-            typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
-        }
-        onInteractionSettled?()
-    }
-
-    func textView(_: UITextView, willPresentEditMenuWith _: any UIEditMenuInteractionAnimating) {
-        isPresentingEditMenu = true
-    }
-
-    func textView(_: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-        animator.addCompletion { [weak self] in
-            self?.isPresentingEditMenu = false
-            self?.onInteractionSettled?()
-        }
+        emojiRenderer.update()
+        onTextChange?(AttributedString(telegramText: attributedText))
     }
 
     func textView(
         _: UITextView,
         shouldChangeTextIn range: NSRange,
-        replacementText _: String,
+        replacementText replacement: String,
     ) -> Bool {
-        guard ComposerText.isValid(range, in: text as NSString) else { return false }
-        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: range.location)
-        return true
+        typingAttributes = defaultAttributes()
+        var atomicRange = range
+        for emoji in TelegramCustomEmojiRun.extract(from: textStorage) {
+            if range.length > 0, NSIntersectionRange(range, emoji.range).length > 0 {
+                atomicRange = NSUnionRange(atomicRange, emoji.range)
+            }
+        }
+        if atomicRange != range {
+            selectedRange = atomicRange
+            insertTelegramText(NSAttributedString(string: replacement, attributes: defaultAttributes()))
+            return false
+        }
+        guard isPastingText else { return true }
+        defer { isPastingText = false }
+        guard let item = UIPasteboard.general.items.first,
+              let rawRTF = item[UTType.rtf.identifier],
+              let data = (rawRTF as? String)?.data(using: .utf8)
+              ?? rawRTF as? Data,
+              let pasted = try? NSAttributedString(data: data, documentAttributes: nil)
+        else { return true }
+
+        let updated = NSMutableAttributedString(attributedString: textView.attributedText)
+        updated.replaceCharacters(in: range, with: pasted)
+        textView.attributedText = updated
+        textViewDidChange(textView)
+        return false
     }
 
-    func receivePastedText(_ text: NSAttributedString) {
-        let wasApplyingUserText = isApplyingUserText
-        isApplyingUserText = true
-        defer {
-            isApplyingUserText = wasApplyingUserText
-            onInteractionSettled?()
-        }
-        if markedTextRange != nil { unmarkText() }
-        guard ComposerText.isValid(selectedRange, in: self.text as NSString) else { return }
-        let pasted = ComposerText.importing(text)
-        let updated = NSMutableAttributedString(attributedString: attributedText)
-        updated.replaceCharacters(in: selectedRange, with: pasted)
-        applyUserText(updated, selection: NSRange(location: selectedRange.location + pasted.length, length: 0))
-    }
-
-    func toggleFormatting(_ type: TextEntityType) {
-        guard markedTextRange == nil else { return }
-        let updated = NSMutableAttributedString(attributedString: attributedText)
-        ComposerText.toggle(type, in: updated, range: selectedRange)
-        applyUserText(updated, selection: selectedRange)
-    }
-
-    private func applyUserText(_ value: NSAttributedString, selection: NSRange) {
-        guard !attributedText.isEqual(to: value) else { return }
-        let wasApplyingUserText = isApplyingUserText
-        isApplyingUserText = true
-        defer {
-            isApplyingUserText = wasApplyingUserText
-            onInteractionSettled?()
-        }
-        let previous = NSAttributedString(attributedString: attributedText!)
-        let previousSelection = selectedRange
-        undoManager?.registerUndo(withTarget: self) { target in
-            target.applyUserText(previous, selection: previousSelection)
-        }
-        textStorage.setAttributedString(value)
-        selectedRange = selection
+    private func insertTelegramText(_ value: NSAttributedString) {
+        guard isEditable else { return }
+        let range = selectedRange
+        textStorage.replaceCharacters(in: range, with: value)
+        selectedRange = NSRange(location: range.location + value.length, length: 0)
+        typingAttributes = defaultAttributes()
         textViewDidChange(self)
     }
 
-    private func formattingAction(title: String, type: TextEntityType) -> UIAction {
+    private func formattingAction(title: String, key: NSAttributedString.Key, value: Any) -> UIAction {
         UIAction(title: title) { [weak self] _ in
             self?.toggleFormatting(type)
         }

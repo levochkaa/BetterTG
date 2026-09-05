@@ -57,3 +57,11 @@
 "Accessibility.FolderActions" = "Действия для папки %@";
 
 "Localization.Preview" = "Использовать %1$@ как язык приложения?\n\nПереведено: %2$d%%. Язык можно изменить в настройках.";
+
+"CustomEmoji.Tab" = "Свои эмодзи";
+
+"CustomEmoji.Search" = "Поиск эмодзи";
+
+"CustomEmoji.Empty" = "Эмодзи не найдены";
+
+"CustomEmoji.PremiumRequired" = "Для отправки этих эмодзи в этот чат нужен Telegram Premium. Их можно использовать в Избранном.";

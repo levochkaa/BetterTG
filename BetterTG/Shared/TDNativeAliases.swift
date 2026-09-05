@@ -131,7 +131,6 @@ public typealias ProfilePhoto = TDNativeProfilePhoto
 public typealias PushMessageContent = TDNativePushMessageContent
 public typealias ReactionType = TDNativeReactionType
 public typealias ReactionTypeEmoji = TDNativeReactionTypeEmoji
-public typealias ReactionUnavailabilityReason = TDNativeReactionUnavailabilityReason
 public typealias RemoteFile = TDNativeRemoteFile
 public typealias RichText = TDNativeRichText
 public typealias ScopeNotificationSettings = TDNativeScopeNotificationSettings

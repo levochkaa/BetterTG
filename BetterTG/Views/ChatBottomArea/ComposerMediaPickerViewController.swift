@@ -9,6 +9,7 @@ import UIKit
 UISearchBarDelegate {
     enum Mode: Int {
         case emoji
+        case customEmoji
         case stickers
         case gifs
     }
@@ -31,12 +32,18 @@ UISearchBarDelegate {
     var onAnimation: ((Animation) -> Void)?
     var onDismiss: (() -> Void)?
     var onEmoji: ((String) -> Void)?
+    var onCustomEmoji: ((Sticker) -> Void)?
     var onSticker: ((Sticker) -> Void)?
 
     private let accountID: UUID
     private let chatID: Int64
     private let client: TDLibClient
-    private let segmentedControl = UISegmentedControl(items: ["Emoji", "Stickers", "GIFs"])
+    private let segmentedControl = UISegmentedControl(items: [
+        "Emoji",
+        L10n.betterTG("CustomEmoji.Tab"),
+        "Stickers",
+        "GIFs",
+    ])
     private let searchBar = UISearchBar()
     private var searchBarHeightConstraint: NSLayoutConstraint!
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
@@ -46,6 +53,7 @@ UISearchBarDelegate {
     private var stickers = [Int: Sticker]()
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    private var canUseCustomEmoji = false
 
     private var mode: Mode {
         Mode(rawValue: segmentedControl.selectedSegmentIndex) ?? .emoji
@@ -100,7 +108,19 @@ UISearchBarDelegate {
             onEmoji?(emoji)
         case .sticker(let id):
             guard let sticker = stickers[id] else { return }
-            onSticker?(sticker)
+            if case .stickerFullTypeCustomEmoji = sticker.fullType {
+                guard canUseCustomEmoji else {
+                    let alert = UIAlertController(
+                        title: nil,
+                        message: L10n.betterTG("CustomEmoji.PremiumRequired"),
+                        preferredStyle: .alert,
+                    )
+                    alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel))
+                    present(alert, animated: true)
+                    return
+                }
+                onCustomEmoji?(sticker)
+            } else { onSticker?(sticker) }
         case .animation(let id):
             guard let animation = animations[id] else { return }
             onAnimation?(animation)
@@ -170,7 +190,7 @@ UISearchBarDelegate {
 
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] _, _ in
-            let columns = self?.mode == .emoji ? 8 : 4
+            let columns = self?.mode == .emoji || self?.mode == .customEmoji ? 8 : 4
             let itemSize = NSCollectionLayoutSize(
                 widthDimension: .fractionalWidth(1 / CGFloat(columns)),
                 heightDimension: .fractionalHeight(1),
@@ -232,13 +252,14 @@ UISearchBarDelegate {
         searchTask?.cancel()
         searchBar.text = ""
         searchBar.placeholder = mode == .gifs ? "Filter saved GIFs" : "Search stickers"
+        if mode == .customEmoji { searchBar.placeholder = L10n.betterTG("CustomEmoji.Search") }
         searchBar.isHidden = mode == .emoji
         searchBarHeightConstraint.constant = mode == .emoji ? 0 : 44
         collectionView.collectionViewLayout.invalidateLayout()
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
-        case .gifs, .stickers:
+        case .customEmoji, .gifs, .stickers:
             loadTask = Task { [weak self] in await self?.reload(query: "") }
         }
     }
@@ -248,6 +269,32 @@ UISearchBarDelegate {
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
+        case .customEmoji:
+            let selectedMode = mode
+            async let request = client.getStickers(
+                chatId: chatID,
+                limit: 200,
+                query: query,
+                stickerType: .stickerTypeCustomEmoji,
+            )
+            async let userRequest = client.getMe()
+            let result = try? await request
+            let user = try? await userRequest
+            guard !Task.isCancelled, contextIsCurrent, mode == selectedMode else { return }
+            canUseCustomEmoji = user?.isPremium == true || user?.id == chatID
+            let values = (result?.stickers ?? [])
+                .filter {
+                    if case .stickerFullTypeCustomEmoji = $0.fullType {
+                        true
+                    } else {
+                        false
+                    }
+                }
+            stickers.merge(Dictionary(
+                values.map { ($0.sticker.id, $0) },
+                uniquingKeysWith: { _, latest in latest },
+            )) { _, latest in latest }
+            applySnapshot(values.map { .sticker($0.sticker.id) }.uniqued())
         case .stickers:
             let result = try? await client.getStickers(
                 chatId: chatID,
@@ -293,6 +340,7 @@ UISearchBarDelegate {
     private func emptyLabel() -> UIView {
         let label = UILabel()
         label.text = mode == .gifs ? "No saved GIFs" : "No stickers found"
+        if mode == .customEmoji { label.text = L10n.betterTG("CustomEmoji.Empty") }
         label.textColor = .secondaryLabel
         label.textAlignment = .center
         return label
