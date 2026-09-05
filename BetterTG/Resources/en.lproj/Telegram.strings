@@ -212,3 +212,5 @@
 "Map.Map" = "Map";
 
 "User.DeletedAccount" = "Deleted Account";
+
+"Common.Save" = "Save";

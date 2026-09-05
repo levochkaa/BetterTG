@@ -134,7 +134,7 @@ import UIKit
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + 50
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight
     }
 
     override func viewDidLayoutSubviews() {
@@ -202,17 +202,12 @@ import UIKit
         navigationBarView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(navigationBarView)
         navigationBarHeightConstraint = navigationBarView.heightAnchor.constraint(
-            equalToConstant: view.safeAreaInsets.top + 50,
+            equalToConstant: view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight,
         )
 
         backButton.translatesAutoresizingMaskIntoConstraints = false
-        backButton.configuration = .plain()
         backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        backButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
-            forImageIn: .normal,
-        )
-        backButton.accessibilityLabel = "Back"
+        backButton.accessibilityLabel = L10n.telegram("Common.Back")
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
         navigationBarView.contentView.addSubview(backButton)
 
@@ -235,8 +230,8 @@ import UIKit
             navigationBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBarHeightConstraint,
-            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
-            backButton.bottomAnchor.constraint(equalTo: navigationBarView.bottomAnchor, constant: -3),
+            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 2),
+            backButton.bottomAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
             titleLabel.centerXAnchor.constraint(equalTo: navigationBarView.centerXAnchor),

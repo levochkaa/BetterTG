@@ -2,9 +2,14 @@
 
 import UIKit
 
-final class TelegramNavigationController: UINavigationController, UIGestureRecognizerDelegate {
+final class TelegramNavigationController: UINavigationController, UIGestureRecognizerDelegate,
+UINavigationControllerDelegate {
+    private var chromeStates = [ObjectIdentifier: TelegramNavigationChromeState]()
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        delegate = self
+        super.setNavigationBarHidden(true, animated: false)
 
         let panGesture = UIPanGestureRecognizer(
             target: interactivePopGestureRecognizer?.delegate,
@@ -16,39 +21,40 @@ final class TelegramNavigationController: UINavigationController, UIGestureRecog
         interactivePopGestureRecognizer?.isEnabled = false
     }
 
+    override func setNavigationBarHidden(_: Bool, animated _: Bool) {
+        // Native iOS 26 navigation stays out of every transition, including its
+        // first frame. Each screen either owns chrome or uses the 44pt host below.
+        super.setNavigationBarHidden(true, animated: false)
+    }
+
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        // Keep Telegram's plain bar buttons on iOS 26, including screens which
-        // create their Edit/Done items after the navigation transition begins.
-        if #available(iOS 26.0, *) {
-            for controller in viewControllers.dropFirst() {
-                let item = controller.navigationItem
-                if item.leftBarButtonItems?.isEmpty != false, !item.hidesBackButton {
-                    item.hidesBackButton = true
-                    let back = UIBarButtonItem(
-                        image: UIImage(
-                            systemName: "chevron.backward",
-                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 21, weight: .medium),
-                        ),
-                        style: .plain, target: self, action: #selector(popBack),
-                    )
-                    back.accessibilityLabel = L10n.telegram("Common.Back")
-                    back.hidesSharedBackground = true
-                    item.leftBarButtonItem = back
-                }
-            }
-            for item in navigationBar.items ?? [] {
-                for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
-                    if !button.hidesSharedBackground { button.hidesSharedBackground = true }
-                }
-                if item.backBarButtonItem == nil {
-                    item.backBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: nil, action: nil)
-                }
-                if item.backBarButtonItem?.hidesSharedBackground == false {
-                    item.backBarButtonItem?.hidesSharedBackground = true
-                }
-            }
+        for state in chromeStates.values {
+            state.layout()
         }
+    }
+
+    func navigationController(
+        _: UINavigationController, willShow controller: UIViewController, animated _: Bool,
+    ) {
+        controller.loadViewIfNeeded()
+        guard !(controller is TelegramEmbeddedNavigationChrome) else { return }
+        let key = ObjectIdentifier(controller)
+        let state = chromeStates[key] ?? TelegramNavigationChromeState(controller: controller, navigation: self)
+        chromeStates[key] = state
+        state.refresh()
+    }
+
+    func navigationController(
+        _: UINavigationController, didShow _: UIViewController, animated _: Bool,
+    ) {
+        // Headers travel inside the same view as their content, so UIKit also
+        // owns their exact push/pop and interactive-cancellation geometry.
+        let retained = Set(viewControllers.map(ObjectIdentifier.init))
+        for (key, state) in chromeStates where !retained.contains(key) {
+            state.detach()
+        }
+        chromeStates = chromeStates.filter { retained.contains($0.key) }
     }
 
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -78,6 +84,4 @@ final class TelegramNavigationController: UINavigationController, UIGestureRecog
             velocity.x > 0
         }
     }
-
-    @objc private func popBack() { popViewController(animated: true) }
 }

@@ -6,7 +6,7 @@ import UIKit
 final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     // MARK: Internal
 
-    static let scrollHeight: CGFloat = 52
+    static let scrollHeight: CGFloat = 44
 
     var onQueryChange: ((String) -> Void)?
     var onActiveChange: ((Bool) -> Void)?
@@ -15,7 +15,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
     private let searchField = UISearchTextField()
     private let closeButton = UIButton(type: .system)
-    private let placeholder: String
+    private var placeholder: String
     private var closeWidthConstraint: NSLayoutConstraint!
     private var searchHeightConstraint: NSLayoutConstraint!
     private var searchCenterYConstraint: NSLayoutConstraint!
@@ -70,6 +70,13 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             options: [.allowUserInteraction, .beginFromCurrentState],
             animations: changes,
         )
+    }
+
+    func setPlaceholder(_ value: String) {
+        guard placeholder != value else { return }
+        placeholder = value
+        searchField.placeholder = value
+        updateSearchContentAlpha(lastContentAlpha)
     }
 
     func focus() {

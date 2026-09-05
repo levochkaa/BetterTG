@@ -43,10 +43,11 @@ final class ChatFoldersViewController: UITableViewController {
         title = L10n.telegram("Settings.ChatFolders")
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
+            image: UIImage(systemName: "plus"), style: .plain,
             target: self,
             action: #selector(addFolder),
         )
+        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.telegram("ChatListFolder.TitleCreate")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderCell")
         session.bind(self) { [weak self] in
             guard let self else { return }
@@ -178,8 +179,7 @@ final class ChatFolderOrderViewController: UITableViewController {
         title = L10n.telegram("ChatList.ReorderTabs")
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Done",
-            style: .plain,
+            title: L10n.telegram("Common.Done"), style: .plain,
             target: self,
             action: #selector(saveOrder),
         )
@@ -303,7 +303,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             : L10n.telegram("ChatListFolder.TitleEdit")
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .save,
+            title: L10n.telegram("Common.Save"), style: .plain,
             target: self,
             action: #selector(save),
         )
@@ -449,16 +449,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
 // MARK: - ChatFolderChatSelectionViewController
 
-final class ChatFolderChatSelectionViewController: UITableViewController, UISearchResultsUpdating {
-    private struct CandidatePresentation: Equatable {
-        let title: String
-        let subtitle: String?
-    }
-
-    #if DEBUG
-        private(set) var candidatePresentationReloadsForProbe = 0
-    #endif
-
+final class ChatFolderChatSelectionViewController: UITableViewController, UISearchResultsUpdating,
+TelegramNavigationSearchProvider {
     // MARK: Private
 
     private let session: FolderFlowSession
@@ -474,6 +466,8 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     private var chats = [CustomChat]()
     private var visibleChats = [CustomChat]()
     private var query = ""
+
+    var telegramNavigationSearch: UISearchController { searchController }
 
     init(
         session: FolderFlowSession,
@@ -498,8 +492,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         super.viewDidLoad()
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Done",
-            style: .plain,
+            title: L10n.telegram("Common.Done"), style: .plain,
             target: self,
             action: #selector(done),
         )
@@ -507,7 +500,6 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("ChatListFilter.AddChatsSearchPlaceholder")
-        navigationItem.searchController = searchController
         definesPresentationContext = true
         sessionObservation = session.bind(self) { [weak self] in self?.reloadCandidates() }
     }

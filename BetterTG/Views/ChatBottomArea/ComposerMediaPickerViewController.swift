@@ -84,7 +84,7 @@ UISearchBarDelegate {
         view.backgroundColor = .systemBackground
         title = "Emoji and Stickers"
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .done,
+            title: L10n.telegram("Common.Done"), style: .plain,
             target: self,
             action: #selector(donePressed),
         )

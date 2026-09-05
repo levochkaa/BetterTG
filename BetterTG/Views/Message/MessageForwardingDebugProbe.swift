@@ -108,7 +108,9 @@
             }
         }
 
-        private final class ProbeForwardPickerViewController: UIViewController {
+        private final class ProbeForwardPickerViewController: UIViewController, TelegramNavigationSearchProvider {
+            let telegramNavigationSearch = UISearchController(searchResultsController: nil)
+
             private let firstRecipient = ProbeRecipientControl(title: "Saved Messages", subtitle: "Private Chat")
             private let secondRecipient = ProbeRecipientControl(title: "Design Group", subtitle: "Group")
             private let toolbar = ForwardDestinationToolbar()
@@ -121,7 +123,7 @@
                 title = "Forward to"
                 view.backgroundColor = .systemBackground
                 navigationItem.leftBarButtonItem = UIBarButtonItem(
-                    barButtonSystemItem: .cancel,
+                    title: L10n.telegram("Common.Cancel"), style: .plain,
                     target: self,
                     action: #selector(cancelPressed),
                 )
@@ -135,11 +137,9 @@
                         UIAction(title: "Hide Sender and Captions") { _ in },
                     ]),
                 )
-                let search = UISearchController(searchResultsController: nil)
+                let search = telegramNavigationSearch
                 search.searchBar.placeholder = "Search Chats"
                 search.obscuresBackgroundDuringPresentation = false
-                navigationItem.searchController = search
-                navigationItem.hidesSearchBarWhenScrolling = false
 
                 let stack = UIStackView(arrangedSubviews: [firstRecipient, secondRecipient])
                 stack.translatesAutoresizingMaskIntoConstraints = false

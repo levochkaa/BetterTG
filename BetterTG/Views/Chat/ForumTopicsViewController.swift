@@ -50,6 +50,7 @@ import UIKit
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var searchQuery = ""
+    private var didSetInitialSearchOffset = false
     private var topicsByID = [Int: ForumTopic]()
     private var isApplyingSnapshot = false
     private var pendingTopics: [ForumTopic]?
@@ -144,6 +145,28 @@ import UIKit
         updateNavigationBar()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard !didSetInitialSearchOffset else { return }
+        didSetInitialSearchOffset = true
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight),
+            animated: false,
+        )
+        updateNavigationBar()
+    }
+
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView, withVelocity _: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>,
+    ) {
+        guard !navigationBarView.isSearchActive else { return }
+        let top = -scrollView.adjustedContentInset.top
+        let distance = targetContentOffset.pointee.y - top
+        let searchHeight = ChatListNavigationSearchView.scrollHeight
+        guard distance > 0, distance < searchHeight else { return }
+        targetContentOffset.pointee.y = top + (distance < searchHeight / 2 ? 0 : searchHeight)
+    }
+
     func scrollViewDidScroll(_: UIScrollView) {
         updateNavigationBar()
     }
@@ -164,7 +187,9 @@ import UIKit
 
     private func updateNavigationBar() {
         guard navigationBarHeightConstraint != nil else { return }
-        navigationBarView.applyScroll(offset: tableView.contentOffset.y + tableView.adjustedContentInset.top)
+        navigationBarView.applyScroll(offset: didSetInitialSearchOffset
+            ? tableView.contentOffset.y + tableView.adjustedContentInset.top
+            : ChatListNavigationSearchView.scrollHeight)
     }
 
     private func configureTable() {
@@ -172,6 +197,7 @@ import UIKit
         tableView.delegate = self
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 70
+        tableView.alwaysBounceVertical = true
         tableView.keyboardDismissMode = .onDrag
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
@@ -192,7 +218,7 @@ import UIKit
         navigationBarView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(navigationBarView)
         navigationBarHeightConstraint = navigationBarView.heightAnchor.constraint(
-            equalToConstant: view.safeAreaInsets.top + TelegramListNavigationBar.expandedContentHeight,
+            equalToConstant: view.safeAreaInsets.top + TelegramListNavigationBar.titleHeight,
         )
         NSLayoutConstraint.activate([
             navigationBarView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -215,8 +241,10 @@ import UIKit
                 : TelegramListNavigationBar.expandedContentHeight
             tableView.contentInset.top = height
             tableView.verticalScrollIndicatorInsets.top = height
+            tableView.layoutIfNeeded()
             tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
         }
+        updateNavigationBar()
     }
 
     private func configureDataSource() {

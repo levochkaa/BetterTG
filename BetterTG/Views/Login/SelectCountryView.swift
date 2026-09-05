@@ -3,7 +3,10 @@
 import TDLibKit
 import UIKit
 
-final class SelectCountryViewController: UITableViewController, UISearchResultsUpdating {
+final class SelectCountryViewController: UITableViewController, UISearchResultsUpdating,
+TelegramNavigationSearchProvider {
+    let telegramNavigationSearch = UISearchController(searchResultsController: nil)
+
     // MARK: Private
 
     private let selectedCountry: PhoneNumberInfo
@@ -42,17 +45,15 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
         tableView.backgroundColor = .systemGroupedBackground
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CountryCell")
         navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .cancel,
+            title: L10n.telegram("Common.Cancel"), style: .plain,
             target: self,
             action: #selector(cancel),
         )
 
-        let searchController = UISearchController(searchResultsController: nil)
+        let searchController = telegramNavigationSearch
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchResultsUpdater = self
         searchController.searchBar.placeholder = L10n.telegram("Common.Search")
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
         definesPresentationContext = true
         loadCountries()
     }

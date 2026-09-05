@@ -3,7 +3,10 @@
 import Combine
 import UIKit
 
-final class LanguageSelectionViewController: UITableViewController, UISearchResultsUpdating {
+final class LanguageSelectionViewController: UITableViewController, UISearchResultsUpdating,
+TelegramNavigationSearchProvider {
+    let telegramNavigationSearch = UISearchController(searchResultsController: nil)
+
     // MARK: Private
 
     private var applyingLanguageID: String?
@@ -123,12 +126,10 @@ final class LanguageSelectionViewController: UITableViewController, UISearchResu
     private func configureLocalizedContent() {
         title = L10n.telegram("Settings.AppLanguage")
         navigationItem.largeTitleDisplayMode = .never
-        let searchController = UISearchController(searchResultsController: nil)
+        let searchController = telegramNavigationSearch
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchResultsUpdater = self
         searchController.searchBar.placeholder = L10n.telegram("Common.Search")
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
     }
 
     private func reloadLanguages() {

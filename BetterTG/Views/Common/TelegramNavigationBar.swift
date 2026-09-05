@@ -222,7 +222,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     func useSharedBackground() {
         blurView.isHidden = true
-        separator.isHidden = true
     }
 
     func configure(title: String, status: String, statusColor: UIColor) {
@@ -449,7 +448,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             selectionCancelButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
-            searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
+            searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 4),
             searchField.heightAnchor.constraint(equalToConstant: 36),
 
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
