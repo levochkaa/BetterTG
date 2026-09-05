@@ -49,6 +49,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             rightImage: nil,
             leftAction: { NavigationStorage.shared.pop() },
             rightAction: nil,
+            showsBackButton: true,
         )
         super.init(nibName: nil, bundle: nil)
     }

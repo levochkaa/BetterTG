@@ -27,6 +27,7 @@ final class TelegramListNavigationBar: UIView {
     private let searchView: ChatListNavigationSearchView
     private let leftAction: (() -> Void)?
     private let rightAction: (() -> Void)?
+    private let showsBackButton: Bool
     private var currentScrollOffset = CGFloat.zero
 
     var isSearchActive: Bool { searchView.isActive }
@@ -39,10 +40,12 @@ final class TelegramListNavigationBar: UIView {
         rightImage: UIImage?,
         leftAction: (() -> Void)?,
         rightAction: (() -> Void)?,
+        showsBackButton: Bool = false,
     ) {
         self.searchView = ChatListNavigationSearchView(placeholder: placeholder)
         self.leftAction = leftAction
         self.rightAction = rightAction
+        self.showsBackButton = showsBackButton
         super.init(frame: .zero)
         titleLabel.text = title
         leftButton.setImage(leftImage, for: .normal)
@@ -86,12 +89,15 @@ final class TelegramListNavigationBar: UIView {
         for button in [leftButton, rightButton] {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.tintColor = .systemBlue
-            button.setPreferredSymbolConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
-                forImageIn: .normal,
-            )
+            if button !== leftButton || !showsBackButton {
+                button.setPreferredSymbolConfiguration(
+                    UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
+                    forImageIn: .normal,
+                )
+            }
             addSubview(button)
         }
+        if showsBackButton { leftButton.accessibilityLabel = L10n.telegram("Common.Back") }
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
 
@@ -119,7 +125,12 @@ final class TelegramListNavigationBar: UIView {
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            leftButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
+            leftButton.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: showsBackButton
+                    ? 2
+                    : 6,
+            ),
             leftButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             leftButton.widthAnchor.constraint(equalToConstant: 44),
             leftButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
@@ -448,7 +459,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             selectionCancelButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
-            searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 4),
+            searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             searchField.heightAnchor.constraint(equalToConstant: 36),
 
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),

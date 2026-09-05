@@ -39,7 +39,7 @@ import UIKit
     private var identityRevoked = false
     private let targetMessageID: Int64?
     private let targetQuote: MessageQuoteHighlight?
-    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let tableView = ForumTopicsTableView(frame: .zero, style: .plain)
     private lazy var navigationBarView = TelegramListNavigationBar(
         title: viewModel.customChat.displayTitle,
         placeholder: "Search Topics",
@@ -47,14 +47,15 @@ import UIKit
         rightImage: nil,
         leftAction: { [weak self] in self?.navigationController?.popViewController(animated: true) },
         rightAction: nil,
+        showsBackButton: true,
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var searchQuery = ""
     private var didSetInitialSearchOffset = false
+    private var didInteractWithTopics = false
     private var topicsByID = [Int: ForumTopic]()
     private var isApplyingSnapshot = false
     private var pendingTopics: [ForumTopic]?
-    private let refreshControl = UIRefreshControl()
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
     private var snapshotState = ForumTopicsSnapshotState()
     private var cancellables = Set<AnyCancellable>()
@@ -147,13 +148,24 @@ import UIKit
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard !didSetInitialSearchOffset else { return }
+        positionInitialTopicsIfNeeded()
+        guard !didSetInitialSearchOffset, tableView.bounds.height > 0 else { return }
         didSetInitialSearchOffset = true
         tableView.setContentOffset(
             CGPoint(x: 0, y: -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight),
             animated: false,
         )
         updateNavigationBar()
+    }
+
+    func scrollViewWillBeginDragging(_: UIScrollView) {
+        // A late initial page must not replace the user's chosen search position.
+        didInteractWithTopics = true
+    }
+
+    func scrollViewShouldScrollToTop(_: UIScrollView) -> Bool {
+        didInteractWithTopics = true
+        return true
     }
 
     func scrollViewWillEndDragging(
@@ -185,6 +197,19 @@ import UIKit
         }
     }
 
+    private func positionInitialTopicsIfNeeded() {
+        guard !didInteractWithTopics, !isApplyingSnapshot,
+              tableView.bounds.height > 0, tableView.numberOfSections > 0,
+              tableView.numberOfRows(inSection: 0) > 0 else { return }
+        tableView.layoutIfNeeded()
+        didSetInitialSearchOffset = true
+        let target = -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight
+        if abs(tableView.contentOffset.y - target) > 0.5 {
+            tableView.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+        }
+        updateNavigationBar()
+    }
+
     private func updateNavigationBar() {
         guard navigationBarHeightConstraint != nil else { return }
         navigationBarView.applyScroll(offset: didSetInitialSearchOffset
@@ -201,8 +226,6 @@ import UIKit
         tableView.keyboardDismissMode = .onDrag
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
-        refreshControl.addTarget(self, action: #selector(refreshPulled), for: .valueChanged)
-        tableView.refreshControl = refreshControl
         view.addSubview(tableView)
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -236,6 +259,8 @@ import UIKit
         }
         navigationBarView.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
+            if active { didInteractWithTopics = true }
+            tableView.searchScrollRange = active ? 0 : ChatListNavigationSearchView.scrollHeight
             let height = active
                 ? ChatListNavigationSearchView.scrollHeight
                 : TelegramListNavigationBar.expandedContentHeight
@@ -275,13 +300,7 @@ import UIKit
             .store(in: &cancellables)
         model.$loading
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
-                guard let self, owns(model, binding: binding) else { return }
-                if !loading {
-                    refreshControl.endRefreshing()
-                }
-                updateBackgroundView()
-            }
+            .sink { [weak self] _ in self?.updateBackgroundView() }
             .store(in: &cancellables)
         model.$errorMessage
             .compactMap(\.self)
@@ -314,6 +333,7 @@ import UIKit
             let retainedIDs = Set(topicIDs)
             topicsByID = topicsByID.filter { retainedIDs.contains($0.key) }
             isApplyingSnapshot = false
+            positionInitialTopicsIfNeeded()
             if let pending = pendingTopics {
                 pendingTopics = nil
                 applySnapshot(pending)
@@ -470,11 +490,46 @@ import UIKit
         })
         present(alert, animated: true)
     }
+}
 
-    @objc private func refreshPulled() {
-        if contextIsCurrent { viewModel.loadInitial() }
-        else { refreshControl.endRefreshing() }
-        retryClientRestoration()
+// MARK: - ForumTopicsTableView
+
+/// Keep the search travel in the scroll view's content geometry. Repeatedly
+/// changing content insets races UITableView's estimated-to-measured row heights
+/// and UIRefreshControl's inset restoration, making release jump between states.
+private final class ForumTopicsTableView: UITableView {
+    override var contentSize: CGSize {
+        get { super.contentSize }
+        set {
+            measuredContentSize = newValue
+            updateScrollExtent()
+        }
+    }
+
+    var searchScrollRange = ChatListNavigationSearchView.scrollHeight {
+        didSet { updateScrollExtent() }
+    }
+
+    private var measuredContentSize = CGSize.zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateScrollExtent()
+    }
+
+    override func adjustedContentInsetDidChange() {
+        super.adjustedContentInsetDidChange()
+        updateScrollExtent()
+    }
+
+    private func updateScrollExtent() {
+        let minimumHeight = max(
+            0,
+            bounds.height - adjustedContentInset.top
+                - adjustedContentInset.bottom + searchScrollRange,
+        )
+        let size = CGSize(width: measuredContentSize.width, height: max(measuredContentSize.height, minimumHeight))
+        if super.contentSize != size { super.contentSize = size }
     }
 }
 

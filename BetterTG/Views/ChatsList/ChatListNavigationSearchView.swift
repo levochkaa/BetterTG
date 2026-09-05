@@ -6,7 +6,9 @@ import UIKit
 final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     // MARK: Internal
 
-    static let scrollHeight: CGFloat = 44
+    static let fieldHeight: CGFloat = 36
+    static let bottomInset: CGFloat = 8
+    static let scrollHeight = fieldHeight + bottomInset
 
     var onQueryChange: ((String) -> Void)?
     var onActiveChange: ((Bool) -> Void)?
@@ -46,12 +48,12 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         guard !isActive else { return }
         let appliedOffset = requestedScrollOffset
         let fraction = appliedOffset / Self.scrollHeight
-        let fieldHeight = 36 * (1 - fraction)
+        let fieldHeight = Self.fieldHeight * (1 - fraction)
         let contentAlpha = min(1, max(0, (fieldHeight - 28) / 8))
         let capsuleAlpha = min(1, max(0, fieldHeight / 10))
         let changes = {
             self.searchHeightConstraint.constant = max(0.01, fieldHeight)
-            self.searchCenterYConstraint.constant = -appliedOffset / 2
+            self.searchCenterYConstraint.constant = -appliedOffset / 2 - Self.bottomInset / 2 * (1 - fraction)
             self.searchField.alpha = capsuleAlpha
             self.lastContentAlpha = contentAlpha
             self.updateSearchContentAlpha(contentAlpha)
@@ -130,7 +132,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
         closeWidthConstraint = closeButton.widthAnchor.constraint(equalToConstant: 0)
         searchHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: 36)
-        searchCenterYConstraint = searchField.centerYAnchor.constraint(equalTo: centerYAnchor)
+        searchCenterYConstraint = searchField.centerYAnchor.constraint(
+            equalTo: centerYAnchor,
+            constant: -Self.bottomInset / 2,
+        )
         NSLayoutConstraint.activate([
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
@@ -149,7 +154,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         closeWidthConstraint.constant = active ? 36 : 0
         if active {
             searchHeightConstraint.constant = 36
-            searchCenterYConstraint.constant = 0
+            searchCenterYConstraint.constant = -Self.bottomInset / 2
             searchField.alpha = 1
             lastContentAlpha = 1
             updateSearchContentAlpha(1)
