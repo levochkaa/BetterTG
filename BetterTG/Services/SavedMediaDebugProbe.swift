@@ -15,7 +15,11 @@ import TDLibKit
         let chatID = chat.id
         Task {
             var lines = [String]()
-            for filter in [SearchMessagesFilter.searchMessagesFilterVideoNote, .searchMessagesFilterVoiceNote] {
+            for filter in [
+                SearchMessagesFilter.searchMessagesFilterVideoNote,
+                .searchMessagesFilterVoiceNote,
+                .searchMessagesFilterPhoto,
+            ] {
                 do {
                     let result = try await client.searchChatMessages(
                         chatId: chatID,
@@ -35,6 +39,10 @@ import TDLibKit
                         file = video.videoNote.video
                         case .messageVoiceNote(let voice): kind = "voice"
                         file = voice.voiceNote.voice
+                        case .messagePhoto(let photo):
+                            guard let motion = photo.video else { continue }
+                            kind = "livePhoto"
+                            file = motion.video
                         default: continue
                         }
                         let topic =

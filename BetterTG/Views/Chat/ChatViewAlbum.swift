@@ -1625,8 +1625,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         topBar.accessibilityIdentifier = "gallery-navigation"
         view.addSubview(toolbar)
         view.addSubview(topBar)
-        let symbol = UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
-        closeButton.setImage(UIImage(systemName: "chevron.backward", withConfiguration: symbol), for: .normal)
+        let symbol = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        closeButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         closeButton.setTitle(" " + L10n.telegram("Common.Back"), for: .normal)
         closeButton.titleLabel?.font = .systemFont(ofSize: 17)
         closeButton.contentHorizontalAlignment = .leading

@@ -1,23 +1,31 @@
 // GalleryLivePhotoView.swift
 
-import PhotosUI
+import AVFoundation
+import Combine
 import TDLibKit
 import UIKit
 
-final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate, PHLivePhotoViewDelegate {
+/// Telegram's UniversalVideoGalleryItem displays the still image over the motion
+/// track: one muted autoplay, then a looping Live toggle or press-and-hold.
+/// Pair reconstruction belongs to camera-roll export, not gallery playback.
+final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let mediaContainer = UIView()
     private let preview = TDImageLoadingView()
-    private let liveView = PHLivePhotoView()
+    private let player = LocalMediaPlayer()
+    private let playerSurface = LocalVideoSurfaceView()
     private let liveButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .medium)
     private var task: Task<Void, Never>?
-    private var resources: LivePhotoResources?
-    private var requestID: PHLivePhotoRequestID?
+    private var cancellables = Set<AnyCancellable>()
     private var playbackVisible = false
-    private var didPlayHint = false
+    private var didAutoplay = false
+    private var isAutoplaying = false
+    private var isUserPlaybackActive = false
     private var generation = UUID()
+    private var motionURL: URL?
     private var retry: (() -> Void)?
+    private var elapsed: TimeInterval = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -40,10 +48,10 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         preview.contentMode = .scaleAspectFit
         preview.isUserInteractionEnabled = false
         pin(preview, to: mediaContainer)
-        liveView.contentMode = .scaleAspectFit
-        liveView.delegate = self
-        liveView.isHidden = true
-        pin(liveView, to: mediaContainer)
+        playerSurface.alpha = 0
+        playerSurface.isUserInteractionEnabled = false
+        pin(playerSurface, to: mediaContainer)
+        player.attach(to: playerSurface.playerLayer)
         liveButton.setImage(UIImage(systemName: "livephoto"), for: .normal)
         liveButton.setTitle(" LIVE", for: .normal)
         liveButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -52,16 +60,55 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         liveButton.layer.cornerRadius = 14
         liveButton.accessibilityLabel = "Play Live Photo"
         liveButton.accessibilityIdentifier = "gallery-live-photo-play"
-        liveButton.addTarget(self, action: #selector(play), for: .touchUpInside)
+        liveButton.addTarget(self, action: #selector(togglePlayback), for: .touchUpInside)
         addSubview(liveButton)
         spinner.color = .white
         addSubview(spinner)
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(doubleTap)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.minimumPressDuration = 0.2
+        mediaContainer.addGestureRecognizer(hold)
+        player.statePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.updatePlayback(state)
+            }
+            .store(in: &cancellables)
+        player.timePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in
+                self?.elapsed = time
+                self?.updateButton()
+            }
+            .store(in: &cancellables)
+        playerSurface.playerLayer
+            .publisher(for: \.isReadyForDisplay)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateVideoVisibility() }
+            .store(in: &cancellables)
+        Media.shared
+            .$isPlaying
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] playing in
+                if playing { self?.stopMotion() }
+            }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIApplication.didEnterBackgroundNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.stopMotion() }
+            .store(in: &cancellables)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        task?.cancel()
+        player.stop()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -77,16 +124,10 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     func configure(_ content: MessagePhoto) {
         prepareForReuse()
         preview.load(photo: content.photo, preferredSize: .yBox, maximumPixelSize: 2048)
-        guard let video = content.video, !content.isSecret,
-              let size = content.photo.sizes.max(by: { $0.width * $0.height < $1.width * $1.height }) else { return }
+        guard let motion = content.video, !content.isSecret else { return }
         let client = TDLib.shared.activeClient
-        let currentGeneration = generation
-        retry = { [weak self] in self?.load(
-            photo: size.photo,
-            video: video.video,
-            client: client,
-            generation: currentGeneration,
-        ) }
+        let requestGeneration = generation
+        retry = { [weak self] in self?.load(video: motion.video, client: client, generation: requestGeneration) }
         retry?()
     }
 
@@ -94,16 +135,12 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         generation = UUID()
         task?.cancel()
         task = nil
-        if let requestID { PHLivePhoto.cancelRequest(withRequestID: requestID) }
-        requestID = nil
-        liveView.stopPlayback()
-        liveView.livePhoto = nil
-        liveView.isHidden = true
-        resources?.cleanup()
-        resources = nil
+        stopMotion()
+        player.stop()
+        motionURL = nil
         preview.cancel()
         scroll.setZoomScale(1, animated: false)
-        didPlayHint = false
+        didAutoplay = false
         playbackVisible = false
         retry = nil
     }
@@ -113,11 +150,11 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
 
     func setPlaybackVisible(_ visible: Bool) {
         playbackVisible = visible
-        if visible { playHintIfNeeded() } else { liveView.stopPlayback() }
+        if visible { autoplayIfNeeded() } else { stopMotion() }
     }
 
     func setGalleryChromeVisible(_ visible: Bool, animated: Bool) {
-        let update = { self.liveButton.alpha = visible ? 1.0 : 0.0 }
+        let update = { self.liveButton.alpha = visible ? 1 : 0 }
         if animated { UIView.animate(withDuration: 0.2, animations: update) } else { update() }
     }
 
@@ -128,73 +165,37 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     func setInteractiveDismissalActive(_ active: Bool) {
         scroll.panGestureRecognizer.isEnabled = !active
         scroll.pinchGestureRecognizer?.isEnabled = !active
-        if active { liveView.stopPlayback() }
+        if active { stopMotion() }
     }
 
-    func performPlaybackCommand(_ command: GalleryPlaybackCommand) { if command == .togglePlayback { play() } }
+    func performPlaybackCommand(_ command: GalleryPlaybackCommand) {
+        if command == .togglePlayback { togglePlayback() }
+    }
 
-    private func load(photo: File, video: File, client: TDLibClient, generation: UUID) {
+    private func load(video: File, client: TDLibClient, generation: UUID) {
         guard self.generation == generation, TDLib.shared.activeClient.id == client.id else { return }
         task?.cancel()
-        if let requestID { PHLivePhoto.cancelRequest(withRequestID: requestID) }
-        requestID = nil
-        resources?.cleanup()
-        resources = nil
         spinner.startAnimating()
         liveButton.isEnabled = false
         task = Task { [weak self] in
             do {
-                async let imageRequest = client.downloadFile(
-                    fileId: photo.id,
-                    limit: 0,
-                    offset: 0,
-                    priority: 16,
-                    synchronous: true,
-                )
-                async let videoRequest = client.downloadFile(
+                let file = try await client.downloadFile(
                     fileId: video.id,
                     limit: 0,
                     offset: 0,
                     priority: 16,
                     synchronous: true,
                 )
-                let (image, video) = try await (imageRequest, videoRequest)
                 try Task.checkCancellation()
-                guard image.local.isDownloadingCompleted,
-                      video.local.isDownloadingCompleted else { throw CocoaError(.fileReadUnknown) }
-                let pair = try await LivePhotoResources.prepare(
-                    photo: URL(fileURLWithPath: image.local.path),
-                    video: URL(fileURLWithPath: video.local.path),
-                )
-                guard let self, !Task.isCancelled, self.generation == generation,
-                      TDLib.shared.activeClient.id == client.id
-                else {
-                    pair.cleanup()
-                    return
-                }
-                resources = pair
-                requestID = PHLivePhoto.request(
-                    withResourceFileURLs: [pair.photo, pair.video],
-                    placeholderImage: preview.image,
-                    targetSize: bounds.size,
-                    contentMode: .aspectFit,
-                ) { [weak self] livePhoto, info in
-                    Task { @MainActor [weak self] in
-                        guard let self, self.generation == generation,
-                              TDLib.shared.activeClient.id == client.id else { return }
-                        if (info[PHLivePhotoInfoIsDegradedKey] as? Bool) == true { return }
-                        spinner.stopAnimating()
-                        liveButton.isEnabled = true
-                        guard let livePhoto else {
-                            liveButton.setTitle(" Retry", for: .normal)
-                            return
-                        }
-                        liveView.livePhoto = livePhoto
-                        liveView.isHidden = false
-                        liveButton.setTitle(" LIVE", for: .normal)
-                        playHintIfNeeded()
-                    }
-                }
+                guard file.local.isDownloadingCompleted else { throw CocoaError(.fileReadUnknown) }
+                guard let self, self.generation == generation, TDLib.shared.activeClient.id == client.id else { return }
+                let url = URL(fileURLWithPath: file.local.path)
+                motionURL = url
+                player.load(url: url, autoplay: false, loops: false)
+                spinner.stopAnimating()
+                liveButton.isEnabled = true
+                liveButton.setTitle(" LIVE", for: .normal)
+                autoplayIfNeeded()
             } catch {
                 guard let self, !Task.isCancelled, self.generation == generation else { return }
                 spinner.stopAnimating()
@@ -204,14 +205,82 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         }
     }
 
-    private func playHintIfNeeded() {
-        guard playbackVisible, !didPlayHint, liveView.livePhoto != nil else { return }
-        didPlayHint = true
-        liveView.startPlayback(with: .hint)
+    private func autoplayIfNeeded() {
+        guard playbackVisible, !didAutoplay, motionURL != nil else { return }
+        didAutoplay = true
+        isAutoplaying = true
+        player.setMuted(true)
+        player.play()
+        updateVideoVisibility()
     }
 
-    @objc private func play() {
-        if liveView.livePhoto != nil { liveView.startPlayback(with: .full) } else { retry?() }
+    private func updatePlayback(_ state: LocalMediaPlayer.State) {
+        switch state {
+        case .ended:
+            if isUserPlaybackActive, playbackVisible {
+                player.play(from: 0)
+            } else {
+                stopMotion()
+            }
+        case .failed:
+            isUserPlaybackActive = false
+            isAutoplaying = false
+            liveButton.setTitle(" Retry", for: .normal)
+        default: break
+        }
+        updateVideoVisibility()
+        updateButton()
+    }
+
+    private func updateVideoVisibility() {
+        let showVideo = playbackVisible && (isUserPlaybackActive || isAutoplaying) && playerSurface.playerLayer
+            .isReadyForDisplay
+        let alpha: CGFloat = showVideo ? 1 : 0
+        guard playerSurface.alpha != alpha else { return }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.playerSurface.alpha = alpha
+        }
+    }
+
+    private func updateButton() {
+        liveButton.tintColor = isUserPlaybackActive ? .systemYellow : .white
+        liveButton.accessibilityLabel = isUserPlaybackActive ? "Stop Live Photo" : "Play Live Photo"
+        liveButton.accessibilityValue = player.state == .playing
+            ? String(format: "Playing %.1f seconds", elapsed)
+            : "Stopped"
+    }
+
+    private func stopMotion() {
+        isUserPlaybackActive = false
+        isAutoplaying = false
+        player.pause()
+        updateVideoVisibility()
+        updateButton()
+    }
+
+    private func startMotion() {
+        guard motionURL != nil, playbackVisible else { return }
+        Media.shared.beginExclusivePlayback()
+        isAutoplaying = false
+        isUserPlaybackActive = true
+        player.setMuted(false)
+        player.play(from: 0)
+        updateVideoVisibility()
+        updateButton()
+    }
+
+    @objc private func togglePlayback() {
+        if motionURL == nil || player.state == .failed { retry?() }
+        else if isUserPlaybackActive { stopMotion() }
+        else { startMotion() }
+    }
+
+    @objc private func held(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began: startMotion()
+        case .cancelled, .ended, .failed: stopMotion()
+        default: break
+        }
     }
 
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
