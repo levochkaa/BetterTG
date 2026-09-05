@@ -100,6 +100,7 @@ public typealias MessageLiveLocation = TDNativeMessageLiveLocation
 public typealias MessageLocation = TDNativeMessageLocation
 public typealias MessageOrigin = TDNativeMessageOrigin
 public typealias MessageOriginHiddenUser = TDNativeMessageOriginHiddenUser
+public typealias MessagePhoto = TDNativeMessagePhoto
 public typealias MessagePoll = TDNativeMessagePoll
 public typealias MessageProperties = TDNativeMessageProperties
 public typealias MessageReaction = TDNativeMessageReaction

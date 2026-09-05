@@ -1074,6 +1074,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     deinit {
         openInChatTask?.cancel()
+        authorTask?.cancel()
         exportTask?.cancel()
         deleteTask?.cancel()
         forwardTask?.cancel()

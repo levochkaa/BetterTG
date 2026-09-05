@@ -136,6 +136,10 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     private func load(photo: File, video: File, client: TDLibClient, generation: UUID) {
         guard self.generation == generation, TDLib.shared.activeClient.id == client.id else { return }
         task?.cancel()
+        if let requestID { PHLivePhoto.cancelRequest(withRequestID: requestID) }
+        requestID = nil
+        resources?.cleanup()
+        resources = nil
         spinner.startAnimating()
         liveButton.isEnabled = false
         task = Task { [weak self] in
