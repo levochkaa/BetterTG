@@ -839,6 +839,13 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
     "CLANG_MODULE_CACHE_PATH=$CLANG_MODULE_CACHE_PATH"
   )
 
+  if [[ "$CONFIGURATION" == "Debug" ]]; then
+    # TDLibKit's generated C++ schema switch reserves a large stack frame at
+    # -O0. Nested draft/rich-message clones can overflow a Swift worker stack.
+    # -O1 reuses those temporary slots; Swift still uses Debug's -Onone.
+    xcodebuild_args+=("GCC_OPTIMIZATION_LEVEL=1")
+  fi
+
   if [[ "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
     xcodebuild_args+=(
       "CODE_SIGNING_ALLOWED=NO"
