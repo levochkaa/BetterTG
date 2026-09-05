@@ -321,7 +321,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         addSubview(backButton)
 
         titleControl.translatesAutoresizingMaskIntoConstraints = false
-        titleControl.accessibilityHint = L10n.betterTG("Accessibility.SearchMessagesHint")
+        titleControl.accessibilityHint = "Opens profile. Long press to search messages"
         titleControl.accessibilityTraits = .button
         titleControl.addTarget(self, action: #selector(profilePressed), for: .touchUpInside)
         titleControl.addGestureRecognizer(

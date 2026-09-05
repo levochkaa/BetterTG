@@ -27,7 +27,7 @@ struct VoiceNoteFailedSendState: Codable {
 struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     let id: UUID
     let chatID: Int64
-    let caption: MediaDraftFormattedText
+    let caption: FormattedText
     let createdAt: Foundation.Date
     let duration: Int
     var enqueueStartedAt: Foundation.Date?
@@ -35,7 +35,8 @@ struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     var fileURL: URL
     var isEncoded: Bool
     let replyMessageID: Int64?
-    let replyTo: MediaDraftInputMessageReplyTo?
+    let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic? = nil
     var temporaryMessageID: Int64?
     let waveform: Data
     var destination: ChatDraftKey? = nil

@@ -539,19 +539,43 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             centered: presentation.isService,
         )
 
-        bubbleView.backgroundColor = highlighted ? .messageHighlight : .secondarySystemBackground
-        forwardedLabel.isHidden = message.forwardedFrom == nil
-        forwardedLabel.text = message.forwardedFrom.map {
-            "\(L10n.telegram("Chat.MessageForwardInfo.MessageHeader")) \($0)"
-        }
-
-        if let reply = message.replyToMessage {
-            replyView.isHidden = false
-            replyTargetMessageID = reply.id
-            replyView.configure(
-                title: message.replyUser?.firstName ?? L10n.telegram("Conversation.ContextMenuReply"),
-                message: reply,
-                onTap: {},
+        let isVideoNoteMessage =
+            if case .messageVideoNote = message.message.content {
+                true
+            } else {
+                false
+            }
+        let isStandaloneVideoNote =
+            if isVideoNoteMessage,
+            message.forwardPresentation == nil,
+            message.replyPresentation == nil,
+            message.formattedText == nil {
+                true
+            } else {
+                false
+            }
+        bubbleView.backgroundColor =
+            if presentation.isService {
+                highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear
+            } else if isStandaloneVideoNote {
+                highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear
+            } else {
+                highlighted ? .messageHighlight : .secondarySystemBackground
+            }
+        let usesEdgeToEdgeContent = isStandaloneVideoNote || presentation.isService
+        bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
+        bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
+        bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
+        bubbleBottomConstraint.constant = usesEdgeToEdgeContent
+            ? (visibleReactions.isEmpty ? 0 : -2)
+            : -5
+        if let forward = message.forwardPresentation {
+            forwardView.isHidden = false
+            forwardView.configure(
+                presentation: forward,
+                onTap: forward.navigationTarget.map { target in
+                    { onMetadataNavigate(target) }
+                },
             )
         } else {
             forwardView.isHidden = true

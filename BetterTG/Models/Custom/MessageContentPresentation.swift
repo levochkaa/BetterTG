@@ -1,7 +1,7 @@
 // MessageContentPresentation.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 struct MessageContentPresentation {
     struct LocationContent {
@@ -285,6 +285,8 @@ struct MessageContentPresentation {
                 title: count == 1 ? "A member joined" : "\(count) members joined",
                 symbolName: "person.badge.plus",
             )
+        case .messageChatJoinFromCommunity:
+            return service(title: "Joined from a community", symbolName: "person.crop.circle.badge.plus")
         case .messageChatJoinByLink:
             return service(title: "Joined via invite link", symbolName: "link")
         case .messageChatJoinByRequest:
@@ -338,7 +340,7 @@ struct MessageContentPresentation {
             return excludedPaidContent(title: "Premium gift")
         case .messageGiveaway, .messageGiveawayCompleted, .messageGiveawayCreated, .messageGiveawayWinners:
             return excludedPaidContent(title: "Giveaway")
-        case .messageGiftedStars, .messageGiftedTon, .messageGiveawayPrizeStars:
+        case .messageGiftedGrams, .messageGiftedStars, .messageGiveawayPrizeStars:
             return excludedPaidContent(title: "Currency gift")
         case .messageGift, .messageRefundedUpgradedGift, .messageUpgradedGift:
             return excludedPaidContent(title: "Gift")

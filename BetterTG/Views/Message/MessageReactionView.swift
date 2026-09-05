@@ -1,6 +1,6 @@
 // MessageReactionView.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - MessageReactionStripView
@@ -72,7 +72,7 @@ final class MessageReactionStripView: UIView {
         guard !visibleReactions.isEmpty else { return false }
         self.horizontalAlignment = horizontalAlignment
         let unreadTypes = Set(unreadReactions.map(\.type))
-        var customButtons = [TdInt64: [MessageReactionButton]]()
+        var customButtons = [Int64: [MessageReactionButton]]()
         for reaction in visibleReactions {
             let button = MessageReactionButton()
             button.configure(

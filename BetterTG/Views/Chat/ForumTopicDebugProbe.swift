@@ -1,7 +1,7 @@
 // ForumTopicDebugProbe.swift
 
 #if DEBUG
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum ForumTopicDebugProbe {
@@ -87,7 +87,7 @@
                 lastMessage: message(id: 102, topicID: 42, text: "Version 4 is ready"),
                 closed: true,
                 draft: DraftMessage(
-                    content: .draftMessageContentText(.init(
+                    content: .draftMessageContentText(DraftMessageContentText(
                         linkPreviewOptions: nil,
                         text: FormattedText(entities: [], text: "Review final notes"),
                     )),
@@ -137,7 +137,7 @@
                 accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000001"),
                 chatID: 7,
                 clientID: 9,
-                topic: .messageTopicForum(.init(forumTopicId: 42)),
+                topic: .messageTopicForum(MessageTopicForum(forumTopicId: 42)),
             )
             let locationProof = location.isTopicScoped
                 && location.forumTopicID == 42
@@ -163,7 +163,7 @@
         private static func topic(
             id: Int,
             name: String,
-            order: TdInt64,
+            order: Int64,
             pinned: Bool,
             unreadCount: Int,
             lastMessage: Message?,
@@ -178,7 +178,7 @@
                 info: ForumTopicInfo(
                     chatId: 7,
                     creationDate: 1,
-                    creatorId: .messageSenderUser(.init(userId: 1)),
+                    creatorId: .messageSenderUser(MessageSenderUser(userId: 1)),
                     forumTopicId: id,
                     icon: ForumTopicIcon(color: 0x4A9EF1, customEmojiId: 0),
                     isClosed: closed,
@@ -209,7 +209,7 @@
                 chatId: 7,
                 containsUnreadMention: false,
                 containsUnreadPollVotes: false,
-                content: .messageText(.init(
+                content: .messageText(MessageText(
                     linkPreview: nil,
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: text),
@@ -242,14 +242,17 @@
                 selfDestructType: nil,
                 senderBoostCount: 0,
                 senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)),
+                senderId: .messageSenderUser(MessageSenderUser(userId: 1)),
                 senderTag: "",
                 sendingState: nil,
                 suggestedPostInfo: nil,
                 summaryLanguageCode: "",
-                topicId: .messageTopicForum(.init(forumTopicId: topicID)),
+                topicId: .messageTopicForum(MessageTopicForum(forumTopicId: topicID)),
                 unreadReactions: [],
                 viaBotUserId: 0,
+
+            ephemeralContent: nil,
+                chatInstance: 0,
             )
         }
 

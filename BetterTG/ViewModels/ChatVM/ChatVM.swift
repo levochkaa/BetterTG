@@ -47,18 +47,6 @@ import UIKit
         case send
     }
 
-    // MARK: Private
-
-    private enum VoiceNoteFailure: Swift.Error {
-        case couldNotStartRecorder
-        case resendUnavailable
-    }
-
-    private enum VoiceRecordingTrimContinuation {
-        case resume
-        case send
-    }
-
     private static let historyPageSize = 30
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
@@ -580,12 +568,32 @@ import UIKit
         return nil
     }
 
-    private var oldestLoadedMessageID: Int64 {
-        guard let oldestMessage = messages.last else { return 0 }
-        return ([oldestMessage.id] + oldestMessage.album.map(\.id)).min() ?? oldestMessage.id
+    private var canManageForumTopics: Bool {
+        customChat.adminRights?.canManageTopics == true
+            || {
+                if case .chatMemberStatusCreator = customChat.supergroup?.status {
+                    true
+                } else {
+                    false
+                }
+            }()
     }
 
-    init(customChat: CustomChat, previewing: Bool = false) {
+    private var generalForumTopic: ForumTopic? {
+        forumTopicsByID.values.first(where: { $0.info.isGeneral })
+    }
+
+    init(
+        customChat: CustomChat,
+        location: ChatLocation? = nil,
+        forumTopic: ForumTopic? = nil,
+        previewing: Bool = false,
+    ) {
+        let client = td
+        let resolvedLocation = location ?? ChatLocation.current(
+            chatID: customChat.id,
+            client: client,
+        )
         self.customChat = customChat
         self.chatID = resolvedLocation.chatID
         self.accountID = resolvedLocation.accountID
@@ -600,6 +608,11 @@ import UIKit
         self.metadataResolver = MessageMetadataResolver(client: client)
         self.currentChatPermissions = customChat.chat.permissions
         self.previewing = previewing
+        self.forumTopic = forumTopic
+        self.forumTopicInfo = forumTopic?.info
+        self.canAddReactions = customChat.chat.permissions.canReactToMessages
+        self.maximumChosenReactionCount =
+            customChat.chat.availableReactions.maximumChosenReactionCount
         self.memberCount = customChat.group?.memberCount ?? customChat.supergroup?.memberCount ?? 0
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
@@ -736,6 +749,13 @@ import UIKit
         voiceRetryAvailabilityTask?.cancel()
         videoRetryAvailabilityTask?.cancel()
         videoRetryTask?.cancel()
+        reactionMutationTasks.values.forEach { $0.cancel() }
+        pinnedMessageTask?.cancel()
+        forumTopicTask?.cancel()
+        forumTopicTasks.values.forEach { $0.cancel() }
+        draftClearTask?.cancel()
+        composerMediaDraftTask?.cancel()
+        pinMutationTasks.values.forEach { $0.cancel() }
         voiceRecordingPreviewPlayer.stop()
         chatInfoTask?.cancel()
         timer?.invalidate()
@@ -743,9 +763,13 @@ import UIKit
         if let recordingVoiceNoteURL {
             try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
         }
-        let client = td
-        let closingChatID = chatID
-        Task { try? await client.closeChat(chatId: closingChatID) }
+        MainActor.assumeIsolated {
+            let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
+            SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
+                !outgoingDocumentURLs.contains($0.standardizedFileURL)
+            })
+        }
+        chatOpenLease.invalidate()
         if !previewing {
             Media.shared.onChatDismiss()
         }
@@ -972,7 +996,7 @@ import UIKit
                 if general.info.isClosed || general.info.isHidden {
                     guard canManageForumTopics else { throw ChatSendContextError.topicReadOnly }
                 }
-                destinationTopic = .messageTopicForum(.init(forumTopicId: general.info.forumTopicId))
+                destinationTopic = .messageTopicForum(MessageTopicForum(forumTopicId: general.info.forumTopicId))
             }
         } else {
             if location.topic == nil,
@@ -1062,14 +1086,15 @@ import UIKit
     }
 
     func loadGroupInfo() {
-        let client = td
+        let client = client
         switch customChat.type {
         case .supergroup(let group):
             chatInfoTask = Task { [weak self] in
                 guard let info = try? await client.getSupergroupFullInfo(supergroupId: group.id),
                       !Task.isCancelled,
                       info.memberCount > 0,
-                      let self
+                      let self,
+                      locationContextIsCurrent
                 else { return }
                 memberCount = info.memberCount
             }
@@ -1077,7 +1102,8 @@ import UIKit
             chatInfoTask = Task { [weak self] in
                 guard let info = try? await client.getBasicGroupFullInfo(basicGroupId: group.id),
                       !Task.isCancelled,
-                      let self
+                      let self,
+                      locationContextIsCurrent
                 else { return }
                 memberCount = info.members.count
             }
@@ -1088,95 +1114,54 @@ import UIKit
 
     func loadMessages() {
         guard loadingMessagesTask == nil, hasMoreMessages else { return }
-        let fromMessageID = oldestLoadedMessageID
-        let client = td
+        let fromMessageID = oldestHistoryMessageID ?? messages.last?.oldestSourceMessageID ?? 0
         loadingMessagesTask = Task { [weak self] in
-            guard let self else { return }
-            if fromMessageID == 0 {
-                _ = try? await client.openChat(chatId: chatID)
-            }
-            guard !Task.isCancelled else {
-                loadingMessagesTask = nil
-                return
-            }
-            await _loadMessages(fromMessageID: fromMessageID, client: client)
+            await self?._loadMessages(fromMessageID: fromMessageID)
         }
     }
 
-    func _loadMessages(fromMessageID: Int64, client: TDLibClient) async {
-        var knownIDs = Set(messages.flatMap { message in
-            [message.id] + message.album.map(\.id)
-        })
+    func _loadMessages(fromMessageID: Int64) async {
+        defer { loadingMessagesTask = nil }
+        guard locationContextIsCurrent else { return }
+        var knownIDs = Set(messages.flatMap { $0.sourceMessages.map(\.id) })
         var cursor = fromMessageID
-        var chatHistory = [Message]()
-        var consecutiveNoProgressCount = 0
+        var history = [Message]()
+        var noProgressCount = 0
         var reachedEnd = false
-
-        while chatHistory.count < Self.historyPageSize,
-              consecutiveNoProgressCount < 2,
-              !Task.isCancelled
-        {
-            let remainingCount = Self.historyPageSize - chatHistory.count
-            let requestLimit = min(100, remainingCount + (cursor == 0 ? 0 : 1))
-            guard let fetched = try? await client.getChatHistory(
-                chatId: chatID,
+        while history.count < Self.historyPageSize, noProgressCount < 2, !Task.isCancelled {
+            let remaining = Self.historyPageSize - history.count
+            guard let fetched = await loadHistory(
                 fromMessageId: cursor,
-                limit: requestLimit,
+                limit: min(100, remaining + (cursor == 0 ? 0 : 1)),
                 offset: 0,
-                onlyLocal: false,
-            )
-            .messages else {
-                loadingMessagesTask = nil
-                return
-            }
+            ) else { return }
             guard !fetched.isEmpty else {
                 reachedEnd = true
                 break
             }
-
-            let previousCount = chatHistory.count
-            for message in fetched where knownIDs.insert(message.id).inserted {
-                chatHistory.append(message)
-                if chatHistory.count == Self.historyPageSize {
-                    break
+            let previousCount = history.count
+            var nextCursor = cursor
+            for message in fetched {
+                nextCursor = message.id
+                if knownIDs.insert(message.id).inserted {
+                    history.append(message)
+                    if history.count == Self.historyPageSize { break }
                 }
             }
-            let nextCursor = fetched.last?.id ?? cursor
-            if chatHistory.count == previousCount || nextCursor == cursor {
-                consecutiveNoProgressCount += 1
+            if history.count == previousCount || nextCursor == cursor {
+                noProgressCount += 1
                 await Task.yield()
             } else {
-                consecutiveNoProgressCount = 0
+                noProgressCount = 0
             }
             cursor = nextCursor
         }
-
-        guard !Task.isCancelled else {
-            loadingMessagesTask = nil
-            return
-        }
-        if consecutiveNoProgressCount == 2 {
-            reachedEnd = true
-        }
-        
-        let customMessages = await chatHistory.filter { location.matches(message: $0) }.asyncMap { chatMessage in
-            await getCustomMessage(from: chatMessage)
-        }
-        let nextCursor = chatHistory.last?.id
-        await main { [customMessages] in
-            guard !Task.isCancelled, self.locationContextIsCurrent else {
-                self.loadingMessagesTask = nil
-                return
-            }
-        }
-        
-        await main { [savedMessages] in
-            let existingIDs = Set(self.messages.map(\.id))
-            self.messages.append(contentsOf: savedMessages.filter { !existingIDs.contains($0.id) })
-            self.hasMoreMessages = !reachedEnd
-            self.loadingMessagesTask = nil
-            self.driveMessageRefresh()
-        }
+        guard !Task.isCancelled, locationContextIsCurrent else { return }
+        let customMessages = await history.asyncMap { await getCustomMessage(from: $0) }
+        guard !Task.isCancelled, locationContextIsCurrent else { return }
+        messages = canonicalMessages(merging: messages, with: customMessages)
+        oldestHistoryMessageID = cursor
+        hasMoreMessages = !reachedEnd && noProgressCount < 2 && cursor != fromMessageID
     }
 
     func displayedMessageID(containing messageID: Int64) -> DisplayedMessageID? {
@@ -1322,18 +1307,444 @@ import UIKit
         }
     }
 
-    func viewMessage(id: Int64) {
+    func viewMessages(ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        let client = client
+        let accountID = accountID
         Task {
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            try await client.viewMessages(
+            _ = try await client.viewMessages(
                 chatId: chatID,
                 forceRead: true,
                 messageIds: ids,
                 source: nil,
             )
         }
+    }
+
+    func readAllReactions() {
+        let client = client
+        let accountID = accountID
+        Task {
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            _ =
+                if let forumTopicID = location.forumTopicID {
+                    try? await client.readAllForumTopicReactions(
+                        chatId: chatID,
+                        forumTopicId: forumTopicID,
+                    )
+                } else {
+                    try? await client.readAllChatReactions(chatId: chatID)
+                }
+        }
+    }
+
+    func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
+        guard !isReadOnlyTopic,
+              locationContextIsCurrent,
+              messages.contains(where: { message in
+                  message.id == messageID || message.album.contains(where: { $0.id == messageID })
+              })
+        else { return }
+        let client = client
+        Task {
+            do {
+                guard locationContextIsCurrent else { return }
+                _ = try await client.setPollAnswer(
+                    chatId: chatID,
+                    messageId: messageID,
+                    optionIds: optionIDs,
+                )
+            } catch {
+                log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
+                pollInteractionStore.failSubmission(messageID: messageID)
+            }
+        }
+    }
+
+    func toggleReaction(
+        on message: CustomMessage,
+        type: ReactionType,
+        isBig: Bool,
+    ) {
+        guard !type.isPaid,
+              !message.reactionMutationInFlight,
+              location.matches(message: message.message),
+              message.message.selfDestructType == nil,
+              message.message.ephemeralMessageId == 0,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id,
+              messages.contains(where: { $0 === message })
+        else { return }
+        let previous = message.reactions
+        let wasChosen = MessageReactionStateReducer.isChosen(type, in: previous)
+        let generation = UUID()
+        let messageID = message.id
+        message.reactionMutationInFlight = true
+        reactionMutationGenerations[messageID] = generation
+        let client = client
+        reactionMutationTasks[messageID] = Task { [weak self, weak message] in
+            guard let self else { return }
+            var optimistic: MessageReactions?
+            var appliedOptimisticState = false
+            do {
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else {
+                    throw ReactionMutationFailure.accountChanged
+                }
+                let areTags: Bool
+                if wasChosen {
+                    areTags = previous?.areTags ?? false
+                } else {
+                    let available = try await client.getMessageAvailableReactions(
+                        chatId: chatID,
+                        messageId: messageID,
+                        rowSize: 8,
+                    )
+                    guard available.allowsNonPremium(type) else {
+                        throw ReactionMutationFailure.unavailable
+                    }
+                    guard TDLib.shared.activeAccountID == accountID,
+                          TDLib.shared.activeClient.id == client.id
+                    else {
+                        throw ReactionMutationFailure.accountChanged
+                    }
+                    areTags = available.areTags
+                }
+                optimistic = MessageReactionStateReducer.toggling(
+                    type,
+                    in: previous,
+                    areTags: areTags,
+                    maximumChosenCount: maximumChosenReactionCount,
+                )
+                if optimistic != previous {
+                    message?.reactions = optimistic
+                    appliedOptimisticState = true
+                }
+                _ =
+                    if wasChosen {
+                        try await client.removeMessageReaction(
+                            chatId: chatID,
+                            messageId: messageID,
+                            reactionType: type,
+                        )
+                    } else {
+                        try await client.addMessageReaction(
+                            chatId: chatID,
+                            isBig: isBig,
+                            messageId: messageID,
+                            reactionType: type,
+                            updateRecentReactions: true,
+                        )
+                    }
+                guard reactionMutationGenerations[messageID] == generation else { return }
+                reactionMutationTasks[messageID] = nil
+                reactionMutationGenerations[messageID] = nil
+                message?.reactionMutationInFlight = false
+            } catch is CancellationError {
+                guard reactionMutationGenerations[messageID] == generation else { return }
+                reactionMutationTasks[messageID] = nil
+                reactionMutationGenerations[messageID] = nil
+                message?.reactionMutationInFlight = false
+            } catch {
+                guard reactionMutationGenerations[messageID] == generation else { return }
+                reactionMutationTasks[messageID] = nil
+                reactionMutationGenerations[messageID] = nil
+                if appliedOptimisticState,
+                   let message,
+                   message.reactions == optimistic
+                {
+                    message.reactions = previous
+                }
+                message?.reactionMutationInFlight = false
+                reactionErrorMessage =
+                    switch error as? ReactionMutationFailure {
+                    case .accountChanged:
+                        "The active Telegram account changed."
+                    case .unavailable:
+                        "This reaction isn't available for the message."
+                    case nil:
+                        wasChosen
+                            ? "The reaction couldn't be removed."
+                            : "The reaction couldn't be added."
+                    }
+            }
+        }
+    }
+
+    func updateChatPermissions(_ permissions: ChatPermissions) {
+        currentChatPermissions = permissions
+        canAddReactions = permissions.canReactToMessages
+        objectWillChange.send()
+        messagesDidChange.send()
+    }
+
+    func updateAvailableReactions(_ availableReactions: ChatAvailableReactions) {
+        maximumChosenReactionCount = availableReactions.maximumChosenReactionCount
+    }
+
+    func updateForumTopicInfo(_ info: ForumTopicInfo) {
+        guard info.chatId == location.chatID else { return }
+        if info.forumTopicId == location.forumTopicID {
+            forumTopicInfo = info
+        }
+        if let topic = forumTopicsByID[info.forumTopicId] {
+            forumTopicsByID[info.forumTopicId] = topic.replacing(info: info)
+            messagesDidChange.send()
+        }
+    }
+
+    func forumTopic(id: Int) -> ForumTopic? {
+        forumTopicsByID[id]
+    }
+
+    func refreshForumTopic(id: Int) {
+        guard isAllMessagesForum,
+              forumTopicTasks[id] == nil,
+              locationContextIsCurrent
+        else { return }
+        let client = client
+        let accountID = accountID
+        forumTopicTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            defer { forumTopicTasks[id] = nil }
+            let topic = try? await client.getForumTopic(
+                chatId: location.chatID,
+                forumTopicId: id,
+            )
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            guard let topic else { return }
+            forumTopicsByID[id] = topic
+            messagesDidChange.send()
+        }
+    }
+
+    func loadForumTopic() {
+        guard let forumTopicID = location.forumTopicID else { return }
+        forumTopicTask?.cancel()
+        let client = client
+        let accountID = accountID
+        let expectedComposerRevision = composerRevision
+        forumTopicTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let topic = try await client.getForumTopic(
+                    chatId: location.chatID,
+                    forumTopicId: forumTopicID,
+                )
+                guard !Task.isCancelled,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                forumTopic = topic
+                forumTopicInfo = topic.info
+                if awaitingAuthoritativeDraftClear, topic.draftMessage == nil {
+                    awaitingAuthoritativeDraftClear = false
+                    composerIsDirty = false
+                } else if !awaitingAuthoritativeDraftClear, canWriteBasicMessages {
+                    applyAuthoritativeDraft(
+                        topic.draftMessage,
+                        expectedRevision: expectedComposerRevision,
+                    )
+                }
+                forumTopicTask = nil
+            } catch {
+                guard !Task.isCancelled,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                forumTopicTask = nil
+            }
+        }
+    }
+
+    func refreshPinnedMessages() {
+        guard supportsPinnedMessages else { return }
+        pinnedMessageGeneration &+= 1
+        let generation = pinnedMessageGeneration
+        pinnedMessageTask?.cancel()
+        let client = client
+        let accountID = accountID
+        pinnedMessageTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let message = try await client.getChatPinnedMessage(chatId: chatID)
+                guard !Task.isCancelled,
+                      pinnedMessageGeneration == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                pinnedMessageAuthoritativeRevision &+= 1
+                pinnedMessage = message.topicId == nil ? message : nil
+                pinnedMessageTask = nil
+            } catch is CancellationError {
+                guard pinnedMessageGeneration == generation else { return }
+                pinnedMessageTask = nil
+            } catch {
+                guard !Task.isCancelled,
+                      pinnedMessageGeneration == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { return }
+                if PinnedMessageState.fetchErrorMeansNoPinnedMessage(error) {
+                    pinnedMessageAuthoritativeRevision &+= 1
+                    pinnedMessage = nil
+                }
+                pinnedMessageTask = nil
+            }
+        }
+    }
+
+    func hidePinnedMessageBanner() {
+        locallyHiddenPinnedMessageID = pinnedMessage?.id
+    }
+
+    func applyPinnedMessageUpdate(messageID: Int64, isPinned: Bool) {
+        pinnedMessageAuthoritativeRevision &+= 1
+        pinAuthoritativeRevisions[messageID, default: 0] &+= 1
+        messages.first(where: { $0.id == messageID })?.isPinned = isPinned
+        if !isPinned, pinnedMessage?.id == messageID {
+            pinnedMessage = nil
+        }
+        refreshPinnedMessages()
+    }
+
+    func applyPermanentPinnedMessageDeletion(_ messageIDs: [Int64]) {
+        guard pinnedMessage.map({ messageIDs.contains($0.id) }) == true else { return }
+        pinnedMessageAuthoritativeRevision &+= 1
+        pinnedMessage = nil
+        refreshPinnedMessages()
+    }
+
+    func pinMessage(
+        _ message: CustomMessage,
+        mode: MessagePinMode,
+    ) {
+        setMessagePinned(
+            message,
+            pinned: true,
+            disableNotification: mode.disableNotification,
+            onlyForSelf: mode.onlyForSelf,
+        )
+    }
+
+    func unpinMessage(_ message: CustomMessage) {
+        setMessagePinned(
+            message,
+            pinned: false,
+            disableNotification: true,
+            onlyForSelf: false,
+        )
+    }
+
+    func beginReply(to message: CustomMessage) {
+        guard location.matches(message: message.message) else { return }
+        if isAllMessagesForum, let topicID = message.forumTopicID {
+            refreshForumTopic(id: topicID)
+        }
+        markComposerDirty()
+        replySelectionGeneration &+= 1
+        replyMessage = message
+        replyQuote = nil
+        replyInputOverride = nil
+        replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
+    }
+
+    func beginQuoteReply(to message: CustomMessage) {
+        guard location.matches(message: message.message) else { return }
+        if isAllMessagesForum, let topicID = message.forumTopicID {
+            refreshForumTopic(id: topicID)
+        }
+        guard let formattedText = message.formattedText, !formattedText.text.isEmpty else {
+            beginReply(to: message)
+            return
+        }
+        markComposerDirty()
+        replySelectionGeneration &+= 1
+        let generation = replySelectionGeneration
+        replyMessage = message
+        replyQuote = nil
+        replyInputOverride = nil
+        replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
+        let client = client
+        Task { [weak self, weak message] in
+            guard let self, let message else { return }
+            let maximumLength: Int =
+                if case .optionValueInteger(let value) = try? await client.getOption(
+                    name: "message_reply_quote_length_max",
+                ) {
+                    max(1, Int(clamping: value.value))
+                } else {
+                    1024
+                }
+            guard replySelectionGeneration == generation,
+                  replyMessage === message,
+                  let quote = MessageQuoteBuilder.make(from: formattedText, maximumLength: maximumLength)
+            else { return }
+            replyQuote = quote
+        }
+    }
+
+    func cancelReply(markDirty: Bool = true) {
+        if markDirty {
+            markComposerDirty()
+        }
+        replySelectionGeneration &+= 1
+        replyMessage = nil
+        replyQuote = nil
+        replyInputOverride = nil
+        replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
+    }
+
+    func updateComposerTextFromUser(_ value: AttributedString) {
+        markComposerDirty()
+        text = value
+    }
+
+    func appendComposerEmoji(_ emoji: String) {
+        guard !emoji.isEmpty else { return }
+        markComposerDirty()
+        if editCustomMessage == nil {
+            text.append(AttributedString(emoji))
+        } else {
+            editMessageText.append(AttributedString(emoji))
+        }
+        composerMediaDraftTask?.cancel()
+        composerMediaDraftTask = Task { [weak self] in
+            try? await Task<Never, Never>.sleep(for: .milliseconds(350))
+            guard let self, !Task.isCancelled else { return }
+            await updateDraft()
+            composerMediaDraftTask = nil
+        }
+    }
+
+    func replaceDisplayedDocuments(_ documents: [SelectedDocument]) {
+        let previousURLs = displayedDocuments.map(\.url)
+        displayedDocuments = documents
+        removeTemporaryDocuments(previousURLs)
+    }
+
+    func removeDisplayedDocument(id: UUID) {
+        let removedURLs = displayedDocuments.filter { $0.id == id }.map(\.url)
+        displayedDocuments.removeAll { $0.id == id }
+        removeTemporaryDocuments(removedURLs)
+    }
+
+    func discardDisplayedDocuments() {
+        let removedURLs = displayedDocuments.map(\.url)
+        displayedDocuments = []
+        removeTemporaryDocuments(removedURLs)
     }
 
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
@@ -1362,74 +1773,9 @@ import UIKit
             customMessage.senderUser = try? await client.getUser(userId: messageSenderUser.userId)
         }
         
-        if case .messageSenderUser(let messageSenderUser) = replyToMessage?.senderId {
-            customMessage.replyUser = try? await td.getUser(userId: messageSenderUser.userId)
-        }
-        
-        switch message.content {
-        case .messageText(let messageText):
-            customMessage.formattedText = messageText.text
-        case .messagePhoto(let messagePhoto):
-            if !messagePhoto.caption.text.isEmpty {
-                customMessage.formattedText = messagePhoto.caption
-            }
-        case .messageVoiceNote(let messageVoiceNote):
-            if !messageVoiceNote.caption.text.isEmpty {
-                customMessage.formattedText = messageVoiceNote.caption
-            }
-        case .messageAnimation(let messageAnimation):
-            if !messageAnimation.caption.text.isEmpty {
-                customMessage.formattedText = messageAnimation.caption
-            }
-        case .messageVideo(let messageVideo):
-            if !messageVideo.caption.text.isEmpty {
-                customMessage.formattedText = messageVideo.caption
-            }
-        case .messageSticker:
-            break
-        case .messageUnsupported:
-            customMessage.formattedText = FormattedText(
-                entities: [],
-                text: L10n.betterTG("Chat.UnsupportedTDLib"),
-            )
-        default:
-            customMessage.formattedText = FormattedText(
-                entities: [],
-                text: L10n.betterTG("Chat.UnsupportedBetterTG"),
-            )
-        }
+        customMessage.formattedText = customMessage.contentPresentation.formattedText
         
         return customMessage
-    }
-
-    func getForwardedFrom(_ origin: MessageOrigin?) async -> String? {
-        guard let origin else { return nil }
-        
-        switch origin {
-        case .messageOriginChat(let chat):
-            if let title = await (try? td.getChat(chatId: chat.senderChatId))?.title {
-                return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
-            } else {
-                return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
-            }
-        case .messageOriginChannel(let channel):
-            if let title = await (try? td.getChat(chatId: channel.chatId))?.title {
-                return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
-            } else {
-                return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
-            }
-        case .messageOriginHiddenUser(let messageOriginHiddenUser):
-            return messageOriginHiddenUser.senderName
-        case .messageOriginUser(let messageOriginUser):
-            return await (try? td.getUser(userId: messageOriginUser.senderUserId))?.firstName
-        }
-    }
-
-    func getReplyToMessage(_ replyTo: MessageReplyTo?) async -> Message? {
-        if case .messageReplyToMessage(let messageReplyToMessage) = replyTo, messageReplyToMessage.messageId != 0 {
-            return try? await td.getMessage(chatId: customChat.chat.id, messageId: messageReplyToMessage.messageId)
-        }
-        return nil
     }
 
     func getInputReplyToMessage(_ inputMessageReplyTo: InputMessageReplyTo?) async -> CustomMessage? {
@@ -1539,13 +1885,154 @@ import UIKit
         }
     }
 
-    func sendMessagePhotos() async {
-        try? await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
-        
-        if displayedImages.count == 1, let photo = displayedImages.first {
-            _ = try? await td.sendMessage(
-                chatId: customChat.chat.id,
-                inputMessageContent: makeInputMessageContent(for: photo.url),
+    func sendMessageDocuments() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        let context = try resolveSendContext(
+            for: .document,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        let documents = Array(displayedDocuments.prefix(10))
+        guard !documents.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
+        let caption: FormattedText? = text.characters.isEmpty
+            ? nil
+            : FormattedText(entities: getEntities(from: text), text: text.string)
+        let provisionalMessageIDs = documents.map { _ in -Int64.random(in: 1...Int64.max) }
+        var persistedProvisionalMessageIDs = [Int64]()
+        do {
+            for (document, provisionalMessageID) in zip(documents, provisionalMessageIDs) {
+                try SelectedDocumentFileStore.lease(
+                    document.url,
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+                persistedProvisionalMessageIDs.append(provisionalMessageID)
+            }
+        } catch {
+            for provisionalMessageID in persistedProvisionalMessageIDs {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            throw error
+        }
+        var boundProvisionalMessageIDs = Set<Int64>()
+        do {
+            try await sendChatAction(
+                .chatActionUploadingDocument(ChatActionUploadingDocument(progress: 0)),
+                in: context,
+            )
+            let contents = documents.enumerated().map { index, document in
+                InputMessageContent.inputMessageDocument(InputMessageDocument(
+                    caption: index == 0 ? caption : nil,
+                    document: InputDocument(
+                        disableContentTypeDetection: true,
+                        document: .inputFileLocal(InputFileLocal(path: document.url.path(percentEncoded: false))),
+                        thumbnail: nil,
+                    ),
+                ))
+            }
+            guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
+            let messages: [Message]
+            if contents.count == 1, let content = contents.first {
+                let message = try await client.sendMessage(
+                    chatId: context.chatID,
+                    inputMessageContent: content,
+                    options: nil,
+                    replyMarkup: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                messages = [message]
+            } else {
+                let result = try await client.sendMessageAlbum(
+                    chatId: context.chatID,
+                    inputMessageContents: contents,
+                    options: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                messages = result.messages
+            }
+            for index in 0..<min(messages.count, documents.count) {
+                let resolvedMessageID = bufferedDocumentMessageIDAliases[messages[index].id] ?? messages[index].id
+                let provisionalMessageID = provisionalMessageIDs[index]
+                boundProvisionalMessageIDs.insert(provisionalMessageID)
+                do {
+                    try SelectedDocumentFileStore.replaceMessageID(
+                        accountID: context.accountID,
+                        chatID: context.chatID,
+                        old: provisionalMessageID,
+                        new: resolvedMessageID,
+                    )
+                } catch {
+                    outgoingDocumentProvisionalLeaseIDsByMessageID[resolvedMessageID] = provisionalMessageID
+                }
+            }
+            for provisionalMessageID in provisionalMessageIDs
+                where !boundProvisionalMessageIDs.contains(provisionalMessageID)
+            {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            retainOutgoingDocumentFiles(messages: messages, documents: documents)
+            guard messages.count == contents.count else {
+                let acceptedDocumentIDs = Set(documents.prefix(messages.count).map(\.id))
+                displayedDocuments.removeAll { acceptedDocumentIDs.contains($0.id) }
+                throw ChatSendContextError.partialAlbum(sent: messages.count, expected: contents.count)
+            }
+            guard messages.allSatisfy({ context.matches(message: $0) }) else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            try? await cancelChatAction(in: context)
+            return (context, messages)
+        } catch {
+            for provisionalMessageID in provisionalMessageIDs
+                where !boundProvisionalMessageIDs.contains(provisionalMessageID)
+            {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            try? await cancelChatAction(in: context)
+            throw error
+        }
+    }
+
+    func sendSticker(_ sticker: Sticker) async {
+        guard !sendingComposerMessage else { return }
+        sendingComposerMessage = true
+        let transitionID = UUID()
+        let sentReplyID = replyMessage?.id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(
+                for: .sticker,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            guard case .stickerFullTypeRegular(let regular) = sticker.fullType,
+                  regular.premiumAnimation == nil
+            else { throw ChatSendContextError.chatPermissionDenied }
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageSticker(InputMessageSticker(
+                    emoji: sticker.emoji,
+                    sticker: InputSticker(
+                        height: sticker.height,
+                        sticker: .inputFileId(InputFileId(id: sticker.sticker.id)),
+                        thumbnail: nil,
+                        width: sticker.width,
+                    ),
+                )),
                 options: nil,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
@@ -1573,7 +2060,179 @@ import UIKit
         }
     }
 
-    func makeInputMessageContent(for url: URL) async -> InputMessageContent {
+    func sendAnimation(_ animation: Animation) async {
+        guard !sendingComposerMessage else { return }
+        sendingComposerMessage = true
+        let transitionID = UUID()
+        let sentText = text
+        let sentReplyID = replyMessage?.id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(
+                for: .animation,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            let caption: FormattedText? = sentText.characters.isEmpty
+                ? nil
+                : FormattedText(entities: getEntities(from: sentText), text: sentText.string)
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageAnimation(InputMessageAnimation(
+                    animation: InputAnimation(
+                        addedStickerFileIds: [],
+                        animation: .inputFileId(InputFileId(id: animation.animation.id)),
+                        duration: animation.duration,
+                        height: animation.height,
+                        thumbnail: nil,
+                        width: animation.width,
+                    ),
+                    caption: caption,
+                    hasSpoiler: false,
+                    showCaptionAboveMedia: false,
+                )),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+            guard locationContextIsCurrent,
+                  context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            let draftClearSucceeded = await clearRouteDraft(context)
+            if text == sentText {
+                text = ""
+            }
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+            }
+            composerRevision &+= 1
+            let hasNewComposerState = !text.characters.isEmpty
+                || replyMessage != nil
+                || !displayedImages.isEmpty
+                || !displayedDocuments.isEmpty
+            awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
+            composerIsDirty = awaitingAuthoritativeDraftClear || hasNewComposerState || !draftClearSucceeded
+            if hasNewComposerState {
+                await updateDraft()
+            } else if location.isTopicScoped {
+                loadForumTopic()
+            }
+            sendErrorMessage = nil
+            await Task.yield()
+            sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
+        } catch {
+            sendTransitionCancelled.send(transitionID)
+            sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    func releaseOutgoingDocumentFile(messageID: Int64) {
+        if let url = outgoingDocumentURLsByMessageID.removeValue(forKey: messageID) {
+            if let provisionalMessageID = outgoingDocumentProvisionalLeaseIDsByMessageID.removeValue(
+                forKey: messageID,
+            ) {
+                SelectedDocumentFileStore.unlease(
+                    accountID: accountID,
+                    chatID: chatID,
+                    messageID: provisionalMessageID,
+                )
+                SelectedDocumentFileStore.remove([url])
+            } else {
+                SelectedDocumentFileStore.complete(
+                    accountID: accountID,
+                    chatID: chatID,
+                    messageID: messageID,
+                )
+                removeTemporaryDocuments([url])
+            }
+        } else if sendingComposerMessage, !displayedDocuments.isEmpty {
+            bufferedTerminalDocumentMessageIDs.insert(messageID)
+        }
+    }
+
+    func replaceOutgoingDocumentMessageID(old: Int64, new: Int64) {
+        if let url = outgoingDocumentURLsByMessageID.removeValue(forKey: old) {
+            outgoingDocumentURLsByMessageID[new] = url
+            let persistedMessageID = outgoingDocumentProvisionalLeaseIDsByMessageID.removeValue(forKey: old) ?? old
+            do {
+                try SelectedDocumentFileStore.replaceMessageID(
+                    accountID: accountID,
+                    chatID: chatID,
+                    old: persistedMessageID,
+                    new: new,
+                )
+            } catch {
+                outgoingDocumentProvisionalLeaseIDsByMessageID[new] = persistedMessageID
+            }
+        } else if sendingComposerMessage, !displayedDocuments.isEmpty {
+            bufferedDocumentMessageIDAliases[old] = new
+        }
+    }
+
+    func sendMessagePhotos() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        let context = try resolveSendContext(
+            for: .photo,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        let images = displayedImages
+        guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
+        let caption = FormattedText(entities: getEntities(from: text), text: text.string)
+        try await sendChatAction(.chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0)), in: context)
+        do {
+            let sentMessages: [Message]
+            var messageContents = [InputMessageContent]()
+            for image in images {
+                await messageContents.append(makeInputMessageContent(for: image.url, caption: caption))
+            }
+            guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
+            if messageContents.count == 1, let content = messageContents.first {
+                let message = try await client.sendMessage(
+                    chatId: context.chatID,
+                    inputMessageContent: content,
+                    options: nil,
+                    replyMarkup: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                guard context.matches(message: message) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
+                sentMessages = [message]
+            } else {
+                let result = try await client.sendMessageAlbum(
+                    chatId: context.chatID,
+                    inputMessageContents: messageContents,
+                    options: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                let messages = result.messages
+                guard messages.count == messageContents.count else {
+                    throw ChatSendContextError.partialAlbum(
+                        sent: messages.count,
+                        expected: messageContents.count,
+                    )
+                }
+                guard messages.allSatisfy({ context.matches(message: $0) }) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
+                sentMessages = messages
+            }
+            try? await cancelChatAction(in: context)
+            return (context, sentMessages)
+        } catch {
+            try? await cancelChatAction(in: context)
+            throw error
+        }
+    }
+
+    func makeInputMessageContent(
+        for url: URL,
+        caption: FormattedText,
+    ) async -> InputMessageContent {
         let path = url.path()
         let dimensions = await Task.detached(priority: .userInitiated) {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -1583,7 +2242,7 @@ import UIKit
             let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 0
             return CGSize(width: width, height: height)
         }.value
-        let input = InputFile.inputFileLocal(.init(path: path))
+        let input = InputFile.inputFileLocal(InputFileLocal(path: path))
         let photo = InputPhoto(
             addedStickerFileIds: [],
             height: Int(dimensions.height),
@@ -1607,17 +2266,22 @@ import UIKit
         )
     }
 
-    func sendMessageText() async {
-        _ = try? await td.sendMessage(
-            chatId: customChat.chat.id,
+    func sendMessageText() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        let context = try resolveSendContext(
+            for: .text,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        let message = try await client.sendMessage(
+            chatId: context.chatID,
             inputMessageContent: .inputMessageText(
-                .init(
+                InputMessageText(
+                    clearDraft: false,
+                    linkPreviewOptions: nil,
                     text: FormattedText(
                         entities: getEntities(from: text),
                         text: text.string,
                     ),
-                    linkPreviewOptions: nil,
-                    clearDraft: true,
                 ),
             ),
             options: nil,
@@ -1717,7 +2381,7 @@ import UIKit
                 replyTo: draft.replyTo,
             )
             _ = try? await sendChatAction(
-                .chatActionUploadingVideoNote(.init(progress: 0)),
+                .chatActionUploadingVideoNote(ChatActionUploadingVideoNote(progress: 0)),
                 in: activeSendContext,
             )
             pendingVideoNote = draft
@@ -1732,6 +2396,9 @@ import UIKit
                     quote: nil,
                 )
                 guard let resentMessage = resent.messages.first else { throw CancellationError() }
+                guard activeSendContext.matches(message: resentMessage) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
                 message = resentMessage
                 draft.failedSendState = nil
             } else {
@@ -1860,7 +2527,8 @@ import UIKit
                 originRecordingDraftID: draft.originRecordingDraftID,
                 replyingTo: pendingVideoReplyMessage,
                 storedReplyMessageID: draft.replyMessageID,
-                storedReplyTo: draft.replyTo?.native,
+                storedReplyTo: draft.replyTo,
+                storedSendTopic: draft.sendTopic,
             )
             switch result {
             case .enqueued(let messageID):
@@ -1964,39 +2632,51 @@ import UIKit
         }
     }
 
-    func beginMessageEditing(_ message: CustomMessage) {
-        composerEditState.changeSession()
-        editCustomMessage = message
-        setEditMessageText(from: message.message)
+    func editMessage() async throws -> ResolvedSendContext {
+        guard let message = editCustomMessage?.message else {
+            throw ChatSendContextError.unexpectedDestination
+        }
+        let context = try resolveEditContext(for: message)
+        
+        switch message.content {
+        case .messageText:
+            _ = try await client.editMessageText(
+                chatId: customChat.chat.id,
+                inputMessageContent:
+                .inputMessageText(
+                    InputMessageText(
+                        clearDraft: false,
+                        linkPreviewOptions: nil,
+                        text: FormattedText(
+                            entities: getEntities(from: editMessageText),
+                            text: editMessageText.string,
+                        ),
+                    ),
+                ),
+                messageId: message.id,
+                replyMarkup: nil,
+            )
+        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
+            _ = try await client.editMessageCaption(
+                caption: FormattedText(
+                    entities: getEntities(from: editMessageText),
+                    text: editMessageText.string,
+                ),
+                chatId: customChat.chat.id,
+                messageId: message.id,
+                replyMarkup: nil,
+                showCaptionAboveMedia: false,
+            )
+        default:
+            throw ChatSendContextError.chatPermissionDenied
+        }
+        return context
     }
 
     func cancelMessageEditing() {
         composerEditState.changeSession()
         editCustomMessage = nil
         editMessageText = ""
-    }
-
-    func updateDraft() async {
-        let draftMessage = DraftMessage(
-            content: .draftMessageContentText(
-                .init(
-                    text: FormattedText(
-                        entities: getEntities(from: text),
-                        text: text.string,
-                    ),
-                    linkPreviewOptions: nil,
-                ),
-            ),
-            date: Int(Date.now.timeIntervalSince1970),
-            effectId: 0,
-            replyTo: getMessageReplyTo(from: replyMessage),
-            suggestedPostInfo: nil,
-        )
-        _ = try? await td.setChatDraftMessage(
-            chatId: customChat.chat.id,
-            draftMessage: draftMessage,
-            topicId: nil,
-        )
     }
 
     func setEditMessageText(from message: Message?) {
@@ -2049,11 +2729,62 @@ import UIKit
     }
 
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
-        _ = try await td.sendChatAction(
-            action: chatAction,
-            businessConnectionId: "",
-            chatId: customChat.chat.id,
-            topicId: nil,
+        guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
+        if case .chatActionCancel = chatAction {
+            if let context = desiredChatActionContext ?? activeChatActionContext {
+                try await cancelChatAction(in: context)
+            } else if !isAllMessagesForum {
+                chatActionRouteRevision &+= 1
+                desiredChatAction = nil
+                _ = try await client.sendChatAction(
+                    action: chatAction,
+                    businessConnectionId: "",
+                    chatId: location.chatID,
+                    topicId: location.topic,
+                )
+            } else {
+                chatActionRouteRevision &+= 1
+                desiredChatAction = nil
+            }
+            return
+        }
+        let kind = sendContentKind(for: chatAction)
+        let context = try resolveSendContext(
+            for: kind,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        try await sendChatAction(chatAction, in: context)
+    }
+
+    func tdSendFrozenMediaChatAction(
+        _ chatAction: ChatAction,
+        sendTopic: MessageTopic?,
+        replyTo: InputMessageReplyTo?,
+    ) async throws {
+        guard let accountID = location.accountID,
+              locationContextIsCurrent
+        else { throw ChatSendContextError.accountUnavailable }
+        if case .chatActionCancel = chatAction {
+            guard !isAllMessagesForum || sendTopic != nil else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            let context = ResolvedSendContext(
+                accountID: accountID,
+                chatID: location.chatID,
+                clientID: location.clientID,
+                destinationTopic: sendTopic ?? location.topic,
+                draftTopic: location.topic,
+                replyTo: replyTo,
+            )
+            try await cancelChatAction(in: context)
+            return
+        }
+        let context = try resolveFrozenMediaSendContext(
+            for: sendContentKind(for: chatAction),
+            destination: location.draftKey,
+            sendTopic: sendTopic,
+            replyTo: replyTo,
         )
         try await sendChatAction(chatAction, in: context)
     }
@@ -2691,7 +3422,7 @@ import UIKit
             } else {
                 DraftMessage(
                     content: .draftMessageContentText(
-                        .init(
+                        DraftMessageContentText(
                             linkPreviewOptions: nil,
                             text: FormattedText(
                                 entities: getEntities(from: text),
@@ -2705,7 +3436,7 @@ import UIKit
                     suggestedPostInfo: nil,
                 )
             }
-        try await client.setChatDraftMessage(
+        _ = try await client.setChatDraftMessage(
             chatId: context.chatID,
             draftMessage: draftMessage,
             topicId: context.draftTopic,
@@ -2837,7 +3568,7 @@ import UIKit
         {
             _ = try? await client.sendChatAction(
                 action: .chatActionCancel,
-                businessConnectionId: nil,
+                businessConnectionId: "",
                 chatId: active.chatID,
                 topicId: active.destinationTopic,
             )
@@ -2846,9 +3577,9 @@ import UIKit
             await reconcileDesiredChatAction(after: revision)
             throw CancellationError()
         }
-        try await client.sendChatAction(
+        _ = try await client.sendChatAction(
             action: action,
-            businessConnectionId: nil,
+            businessConnectionId: "",
             chatId: context.chatID,
             topicId: context.destinationTopic,
         )
@@ -2869,7 +3600,7 @@ import UIKit
         let action = desiredChatAction ?? .chatActionCancel
         _ = try? await client.sendChatAction(
             action: action,
-            businessConnectionId: nil,
+            businessConnectionId: "",
             chatId: context.chatID,
             topicId: context.destinationTopic,
         )
@@ -2906,7 +3637,7 @@ import UIKit
         Task { [weak self] in
             _ = try? await client.sendChatAction(
                 action: .chatActionCancel,
-                businessConnectionId: nil,
+                businessConnectionId: "",
                 chatId: previousContext.chatID,
                 topicId: previousContext.destinationTopic,
             )
@@ -3131,9 +3862,9 @@ import UIKit
         let revision = chatActionRouteRevision
         desiredChatAction = nil
         desiredChatActionContext = context
-        try await client.sendChatAction(
+        _ = try await client.sendChatAction(
             action: .chatActionCancel,
-            businessConnectionId: nil,
+            businessConnectionId: "",
             chatId: context.chatID,
             topicId: context.destinationTopic,
         )
@@ -3439,17 +4170,17 @@ import UIKit
             duration: min(60, max(1, Int(draft.duration))),
             length: min(640, max(1, draft.length)),
             thumbnail: thumbnail,
-            videoNote: .inputFileLocal(.init(path: draft.fileURL.path(percentEncoded: false))),
+            videoNote: .inputFileLocal(InputFileLocal(path: draft.fileURL.path(percentEncoded: false))),
         )
         let message = try await client.sendMessage(
             chatId: context.chatID,
             inputMessageContent: .inputMessageVideoNote(
-                .init(videoNote: inputVideoNote, selfDestructType: nil),
+                InputMessageVideoNote(videoNote: inputVideoNote, selfDestructType: nil),
             ),
             options: nil,
             replyMarkup: nil,
-            replyTo: draft.replyTo?.native,
-            topicId: nil,
+            replyTo: draft.replyTo,
+            topicId: context.destinationTopic,
         )
         guard context.matches(message: message) else {
             throw ChatSendContextError.unexpectedDestination
@@ -3564,15 +4295,16 @@ import UIKit
                     let draft = VoiceRecordingDraft(
                         id: draftID,
                         chatID: chatID,
-                        caption: MediaDraftFormattedText(FormattedText(
+                        caption: FormattedText(
                             entities: getEntities(from: text),
                             text: text.string,
-                        )),
+                        ),
                         createdAt: Foundation.Date(),
                         exactDuration: inspection.duration,
                         fileURL: sourceURL,
                         replyMessageID: reply?.id,
-                        replyTo: getMessageReplyTo(from: reply).map(MediaDraftInputMessageReplyTo.init),
+                        replyTo: (recordingContext?.replyTo ?? getMessageReplyTo(from: reply)),
+                        sendTopic: recordingContext?.destinationTopic,
                         revision: 0,
                         trimEnd: nil,
                         trimStart: nil,
@@ -3656,7 +4388,7 @@ import UIKit
         pendingVoiceNote = VoiceNoteSendDraft(
             id: UUID(),
             chatID: chatID,
-            caption: MediaDraftFormattedText(FormattedText(entities: getEntities(from: text), text: text.string)),
+            caption: FormattedText(entities: getEntities(from: text), text: text.string),
             createdAt: Foundation.Date(),
             duration: max(1, Int(duration)),
             enqueueStartedAt: nil,
@@ -3664,7 +4396,8 @@ import UIKit
             fileURL: sourceURL,
             isEncoded: false,
             replyMessageID: reply?.id,
-            replyTo: getMessageReplyTo(from: reply).map(MediaDraftInputMessageReplyTo.init),
+            replyTo: (context?.replyTo ?? getMessageReplyTo(from: reply)),
+            sendTopic: context?.destinationTopic,
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
             destination: context?.draftKey ?? location.draftKey,
@@ -4021,7 +4754,7 @@ import UIKit
         pendingVoiceNote = VoiceNoteSendDraft(
             id: draftID,
             chatID: chatID,
-            caption: MediaDraftFormattedText(FormattedText(entities: getEntities(from: text), text: text.string)),
+            caption: FormattedText(entities: getEntities(from: text), text: text.string),
             createdAt: Foundation.Date(),
             duration: max(1, Int(recordedDuration)),
             enqueueStartedAt: nil,
@@ -4029,7 +4762,8 @@ import UIKit
             fileURL: sourceURL,
             isEncoded: false,
             replyMessageID: reply?.id,
-            replyTo: getMessageReplyTo(from: reply).map(MediaDraftInputMessageReplyTo.init),
+            replyTo: (recordingContext?.replyTo ?? getMessageReplyTo(from: reply)),
+            sendTopic: recordingContext?.destinationTopic,
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
             destination: recordingContext?.draftKey ?? location.draftKey,
@@ -4072,20 +4806,20 @@ import UIKit
         let message = try await client.sendMessage(
             chatId: context.chatID,
             inputMessageContent: .inputMessageVoiceNote(
-                .init(
+                InputMessageVoiceNote(
                     voiceNote: .init(
-                        voiceNote: .inputFileLocal(.init(path: fileURL.path())),
+                        voiceNote: .inputFileLocal(InputFileLocal(path: fileURL.path())),
                         duration: draft.duration,
                         waveform: draft.waveform,
                     ),
-                    caption: draft.caption.native,
+                    caption: draft.caption,
                     selfDestructType: nil,
                 ),
             ),
             options: nil,
             replyMarkup: nil,
-            replyTo: draft.replyTo?.native,
-            topicId: nil,
+            replyTo: draft.replyTo,
+            topicId: context.destinationTopic,
         )
         _ = try? await cancelChatAction(in: context)
         return message
@@ -4168,7 +4902,7 @@ import UIKit
                     replyTo: draft.replyTo,
                 )
                 _ = try? await sendChatAction(
-                    .chatActionUploadingVoiceNote(.init(progress: 0)),
+                    .chatActionUploadingVoiceNote(ChatActionUploadingVoiceNote(progress: 0)),
                     in: activeSendContext,
                 )
                 try Task.checkCancellation()
@@ -4442,7 +5176,7 @@ import UIKit
         let generation = draftClearGeneration
         draftClearTask?.cancel()
         do {
-            try await client.setChatDraftMessage(
+            _ = try await client.setChatDraftMessage(
                 chatId: context.chatID,
                 draftMessage: nil,
                 topicId: context.draftTopic,
@@ -4512,7 +5246,7 @@ import UIKit
                       location.draftKey == context.draftKey
                 else { return }
                 do {
-                    try await client.setChatDraftMessage(
+                    _ = try await client.setChatDraftMessage(
                         chatId: context.chatID,
                         draftMessage: nil,
                         topicId: context.draftTopic,

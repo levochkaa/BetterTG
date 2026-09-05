@@ -945,6 +945,49 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
+    func load(
+        file: File,
+        placeholderData: Data? = nil,
+        maximumPixelSize: Int = 1280,
+        accountID: UUID,
+        client: TDLibClient,
+    ) {
+        cancel()
+        let request = RequestIdentity(
+            accountID: accountID,
+            clientID: client.id,
+            fileID: file.id,
+            maximumPixelSize: maximumPixelSize,
+            generation: UUID(),
+        )
+        representedRequest = request
+        renderGeneration = request.generation
+        image = nil
+        hasFullImage = false
+        if let cached = TDImageThumbnailPipeline.shared.cachedImage(for: request.thumbnailKey.cacheKey) {
+            apply(cached, asFullImageFor: request)
+            return
+        }
+        preparePlaceholder(placeholderData, for: request)
+        update(file: file, for: request)
+        downloadTask = Task { [weak self] in
+            let downloaded = try? await client.downloadFile(
+                fileId: file.id,
+                limit: 0,
+                offset: 0,
+                priority: 1,
+                synchronous: true,
+            )
+            guard let self,
+                  !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id,
+                  let downloaded
+            else { return }
+            update(file: downloaded, for: request)
+        }
+    }
+
     func loadPlaceholder(data: Data?, maximumPixelSize: Int = 960) {
         cancel()
         image = nil
@@ -1056,17 +1099,19 @@ enum TDMediaPrefetcher {
         case ffmpegVideo
     }
 
-    @MainActor static func prefetch(
-        message: Message,
-        client: TDLibClient,
-        revealPermit: MediaRevealPermit? = nil,
-    ) async {
-        guard MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true) else { return }
-        guard let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else { return }
-        let files: [(file: File, decodeKind: DecodeKind)] =
+    static func prefetch(message: Message, client _: TDLibClient) async {
+        let files: [(id: Int, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
                 photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
+            case .messageAudio(let audio):
+                [audio.audio.albumCoverThumbnail?.file.id]
+                    .compactMap(\.self)
+                    .map { ($0, .none) }
+            case .messageDocument(let document):
+                [document.document.thumbnail?.file.id]
+                    .compactMap(\.self)
+                    .map { ($0, .none) }
             case .messageVoiceNote(let voice):
                 [(voice.voiceNote.voice.id, .none)]
             case .messageVideoNote(let video):
@@ -1140,18 +1185,7 @@ enum TDMediaPrefetcher {
         }
     }
 
-    private static func decodeKind(for format: StickerFormat) -> DecodeKind {
-        switch format {
-        case .stickerFormatTgs:
-            .tgs
-        case .stickerFormatWebp:
-            .webP
-        case .stickerFormatWebm:
-            .ffmpegVideo
-        }
-    }
-
-    private static func stickerFiles(_ sticker: Sticker?) -> [(file: File, decodeKind: DecodeKind)] {
+    private static func stickerFiles(_ sticker: Sticker?) -> [(id: Int, decodeKind: DecodeKind)] {
         guard let sticker else { return [] }
         return [sticker.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
             + [(sticker.sticker, decodeKind(for: sticker.format))]

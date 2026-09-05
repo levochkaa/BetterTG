@@ -1,6 +1,7 @@
 // ChatVM+Publishers.swift
 
 import Combine
+import Foundation
 import TDLibKit
 
 extension ChatVM {
@@ -57,19 +58,20 @@ extension ChatVM {
             onlineStatus = getOnlineStatus(from: update.status)
         }
         nc.publisher(&cancellables, for: .updateChatOnlineMemberCount) { [weak self] update in
-            guard let self, update.chatId == chatID else { return }
+            guard let self, locationContextIsCurrent, update.chatId == chatID else { return }
             onlineMemberCount = update.onlineMemberCount
         }
         nc.publisher(&cancellables, for: .updateBasicGroup) { [weak self] update in
-            guard let self, update.basicGroup.id == customChat.group?.id else { return }
+            guard let self, locationContextIsCurrent, update.basicGroup.id == customChat.group?.id else { return }
             memberCount = update.basicGroup.memberCount
         }
         nc.publisher(&cancellables, for: .updateBasicGroupFullInfo) { [weak self] update in
-            guard let self, update.basicGroupId == customChat.group?.id else { return }
+            guard let self, locationContextIsCurrent, update.basicGroupId == customChat.group?.id else { return }
             memberCount = update.basicGroupFullInfo.members.count
         }
         nc.publisher(&cancellables, for: .updateSupergroup) { [weak self] update in
             guard let self,
+                  locationContextIsCurrent,
                   update.supergroup.id == customChat.supergroup?.id,
                   update.supergroup.memberCount > 0
             else { return }
@@ -77,6 +79,7 @@ extension ChatVM {
         }
         nc.publisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] update in
             guard let self,
+                  locationContextIsCurrent,
                   update.supergroupId == customChat.supergroup?.id,
                   update.supergroupFullInfo.memberCount > 0
             else { return }

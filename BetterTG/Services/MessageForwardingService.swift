@@ -1,7 +1,7 @@
 // MessageForwardingService.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - MessageForwardRequest
 
@@ -343,7 +343,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
             sendCopy: effectiveMode.removesSender,
             topicId: destination.topic,
         )
-        let messages = result.messages ?? []
+        let messages = result.messages
         let sentCount = messages.count
         guard sentCount == prepared.request.messageIDs.count else {
             throw MessageForwardingError.partialDelivery(
@@ -398,7 +398,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
         else { throw MessageForwardingError.accountChanged }
         let message = try await client.sendMessage(
             chatId: destination.chatID,
-            inputMessageContent: .inputMessageText(.init(
+            inputMessageContent: .inputMessageText(InputMessageText(
                 clearDraft: false,
                 linkPreviewOptions: nil,
                 text: comment,

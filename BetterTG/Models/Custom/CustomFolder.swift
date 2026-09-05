@@ -28,7 +28,7 @@ import TDLibKit
         switch type {
         case .main: .chatListMain
         case .archive: .chatListArchive
-        case .folder(let info, _): .chatListFolder(.init(chatFolderId: info.id))
+        case .folder(let info, _): .chatListFolder(ChatListFolder(chatFolderId: info.id))
         }
     }
 

@@ -124,6 +124,10 @@ final class ChatListCell: UITableViewCell {
         accessibilityLabel = [
             chat.displayTitle,
             messageLabel.text,
+            dateLabel.text,
+            delivery?.accessibilityText,
+            pinned ? "Pinned" : nil,
+            isMuted ? "Muted" : nil,
             hasUnread
                 ? (chat.unreadCount > 0
                     ? L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: chat.unreadCount)

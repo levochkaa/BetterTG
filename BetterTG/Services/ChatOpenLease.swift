@@ -1,7 +1,7 @@
 // ChatOpenLease.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - ChatOpenLeaseKey
 
@@ -47,6 +47,7 @@ final class ChatOpenLease {
     static let shared = ChatOpenLeaseCoordinator()
 
     private var entries = [ChatOpenLeaseKey: Entry]()
+    private var transitions = [ChatOpenLeaseKey: (id: UUID, task: Task<Void, Never>)]()
 
     private init() {}
 
@@ -61,7 +62,9 @@ final class ChatOpenLease {
             entries[key] = entry
         } else {
             entries[key] = Entry(client: client, leaseCount: 1)
-            try? client.openChat(chatId: location.chatID) { _ in }
+            enqueueTransition(key: key) {
+                _ = try? await client.openChat(chatId: key.chatID)
+            }
         }
         return ChatOpenLease(key: key, coordinator: self)
     }
@@ -73,7 +76,23 @@ final class ChatOpenLease {
             entries[key] = entry
         } else {
             entries[key] = nil
-            try? entry.client.closeChat(chatId: key.chatID) { _ in }
+            let client = entry.client
+            enqueueTransition(key: key) {
+                _ = try? await client.closeChat(chatId: key.chatID)
+            }
         }
+    }
+
+    private func enqueueTransition(key: ChatOpenLeaseKey, operation: @escaping @MainActor () async -> Void) {
+        let previous = transitions[key]?.task
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            await operation()
+            if self?.transitions[key]?.id == id {
+                self?.transitions[key] = nil
+            }
+        }
+        transitions[key] = (id, task)
     }
 }

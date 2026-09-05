@@ -138,11 +138,11 @@ enum VoiceNoteCodec {
                         chatID: Int64.min + 1,
                         topic: nil,
                     )
-                    let sendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 42))
+                    let sendTopic = MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: 42))
                     let draft = VoiceNoteSendDraft(
                         id: UUID(),
-                        chatID: Int64.min + 1,
-                        caption: MediaDraftFormattedText(FormattedText(entities: [], text: "")),
+                        chatID: sendDestination.chatID,
+                        caption: FormattedText(entities: [], text: ""),
                         createdAt: Foundation.Date(),
                         duration: 1,
                         enqueueStartedAt: nil,
@@ -163,7 +163,7 @@ enum VoiceNoteCodec {
                     let otherTopicSendDrafts = await VoiceNoteDraftStore.shared.drafts(for: ChatDraftKey(
                         accountID: sendDestination.accountID,
                         chatID: sendDestination.chatID,
-                        topic: .messageTopicForum(.init(forumTopicId: 43)),
+                        topic: .messageTopicForum(MessageTopicForum(forumTopicId: 43)),
                     ))
                     precondition(otherTopicSendDrafts.isEmpty)
                     let enqueueingDraft = try await VoiceNoteDraftStore.shared.beginEnqueue(storedDraft)
@@ -228,14 +228,14 @@ enum VoiceNoteCodec {
                         chatID: probeChatID,
                         topic: nil,
                     )
-                    let recordingSendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 77))
+                    let recordingSendTopic = MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: 77))
                     for staleDraft in await VoiceRecordingDraftStore.shared.drafts(for: probeChatID) {
                         await VoiceRecordingDraftStore.shared.discard(id: staleDraft.id)
                     }
                     let recordingDraft = VoiceRecordingDraft(
                         id: recordingDraftID,
                         chatID: probeChatID,
-                        caption: MediaDraftFormattedText(FormattedText(entities: [], text: "")),
+                        caption: FormattedText(entities: [], text: ""),
                         createdAt: Foundation.Date(),
                         exactDuration: mergedInspection.duration,
                         fileURL: mergedURL,
@@ -271,7 +271,7 @@ enum VoiceNoteCodec {
                     let otherTopicRecordingDrafts = await VoiceRecordingDraftStore.shared.drafts(for: ChatDraftKey(
                         accountID: recordingDestination.accountID,
                         chatID: recordingDestination.chatID,
-                        topic: .messageTopicForum(.init(forumTopicId: 78)),
+                        topic: .messageTopicForum(MessageTopicForum(forumTopicId: 78)),
                     ))
                     precondition(otherTopicRecordingDrafts.isEmpty)
                     writeDebugProbeResult("Voice codec probe stage: recording replace")

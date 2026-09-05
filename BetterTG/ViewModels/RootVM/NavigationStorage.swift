@@ -1,6 +1,6 @@
 // NavigationStorage.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor final class NavigationStorage: NSObject, UINavigationControllerDelegate {

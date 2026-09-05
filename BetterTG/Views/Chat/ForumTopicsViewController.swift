@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ForumTopicsViewController
@@ -760,7 +760,7 @@ final class ForumTopicCell: UITableViewCell {
         switch content {
         case .draftMessageContentText(let text):
             "Draft: \(text.text.text)"
-        case .draftMessageContentRichMessage:
+        case .draftMessageContentInputRichMessage, .draftMessageContentRichMessage:
             "Draft: Rich message"
         case .draftMessageContentVideoNote:
             "Draft: Video message"
@@ -987,7 +987,7 @@ private final class ForumTopicIconView: UIView {
         } else {
             fallbackLabel.text = info.name.first.map { String($0).uppercased() }
         }
-        guard info.icon.customEmojiId.rawValue != 0 else { return }
+        guard info.icon.customEmojiId != 0 else { return }
         let currentGeneration = generation
         let identifier = info.icon.customEmojiId
         loadTask = Task { [weak self] in

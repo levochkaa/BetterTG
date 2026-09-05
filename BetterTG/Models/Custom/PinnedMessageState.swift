@@ -1,6 +1,6 @@
 // PinnedMessageState.swift
 
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - MessagePinMode
 
@@ -37,6 +37,6 @@ enum PinnedMessageState {
     }
 
     static func fetchErrorMeansNoPinnedMessage(_ error: Swift.Error) -> Bool {
-        (error as? TDLibKit.Error)?.code == 404
+        (error as? TDLibError)?.code == 404
     }
 }

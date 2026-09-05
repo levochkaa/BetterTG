@@ -2,7 +2,7 @@
 
 import Combine
 import MapKit
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - MessageContentAction
@@ -1934,9 +1934,13 @@ final class TelegramContactDetailsViewController: UIViewController {
                 Fixture(name: "audio", messageID: 901, content: audioMessage),
                 Fixture(name: "document", messageID: 902, content: documentMessage),
                 Fixture(name: "attachment-album", messageID: 903, content: audioMessage, album: albumMessages),
-                Fixture(name: "contact", messageID: 904, content: .messageContact(.init(contact: contact))),
-                Fixture(name: "location", messageID: 905, content: .messageLocation(.init(location: location))),
-                Fixture(name: "live-location", messageID: 906, content: .messageLiveLocation(.init(
+                Fixture(name: "contact", messageID: 904, content: .messageContact(MessageContact(contact: contact))),
+                Fixture(
+                    name: "location",
+                    messageID: 905,
+                    content: .messageLocation(MessageLocation(location: location)),
+                ),
+                Fixture(name: "live-location", messageID: 906, content: .messageLiveLocation(MessageLiveLocation(
                     expiresIn: 65,
                     location: LiveLocation(
                         heading: 0,
@@ -1951,14 +1955,14 @@ final class TelegramContactDetailsViewController: UIViewController {
                     messageID: 908,
                     content: .messagePoll(makePoll(quiz: false, multiple: true)),
                 ),
-                Fixture(name: "dice", messageID: 909, content: .messageDice(.init(
+                Fixture(name: "dice", messageID: 909, content: .messageDice(MessageDice(
                     emoji: "🎲",
                     finalState: nil,
                     initialState: nil,
                     successAnimationFrameNumber: 0,
                     value: 6,
                 ))),
-                Fixture(name: "animated-emoji", messageID: 910, content: .messageAnimatedEmoji(.init(
+                Fixture(name: "animated-emoji", messageID: 910, content: .messageAnimatedEmoji(MessageAnimatedEmoji(
                     animatedEmoji: AnimatedEmoji(
                         fitzpatrickType: 0,
                         sound: nil,
@@ -1968,7 +1972,11 @@ final class TelegramContactDetailsViewController: UIViewController {
                     ),
                     emoji: "🎉",
                 ))),
-                Fixture(name: "service", messageID: 911, content: .messageChatChangeTitle(.init(title: "Parity Chat"))),
+                Fixture(
+                    name: "service",
+                    messageID: 911,
+                    content: .messageChatChangeTitle(MessageChatChangeTitle(title: "Parity Chat")),
+                ),
                 Fixture(name: "unsupported", messageID: 912, content: .messageUnsupported),
             ]
         }
@@ -2001,7 +2009,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                 ),
             ]
             let type: PollType = quiz
-                ? .pollTypeQuiz(.init(
+                ? .pollTypeQuiz(PollTypeQuiz(
                     correctOptionIds: [0],
                     explanation: FormattedText(entities: [], text: "Because it is first."),
                     explanationMedia: nil,
@@ -2059,7 +2067,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             )
         }
 
-        private static func probeMessage(id: Int64, content: MessageContent, albumID: TdInt64) -> Message {
+        private static func probeMessage(id: Int64, content: MessageContent, albumID: Int64) -> Message {
             Message(
                 authorSignature: "",
                 autoDeleteIn: 0,
@@ -2096,7 +2104,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                 selfDestructType: nil,
                 senderBoostCount: 0,
                 senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)),
+                senderId: .messageSenderUser(MessageSenderUser(userId: 1)),
                 senderTag: "",
                 sendingState: nil,
                 suggestedPostInfo: nil,
@@ -2104,6 +2112,9 @@ final class TelegramContactDetailsViewController: UIViewController {
                 topicId: nil,
                 unreadReactions: [],
                 viaBotUserId: 0,
+
+            ephemeralContent: nil,
+                chatInstance: 0,
             )
         }
 

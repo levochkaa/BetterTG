@@ -1,7 +1,7 @@
 // PeerProfileControlsViewControllers.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - PeerProfileMembersViewController
@@ -1070,23 +1070,26 @@ struct PeerProfileMemberTagAuthority {
         targetUserID: Int64,
         client: TDLibClient,
     ) async throws -> Self {
-        try await PeerProfileMemberTagAuthorization.live(
-            accountID: accountID,
-            actorID: accountUserID,
-            chatID: chatID,
-            targetID: targetUserID,
-            client: client,
+        guard TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { throw PeerProfileMemberTagError.accountChanged }
+        async let chatRequest = client.getChat(chatId: chatID)
+        async let actorRequest = client.getChatMember(
+            chatId: chatID,
+            memberId: .messageSenderUser(MessageSenderUser(userId: accountUserID)),
         )
-        .load()
-    }
-
-    @MainActor static func validate(
-        _ snapshot: PeerProfileMemberTagAuthorization.Snapshot,
-        actorID: Int64,
-        targetID: Int64,
-    ) throws -> Self {
-        let actor = snapshot.actor, target = snapshot.target
-        switch snapshot.chatType {
+        async let targetRequest = client.getChatMember(
+            chatId: chatID,
+            memberId: .messageSenderUser(MessageSenderUser(userId: targetUserID)),
+        )
+        let (chat, actor, target) = try await (chatRequest, actorRequest, targetRequest)
+        try Task.checkCancellation()
+        guard TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id,
+              chat.id == chatID,
+              target.memberId == .messageSenderUser(MessageSenderUser(userId: targetUserID))
+        else { throw PeerProfileMemberTagError.accountChanged }
+        switch chat.type {
         case .chatTypeBasicGroup:
             break
         case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
@@ -1587,8 +1590,40 @@ enum PeerProfileMemberTagError: LocalizedError {
             let normalizedBio = detail.replacingOccurrences(of: "\n", with: " ")
             if normalizedBio != persistedDetail { mutations.append(.bio(normalizedBio)) }
         case .chat(let chatID, _, _):
-            if first != persistedFirst { mutations.append(.title(chatID, first)) }
-            if detail != persistedDetail { mutations.append(.description(chatID, detail)) }
+            guard let accountUserID,
+                  TDLib.shared.activeAccount?.userID == accountUserID,
+                  contextIsCurrent
+            else { throw PeerProfileEditError.permissionChanged }
+            let member = try await client.getChatMember(
+                chatId: chatID,
+                memberId: .messageSenderUser(MessageSenderUser(userId: accountUserID)),
+            )
+            guard TDLib.shared.activeAccount?.userID == accountUserID,
+                  contextIsCurrent,
+                  peerProfileCanChangeInfo(status: member.status)
+            else {
+                throw PeerProfileEditError.permissionChanged
+            }
+            var changed = false
+            if first != persistedFirst {
+                _ = try await client.setChatTitle(chatId: chatID, title: first)
+                persistedFirst = first
+                changed = true
+            }
+            guard TDLib.shared.activeAccount?.userID == accountUserID,
+                  contextIsCurrent
+            else { throw PeerProfileEditError.permissionChanged }
+            if detail != persistedDetail {
+                do {
+                    _ = try await client.setChatDescription(chatId: chatID, description: detail)
+                    persistedDetail = detail
+                    changed = true
+                } catch where changed {
+                    throw PeerProfileEditError
+                        .partialSuccess("Title was saved, but description failed: \(error.localizedDescription)")
+                }
+            }
+            return changed
         }
         let revision = editRevision
         session.save(mutations, owner: self, accepted: { [weak self] mutation in

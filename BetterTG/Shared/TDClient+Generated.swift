@@ -8,6 +8,26 @@ extension TDClient {
         try await send(TDNativeRequests.addChatToList(chatId: chatId, chatList: chatList))
     }
 
+    func addMessageReaction(
+        chatId: Int64,
+        isBig: Bool,
+        messageId: Int64,
+        reactionType: TDNativeReactionType,
+        updateRecentReactions: Bool,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.addMessageReaction(
+            chatId: chatId,
+            messageId: messageId,
+            reactionType: reactionType,
+            isBig: isBig,
+            updateRecentReactions: updateRecentReactions,
+        ))
+    }
+
+    func canSendMessageToUser(onlyLocal: Bool, userId: Int64) async throws -> TDNativeCanSendMessageToUserResult {
+        try await send(TDNativeRequests.canSendMessageToUser(userId: userId, onlyLocal: onlyLocal))
+    }
+
     func canSendMessageToUser(userId: Int64, onlyLocal: Bool) async throws -> TDNativeCanSendMessageToUserResult {
         try await send(TDNativeRequests.canSendMessageToUser(userId: userId, onlyLocal: onlyLocal))
     }
@@ -130,6 +150,26 @@ extension TDClient {
         ))
     }
 
+    func forwardMessages(
+        chatId: Int64,
+        fromChatId: Int64,
+        messageIds: [Int64],
+        options: TDNativeMessageSendOptions?,
+        removeCaption: Bool,
+        sendCopy: Bool,
+        topicId: TDNativeMessageTopic?,
+    ) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.forwardMessages(
+            chatId: chatId,
+            topicId: topicId,
+            fromChatId: fromChatId,
+            messageIds: messageIds,
+            options: options,
+            sendCopy: sendCopy,
+            removeCaption: removeCaption,
+        ))
+    }
+
     func getAuthorizationState() async throws -> TDNativeAuthorizationState {
         try await send(TDNativeRequests.getAuthorizationState())
     }
@@ -144,6 +184,10 @@ extension TDClient {
 
     func getChat(chatId: Int64) async throws -> TDNativeChat {
         try await send(TDNativeRequests.getChat(chatId: chatId))
+    }
+
+    func getChatAdministrators(chatId: Int64) async throws -> TDNativeChatAdministrators {
+        try await send(TDNativeRequests.getChatAdministrators(chatId: chatId))
     }
 
     func getChatFolder(chatFolderId: Int) async throws -> TDNativeChatFolder {
@@ -186,6 +230,14 @@ extension TDClient {
         ))
     }
 
+    func getChatMember(chatId: Int64, memberId: TDNativeMessageSender) async throws -> TDNativeChatMember {
+        try await send(TDNativeRequests.getChatMember(chatId: chatId, memberId: memberId))
+    }
+
+    func getChatPinnedMessage(chatId: Int64) async throws -> TDNativeMessage {
+        try await send(TDNativeRequests.getChatPinnedMessage(chatId: chatId))
+    }
+
     func getChats(chatList: TDNativeChatList?, limit: Int) async throws -> TDNativeChats {
         try await send(TDNativeRequests.getChats(chatList: chatList, limit: limit))
     }
@@ -202,12 +254,66 @@ extension TDClient {
         try await send(TDNativeRequests.getCustomEmojiStickers(customEmojiIds: customEmojiIds))
     }
 
+    func getDirectMessagesChatTopicHistory(
+        chatId: Int64,
+        fromMessageId: Int64,
+        limit: Int,
+        offset: Int,
+        topicId: Int64,
+    ) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.getDirectMessagesChatTopicHistory(
+            chatId: chatId,
+            topicId: topicId,
+            fromMessageId: fromMessageId,
+            offset: offset,
+            limit: limit,
+        ))
+    }
+
     func getFile(fileId: Int) async throws -> TDNativeFile {
         try await send(TDNativeRequests.getFile(fileId: fileId))
     }
 
     func getFileDownloadedPrefixSize(fileId: Int, offset: Int64) async throws -> TDNativeFileDownloadedPrefixSize {
         try await send(TDNativeRequests.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))
+    }
+
+    func getForumTopic(chatId: Int64, forumTopicId: Int) async throws -> TDNativeForumTopic {
+        try await send(TDNativeRequests.getForumTopic(chatId: chatId, forumTopicId: forumTopicId))
+    }
+
+    func getForumTopicHistory(
+        chatId: Int64,
+        forumTopicId: Int,
+        fromMessageId: Int64,
+        limit: Int,
+        offset: Int,
+    ) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.getForumTopicHistory(
+            chatId: chatId,
+            forumTopicId: forumTopicId,
+            fromMessageId: fromMessageId,
+            offset: offset,
+            limit: limit,
+        ))
+    }
+
+    func getForumTopics(
+        chatId: Int64,
+        limit: Int,
+        offsetDate: Int,
+        offsetForumTopicId: Int,
+        offsetMessageId: Int64,
+        query: String,
+    ) async throws -> TDNativeForumTopics {
+        try await send(TDNativeRequests.getForumTopics(
+            chatId: chatId,
+            query: query,
+            offsetDate: offsetDate,
+            offsetMessageId: offsetMessageId,
+            offsetForumTopicId: offsetForumTopicId,
+            limit: limit,
+        ))
     }
 
     func getLanguagePackInfo(languagePackId: String) async throws -> TDNativeLanguagePackInfo {
@@ -230,13 +336,85 @@ extension TDClient {
         try await send(TDNativeRequests.getMessage(chatId: chatId, messageId: messageId))
     }
 
+    func getMessageAvailableReactions(
+        chatId: Int64,
+        messageId: Int64,
+        rowSize: Int,
+    ) async throws -> TDNativeAvailableReactions {
+        try await send(TDNativeRequests.getMessageAvailableReactions(
+            chatId: chatId,
+            messageId: messageId,
+            rowSize: rowSize,
+        ))
+    }
+
+    func getMessageLocally(chatId: Int64, messageId: Int64) async throws -> TDNativeMessage {
+        try await send(TDNativeRequests.getMessageLocally(chatId: chatId, messageId: messageId))
+    }
+
     func getMessageProperties(chatId: Int64, messageId: Int64) async throws -> TDNativeMessageProperties {
         try await send(TDNativeRequests.getMessageProperties(chatId: chatId, messageId: messageId))
+    }
+
+    func getMessageThreadHistory(
+        chatId: Int64,
+        fromMessageId: Int64,
+        limit: Int,
+        messageId: Int64,
+        offset: Int,
+    ) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.getMessageThreadHistory(
+            chatId: chatId,
+            messageId: messageId,
+            fromMessageId: fromMessageId,
+            offset: offset,
+            limit: limit,
+        ))
+    }
+
+    func getOption(name: String) async throws -> TDNativeOptionValue {
+        try await send(TDNativeRequests.getOption(name: name))
+    }
+
+    func getRepliedMessage(chatId: Int64, messageId: Int64) async throws -> TDNativeMessage {
+        try await send(TDNativeRequests.getRepliedMessage(chatId: chatId, messageId: messageId))
+    }
+
+    func getSavedAnimations() async throws -> TDNativeAnimations {
+        try await send(TDNativeRequests.getSavedAnimations())
+    }
+
+    func getSavedMessagesTopicHistory(
+        fromMessageId: Int64,
+        limit: Int,
+        offset: Int,
+        savedMessagesTopicId: Int64,
+    ) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.getSavedMessagesTopicHistory(
+            savedMessagesTopicId: savedMessagesTopicId,
+            fromMessageId: fromMessageId,
+            offset: offset,
+            limit: limit,
+        ))
     }
 
     func getScopeNotificationSettings(scope: TDNativeNotificationSettingsScope) async throws
     -> TDNativeScopeNotificationSettings {
         try await send(TDNativeRequests.getScopeNotificationSettings(scope: scope))
+    }
+
+    func getStickers(
+        chatId: Int64,
+        limit: Int,
+        query: String,
+        stickerType: TDNativeStickerType,
+    ) async throws -> TDNativeStickers {
+        try await send(TDNativeRequests.getStickers(
+            stickerType: stickerType,
+            query: query,
+            limit: limit,
+            chatId: chatId,
+        ))
     }
 
     func getSupergroup(supergroupId: Int64) async throws -> TDNativeSupergroup {
@@ -247,8 +425,30 @@ extension TDClient {
         try await send(TDNativeRequests.getSupergroupFullInfo(supergroupId: supergroupId))
     }
 
+    func getSupergroupMembers(
+        filter: TDNativeSupergroupMembersFilter?,
+        limit: Int,
+        offset: Int,
+        supergroupId: Int64,
+    ) async throws -> TDNativeChatMembers {
+        try await send(TDNativeRequests.getSupergroupMembers(
+            supergroupId: supergroupId,
+            filter: filter,
+            offset: offset,
+            limit: limit,
+        ))
+    }
+
     func getUser(userId: Int64) async throws -> TDNativeUser {
         try await send(TDNativeRequests.getUser(userId: userId))
+    }
+
+    func getUserFullInfo(userId: Int64) async throws -> TDNativeUserFullInfo {
+        try await send(TDNativeRequests.getUserFullInfo(userId: userId))
+    }
+
+    func getUserProfilePhotos(limit: Int, offset: Int, userId: Int64) async throws -> TDNativeChatPhotos {
+        try await send(TDNativeRequests.getUserProfilePhotos(userId: userId, offset: offset, limit: limit))
     }
 
     func logOut() async throws -> TDNativeOk {
@@ -263,8 +463,30 @@ extension TDClient {
         try await send(TDNativeRequests.openMessageContent(chatId: chatId, messageId: messageId))
     }
 
+    func pinChatMessage(
+        chatId: Int64,
+        disableNotification: Bool,
+        messageId: Int64,
+        onlyForSelf: Bool,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.pinChatMessage(
+            chatId: chatId,
+            messageId: messageId,
+            disableNotification: disableNotification,
+            onlyForSelf: onlyForSelf,
+        ))
+    }
+
     func processPushNotification(payload: String) async throws -> TDNativeOk {
         try await send(TDNativeRequests.processPushNotification(payload: payload))
+    }
+
+    func readAllChatReactions(chatId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.readAllChatReactions(chatId: chatId))
+    }
+
+    func readAllForumTopicReactions(chatId: Int64, forumTopicId: Int) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.readAllForumTopicReactions(chatId: chatId, forumTopicId: forumTopicId))
     }
 
     func readChatList(chatList: TDNativeChatList) async throws -> TDNativeOk {
@@ -276,6 +498,18 @@ extension TDClient {
         otherUserIds: [Int64],
     ) async throws -> TDNativePushReceiverId {
         try await send(TDNativeRequests.registerDevice(deviceToken: deviceToken, otherUserIds: otherUserIds))
+    }
+
+    func removeMessageReaction(
+        chatId: Int64,
+        messageId: Int64,
+        reactionType: TDNativeReactionType,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.removeMessageReaction(
+            chatId: chatId,
+            messageId: messageId,
+            reactionType: reactionType,
+        ))
     }
 
     func reorderChatFolders(chatFolderIds: [Int], mainChatListPosition: Int) async throws -> TDNativeOk {
@@ -319,6 +553,22 @@ extension TDClient {
             limit: limit,
             filter: filter,
         ))
+    }
+
+    func searchChats(
+        limit: Int,
+        query: String,
+        typeFilter: TDNativeSearchChatTypeFilter?,
+    ) async throws -> TDNativeChats {
+        try await send(TDNativeRequests.searchChats(query: query, typeFilter: typeFilter, limit: limit))
+    }
+
+    func searchChatsOnServer(
+        limit: Int,
+        query: String,
+        typeFilter: TDNativeSearchChatTypeFilter?,
+    ) async throws -> TDNativeChats {
+        try await send(TDNativeRequests.searchChatsOnServer(query: query, typeFilter: typeFilter, limit: limit))
     }
 
     func sendChatAction(
@@ -376,6 +626,14 @@ extension TDClient {
         try await send(TDNativeRequests.setAuthenticationPhoneNumber(phoneNumber: phoneNumber, settings: settings))
     }
 
+    func setBio(bio: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setBio(bio: bio))
+    }
+
+    func setChatDescription(chatId: Int64, description: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setChatDescription(chatId: chatId, description: description))
+    }
+
     func setChatDraftMessage(
         chatId: Int64,
         draftMessage: TDNativeDraftMessage?,
@@ -388,6 +646,10 @@ extension TDClient {
         ))
     }
 
+    func setChatMemberTag(chatId: Int64, tag: String, userId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setChatMemberTag(chatId: chatId, userId: userId, tag: tag))
+    }
+
     func setChatNotificationSettings(
         chatId: Int64,
         notificationSettings: TDNativeChatNotificationSettings,
@@ -398,8 +660,20 @@ extension TDClient {
         ))
     }
 
+    func setChatTitle(chatId: Int64, title: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setChatTitle(chatId: chatId, title: title))
+    }
+
+    func setName(firstName: String, lastName: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setName(firstName: firstName, lastName: lastName))
+    }
+
     func setOption(name: String, value: TDNativeOptionValue?) async throws -> TDNativeOk {
         try await send(TDNativeRequests.setOption(name: name, value: value))
+    }
+
+    func setPollAnswer(chatId: Int64, messageId: Int64, optionIds: [Int]) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setPollAnswer(chatId: chatId, messageId: messageId, optionIds: optionIds))
     }
 
     func setTdlibParameters(
@@ -446,6 +720,10 @@ extension TDClient {
 
     func toggleChatIsPinned(chatId: Int64, chatList: TDNativeChatList, isPinned: Bool) async throws -> TDNativeOk {
         try await send(TDNativeRequests.toggleChatIsPinned(chatList: chatList, chatId: chatId, isPinned: isPinned))
+    }
+
+    func unpinChatMessage(chatId: Int64, messageId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.unpinChatMessage(chatId: chatId, messageId: messageId))
     }
 
     func viewMessages(

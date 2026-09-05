@@ -1,6 +1,6 @@
 // MessageReactionState.swift
 
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - MessageReactionStateReducer
 
@@ -101,7 +101,7 @@ extension ReactionType {
         }
     }
 
-    var customEmojiID: TdInt64? {
+    var customEmojiID: Int64? {
         if case .reactionTypeCustomEmoji(let reaction) = self {
             reaction.customEmojiId
         } else {
@@ -128,7 +128,7 @@ extension ReactionType {
                 .map { String($0.value, radix: 16) }
                 .joined(separator: "-")
         case .reactionTypeCustomEmoji(let reaction):
-            "custom-\(reaction.customEmojiId.rawValue)"
+            "custom-\(reaction.customEmojiId)"
         case .reactionTypePaid:
             "paid"
         }

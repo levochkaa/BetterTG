@@ -1,7 +1,7 @@
 // PinnedMessageDebugProbe.swift
 
 #if DEBUG
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum PinnedMessageDebugProbe {
@@ -139,9 +139,9 @@
                     supported: true,
                 )?.id == newer.id
             let errorProof = PinnedMessageState.fetchErrorMeansNoPinnedMessage(
-                TDLibKit.Error(code: 404, message: "Not found"),
+                TDLibError(code: 404, message: "Not found"),
             ) && !PinnedMessageState.fetchErrorMeansNoPinnedMessage(
-                TDLibKit.Error(code: 500, message: "Transient"),
+                TDLibError(code: 500, message: "Transient"),
             )
 
             let controller = ProbeViewController(message: message)
@@ -166,7 +166,7 @@
                 chatId: 7,
                 containsUnreadMention: false,
                 containsUnreadPollVotes: false,
-                content: .messageText(.init(
+                content: .messageText(MessageText(
                     linkPreview: nil,
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: text),
@@ -199,7 +199,7 @@
                 selfDestructType: nil,
                 senderBoostCount: 0,
                 senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)),
+                senderId: .messageSenderUser(MessageSenderUser(userId: 1)),
                 senderTag: "",
                 sendingState: nil,
                 suggestedPostInfo: nil,
@@ -207,6 +207,9 @@
                 topicId: nil,
                 unreadReactions: [],
                 viaBotUserId: 0,
+
+            ephemeralContent: nil,
+                chatInstance: 0,
             )
         }
 

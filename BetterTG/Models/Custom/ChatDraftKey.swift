@@ -1,7 +1,7 @@
 // ChatDraftKey.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - ChatDraftKey
 

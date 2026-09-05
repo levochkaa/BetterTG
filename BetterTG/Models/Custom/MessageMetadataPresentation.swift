@@ -1,7 +1,7 @@
 // MessageMetadataPresentation.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - MessageQuoteHighlight
 
@@ -73,14 +73,14 @@ enum MessageReplyInputBuilder {
             return override
         }
         if target.chatId == currentChatID {
-            return .inputMessageReplyToMessage(.init(
+            return .inputMessageReplyToMessage(InputMessageReplyToMessage(
                 checklistTaskId: 0,
                 messageId: target.id,
                 pollOptionId: "",
                 quote: quote,
             ))
         }
-        return .inputMessageReplyToExternalMessage(.init(
+        return .inputMessageReplyToExternalMessage(InputMessageReplyToExternalMessage(
             chatId: target.chatId,
             checklistTaskId: 0,
             messageId: target.id,

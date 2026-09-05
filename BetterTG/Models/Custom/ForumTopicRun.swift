@@ -1,7 +1,7 @@
 // ForumTopicRun.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - ForumTopicRunHeaderID
 
@@ -75,7 +75,7 @@ extension CustomMessage {
     var displayedID: DisplayedMessageID {
         message.mediaAlbumId == 0
             ? .message(id)
-            : .album(message.mediaAlbumId.rawValue)
+            : .album(message.mediaAlbumId)
     }
 
     var oldestSourceMessageID: Int64 {

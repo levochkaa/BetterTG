@@ -484,11 +484,30 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         for indexPath in indexPaths {
             guard let id = dataSource.itemIdentifier(for: indexPath),
                   let chat = chat(for: id),
-                  let avatar = chat.chat.photo?.small,
                   prefetchTasks[id] == nil
             else { continue }
             prefetchTasks[id] = Task { [weak self] in
-                await TDImagePrefetcher.prefetch(file: avatar, maximumPixelSize: 160)
+                if let avatar = chat.chat.photo?.small {
+                    await TDImagePrefetcher.prefetch(file: avatar, maximumPixelSize: 160)
+                }
+                if chat.chat.viewAsTopics {
+                    let _: ForumTopics? = try? await td.getForumTopics(
+                        chatId: id,
+                        limit: 30,
+                        offsetDate: 0,
+                        offsetForumTopicId: 0,
+                        offsetMessageId: 0,
+                        query: "",
+                    )
+                } else {
+                    let _: Messages? = try? await td.getChatHistory(
+                        chatId: id,
+                        fromMessageId: 0,
+                        limit: 30,
+                        offset: 0,
+                        onlyLocal: false,
+                    )
+                }
                 await MainActor.run { self?.prefetchTasks[id] = nil }
             }
         }

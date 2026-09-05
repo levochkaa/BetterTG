@@ -1,7 +1,7 @@
 // ChatLocation.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 struct ChatLocation: Hashable {
     let accountID: UUID?
@@ -39,7 +39,7 @@ struct ChatLocation: Hashable {
             accountID: accountID,
             chatID: chatID,
             clientID: clientID,
-            topic: .messageTopicForum(.init(forumTopicId: id)),
+            topic: .messageTopicForum(MessageTopicForum(forumTopicId: id)),
         )
     }
 

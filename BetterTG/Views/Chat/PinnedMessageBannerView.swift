@@ -1,11 +1,20 @@
 // PinnedMessageBannerView.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - PinnedMessageBannerView
 
 final class PinnedMessageBannerView: UIView {
+    private struct RenderedContent: Equatable {
+        let chatID: Int64
+        let messageID: Int64
+        let preview: String
+        let file: File?
+        let minithumbnailData: Data?
+        let isRound: Bool
+    }
+
     static let contentHeight = CGFloat(50)
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -20,6 +29,7 @@ final class PinnedMessageBannerView: UIView {
     private var textLeadingConstraint: NSLayoutConstraint!
     private var onOpen: (() -> Void)?
     private var onHide: (() -> Void)?
+    private var renderedContent: RenderedContent?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -149,10 +159,26 @@ final class PinnedMessageBannerView: UIView {
         onOpen: @escaping () -> Void,
         onHide: @escaping () -> Void,
     ) {
+        let preview = Self.previewText(for: message)
+        let thumbnail = MessageReplyThumbnail.make(for: message.content)
+        let content = RenderedContent(
+            chatID: message.chatId,
+            messageID: message.id,
+            preview: preview,
+            file: thumbnail?.file,
+            minithumbnailData: thumbnail?.minithumbnailData,
+            isRound: thumbnail?.isRound ?? false,
+        )
+        if renderedContent == content {
+            self.onOpen = onOpen
+            self.onHide = onHide
+            return
+        }
         prepareForReuse()
+        renderedContent = content
         titleLabel.text = "Pinned Message"
-        bodyLabel.text = Self.previewText(for: message)
-        if let thumbnail = MessageReplyThumbnail.make(for: message.content) {
+        bodyLabel.text = preview
+        if let thumbnail {
             thumbnailWidthConstraint.constant = 35
             textLeadingConstraint.constant = 6
             thumbnailView.isHidden = false
@@ -182,6 +208,7 @@ final class PinnedMessageBannerView: UIView {
     }
 
     func prepareForReuse() {
+        renderedContent = nil
         thumbnailView.cancel()
         thumbnailView.image = nil
         thumbnailView.isHidden = true

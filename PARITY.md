@@ -3170,208 +3170,23 @@ is imported. This source pass does not prove every content's real rendering/acti
 
 ## Checkpoint
 
-- Latest code `cb84f9b` closes bounded caption-entity enrichment after request owner `559a762` and explicit preview `805494f`.
-  Exact reviews, warning-free builds and all seven fresh native probes pass at PID91301. Primary/worker code is committed;
-  no new account/server/notification mutation or Simulator shutdown. Goal remains active.
-  Next: A53b2 per-account versioned media evidence/CAS store, ordered off-main invalidation and verified cache-only restore,
-  using the reviewed design gate above. Never reenable raw JPEG fallback; retain the declared pre-ack/post-session limits.
-- Final checkpoint build `191636-93639-26315`: PASS4s, complete1385-line log zero warnings/errors. Prohibited production/
-  dependency markers and NSE raw media cache-call scans are empty; AGENTS/CLAUDE match. Worker is clean; this ledger is the
-  only final agent-authored change and is committed separately. Goal remains active with the A53b2 cursor above.
-- A53b1 `805494f` has exact independent review, warning-free integration and all seven native reports PASS at PID87313.
-  Next bounded A53b1a protects caption-entity spoilers; then required A53b2 restores verified cache-only media. Neither actual
-  APNs delivery nor future/durable edits are proved by the policy fixtures. Previous checkpoint bullets below are historical.
-- Latest notification request slice `559a762`: independent exact review, warning-free build `183542-38148-13783` and all six
-  native probes at PID40035 pass with the limits recorded above. A52a/b1/b2 are bounded fixes, not real APNs delivery proof.
-  Next is A53b1 denial/legacy-read cutoff, followed immediately by required A53b2 verified cache-only preview restoration.
-  Goal remains active; Simulator/account state is preserved. Prior checkpoint bullets below are historical.
-- Latest A51a `38b7d06` plus A51b `6b187b0` pass combined cache/worker native probes PID46367 and warning-free integration
-  build `172737-45171-21885`. Viewport regression passes PID49173, but its idle-only sample is not a performance comparison.
-  Next: A53 notification media concealment, then A52 and actual queued ChatView proof. The A51 section records remaining
-  strict-handoff/photo-removal/registration/media limits; do not reimplement these completed bounded slices.
-  Final checkpoint build `173407-60281-18514` passes without warnings; account stores and Simulator lifetime are preserved.
-- Active continuous work resumed explicitly after `8268947`; no further resume is required. A01/A02/A03/A07 have bounded
-  warning-free build/probe proof; `909215a` repairs A11 with production navigation/relaunch/Delete proof. A13 `c356513` has
-  accepted-event transport proof; A04 through `ef8f4ba` has native and Simulator decoder/controller proof. A12 `847b838` and
-  A18 `76f9998` have combined isolated store/stream proofs. A14 `bb01b8f` and A19 `d8ed16e` have integrated bounded probes.
-  A24 `b18da97` has integrated edit-policy proof; A26 `8519b33`/`5a87726` has store and own voice reinstall/discard proof.
-  A29 `15f146f` has isolated mutation-authority proof and read-only cold-launch folder/editor navigation smoke.
-  A27 `b0db39f` has integrated effective-permission/authorization proof.
-  A30a `0820359`/`c5d3f8b` has production same-PID root-list/search restoration proof; A17 `e8a0eb1` has native finish-owner proof.
-  A30b1 `ef558ec` has isolated one-shot transfer proof; A16 `a72d93b` has actual recorder/store handoff proof.
-  A28 `9cdc6b0` has pagination registration proof; real delayed profile RPC remains unverified.
-  A31 `b7de6ee` has poll-attempt/deadline ownership proof; no server votes or delayed live RPC proof.
-  A15a navigation joins pass through `d34eeb3`; A30b2 history/import helpers `6aa7ce4` and Root A23a `e1d295e` pass bounded probes.
-  A05a/b and A15b1 have bounded source/transport/native proofs; shared production history revisions pass at `da59789`.
-  A06 shared animated demand has bounded transport proof at `09fa140`; static-image origin/demand passes at `7426478`/`b3aa790`.
-  A15b2 voice lifecycle passes at `fe5de21`.
-  Quiescent Chat A30b2 is active at `494bf56`/`9495f0a` with bounded actual-chat smoke. Secondary routes, remaining A23,
-  A25 bounded semantic repair passes through `fb15c25`; live-input coverage and other queued findings remain open.
-  A08/A10 native/UIKit probes now pass through `10b23c5`.
-  Broad parity is not complete.
-  B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified implementation includes A04 partial-file buffering `8be1c9a`, A44a ordinary receipts `1630ee1` and native
-  geometry proof `909f62b`; actual four Read bubbles retain exact frames through a client foreground epoch (PID62893).
-  Explicit forum A44b1 `5b9b322` has native PID86336 and actual topic display/foreground PID90037 proof above.
-  A45a/b/c through `0a4c6af` have bounded native and actual search proofs above; documentation checkpoint `835d4bd` is clean.
-  A44b2a/b `4a2a190`/`2190c4d` pass production-reader/MessageCell regressions PID22721/PID34441. Runtime availability PID5126
-  found nine loaded forums and zero safe base-mode candidates; no route or account preference was changed.
-  Latest implementation build `build-Debug-20261003-064029-33247-16763.log` PASS14s; complete log zero warnings/errors.
-  AGENTS/CLAUDE match; production/dependency scan still has zero VLC, forbidden UI and imported Telegram-infrastructure markers.
-  A30d active-search renewal through `501af59`, native proof through `37e08e8`
-  (PID27782 PASS) and actual two-epoch search/clear smoke (PID1590). A43 receipt feed has three native root regressions PASS,
-  PID `24065`.
-  Its baseline `d8e2bb0` includes A30g `55ff037`/`f9b5dad`, visible Retry `e049da3` and A42 `59f187b`.
-  Native Members/Profile regressions pass (PID `99916`); actual `f9b5dad` Members survives two ownership epochs and Admins one,
-  with stable small-list geometry and Back→Profile. Actual active search now continues after foreground without Cancel;
-  first focused and second keyboard-hidden epochs pass. A30g large-list/permission/editor limits remain.
-  Earlier `72d74b0` includes A39 `6a29431`/`982245f`, A40 `eff2876` warning visibility and A41 static-cleanup dependency order.
-  Actual PID `30616` passes cold/loaded/foreground target settlement with stable visible cells and retained scrolled Files anchor;
-  expanded native viewport probe passes. A39's measured defect is repaired; live quote/album/rotation interruption remains unverified.
-  Earlier actual PID `8251` identifies automatic anchor compensation interrupting explicit animation.
-  Viewport/profile-restoration native probes at `17e3fb4` pass (PID `95662`) but did not cover this sequence.
-  `b630844` completes A38/profile-restoration native checks (PID `39878`); production
-  `97ccea8` also passes media/PiP/gallery regressions and actual scrolled profile foreground (PID `32182`).
-  `04c904a` corrected focused prompt baseline passes24 samples (PID `4253`), without a production fix.
-  `0608d15` modal presentation fixture correction passes combined probes (PID `97142`).
-  `f70cd58` child membership has native proof (PID `88865`); combined-probe modal timing is separately tracked. `c68c1c2` profile route/tab/Search smoke passes
-  (PID `68772`); introduced A38 stale-media admission is repaired by `97ccea8`. A36 presentation native/actual proof passes.
-  `c9254f3` A36 presentation has a warning-free integration build. `9c0816b` A30f2
-  prerequisites have native proof (PID `56662`), not activation proof. A37 repeat settled screenshots are clean; cause remains open.
-  `1b89dbd` Done native/actual-selector proof passes (PID `29718`); A30f1 `1e072ca` actual editor
-  foreground/typing/discard/reopen and four native regressions pass (PID `9957`), with separate layout finding A37.
-  `b923f19` includes A30e `850ccf8`; folder-flow and four regression probes pass (PID `80658`).
-  `f45869b` includes A21d `fd98d02`; native secret-hold/capture-trait regression passes (PID `58077`).
-  `3290ba4` includes A34 `4185849` and A35 `67c9470`; combined seven-probe regression passes (PID `44216`).
-  `3983b48`: native nil-Back policy probe and actual Profile/Edit/Back smoke pass (PID `20378`);
-  explicit Save remains plain, Back remains circular. `1cd9ecf`: pending membership and Root/scoped/Forum/navigation helper regressions pass (PID `94658`).
-  `941a90a` fixes explicit Save chrome but leaves native Back open; `3a7ac85` gives actual public-state diagnostics. The ineffective
-  timing trial `839c26e` is removed after PID `96492` repeats the same visible Back background.
-  `b3aa790`: static-image/shared-demand/profile-grid/scoped-delivery probes pass (PID `70966`), native
-  timed video-note regression passes (PID `53678`). Actual own-profile/avatar/grid/header smoke passes at `7426478` (PID `69030`).
-  `a264c4e` preserves desktop focus during wrapper runs. `01a2d84` plus the committed forum smoke helper: actual quiescent topic-list foreground replacement passes
-  (PID `54903`); forum/navigation/Root/scoped-update probes pass at `01a2d84` (PID `49689`).
-  `b97fa9b`: actual own-profile header widths/full title/avatar and media concealment regression pass (PID `20471`).
-  `4c3fc5e`: timed video-note native hold probe passes (PID `12358`, production `437d7c7` plus that probe fix);
-  profile/media/text/navigation regressions pass (PID `13038`), native animation and gallery-owner pass separately (`15898`/`16179`).
-  `bdd19cd`: profile/media concealment, text-spoiler and navigation probes pass (PID `473`);
-  own-profile navigation and populated grid load pass without opening media. `bb36bc7`: Archive same-PID search/foreground
-  replacement smoke and navigation/Root/auth regressions pass (PID `52323`).
-  `05c2b49`: media-reveal/text-spoiler/viewport probes pass (PID `39784`); native animation/transition,
-  gallery-owner and PiP-context regressions pass in separate launches (PIDs `40544`/`40966`/`42082`).
-  `097b488` with assertion-only `d7e9974`: auth, Root/Chat source, viewport and composer probes pass (PID `31259`);
-  authenticated cold-launch root and Home→foreground smoke pass.
-  `6869382`: viewport policy, Chat state and composer regressions pass (PID `2570`); ordinary Saved scroll/latest smoke passes.
-  `26d5f48`: marked-input model feedback and actual UIKit undo/redo pass (PID `94652`), with restoration/spoiler regressions.
-  `fb15c25`: semantic composer, edit/restoration, text-spoiler and scoped-update regressions pass (PID `92214`).
-  Static-image observer/source regression passes at `ba0e192` (PID `89171`).
-  `e9b536b`: native inline animation, gallery-owner and PiP-context regressions pass (PIDs `83851`/`84406`/`84924`).
-  A23 forum-topic scoped delivery plus Root/Chat-state/spoiler regressions pass at `78f0f8a` (PID `81496`).
-  A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
-  A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
-  proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Latest full-log-verified warning-free signed integration builds: `.build/logs/xcodebuild/build-Debug-20261003-030933-90779-22519.log`
-  and `025548-60862-15401`; A42 final `025014-56598-7723` also passes. Earlier signed `015810-30055-29778`/`015646-29545-22064`
-  and unsigned `015734-29820-5419` pass. A40 records the rejected nonclean `014324` claim.
-  Earlier integration builds: `.build/logs/xcodebuild/build-Debug-20261003-011303-7581-26376.log`,
-  `build-Debug-20261003-005819-95305-8829.log`,
-  `build-Debug-20261003-005409-91096-31077.log`, `build-Debug-20261003-003813-36345-3545.log`,
-  `build-Debug-20261003-002923-30429-24207.log`, `build-Debug-20261002-232705-14634-13985.log`,
-  `build-Debug-20261002-232350-7050-2496.log`, `build-Debug-20261002-231025-79060-7092.log`,
-  `build-Debug-20261002-230359-64579-5399.log`, `build-Debug-20261002-225546-56715-10303.log`,
-  `build-Debug-20261002-224502-40819-31807.log` and
-  `build-Debug-20261002-223928-27434-8714.log`.
-  Production/dependency scan over `project.yml`, `BetterTG`,
-  `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
-  The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
-- The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
-  A30b2 controller/history, A23b Chat fences, A10/A25, A23e auth and A21c timed video-note authority are integrated.
-  Static-image origin/shared-demand `73bcb04` is integrated as `7426478`, with reviewed fixture correction `b3aa790` and runtime proof.
-  A23g pending membership is integrated as `1cd9ecf` with actual-helper proof. A34 accepted-update projection/refresh retirement
-  is integrated as `4185849`/`3290ba4`; A30e folder-flow authority is integrated as `850ccf8`/`b923f19` with native/runtime proof.
-  A36 presentation is integrated as `c9254f3`; focused prompt baseline as `d34d012`. A38 `4116257`/`054caab` is integrated
-  as `97ccea8`/`b630844`, with bounded native/actual proof above. A39 `4fc6d02`/`f6899a0` is integrated as `1b1429f`/`17e3fb4`;
-  diagnostics `805a07b` is integrated as `8b8d149`, settlement `1af25c6` as `6a29431`, convergence `9eee50d` as `982245f`.
-  Their bounded native/actual proof is above. A30g `0c2e1a2`/`50a299a`/`6b5a29d` is integrated as
-  `55ff037`/`f9b5dad`/`e049da3`, with native/actual proof above. A30d `5c65406`/`465cf12`/`a75f667`/`8a08600`
-  are integrated as `f551b40`/`1f959bb`/`cc6ad7e`/`501af59`; probe corrections `f8e40b1`/`655698c`/`7097a76` as
-  `e5979fd`/`c9e2169`/`37e08e8`. Bounded native/actual proof passes. A44a `52d7e33` is integrated as `1630ee1`;
-  primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
-  A44b1 `caf406d` is integrated as `5b9b322`; A45a `af3a8bb` is integrated as `e3fb6d9` with bounded native proof.
-  A45b `9ec934a`/`c84cb18` are integrated as `597d6f3`/`c9317e5`; A45c `656e32c` as `0a4c6af`, native regressions pass.
-  A44b2a `0942d9c` as `4a2a190`, b2b `76f6f73` as `2190c4d`: native reader/MessageCell regressions pass.
-  Reviewer is checking remaining concrete P1 renewal work before P2 pin ordering; implementation worker is clean.
-  A46 pinned ordering is separate.
-  Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
-  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
-  A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
-  still ignores the configured flag in runtime proof. Ineffective generated Back is removed by `3983b48` after independent
-  source review; A23g/A34 independent review found no further introduced blocker. A35 is integrated as `67c9470`.
-  A21d secret-note recording/mirroring admission is integrated as `fd98d02`/`f45869b`; photo and immediate/view-once remain denied.
-  Profile-editor repair is integrated as `1e072ca`. A30f2 prerequisite is integrated as `9c0816b`; activation `35adb4d`
-  is integrated as `c68c1c2` with bounded route proof and introduced A38 finding. Child membership is integrated as `f70cd58`.
-  Focused-prompt measurement correction is integrated as `04c904a` with native proof. This worker independently reviewed A38
-  and its DEBUG settlement correction, then source-confirmed A39; it has no uncommitted implementation delta.
-  Parent owns idb; Simulators remain booted.
-  Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
-- Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
-  `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
-  main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
-  new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: P1 A49c2 coherent provider/serialized applies across all five producers; A49c1 `d8512b5` immutable value
-  prerequisite has native proof. Preserve A50 `487c0de` all-row mode exit and A49b `eeb93b2`/`9961aba` action/touch authority.
-  A49a `ca71e33` with oracle `0404996` has bounded native/ordinary UI proof; earlier test failures and their measured cause remain above.
-  A22 `41f87a5` has real unchanged-snapshot control/ended-delegate-drag proof; actual prepend/keyboard/media-resize remains open.
-  Keep the initial A39 helper failure and passing standalone retry as separate observations; cause remains unresolved.
-  A46b `e2dd664` and A32 placement `1ef0935` have bounded native/actual proof above; native chrome remains partial.
-  A48 `fe9424c`/`727103c` has bounded native/regression proof above.
-  A46a `34b7868` has bounded native/actual-list/foreground proof above. Preserve raw pagination, exact query/source ownership,
-  A45 arbitration and A47's native read bound; never infer configured pin positions from timestamps or topic IDs.
-  A47 `09db3f5` and A30h `c895a8c` have bounded native/regression proofs above; their live/runtime limitations remain.
-  A44b2b now derives exact raw-topic receipts with the existing shared reads. Preserve A44a/b1/b2 states and A45 no-echo behavior,
-  source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 live multi-pin/reorder behavior remains unverified.
-  A45a/b/c have bounded real-VM/native-cell proof above. A44a/A44b1 have bounded native/actual proofs above;
-  A44b2 has controlled/native proof, live all-messages data remains unavailable; final self/broadcast checks conservatively absent.
-  A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
-  live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
-  A30g bounded recovery is verified; larger member lists, server permission changes and live tag-editor/Save renewal stay open.
-  A43 list receipt feed is fixed in `596e895`; A44a repairs ordinary bubbles separately. Keep topic/self/broadcast contracts above.
-  A39 mid-flight takeover and estimated-height convergence now pass bounded cold/loaded/foreground target checks at `72d74b0`;
-  live quote/album/rotation/user-interruption coverage and sequential metadata waits remain separate limits.
-  A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
-  A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate.
-  A36 child-publisher and actual deleted-title proofs pass; modal fixture correction passes combined probes. A37 complete
-  focused baseline and actual delayed settled geometry are clean; retain the original intermittent failure and avoid speculative rewrite.
-  Retain A32 native Back/search capsule styling and extended runtime matrix;
-  retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
-  Retain static-image live transport/account-switch proof limits and Chat's untested nonempty composer/import/keyboard cases.
-  Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
-  process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
-  The full A30 transaction
-  spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15 and A20–A23/A25/A32.
-  Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
-  A12 crash before registration retains unresolved ownership; do not guess an outcome. A04 cold partial-file native playback/seek
-  now passes with explicit incomplete coverage; retain live-server, large-file A/V and lookahead-estimate limits above.
-  B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
-  profile/gallery and account/list/shell audit
-  coverage. Retain completed range/renderer checks; do not restart source review unless code/dependencies change.
-  New feature breadth remains behind the audit gate.
-- Last pre-audit feature slice: `7b0699d` member/admin user rows open a standalone UIKit member-tag flow with fresh
-  actor/target authority, exact baseline conflict detection, awaited `setChatMemberTag`, account fences and post-success list reload.
-- Timeline invariants to revalidate: raw TDLib pagination owns the cursor; `mediaAlbumId` owns grouped identity across pages; heterogeneous
-  message/date/topic items rebuild from canonical state; only messages participate in behavior; every structural apply restores a visible
-  message + exact pixel offset. Date→topic ordering and significant-time/locale reconfiguration follow Telegram's header spaces.
-- Historical verification: warning-free Xcode 26.6 build `.build/logs/xcodebuild/build-Debug-20260831-153759-82885-28094.log`; focused
-  Telegram/API and post-reload-fix delta reviews reported CLEAN. PID `83599` completed the non-mutating member-tag smoke; Simulator
-  was left booted. These results are not a fresh whole-implementation audit.
-- Historical proof blockers to reassess: the reachable account lacked member-tag authority; the denial path was runtime-proved,
-  authorized editing/writes were source-reviewed/build-proved only. No safe reachable forum had `viewAsTopics == false`, the software
-  keyboard stayed hidden after first-responder taps, and idb omitted context-menu actions. Active PiP and camera capture need capable
-  hardware. Record current availability and continue independent checks without upgrading blocked proof to passed.
-- Deferred feature candidate after the audit: promote/demote/remove member-management tools. Keep rights mutations independent of
-  member tags; confirmed higher-priority audit findings take precedence.
-
-## Historical implementation slices
+- Active continuation: `codex/parity-continuation` in worktree `31df/BetterTG`. The complete first media/parity
+  history through `5d990c1` and all 44 continuation commits through `7b0699d` are retained, including member tags.
+  The integration merges `1d9d80a`, which contains local `main` at `6dd705c` and TDLibKit 2.0.0.
+- Native compatibility preserves account/topic-scoped composer and media drafts, profile permissions, gallery actions and
+  persistent FFmpeg sessions. Legacy archive adapters preserve formatted text, quotes, replies and all MessageTopic variants;
+  native value equality preserves reaction/avatar change detection. Generated aliases exclude application-owned types such as
+  `ChatLocation`. Chat open/close transitions are serialized per account/client/chat.
+- Timeline invariants: raw TDLib pagination owns the cursor; complete pages are hydrated without skipping an unconsumed item;
+  canonical album/date/topic identity and visible message + pixel-offset restoration remain in the continuation.
+- Verification: Xcode 26.6 / iOS 26.5 build `.build/logs/xcodebuild/build-Debug-20260905-162608-6672-21615.log` has no warnings.
+  PID `5795` passed fresh legacy draft coding, Ogg/Opus, account/topic-isolated voice drafts, frozen-topic video send/recording
+  drafts and persistent VP9/Opus range playback probes. Results are app Documents probe files; UI evidence is under
+  `.build/ui-probe-evidence/parity-merge-20260905/`.
+- UI audit found an inherited narrow profile title (94 pt for a long group title on a 402 pt screen). This is the next
+  bounded fix. Member rows enter the tag editor; the available account's permission-denial path is expected. Authorized tag
+  Save/remove and other server mutations remain unverified. The later feature checkpoint remains promote/demote/remove and
+  admin-rights editing, independent of the existing tag flow.
 
 ### UIKit peer profile and shared-media slice
 

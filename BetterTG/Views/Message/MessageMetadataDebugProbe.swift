@@ -1,7 +1,7 @@
 // MessageMetadataDebugProbe.swift
 
 #if DEBUG
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum MessageMetadataDebugProbe {
@@ -109,28 +109,28 @@
                 entities: [TextEntity(length: 6, offset: 0, type: .textEntityTypeBold)],
                 text: "Quoted line one\nQuoted line two\nQuoted line three\nQuoted line four\nQuoted line five\nQuoted line six\nQuoted line seven",
             )
-            let reply = MessageReplyTo.messageReplyToMessage(.init(
+            let reply = MessageReplyTo.messageReplyToMessage(MessageReplyToMessage(
                 chatId: 777,
                 checklistTaskId: 0,
-                content: .messageText(.init(
+                content: .messageText(MessageText(
                     linkPreview: nil,
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: "Inline fallback body"),
                 )),
                 messageId: 0,
-                origin: .messageOriginHiddenUser(.init(senderName: "Inline Author")),
+                origin: .messageOriginHiddenUser(MessageOriginHiddenUser(senderName: "Inline Author")),
                 originSendDate: 1,
                 pollOptionId: "",
                 quote: TextQuote(isManual: true, position: 7, text: quoteText),
             ))
-            let parent = makeMessage(id: 700, chatID: 1, content: .messageText(.init(
+            let parent = makeMessage(id: 700, chatID: 1, content: .messageText(MessageText(
                 linkPreview: nil,
                 linkPreviewOptions: nil,
                 text: FormattedText(entities: [], text: "Parent"),
             )), replyTo: reply)
             let forwardInfo = MessageForwardInfo(
                 date: 1,
-                origin: .messageOriginHiddenUser(.init(senderName: "Original Author")),
+                origin: .messageOriginHiddenUser(MessageOriginHiddenUser(senderName: "Original Author")),
                 publicServiceAnnouncementType: "",
                 source: ForwardSource(
                     chatId: 888,
@@ -152,21 +152,21 @@
             let unknownChatParent = makeMessage(
                 id: 701,
                 chatID: 1,
-                content: .messageText(.init(
+                content: .messageText(MessageText(
                     linkPreview: nil,
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: "Unknown parent"),
                 )),
-                replyTo: .messageReplyToMessage(.init(
+                replyTo: .messageReplyToMessage(MessageReplyToMessage(
                     chatId: 0,
                     checklistTaskId: 0,
-                    content: .messageText(.init(
+                    content: .messageText(MessageText(
                         linkPreview: nil,
                         linkPreviewOptions: nil,
                         text: FormattedText(entities: [], text: "Unknown inline"),
                     )),
                     messageId: 0,
-                    origin: .messageOriginHiddenUser(.init(senderName: "Unknown Author")),
+                    origin: .messageOriginHiddenUser(MessageOriginHiddenUser(senderName: "Unknown Author")),
                     originSendDate: 1,
                     pollOptionId: "",
                     quote: nil,
@@ -200,17 +200,18 @@
             testForwardView.configure(presentation: forwardPresentation, client: nil) { forwardNavigated = true }
             testForwardView.simulateTapForProbe()
 
-            let originalExternal = InputMessageReplyTo.inputMessageReplyToExternalMessage(.init(
-                chatId: 42,
-                checklistTaskId: 5,
-                messageId: 43,
-                pollOptionId: "option",
-                quote: InputTextQuote(position: 3, text: FormattedText(entities: [], text: "kept")),
-            ))
+            let originalExternal = InputMessageReplyTo
+                .inputMessageReplyToExternalMessage(InputMessageReplyToExternalMessage(
+                    chatId: 42,
+                    checklistTaskId: 5,
+                    messageId: 43,
+                    pollOptionId: "option",
+                    quote: InputTextQuote(position: 3, text: FormattedText(entities: [], text: "kept")),
+                ))
             let externalTarget = makeMessage(
                 id: 43,
                 chatID: 42,
-                content: .messageText(.init(
+                content: .messageText(MessageText(
                     linkPreview: nil,
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: "External"),
@@ -253,7 +254,7 @@
             let sourcePriority = forwardPresentation.sourceTitle == "Last Forward Source • Original Author"
                 && forwardPresentation.navigationTarget == .message(chatID: 888, messageID: 999, quote: nil)
             let inputProof = preservedInput == originalExternal
-                && authoredExternal == .inputMessageReplyToExternalMessage(.init(
+                && authoredExternal == .inputMessageReplyToExternalMessage(InputMessageReplyToExternalMessage(
                     chatId: 42,
                     checklistTaskId: 0,
                     messageId: 43,
@@ -330,7 +331,7 @@
                 selfDestructType: nil,
                 senderBoostCount: 0,
                 senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)),
+                senderId: .messageSenderUser(MessageSenderUser(userId: 1)),
                 senderTag: "",
                 sendingState: nil,
                 suggestedPostInfo: nil,
@@ -338,6 +339,9 @@
                 topicId: nil,
                 unreadReactions: [],
                 viaBotUserId: 0,
+
+            ephemeralContent: nil,
+                chatInstance: 0,
             )
         }
 

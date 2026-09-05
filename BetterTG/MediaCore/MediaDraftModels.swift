@@ -7,9 +7,9 @@ import TDLibKit
 
 // Stable value snapshots for on-disk media drafts. Keep the original TDLibKit 1
 // JSON field names and tagged unions so existing recordings survive the migration.
-// Native TDLibKit 2 objects are reconstructed only at the request boundary.
+// Native archive conformances reconstruct TDLibKit 2 values when decoding these snapshots.
 
-enum MediaDraftDateTimeFormattingType: Codable, Equatable {
+enum MediaDraftDateTimeFormattingType: Codable, Hashable {
     case dateTimeFormattingTypeRelative
     case dateTimeFormattingTypeAbsolute(MediaDraftDateTimeFormattingTypeAbsolute)
 
@@ -62,7 +62,7 @@ enum MediaDraftDateTimeFormattingType: Codable, Equatable {
 
 // MARK: - MediaDraftDateTimeFormattingTypeAbsolute
 
-struct MediaDraftDateTimeFormattingTypeAbsolute: Codable, Equatable {
+struct MediaDraftDateTimeFormattingTypeAbsolute: Codable, Hashable {
     let datePrecision: MediaDraftDateTimePartPrecision
     let showDayOfWeek: Bool
     let timePrecision: MediaDraftDateTimePartPrecision
@@ -84,7 +84,7 @@ struct MediaDraftDateTimeFormattingTypeAbsolute: Codable, Equatable {
 
 // MARK: - MediaDraftDateTimePartPrecision
 
-enum MediaDraftDateTimePartPrecision: Codable, Equatable {
+enum MediaDraftDateTimePartPrecision: Codable, Hashable {
     case dateTimePartPrecisionNone
     case dateTimePartPrecisionShort
     case dateTimePartPrecisionLong
@@ -146,7 +146,7 @@ enum MediaDraftDateTimePartPrecision: Codable, Equatable {
 
 // MARK: - MediaDraftFormattedText
 
-struct MediaDraftFormattedText: Codable, Equatable {
+struct MediaDraftFormattedText: Codable, Hashable {
     let entities: [MediaDraftTextEntity]
     let text: String
 
@@ -165,7 +165,7 @@ struct MediaDraftFormattedText: Codable, Equatable {
 
 // MARK: - MediaDraftInputMessageReplyTo
 
-enum MediaDraftInputMessageReplyTo: Codable, Equatable {
+enum MediaDraftInputMessageReplyTo: Codable, Hashable {
     case inputMessageReplyToMessage(MediaDraftInputMessageReplyToMessage)
     case inputMessageReplyToExternalMessage(MediaDraftInputMessageReplyToExternalMessage)
     case inputMessageReplyToStory(MediaDraftInputMessageReplyToStory)
@@ -241,7 +241,7 @@ enum MediaDraftInputMessageReplyTo: Codable, Equatable {
 
 // MARK: - MediaDraftInputMessageReplyToEphemeralMessage
 
-struct MediaDraftInputMessageReplyToEphemeralMessage: Codable, Equatable {
+struct MediaDraftInputMessageReplyToEphemeralMessage: Codable, Hashable {
     let ephemeralMessageId: Int
 
     var native: TDNativeInputMessageReplyToEphemeralMessage {
@@ -257,7 +257,7 @@ struct MediaDraftInputMessageReplyToEphemeralMessage: Codable, Equatable {
 
 // MARK: - MediaDraftInputMessageReplyToExternalMessage
 
-struct MediaDraftInputMessageReplyToExternalMessage: Codable, Equatable {
+struct MediaDraftInputMessageReplyToExternalMessage: Codable, Hashable {
     let chatId: Int64
     let checklistTaskId: Int
     let messageId: Int64
@@ -285,7 +285,7 @@ struct MediaDraftInputMessageReplyToExternalMessage: Codable, Equatable {
 
 // MARK: - MediaDraftInputMessageReplyToMessage
 
-struct MediaDraftInputMessageReplyToMessage: Codable, Equatable {
+struct MediaDraftInputMessageReplyToMessage: Codable, Hashable {
     let checklistTaskId: Int
     let messageId: Int64
     let pollOptionId: String
@@ -310,7 +310,7 @@ struct MediaDraftInputMessageReplyToMessage: Codable, Equatable {
 
 // MARK: - MediaDraftInputMessageReplyToStory
 
-struct MediaDraftInputMessageReplyToStory: Codable, Equatable {
+struct MediaDraftInputMessageReplyToStory: Codable, Hashable {
     let storyId: Int
     let storyPosterChatId: Int64
 
@@ -329,7 +329,7 @@ struct MediaDraftInputMessageReplyToStory: Codable, Equatable {
 
 // MARK: - MediaDraftInputTextQuote
 
-struct MediaDraftInputTextQuote: Codable, Equatable {
+struct MediaDraftInputTextQuote: Codable, Hashable {
     let position: Int
     let text: MediaDraftFormattedText
 
@@ -346,9 +346,149 @@ struct MediaDraftInputTextQuote: Codable, Equatable {
     }
 }
 
+// MARK: - MediaDraftMessageTopic
+
+enum MediaDraftMessageTopic: Codable, Hashable {
+    case messageTopicThread(MediaDraftMessageTopicThread)
+    case messageTopicForum(MediaDraftMessageTopicForum)
+    case messageTopicDirectMessages(MediaDraftMessageTopicDirectMessages)
+    case messageTopicSavedMessages(MediaDraftMessageTopicSavedMessages)
+
+    private enum Kind: String, Codable {
+        case messageTopicThread
+        case messageTopicForum
+        case messageTopicDirectMessages
+        case messageTopicSavedMessages
+    }
+
+    var native: TDNativeMessageTopic {
+        switch self {
+        case .messageTopicThread(let value):
+            .messageTopicThread(value.native)
+        case .messageTopicForum(let value):
+            .messageTopicForum(value.native)
+        case .messageTopicDirectMessages(let value):
+            .messageTopicDirectMessages(value.native)
+        case .messageTopicSavedMessages(let value):
+            .messageTopicSavedMessages(value.native)
+        }
+    }
+
+    init(_ value: TDNativeMessageTopic) {
+        self =
+            switch value {
+            case .messageTopicThread(let value):
+                .messageTopicThread(MediaDraftMessageTopicThread(value))
+            case .messageTopicForum(let value):
+                .messageTopicForum(MediaDraftMessageTopicForum(value))
+            case .messageTopicDirectMessages(let value):
+                .messageTopicDirectMessages(MediaDraftMessageTopicDirectMessages(value))
+            case .messageTopicSavedMessages(let value):
+                .messageTopicSavedMessages(MediaDraftMessageTopicSavedMessages(value))
+            }
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: MediaDraftTypeKey.self)
+        self =
+            switch try container.decode(Kind.self, forKey: .type) {
+            case .messageTopicThread:
+                try .messageTopicThread(MediaDraftMessageTopicThread(from: decoder))
+            case .messageTopicForum:
+                try .messageTopicForum(MediaDraftMessageTopicForum(from: decoder))
+            case .messageTopicDirectMessages:
+                try .messageTopicDirectMessages(MediaDraftMessageTopicDirectMessages(from: decoder))
+            case .messageTopicSavedMessages:
+                try .messageTopicSavedMessages(MediaDraftMessageTopicSavedMessages(from: decoder))
+            }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: MediaDraftTypeKey.self)
+        switch self {
+        case .messageTopicThread(let value):
+            try container.encode(Kind.messageTopicThread, forKey: .type)
+            try value.encode(to: encoder)
+        case .messageTopicForum(let value):
+            try container.encode(Kind.messageTopicForum, forKey: .type)
+            try value.encode(to: encoder)
+        case .messageTopicDirectMessages(let value):
+            try container.encode(Kind.messageTopicDirectMessages, forKey: .type)
+            try value.encode(to: encoder)
+        case .messageTopicSavedMessages(let value):
+            try container.encode(Kind.messageTopicSavedMessages, forKey: .type)
+            try value.encode(to: encoder)
+        }
+    }
+}
+
+// MARK: - MediaDraftMessageTopicDirectMessages
+
+struct MediaDraftMessageTopicDirectMessages: Codable, Hashable {
+    let directMessagesChatTopicId: Int64
+
+    var native: TDNativeMessageTopicDirectMessages {
+        TDNativeMessageTopicDirectMessages(
+            directMessagesChatTopicId: directMessagesChatTopicId,
+        )
+    }
+
+    init(_ value: TDNativeMessageTopicDirectMessages) {
+        self.directMessagesChatTopicId = value.directMessagesChatTopicId
+    }
+}
+
+// MARK: - MediaDraftMessageTopicForum
+
+struct MediaDraftMessageTopicForum: Codable, Hashable {
+    let forumTopicId: Int
+
+    var native: TDNativeMessageTopicForum {
+        TDNativeMessageTopicForum(
+            forumTopicId: forumTopicId,
+        )
+    }
+
+    init(_ value: TDNativeMessageTopicForum) {
+        self.forumTopicId = value.forumTopicId
+    }
+}
+
+// MARK: - MediaDraftMessageTopicSavedMessages
+
+struct MediaDraftMessageTopicSavedMessages: Codable, Hashable {
+    let savedMessagesTopicId: Int64
+
+    var native: TDNativeMessageTopicSavedMessages {
+        TDNativeMessageTopicSavedMessages(
+            savedMessagesTopicId: savedMessagesTopicId,
+        )
+    }
+
+    init(_ value: TDNativeMessageTopicSavedMessages) {
+        self.savedMessagesTopicId = value.savedMessagesTopicId
+    }
+}
+
+// MARK: - MediaDraftMessageTopicThread
+
+struct MediaDraftMessageTopicThread: Codable, Hashable {
+    let messageThreadId: Int64
+
+    var native: TDNativeMessageTopicThread {
+        TDNativeMessageTopicThread(
+            messageThreadId: messageThreadId,
+        )
+    }
+
+    init(_ value: TDNativeMessageTopicThread) {
+        self.messageThreadId = value.messageThreadId
+    }
+}
+
 // MARK: - MediaDraftTextEntity
 
-struct MediaDraftTextEntity: Codable, Equatable {
+struct MediaDraftTextEntity: Codable, Hashable {
     let length: Int
     let offset: Int
     let type: MediaDraftTextEntityType
@@ -370,7 +510,7 @@ struct MediaDraftTextEntity: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityType
 
-enum MediaDraftTextEntityType: Codable, Equatable {
+enum MediaDraftTextEntityType: Codable, Hashable {
     case textEntityTypeMention
     case textEntityTypeHashtag
     case textEntityTypeCashtag
@@ -638,7 +778,7 @@ enum MediaDraftTextEntityType: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityTypeCustomEmoji
 
-struct MediaDraftTextEntityTypeCustomEmoji: Codable, Equatable {
+struct MediaDraftTextEntityTypeCustomEmoji: Codable, Hashable {
     let customEmojiId: MediaDraftInt64
 
     var native: TDNativeTextEntityTypeCustomEmoji {
@@ -654,7 +794,7 @@ struct MediaDraftTextEntityTypeCustomEmoji: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityTypeDateTime
 
-struct MediaDraftTextEntityTypeDateTime: Codable, Equatable {
+struct MediaDraftTextEntityTypeDateTime: Codable, Hashable {
     let formattingType: MediaDraftDateTimeFormattingType?
     let unixTime: Int
 
@@ -673,7 +813,7 @@ struct MediaDraftTextEntityTypeDateTime: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityTypeMediaTimestamp
 
-struct MediaDraftTextEntityTypeMediaTimestamp: Codable, Equatable {
+struct MediaDraftTextEntityTypeMediaTimestamp: Codable, Hashable {
     let mediaTimestamp: Int
 
     var native: TDNativeTextEntityTypeMediaTimestamp {
@@ -689,7 +829,7 @@ struct MediaDraftTextEntityTypeMediaTimestamp: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityTypeMentionName
 
-struct MediaDraftTextEntityTypeMentionName: Codable, Equatable {
+struct MediaDraftTextEntityTypeMentionName: Codable, Hashable {
     let userId: Int64
 
     var native: TDNativeTextEntityTypeMentionName {
@@ -705,7 +845,7 @@ struct MediaDraftTextEntityTypeMentionName: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityTypePreCode
 
-struct MediaDraftTextEntityTypePreCode: Codable, Equatable {
+struct MediaDraftTextEntityTypePreCode: Codable, Hashable {
     let language: String
 
     var native: TDNativeTextEntityTypePreCode {
@@ -721,7 +861,7 @@ struct MediaDraftTextEntityTypePreCode: Codable, Equatable {
 
 // MARK: - MediaDraftTextEntityTypeTextUrl
 
-struct MediaDraftTextEntityTypeTextUrl: Codable, Equatable {
+struct MediaDraftTextEntityTypeTextUrl: Codable, Hashable {
     let url: String
 
     var native: TDNativeTextEntityTypeTextUrl {
@@ -743,7 +883,7 @@ private enum MediaDraftTypeKey: String, CodingKey {
 
 // MARK: - MediaDraftInt64
 
-struct MediaDraftInt64: Codable, Equatable {
+struct MediaDraftInt64: Codable, Hashable {
     let rawValue: Int64
 
     init(_ rawValue: Int64) {

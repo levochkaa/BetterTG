@@ -294,7 +294,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                                     chat,
                                     location: ChatLocation.current(
                                         chatID: chat.id,
-                                        topic: .messageTopicForum(.init(
+                                        topic: .messageTopicForum(MessageTopicForum(
                                             forumTopicId: topic.info.forumTopicId,
                                         )),
                                         client: client,

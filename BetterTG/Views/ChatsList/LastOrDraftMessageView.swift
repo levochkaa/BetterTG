@@ -35,27 +35,6 @@ import UIKit
     }
 
     static func summary(for message: Message) -> String {
-        switch message.content {
-        case .messagePhoto(let photo):
-            photo.caption.text.isEmpty
-                ? L10n.telegram("Message.Photo")
-                : "\(L10n.telegram("Message.Photo")): \(photo.caption.text)"
-        case .messageVoiceNote(let voice):
-            voice.caption.text.isEmpty
-                ? L10n.telegram("Message.Audio")
-                : "\(L10n.telegram("Message.Audio")): \(voice.caption.text)"
-        case .messageText(let text):
-            text.text.text
-        case .messageAnimation:
-            L10n.telegram("Message.Animation")
-        case .messageSticker:
-            L10n.telegram("Message.Sticker")
-        case .messageVideo:
-            L10n.telegram("Message.Video")
-        case .messageUnsupported:
-            L10n.betterTG("Chat.UnsupportedTDLib")
-        default:
-            L10n.betterTG("Chat.UnsupportedBetterTG")
-        }
+        MessageContentPresentation.make(message).summary
     }
 }

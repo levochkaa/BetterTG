@@ -3,7 +3,7 @@
 import AVFoundation
 import Combine
 import ImageIO
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ProfileAvatarGalleryItem
@@ -22,7 +22,7 @@ struct ProfileAvatarGalleryItem: Hashable {
     init(photo: ChatPhoto) {
         self.addedDate = photo.addedDate
         self.animation = photo.animation
-        self.id = photo.id.rawValue
+        self.id = photo.id
         self.minithumbnail = photo.minithumbnail
         self.photo = Photo(
             hasStickers: photo.sticker != nil,
@@ -32,10 +32,10 @@ struct ProfileAvatarGalleryItem: Hashable {
     }
 
     init?(profilePhoto: ProfilePhoto?) {
-        guard let profilePhoto, profilePhoto.id.rawValue != 0 else { return nil }
+        guard let profilePhoto, profilePhoto.id != 0 else { return nil }
         self.addedDate = 0
         self.animation = nil
-        self.id = profilePhoto.id.rawValue
+        self.id = profilePhoto.id
         self.minithumbnail = profilePhoto.minithumbnail
         self.photo = Photo(
             hasStickers: false,

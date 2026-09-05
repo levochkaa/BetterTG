@@ -1,6 +1,6 @@
 // ForumTopicRunHeaderCell.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ForumTopicRunHeaderCell
@@ -188,7 +188,7 @@ private final class ForumTopicRunIconView: UIView {
             label.text = info?.name.first.map { String($0).uppercased() } ?? "#"
         }
         guard let customEmojiID = info?.icon.customEmojiId,
-              customEmojiID.rawValue != 0
+              customEmojiID != 0
         else { return }
         let currentGeneration = generation
         loadTask = Task { [weak self] in

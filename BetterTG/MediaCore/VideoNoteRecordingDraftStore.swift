@@ -24,7 +24,8 @@ struct VideoNoteRecordingDraft: ChatDraftScoped, Equatable {
     let chatID: Int64
     let createdAt: Foundation.Date
     let replyMessageID: Int64?
-    let replyTo: MediaDraftInputMessageReplyTo?
+    let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic?
     var revision: Int
     var segments: [VideoNoteRecordingSegment]
     var trimEnd: Double?
@@ -89,7 +90,8 @@ private struct VideoNoteRecordingDraftManifest: Codable {
     let chatID: Int64
     let createdAt: Foundation.Date
     let replyMessageID: Int64?
-    let replyTo: MediaDraftInputMessageReplyTo?
+    let replyTo: InputMessageReplyTo?
+    let sendTopic: MessageTopic?
     let revision: Int
     let segments: [VideoNoteRecordingSegmentManifest]
     let trimEnd: Double?
@@ -218,7 +220,8 @@ actor VideoNoteRecordingDraftStore {
             chatID: chatID,
             createdAt: Foundation.Date(),
             replyMessageID: replyMessageID,
-            replyTo: replyTo.map(MediaDraftInputMessageReplyTo.init),
+            replyTo: replyTo,
+            sendTopic: sendTopic,
             revision: 0,
             segments: [segment],
             trimEnd: nil,
@@ -621,7 +624,7 @@ actor VideoNoteRecordingDraftStore {
             }
             var stage = "segments"
             do {
-                let frozenSendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 77))
+                let frozenSendTopic = MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: 77))
                 async let first = VideoNoteAssetWriter.makeDebugSegment(
                     outputURL: firstURL,
                     duration: 0.7,
@@ -692,7 +695,8 @@ actor VideoNoteRecordingDraftStore {
                     chatID: chatID,
                     originRecordingDraftID: draft.id,
                     replyMessageID: draft.replyMessageID,
-                    replyTo: draft.replyTo?.native,
+                    replyTo: draft.replyTo,
+                    sendTopic: draft.sendTopic,
                 )
                 sendDraft = adoptedSendDraft
                 try fileManager.copyItem(at: adoptedSendDraft.fileURL, to: redundantURL)
@@ -705,7 +709,8 @@ actor VideoNoteRecordingDraftStore {
                     chatID: chatID,
                     originRecordingDraftID: draft.id,
                     replyMessageID: draft.replyMessageID,
-                    replyTo: draft.replyTo?.native,
+                    replyTo: draft.replyTo,
+                    sendTopic: draft.sendTopic,
                 )
                 let originIDs = try await VideoNoteFileStore.shared.recordingDraftOrigins()
                 guard originIDs.contains(draft.id),

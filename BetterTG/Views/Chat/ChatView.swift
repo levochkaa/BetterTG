@@ -120,7 +120,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private let pinnedMessageBanner = PinnedMessageBannerView()
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
-    private var displayedPinnedMessage: Message?
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
     private lazy var composerView: ChatComposerView = {
         let composer = ChatComposerView(chatVM: chatVM)
@@ -1320,7 +1319,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatID: chatVM.chatID,
             draftKey: chatVM.location.draftKey,
             replyMessageID: restoredDraft?.replyMessageID ?? replySnapshot?.id,
-            replyTo: restoredDraft?.replyTo?.native ?? chatVM.getMessageReplyTo(from: replySnapshot),
+            replyTo: replyInput,
+            sendTopic: sendTopic,
         )
         recorder.onStateChange = { [weak self, weak recorder] state in
             guard let self, videoNoteRecorder === recorder else { return }
@@ -1899,10 +1899,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
+        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        let status =
+            if location.isTopicScoped {
+                chatVM.isReadOnlyTopic
+                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
+                        ? "Closed topic · Read-only"
+                        : "\(chatVM.customChat.displayTitle) · Read-only")
+                    : chatVM.customChat.displayTitle
+            } else {
+                chatVM.headerStatus
+            }
+        let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: chatVM.customChat.displayTitle,
-            status: chatVM.headerStatus,
-            statusColor: chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel,
+            title: title,
+            status: status,
+            statusColor: statusColor,
         )
         customNavigationBar.configureAvatar(
             file: chat.photo?.small,
@@ -1934,10 +1946,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateStatus() {
+        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        let status =
+            if location.isTopicScoped {
+                chatVM.isReadOnlyTopic
+                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
+                        ? "Closed topic · Read-only"
+                        : "\(chatVM.customChat.displayTitle) · Read-only")
+                    : chatVM.customChat.displayTitle
+            } else {
+                chatVM.headerStatus
+            }
+        let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
-            title: chatVM.customChat.displayTitle,
-            status: chatVM.headerStatus,
-            statusColor: chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel,
+            title: title,
+            status: status,
+            statusColor: statusColor,
         )
         let unreadCount = location.isTopicScoped
             ? (chatVM.forumTopic?.unreadCount ?? 0)
@@ -1960,19 +1984,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 nil
             }
         if let message {
-            if displayedPinnedMessage != message {
-                displayedPinnedMessage = message
-                pinnedMessageBanner.configure(
-                    message: message,
-                    client: chatVM.client,
-                    onOpen: { [weak self] in
-                        self?.scrollToMessage(id: message.id)
-                    },
-                    onHide: { [weak self] in
-                        self?.chatVM.hidePinnedMessageBanner()
-                    },
-                )
-            }
+            pinnedMessageBanner.configure(
+                message: message,
+                onOpen: { [weak self] in
+                    self?.scrollToMessage(id: message.id)
+                },
+                onHide: { [weak self] in
+                    self?.chatVM.hidePinnedMessageBanner()
+                },
+            )
             pinnedMessageBanner.isHidden = false
         }
         let desiredHeight = message == nil ? CGFloat.zero : PinnedMessageBannerView.contentHeight
@@ -1995,7 +2015,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if desiredHeight == 0 {
                 pinnedMessageBanner.isHidden = true
                 pinnedMessageBanner.prepareForReuse()
-                displayedPinnedMessage = nil
             }
             updateHistoryInsets()
         }

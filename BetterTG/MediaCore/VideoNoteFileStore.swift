@@ -47,7 +47,8 @@ struct VideoNoteSendDraft: Codable, ChatDraftSendScoped {
     let originRecordingDraftID: UUID?
     var removalRequestedAt: Foundation.Date?
     let replyMessageID: Int64?
-    let replyTo: MediaDraftInputMessageReplyTo?
+    let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic? = nil
     let thumbnailFileURL: URL?
     let thumbnailHeight: Int?
     let thumbnailWidth: Int?
@@ -271,7 +272,8 @@ actor VideoNoteFileStore {
             originRecordingDraftID: originRecordingDraftID,
             removalRequestedAt: nil,
             replyMessageID: replyMessageID,
-            replyTo: replyTo.map(MediaDraftInputMessageReplyTo.init),
+            replyTo: replyTo,
+            sendTopic: sendTopic,
             thumbnailFileURL: thumbnailDestination,
             thumbnailHeight: thumbnail?.height,
             thumbnailWidth: thumbnail?.width,
@@ -461,7 +463,7 @@ actor VideoNoteFileStore {
         else { return nil }
         return InputThumbnail(
             height: dimensions.height,
-            thumbnail: .inputFileLocal(.init(path: thumbnailFileURL.path(percentEncoded: false))),
+            thumbnail: .inputFileLocal(InputFileLocal(path: thumbnailFileURL.path(percentEncoded: false))),
             width: dimensions.width,
         )
     }
@@ -932,7 +934,7 @@ actor VideoNoteFileStore {
             var draftsToRemove = [VideoNoteSendDraft]()
             var stage = "success adopt"
             do {
-                let frozenSendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 42))
+                let frozenSendTopic = MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: 42))
                 let successSource = fileManager.temporaryDirectory
                     .appendingPathComponent("video-note-draft-success-\(UUID().uuidString).mp4")
                 try Data([0, 1, 2, 3]).write(to: successSource, options: .atomic)

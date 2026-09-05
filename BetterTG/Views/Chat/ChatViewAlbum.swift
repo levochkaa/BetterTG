@@ -2,6 +2,8 @@
 
 import AVKit
 import Combine
+import ImageIO
+import Photos
 import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
@@ -1336,7 +1338,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                let selectedMessageID,
                let previous = messages.first(where: { $0.id == selectedMessageID }),
                let updated = updatedMessages.first(where: { $0.id == selectedMessageID }),
-               previous != updated
+               !galleryMessageContentMatches(previous, updated)
             {
                 cancelExport()
                 cancelForward()
@@ -1893,10 +1895,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         pendingDeletedPlaybackOwners = [:]
         let deletedIDsByChat = pendingDeletedMessageIDsByChat
         pendingDeletedMessageIDsByChat = [:]
+        let hadPendingMessageUpdate = pendingMessageUpdate != nil
         let baseMessages = pendingMessageUpdate ?? messages
         pendingMessageUpdate = nil
         guard !deletedIDsByChat.isEmpty else {
-            if baseMessages != messages {
+            if hadPendingMessageUpdate {
                 updateMessages(baseMessages)
             }
             return
@@ -1923,7 +1926,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             forcedDismissalSnapshot = forcedDismissalSnapshot ?? snapshot
         }
         let filteredMessages = baseMessages.filter { !isDeleted($0) }
-        if filteredMessages != messages || selectedWasDeleted {
+        if hadPendingMessageUpdate || !deletedCurrentMessages.isEmpty || selectedWasDeleted {
             updateMessages(filteredMessages)
         }
     }
@@ -2470,7 +2473,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     offset: offset,
                     topicId: topic.directMessagesChatTopicId,
                 )
-                .messages ?? []
+                .messages
             case .messageTopicForum(let topic):
                 try await client.getForumTopicHistory(
                     chatId: sourceLocation.chatID,
@@ -2479,7 +2482,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     limit: limit,
                     offset: offset,
                 )
-                .messages ?? []
+                .messages
             case .messageTopicSavedMessages(let topic):
                 try await client.getSavedMessagesTopicHistory(
                     fromMessageId: fromMessageID,
@@ -2487,7 +2490,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     offset: offset,
                     savedMessagesTopicId: topic.savedMessagesTopicId,
                 )
-                .messages ?? []
+                .messages
             case .messageTopicThread(let topic):
                 try await client.getMessageThreadHistory(
                     chatId: sourceLocation.chatID,
@@ -2496,7 +2499,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     messageId: topic.messageThreadId,
                     offset: offset,
                 )
-                .messages ?? []
+                .messages
             case nil:
                 try await client.getChatHistory(
                     chatId: sourceLocation.chatID,
@@ -2505,7 +2508,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     offset: offset,
                     onlyLocal: false,
                 )
-                .messages ?? []
+                .messages
             }
         return loaded.filter { sourceLocation.matches(message: $0) }
     }
@@ -8795,5 +8798,25 @@ final class GalleryBufferedSlider: UISlider {
             )
         }
         CATransaction.commit()
+    }
+}
+
+private func galleryMessageContentMatches(_ lhs: Message, _ rhs: Message) -> Bool {
+    guard lhs.id == rhs.id, lhs.chatId == rhs.chatId,
+          lhs.editDate == rhs.editDate, lhs.canBeSaved == rhs.canBeSaved,
+          lhs.senderId == rhs.senderId, lhs.mediaAlbumId == rhs.mediaAlbumId,
+          lhs.topicId == rhs.topicId
+    else { return false }
+    switch (lhs.content, rhs.content) {
+    case (.messageAnimation(let lhs), .messageAnimation(let rhs)):
+        return lhs == rhs
+    case (.messagePhoto(let lhs), .messagePhoto(let rhs)):
+        return lhs == rhs
+    case (.messageSticker(let lhs), .messageSticker(let rhs)):
+        return lhs == rhs
+    case (.messageVideo(let lhs), .messageVideo(let rhs)):
+        return lhs == rhs
+    default:
+        return false
     }
 }

@@ -394,17 +394,17 @@ final class AppLocalization: @unchecked Sendable {
         let databasePath = databaseDirectory.appendingPathComponent("language-packs.sqlite").path
         try await enqueueTDLibOption(
             name: "language_pack_database_path",
-            value: .optionValueString(.init(value: databasePath)),
+            value: .optionValueString(OptionValueString(value: databasePath)),
             client: client,
         )
         try await enqueueTDLibOption(
             name: "localization_target",
-            value: .optionValueString(.init(value: Self.localizationTarget)),
+            value: .optionValueString(OptionValueString(value: Self.localizationTarget)),
             client: client,
         )
         try await enqueueTDLibOption(
             name: "language_pack_id",
-            value: .optionValueString(.init(value: selectedLanguagePackID)),
+            value: .optionValueString(OptionValueString(value: selectedLanguagePackID)),
             client: client,
         )
     }
@@ -441,7 +441,7 @@ final class AppLocalization: @unchecked Sendable {
 
         _ = try await client.setOption(
             name: "language_pack_id",
-            value: .optionValueString(.init(value: language.id)),
+            value: .optionValueString(OptionValueString(value: language.id)),
         )
 
         lock.withLock {

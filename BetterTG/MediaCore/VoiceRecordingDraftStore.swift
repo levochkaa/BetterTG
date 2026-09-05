@@ -8,13 +8,14 @@ import TDLibKit
 struct VoiceRecordingDraft: ChatDraftScoped, Equatable {
     let id: UUID
     let chatID: Int64
-    let caption: MediaDraftFormattedText
+    let caption: FormattedText
     let createdAt: Foundation.Date
     var editRevision = 0
     var exactDuration: Double
     var fileURL: URL
     let replyMessageID: Int64?
-    let replyTo: MediaDraftInputMessageReplyTo?
+    let replyTo: InputMessageReplyTo?
+    var sendTopic: MessageTopic?
     var revision: Int
     var trimEnd: Double?
     var trimStart: Double?
@@ -33,13 +34,14 @@ struct VoiceRecordingDraft: ChatDraftScoped, Equatable {
 private struct VoiceRecordingDraftManifest: Codable {
     let id: UUID
     let chatID: Int64
-    let caption: MediaDraftFormattedText
+    let caption: FormattedText
     let createdAt: Foundation.Date
     let editRevision: Int?
     let exactDuration: Double
     let mediaFileName: String
     let replyMessageID: Int64?
-    let replyTo: MediaDraftInputMessageReplyTo?
+    let replyTo: InputMessageReplyTo?
+    let sendTopic: MessageTopic?
     let revision: Int
     let trimEnd: Double?
     let trimStart: Double?

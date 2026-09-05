@@ -1,6 +1,6 @@
 // ForwardForumTopicsViewController.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor final class ForwardForumTopicsViewController: UIViewController, UITableViewDelegate,

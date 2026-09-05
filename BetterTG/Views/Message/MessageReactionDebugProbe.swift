@@ -1,7 +1,7 @@
 // MessageReactionDebugProbe.swift
 
 #if DEBUG
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum MessageReactionDebugProbe {
@@ -61,7 +61,7 @@
                 let unreadReactions = unreadTypes.map {
                     UnreadReaction(
                         isBig: false,
-                        senderId: .messageSenderUser(.init(userId: 77)),
+                        senderId: .messageSenderUser(MessageSenderUser(userId: 77)),
                         type: $0,
                     )
                 }
@@ -97,11 +97,11 @@
 
         static func runIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-reactions") else { return }
-            let thumbsUp = ReactionType.reactionTypeEmoji(.init(emoji: "👍"))
-            let heart = ReactionType.reactionTypeEmoji(.init(emoji: "❤️"))
-            let laugh = ReactionType.reactionTypeEmoji(.init(emoji: "😂"))
-            let fire = ReactionType.reactionTypeEmoji(.init(emoji: "🔥"))
-            let party = ReactionType.reactionTypeEmoji(.init(emoji: "🎉"))
+            let thumbsUp = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "👍"))
+            let heart = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤️"))
+            let laugh = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "😂"))
+            let fire = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "🔥"))
+            let party = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "🎉"))
             let paid = ReactionType.reactionTypePaid
             let initial = MessageReactions(
                 areTags: false,
@@ -184,7 +184,7 @@
                 recentSenderIds: [],
                 totalCount: count,
                 type: type,
-                usedSenderId: chosen ? .messageSenderUser(.init(userId: 1)) : nil,
+                usedSenderId: chosen ? .messageSenderUser(MessageSenderUser(userId: 1)) : nil,
             )
         }
 

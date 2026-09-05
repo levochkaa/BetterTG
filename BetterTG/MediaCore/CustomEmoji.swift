@@ -10,19 +10,24 @@ actor CustomEmojiStickerRepository {
 
     private struct CacheKey: Hashable {
         let clientID: Int32
-        let identifier: TdInt64
+        let identifier: Int64
     }
 
     // MARK: Internal
 
     static let shared = CustomEmojiStickerRepository()
 
-    // MARK: Private
-
-    private var stickersByIdentifier = [Int64: Sticker]()
-    private var missingStickerIdentifiers = Set<Int64>()
+    private var stickersByKey = [CacheKey: Sticker]()
+    private var missingKeys = Set<CacheKey>()
 
     func stickers(for identifiers: [Int64]) async -> [Int64: Sticker] {
+        await stickers(for: identifiers, client: td)
+    }
+
+    func stickers(
+        for identifiers: [Int64],
+        client: TDLibClient,
+    ) async -> [Int64: Sticker] {
         let uniqueIdentifiers = Array(Set(identifiers)).prefix(200)
         let keys = uniqueIdentifiers.map { CacheKey(clientID: client.id, identifier: $0) }
         let missingIdentifiers = uniqueIdentifiers.filter {

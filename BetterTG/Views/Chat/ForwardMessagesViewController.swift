@@ -1,7 +1,7 @@
 // ForwardMessagesViewController.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ForwardMessagesViewController
@@ -143,7 +143,7 @@ import UIKit
                 guard let self else { return }
                 let destination = MessageForwardDestination(
                     chatID: chatID,
-                    topic: .messageTopicForum(.init(forumTopicId: topic.info.forumTopicId)),
+                    topic: .messageTopicForum(MessageTopicForum(forumTopicId: topic.info.forumTopicId)),
                 )
                 if selected {
                     selectedDestinations.insert(destination)

@@ -57,8 +57,9 @@
             precondition(restored.id == draft.id && restored.fileURL == draft.fileURL)
             precondition(restored.caption == draft.caption && restored.replyTo == draft.replyTo)
             precondition(restored.waveform == Data([1, 2, 3]))
-            precondition(MediaDraftFormattedText(restored.caption.native) == draft.caption)
-            precondition(restored.replyTo.map { MediaDraftInputMessageReplyTo($0.native) } == draft.replyTo)
+            precondition(MediaDraftFormattedText(restored.caption) == MediaDraftFormattedText(draft.caption))
+            precondition(restored.replyTo.map(MediaDraftInputMessageReplyTo.init) == draft.replyTo
+                .map(MediaDraftInputMessageReplyTo.init))
 
             let replies = [
                 #"{"@type":"inputMessageReplyToExternalMessage","chatId":-100123,"checklistTaskId":2,"messageId":789,"pollOptionId":"x","quote":null}"#,
@@ -79,18 +80,25 @@
                 .textEntityTypePhoneNumber, .textEntityTypeBankCardNumber, .textEntityTypeBold,
                 .textEntityTypeItalic, .textEntityTypeUnderline, .textEntityTypeStrikethrough,
                 .textEntityTypeSpoiler, .textEntityTypeCode, .textEntityTypePre,
-                .textEntityTypePreCode(.init(language: "swift")), .textEntityTypeBlockQuote,
-                .textEntityTypeExpandableBlockQuote, .textEntityTypeTextUrl(.init(url: "https://telegram.org")),
-                .textEntityTypeMentionName(.init(userId: Int64.max - 1)),
-                .textEntityTypeCustomEmoji(.init(customEmojiId: Int64.max - 1)),
-                .textEntityTypeMediaTimestamp(.init(mediaTimestamp: 42)),
-                .textEntityTypeDateTime(.init(unixTime: 123, formattingType: nil)),
-                .textEntityTypeDateTime(.init(unixTime: 123, formattingType: .dateTimeFormattingTypeRelative)),
-                .textEntityTypeDateTime(.init(unixTime: 123, formattingType: .dateTimeFormattingTypeAbsolute(.init(
-                    timePrecision: .dateTimePartPrecisionShort,
-                    datePrecision: .dateTimePartPrecisionLong,
-                    showDayOfWeek: true,
-                )))),
+                .textEntityTypePreCode(TextEntityTypePreCode(language: "swift")), .textEntityTypeBlockQuote,
+                .textEntityTypeExpandableBlockQuote,
+                .textEntityTypeTextUrl(TextEntityTypeTextUrl(url: "https://telegram.org")),
+                .textEntityTypeMentionName(TextEntityTypeMentionName(userId: Int64.max - 1)),
+                .textEntityTypeCustomEmoji(TextEntityTypeCustomEmoji(customEmojiId: Int64.max - 1)),
+                .textEntityTypeMediaTimestamp(TextEntityTypeMediaTimestamp(mediaTimestamp: 42)),
+                .textEntityTypeDateTime(TextEntityTypeDateTime(unixTime: 123, formattingType: nil)),
+                .textEntityTypeDateTime(TextEntityTypeDateTime(
+                    unixTime: 123,
+                    formattingType: .dateTimeFormattingTypeRelative,
+                )),
+                .textEntityTypeDateTime(TextEntityTypeDateTime(
+                    unixTime: 123,
+                    formattingType: .dateTimeFormattingTypeAbsolute(DateTimeFormattingTypeAbsolute(
+                        timePrecision: .dateTimePartPrecisionShort,
+                        datePrecision: .dateTimePartPrecisionLong,
+                        showDayOfWeek: true,
+                    )),
+                )),
             ]
             for type in types {
                 let text = TDNativeFormattedText(text: "test", entities: [.init(offset: 0, length: 4, type: type)])

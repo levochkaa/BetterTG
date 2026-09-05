@@ -1,7 +1,7 @@
 // PeerProfileViewController.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - PeerProfileViewController
@@ -180,7 +180,7 @@ ClientRestorableNavigationEntry {
     }
 
     private var avatarGalleryIsAvailable: Bool {
-        currentUserProfilePhoto.map { $0.id.rawValue != 0 } == true
+        currentUserProfilePhoto.map { $0.id != 0 } == true
             || currentProfilePhoto != nil
             || !isSelfProfile && currentChatPhotoInfo != nil
     }
@@ -210,11 +210,11 @@ ClientRestorableNavigationEntry {
     }
 
     private var displayedAvatarItemID: Int64? {
-        if let currentUserProfilePhoto, currentUserProfilePhoto.id.rawValue != 0 {
-            return currentUserProfilePhoto.id.rawValue
+        if let currentUserProfilePhoto, currentUserProfilePhoto.id != 0 {
+            return currentUserProfilePhoto.id
         }
         if let currentProfilePhoto {
-            return currentProfilePhoto.id.rawValue
+            return currentProfilePhoto.id
         }
         guard !isSelfProfile, let currentChatPhotoInfo else { return nil }
         return -Int64(currentChatPhotoInfo.big.id) - 1
@@ -1317,9 +1317,9 @@ ClientRestorableNavigationEntry {
             details.append("+\(user.phoneNumber)")
         }
         let signature = UserPhotoRoleSignature(
-            mainID: info.photo?.id.rawValue,
-            personalID: isSelfProfile ? nil : info.personalPhoto?.id.rawValue,
-            publicID: info.publicPhoto?.id.rawValue,
+            mainID: info.photo?.id,
+            personalID: isSelfProfile ? nil : info.personalPhoto?.id,
+            publicID: info.publicPhoto?.id,
         )
         let selectedPhoto = isSelfProfile
             ? info.photo
@@ -1887,7 +1887,7 @@ ClientRestorableNavigationEntry {
                 guard let item, knownIDs.insert(item.id).inserted else { return }
                 items.append(item)
             }
-            let effectiveID = currentUserProfilePhoto?.id.rawValue
+            let effectiveID = currentUserProfilePhoto?.id
             if let effectiveID, effectiveID != 0 {
                 appendItem(fullItemsByID[effectiveID] ??
                     ProfileAvatarGalleryItem(profilePhoto: currentUserProfilePhoto))
@@ -1914,7 +1914,7 @@ ClientRestorableNavigationEntry {
                 items = [fallback]
                 knownIDs = [fallback.id]
             }
-            let resultIDs = Set(result.photos.map(\.id.rawValue))
+            let resultIDs = Set(result.photos.map(\.id))
             let extraPhotoCount = knownIDs.filter { !resultIDs.contains($0) }.count
             let trailingPhotoID = !publicWasAlreadyCurrent && items.last?.id == publicItem?.id
                 ? publicItem?.id

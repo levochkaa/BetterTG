@@ -388,16 +388,80 @@ final class ChatComposerView: UIView {
                 title: L10n.telegram("Conversation.EditingMessagePanelTitle"),
                 message: edited.message,
             ) { [weak self] in
-                self?.onScrollToMessage?(edited.id)
+                guard let self else { return }
+                onNavigateToMessage?(navigationTarget(for: edited))
+            }
+        } else if videoNoteState.isActive, let videoNoteReplyMessage {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = true
+            replySnippet.configure(
+                title: "Video reply · \(videoNoteReplyMessage.senderUser?.firstName ?? "Message")",
+                message: videoNoteReplyMessage.message,
+            ) { [weak self] in
+                guard let self else { return }
+                onNavigateToMessage?(navigationTarget(for: videoNoteReplyMessage))
+            }
+        } else if videoNoteState.isActive, let videoNoteReplyFallback {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = true
+            replySnippet.configure(presentation: videoNoteReplyFallback, expanded: false) { [weak self] _ in
+                guard let self, let target = videoNoteReplyFallback.navigationTarget else { return }
+                onNavigateToMessage?(target)
+            }
+        } else if targetText.characters.isEmpty,
+                  let pendingReplyID = chatVM.pendingVideoReplyMessageID,
+                  chatVM.hasPendingVideoNote
+        {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = true
+            if let pendingReply = chatVM.pendingVideoReplyMessage {
+                replySnippet.configure(
+                    title: "Video reply · \(pendingReply.senderUser?.firstName ?? "Message")",
+                    message: pendingReply.message,
+                ) { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: pendingReply))
+                }
+            } else {
+                replySnippet.configure(title: "Video reply", text: "Original replied message") { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(
+                        chatVM.pendingVideoReplyNavigationTarget
+                            ?? .message(chatID: chatVM.chatID, messageID: pendingReplyID, quote: nil),
+                    )
+                }
+            }
+        } else if targetText.characters.isEmpty,
+                  let pendingReplyID = chatVM.pendingVoiceReplyMessageID,
+                  chatVM.hasPendingVoiceNote || chatVM.finalizingVoiceNote || chatVM.recordingVoiceNote
+        {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = true
+            if let pendingReply = chatVM.pendingVoiceReplyMessage {
+                replySnippet.configure(
+                    title: "Voice reply · \(pendingReply.senderUser?.firstName ?? "Message")",
+                    message: pendingReply.message,
+                ) { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: pendingReply))
+                }
+            } else {
+                replySnippet.configure(title: "Voice reply", text: "Original replied message") { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(
+                        chatVM.pendingVoiceReplyNavigationTarget
+                            ?? .message(chatID: chatVM.chatID, messageID: pendingReplyID, quote: nil),
+                    )
+                }
             }
         } else if let reply = chatVM.replyMessage {
             showsReplyPreview = true
-            replySnippet
-                .configure(
-                    title: reply.senderUser?.firstName ?? L10n.telegram("Conversation.ContextMenuReply"),
-                    message: reply.message,
-                ) { [weak self] in
-                    self?.onScrollToMessage?(reply.id)
+            closeReplyButton.isHidden = false
+            let title = reply.senderUser?.firstName ?? L10n.telegram("Conversation.ContextMenuReply")
+            if let quote = chatVM.replyQuote {
+                replySnippet.configure(title: title, quote: quote) { [weak self] in
+                    guard let self else { return }
+                    onNavigateToMessage?(navigationTarget(for: reply, quote: quote))
                 }
             } else {
                 replySnippet.configure(title: title, message: reply.message) { [weak self] in
@@ -966,7 +1030,7 @@ final class ChatComposerView: UIView {
             ),
             forImageIn: .normal,
         )
-        actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo
+        actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo && !isSendingComposer
         actionButton.alpha = actionButton.isEnabled ? 1 : 0.55
         let canBeginRecordingGesture = !chatVM.startingVoiceNote
             && !chatVM.loadingVoiceDraft
@@ -1204,6 +1268,20 @@ final class ChatComposerView: UIView {
     private func formatVideoDuration(_ duration: Double) -> String {
         let seconds = max(0, Int(duration))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func navigationTarget(
+        for message: CustomMessage,
+        quote: InputTextQuote? = nil,
+    ) -> MessageMetadataNavigationTarget {
+        let quoteHighlight = quote.map {
+            MessageQuoteHighlight(length: $0.text.text.utf16.count, position: max(0, $0.position))
+        }
+        return .message(
+            chatID: message.message.chatId,
+            messageID: message.id,
+            quote: quoteHighlight,
+        )
     }
 
     @objc private func cancelReplyOrEdit() {
