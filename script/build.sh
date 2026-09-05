@@ -812,9 +812,7 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
     --schema "$TDLIBKIT_SCHEMA_PATH"
   run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_initializer_compat.py" \
     --schema "$TDLIBKIT_SCHEMA_PATH"
-  run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_value_equality.py" \
-    --schema "$TDLIBKIT_SCHEMA_PATH"
-  run_with_filtered_output python3 "$ROOT_DIR/td.py" \
+  run_with_filtered_output python3 "$ROOT_DIR/script/td.py" \
     --skip-resolve \
     --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
   run_with_filtered_output swiftformat \

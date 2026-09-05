@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_PATH = ROOT_DIR / "BetterTG/Extensions/Td/Td+Generated.swift"
 UPDATE_MODEL_PATH = Path("Sources/TDLibKitNative/Generated/SchemaViews.swift")
 LOCAL_TDLIBKIT_ROOT = ROOT_DIR.parent.parent
@@ -15,7 +15,7 @@ DERIVED_DATA_PATH = ROOT_DIR / ".build/xcode"
 
 CORE = """// Td+Generated.swift
 
-// This file is generated from td.py
+// This file is generated from script/td.py
 // Any modifications will be overwritten
 
 import Foundation

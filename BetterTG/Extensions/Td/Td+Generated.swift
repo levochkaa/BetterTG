@@ -1,6 +1,6 @@
 // Td+Generated.swift
 
-// This file is generated from td.py
+// This file is generated from script/td.py
 // Any modifications will be overwritten
 
 import Foundation
