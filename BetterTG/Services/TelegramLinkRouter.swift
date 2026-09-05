@@ -91,62 +91,113 @@ import UIKit
     private let bodyLabel = UILabel()
     private let applyButton = UIButton(type: .system)
     private let cancelButton = UIButton(type: .system)
+    private let dimmer = UIControl()
+    private let sheetStack = UIStackView()
+    private let textStack = UIStackView()
+    private var textHeight: NSLayoutConstraint!
+    private var sheetWidth: NSLayoutConstraint!
     private var language: AppLanguage?
     private var task: Task<Void, Never>?
+    private var didAnimateIn = false
+    private var isApplying = false
 
     init(identifier: String) {
         self.identifier = identifier
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .pageSheet
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
     deinit { task?.cancel() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .secondarySystemBackground
-        sheetPresentationController?.detents = [.medium(), .large()]
-        sheetPresentationController?.prefersGrabberVisible = true
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
-        titleLabel.textAlignment = .center
-        titleLabel.numberOfLines = 0
-        titleLabel.text = L10n.telegram("Settings.AppLanguage")
-        bodyLabel.font = .preferredFont(forTextStyle: .body)
-        bodyLabel.adjustsFontForContentSizeCategory = true
-        bodyLabel.textAlignment = .center
-        bodyLabel.numberOfLines = 0
-        bodyLabel.text = identifier
-        bodyLabel.accessibilityIdentifier = "language-pack-preview"
+        view.backgroundColor = .clear
+        dimmer.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        dimmer.translatesAutoresizingMaskIntoConstraints = false
+        dimmer.addTarget(self, action: #selector(cancel), for: .touchUpInside)
+        view.addSubview(dimmer)
+        sheetStack.translatesAutoresizingMaskIntoConstraints = false
+        sheetStack.axis = .vertical
+        sheetStack.spacing = 8
+        view.addSubview(sheetStack)
+        sheetWidth = sheetStack.widthAnchor.constraint(equalToConstant: 382)
+        NSLayoutConstraint.activate([
+            dimmer.topAnchor.constraint(equalTo: view.topAnchor),
+            dimmer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            dimmer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            dimmer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            sheetStack.centerXAnchor.constraint(equalTo: view.centerXAnchor), sheetWidth,
+            sheetStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+        ])
+        let card = UIView()
+        card.backgroundColor = .secondarySystemBackground
+        card.layer.cornerRadius = 16
+        card.clipsToBounds = true
+        sheetStack.addArrangedSubview(card)
+        sheetStack.addArrangedSubview(cancelButton)
+        cancelButton.backgroundColor = .secondarySystemBackground
+        cancelButton.layer.cornerRadius = 16
+        cancelButton.clipsToBounds = true
+        for button in [applyButton, cancelButton] {
+            button.setTitleColor(.systemBlue, for: .normal)
+            button.setTitleColor(.tertiaryLabel, for: .disabled)
+            button.titleLabel?.font = .systemFont(ofSize: 20, weight: .medium)
+            button.heightAnchor.constraint(equalToConstant: 57).isActive = true
+            button.configurationUpdateHandler = { button in
+                button.backgroundColor = button.isHighlighted ? .tertiarySystemBackground : .secondarySystemBackground
+            }
+        }
         applyButton.setTitle(L10n.telegram("ApplyLanguage.ChangeLanguageAction"), for: .normal)
-        applyButton.titleLabel?.font = .systemFont(ofSize: 20, weight: .medium)
         applyButton.accessibilityIdentifier = "language-pack-apply"
         applyButton.isEnabled = false
         applyButton.addTarget(self, action: #selector(applyLanguage), for: .touchUpInside)
         cancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
-        cancelButton.titleLabel?.font = .systemFont(ofSize: 20, weight: .medium)
         cancelButton.addTarget(self, action: #selector(cancel), for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [titleLabel, bodyLabel, spinner, applyButton, cancelButton])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.spacing = 16
-        let scrollView = UIScrollView()
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(scrollView)
-        scrollView.addSubview(stack)
+
+        titleLabel.font = .systemFont(ofSize: 18, weight: .medium)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        titleLabel.text = L10n.telegram("Settings.AppLanguage")
+        bodyLabel.font = .systemFont(ofSize: 15)
+        bodyLabel.textAlignment = .center
+        bodyLabel.numberOfLines = 0
+        bodyLabel.text = identifier
+        bodyLabel.accessibilityIdentifier = "language-pack-preview"
+        textStack.axis = .vertical
+        textStack.spacing = 12
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        [titleLabel, bodyLabel, spinner].forEach(textStack.addArrangedSubview)
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.alwaysBounceVertical = false
+        card.addSubview(scroll)
+        scroll.addSubview(textStack)
+        applyButton.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(applyButton)
+        let separator = UIView()
+        separator.backgroundColor = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(separator)
+        textHeight = scroll.heightAnchor.constraint(equalToConstant: 120)
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 32),
-            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -24),
-            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -20),
-            stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -48),
-            applyButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
-            cancelButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            scroll.topAnchor.constraint(equalTo: card.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor), textHeight,
+            textStack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 12),
+            textStack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 10),
+            textStack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -10),
+            textStack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12),
+            textStack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -20),
+            applyButton.topAnchor.constraint(equalTo: scroll.bottomAnchor),
+            applyButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            applyButton.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            applyButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            separator.topAnchor.constraint(equalTo: applyButton.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
         spinner.startAnimating()
         task = Task { [weak self] in
@@ -168,20 +219,48 @@ import UIKit
                     applyButton.isEnabled = false
                     cancelButton.setTitle(L10n.telegram("Common.OK"), for: .normal)
                 }
-            } catch is CancellationError {
-                dismiss(animated: true)
-            } catch {
+            } catch is CancellationError { dismiss(animated: true) }
+            catch {
                 spinner.stopAnimating()
                 bodyLabel.text = L10n.telegram("ApplyLanguage.LanguageNotSupportedError")
             }
+            view.setNeedsLayout()
         }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let width = min(view.bounds.width, view.bounds.height) - 20
+        if abs(sheetWidth.constant - width) > 0.5 { sheetWidth.constant = width }
+        let fitting = textStack.systemLayoutSizeFitting(
+            CGSize(width: max(1, width - 20), height: 0),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel,
+        )
+        let available = max(60, view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 142)
+        let height = min(available, ceil(fitting.height + 24))
+        if abs(textHeight.constant - height) > 0.5 { textHeight.constant = height }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didAnimateIn else { return }
+        didAnimateIn = true
+        sheetStack.transform = CGAffineTransform(translationX: 0, y: sheetStack.bounds.height + 40)
+        UIView.animate(
+            withDuration: 0.3,
+            delay: 0,
+            usingSpringWithDamping: 0.85,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction],
+        ) { self.sheetStack.transform = .identity }
     }
 
     @objc private func applyLanguage() {
         guard let language, applyButton.isEnabled else { return }
+        isApplying = true
         applyButton.isEnabled = false
         spinner.startAnimating()
-        isModalInPresentation = true
         cancelButton.isEnabled = false
         task = Task { [weak self] in
             guard let self else { return }
@@ -193,12 +272,14 @@ import UIKit
                 bodyLabel.text = L10n.betterTG("Localization.DownloadError")
                 applyButton.isEnabled = true
                 cancelButton.isEnabled = true
-                isModalInPresentation = false
+                isApplying = false
+                view.setNeedsLayout()
             }
         }
     }
 
     @objc private func cancel() {
+        guard !isApplying else { return }
         task?.cancel()
         dismiss(animated: true)
     }
