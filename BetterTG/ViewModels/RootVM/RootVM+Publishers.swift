@@ -6,37 +6,26 @@ import TDLibKit
 
 extension RootVM {
     func setPublishers() {
-        TDLib.shared
-            .activeClientChanges
-            .sink { [weak self] _ in
-                self?.listAuthority.invalidate()
-                self?.chatInsertions.invalidate()
-                self?.scopeSettingsLoading.invalidate()
-                self?.chatProjection.invalidate()
-                self?.folderProjection = nil
+        TelegramChatListStore.shared
+            .changes
+            .sink { [weak self] change in
+                guard let self else { return }
+                switch change {
+                case .reset:
+                    restoreChatListContext()
+                case .folders:
+                    loadFolderConfiguration()
+                case .chats(let ids):
+                    synchronizeChatLists(changedIDs: ids)
+                }
             }
             .store(in: &cancellables)
-        nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
-            guard let self else { return }
-            listAuthority.invalidate()
-            chatInsertions.invalidate()
-            scopeSettingsLoading.invalidate()
-            chatProjection.invalidate()
-            folderProjection = nil
-            folderLoadID = nil
-            chatRefreshIDs.removeAll()
-            activeAccountID = TDLib.shared.activeAccountID
-            loggedIn = TDLib.shared.isActiveAccountReady
-            scopeNotificationSettings = [:]
-            folders = []
-            archive = nil
-            currentFolder = nil
-        }
-        observeListUpdate(.updateChatFolders) { $0.updateChatFolders($1) }
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
             guard let self else { return }
-            synchronizeAuthorization()
-            if loggedIn { loadScopeNotificationSettings() }
+            loggedIn = true
+            loadScopeNotificationSettings()
+            ensureBaseChatLists()
+            allFolders.forEach { self.loadMoreChats(in: $0) }
         }
         nc.mergeMany(&cancellables, [
             .authorizationStateClosed,
@@ -48,34 +37,8 @@ extension RootVM {
         ]) { [weak self] _ in
             self?.synchronizeAuthorization()
         }
-        observeListUpdate(.updateChatReadInbox, projecting: Update.updateChatReadInbox) { owner, update in
-            for folder in owner.allFolders {
-                guard let chat = folder.chats.first(where: { $0.id == update.chatId }) else { continue }
-                chat.unreadCount = update.unreadCount
-                folder.chatDidChange.send(update.chatId)
-            }
-        }
-        observeListUpdate(.updateChatReadOutbox, projecting: Update.updateChatReadOutbox) { owner, update in
-            RootChatProjection.applyReadOutbox(update, to: owner.allFolders)
-        }
-        observeListUpdate(.updateNewChat, projecting: Update.updateNewChat) { $0.updateNewChat($1) }
-        observeListUpdate(.updateChatPosition, projecting: Update.updateChatPosition) { $0.updateChatPosition($1) }
-        observeListUpdate(.updateChatDraftMessage, projecting: Update.updateChatDraftMessage) {
-            $0.updateChatDraftMessage($1)
-        }
-        observeListUpdate(.updateChatLastMessage, projecting: Update.updateChatLastMessage) {
-            $0.updateChatLastMessage($1)
-        }
-        observeListUpdate(.updateChatTitle, projecting: Update.updateChatTitle) { $0.refreshChat(id: $1.chatId) }
-        observeListUpdate(.updateChatPhoto, projecting: Update.updateChatPhoto) { $0.refreshChat(id: $1.chatId) }
-        observeListUpdate(.updateChatAccentColors, projecting: Update.updateChatAccentColors) {
-            $0.refreshChat(id: $1.chatId)
-        }
-        observeListUpdate(.updateChatViewAsTopics, projecting: Update.updateChatViewAsTopics) {
-            $0.refreshChat(id: $1.chatId)
-        }
-        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
-            let update = event.value
+        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
+            guard let self else { return }
             SelectedDocumentFileStore.complete(
                 accountID: event.source.accountID,
                 chatID: update.message.chatId,
@@ -102,23 +65,9 @@ extension RootVM {
                 )
             }
         }
-        observeListUpdate(.updateUser, projecting: Update.updateUser) { owner, update in
-            for folder in owner.allFolders {
-                for chat in folder.chats where chat.user?.id == update.user.id {
-                    chat.updatePrivateUser(update.user)
-                    folder.chatDidChange.send(chat.id)
-                }
-            }
-        }
-        observeListUpdate(.updateChatNotificationSettings, projecting: Update.updateChatNotificationSettings) {
-            $0.refreshChat(id: $1.chatId)
-        }
-        observeListUpdate(.updateChatIsMarkedAsUnread, projecting: Update.updateChatIsMarkedAsUnread) {
-            $0.refreshChat(id: $1.chatId)
-        }
-        observeListUpdate(.updateScopeNotificationSettings) { owner, update in
-            owner.scopeSettingsLoading.invalidate(scope: update.scope)
-            var updatedSettings = owner.scopeNotificationSettings
+        nc.publisher(&cancellables, for: .updateScopeNotificationSettings) { [weak self] update in
+            guard let self else { return }
+            var updatedSettings = scopeNotificationSettings
             updatedSettings[update.scope] = update.notificationSettings
             owner.scopeNotificationSettings = updatedSettings
         }
@@ -128,60 +77,107 @@ extension RootVM {
         }
     }
 
-    private func acceptsListUpdate(_ source: TdUpdateSource) -> Bool {
-        listAuthority.accepts(source, ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource)
+    func restoreChatListContext() {
+        let store = TelegramChatListStore.shared
+        guard store.clientID != nil else { return }
+        folderLoadTasks.values.forEach { $0.cancel() }
+        folderLoadTasks = [:]
+        folderConfigurationTask?.cancel()
+        folderConfigurationGeneration = UUID()
+        let accountChanged = activeAccountID != store.accountID
+        activeAccountID = store.accountID
+        loggedIn = TDLib.shared.isActiveAccountReady
+        scopeNotificationSettings = [:]
+        folders = []
+        archive = nil
+        if accountChanged { currentFolder = nil }
+        ensureBaseChatLists()
+        if store.folderConfiguration != nil { loadFolderConfiguration() }
+        if loggedIn { allFolders.forEach { self.loadMoreChats(in: $0) } }
     }
 
-    private func observeListUpdate<Value>(
-        _ notification: TdNotification<Value>,
-        projecting: ((Value) -> Update)? = nil,
-        perform: @escaping (RootVM, Value) -> Void,
-    ) {
-        nc.scopedPublisher(&cancellables, for: notification) { [weak self] event in
-            guard let self, acceptsListUpdate(event.source) else { return }
-            if let projecting { chatProjection.record(projecting(event.value)) }
-            perform(self, event.value)
+    func ensureBaseChatLists() {
+        if !folders.contains(where: { $0.id == 0 }) {
+            let main = CustomFolder(chats: [], type: .main)
+            folders.insert(main, at: 0)
+        }
+        if archive == nil { archive = CustomFolder(chats: [], type: .archive) }
+        synchronizeChatLists()
+    }
+
+    func loadFolderConfiguration() {
+        let store = TelegramChatListStore.shared
+        guard let configuration = store.folderConfiguration else { return }
+        let client = td
+        let accountID = activeAccountID
+        let generation = UUID()
+        folderConfigurationGeneration = generation
+        folderConfigurationTask?.cancel()
+        ensureBaseChatLists()
+        folderConfigurationTask = Task { [weak self] in
+            guard let self else { return }
+            var loadedFolders = [CustomFolder]()
+            for info in configuration.chatFolders {
+                guard let definition = try? await client.getChatFolder(chatFolderId: info.id) else { continue }
+                guard !Task.isCancelled, folderConfigurationGeneration == generation,
+                      activeAccountID == accountID, td.id == client.id else { return }
+                let folder = CustomFolder(chats: [], type: .folder(info, definition))
+                if let previous = folders.first(where: { $0.id == folder.id }) {
+                    folder.chats = previous.chats
+                }
+                loadedFolders.append(folder)
+            }
+            guard !Task.isCancelled, folderConfigurationGeneration == generation,
+                  activeAccountID == accountID, td.id == client.id,
+                  let main = folders.first(where: { $0.id == 0 }) else { return }
+            loadedFolders.insert(main, at: min(max(0, configuration.mainChatListPosition), loadedFolders.count))
+            folderLoadTasks.values.forEach { $0.cancel() }
+            folderLoadTasks = [:]
+            allFolders.forEach { $0.isLoading = false }
+            folders = loadedFolders
+            synchronizeChatLists()
+            if currentFolder == nil || !folders.contains(where: { $0.id == self.currentFolder }) {
+                currentFolder = folders.first?.id
+            }
+            if loggedIn { allFolders.forEach { self.loadMoreChats(in: $0) } }
         }
     }
 
-    private func synchronizeAuthorization() {
-        // Legacy void auth notifications are wakeups, never authority for the
-        // account that happens to own this root when main-queue delivery occurs.
-        loggedIn = activeAccountID == TDLib.shared.activeAccountID && TDLib.shared.isActiveAccountReady
-    }
-
-    func updateChatFolders(_ update: UpdateChatFolders) {
-        guard let (ticket, client) = captureListRequest() else { return }
-        let requestID = UUID()
-        folderLoadID = requestID
-        if let folderProjection { chatProjection.finish(folderProjection) }
-        let projection = chatProjection.begin()
-        folderProjection = projection
-        Task { [weak self] in
-            guard let self else { return }
-            defer {
-                chatProjection.finish(projection)
-                if folderProjection === projection { folderProjection = nil }
-                if folderLoadID == requestID { folderLoadID = nil }
+    func synchronizeChatLists(changedIDs: Set<Int64>? = nil) {
+        let store = TelegramChatListStore.shared
+        guard activeAccountID == store.accountID, store.clientID == td.id else { return }
+        for folder in allFolders {
+            let ids = changedIDs ?? Set(store.chatIDs(in: folder.chatList)).union(folder.chats.map(\.id))
+            var updated = folder.chats
+            var membershipChanged = false
+            for id in ids {
+                guard let latest = store.customChat(id: id, in: folder.chatList) else {
+                    if updated.contains(where: { $0.id == id }) {
+                        updated.removeAll { $0.id == id }
+                        membershipChanged = true
+                    }
+                    continue
+                }
+                #if DEBUG
+                ChatListStoreDebugProbe.runIfRequested(seed: latest)
+                #endif
+                if let existing = updated.first(where: { $0.id == id }) {
+                    existing.chat = latest.chat
+                    existing.position = latest.position
+                    existing.unreadCount = latest.unreadCount
+                    existing.lastMessage = latest.lastMessage
+                    existing.draftMessage = latest.draftMessage
+                    existing.type = latest.type
+                    folder.chatDidChange.send(id)
+                } else {
+                    updated.append(latest)
+                    membershipChanged = true
+                }
             }
-            var newFolders = await update.chatFolders.asyncCompactMap { info -> CustomFolder? in
-                guard self.acceptsListRequest(ticket), self.folderLoadID == requestID else { return nil }
-                return await self.getCustomFolder(from: info, client: client, projection: projection)
-            }
-            guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
-            let mainChats = await getCustomChats(for: .chatListMain, client: client, projection: projection) ?? []
-            guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
-            let archiveChats = await getCustomChats(for: .chatListArchive, client: client, projection: projection) ?? []
-            guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
-            let mainFolder = CustomFolder(chats: mainChats, type: .main)
-            let archiveFolder = CustomFolder(chats: archiveChats, type: .archive)
-            let insertionIndex = min(max(update.mainChatListPosition, 0), newFolders.count)
-            newFolders.insert(mainFolder, at: insertionIndex)
-            let insertions = projection.reconcile(newFolders + [archiveFolder])
-            folders = newFolders
-            archive = archiveFolder
-            if currentFolder == nil || !newFolders.contains(where: { $0.id == self.currentFolder }) {
-                currentFolder = newFolders.first?.id
+            if membershipChanged {
+                folder.chats = updated.sorted {
+                    $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order
+                }
             }
             for (id, position) in insertions {
                 applyChatPosition(id: id, position: position)
@@ -189,92 +185,41 @@ extension RootVM {
         }
     }
 
-    func updateNewChat(_ update: UpdateNewChat) {
-        for position in update.chat.positions where position.order != 0 {
-            applyChatPosition(id: update.chat.id, position: position)
-        }
-    }
-
-    func updateChatPosition(_ update: UpdateChatPosition) {
-        defer { refreshChat(id: update.chatId) }
-        applyChatPosition(id: update.chatId, position: update.position)
-    }
-
-    func updateChatDraftMessage(_ update: UpdateChatDraftMessage) {
-        for folder in allFolders {
-            if let chat = folder.chats.first(where: { $0.id == update.chatId }) {
-                chat.draftMessage = update.draftMessage
-                folder.chatDidChange.send(update.chatId)
-            }
-            applyChatPosition(
-                id: update.chatId,
-                position: RootChatInsertion.position(in: update.positions, for: folder.chatList),
-            )
-        }
-    }
-
-    func updateChatLastMessage(_ update: UpdateChatLastMessage) {
-        for folder in allFolders {
-            if let chat = folder.chats.first(where: { $0.id == update.chatId }) {
-                chat.lastMessage = update.lastMessage
-                folder.chatDidChange.send(update.chatId)
-            }
-            applyChatPosition(
-                id: update.chatId,
-                position: RootChatInsertion.position(in: update.positions, for: folder.chatList),
-            )
-        }
-    }
-
-    private func applyChatPosition(id: Int64, position: ChatPosition) {
-        guard let folder = allFolders.first(where: { $0.chatList == position.list }),
-              let (ticket, client) = captureListRequest()
-        else { return }
-        var hydration: RootChatProjection.Lease?
-        chatInsertions.apply(
-            source: ticket.source, chatID: id, position: position, folder: folder,
-            accepts: { [weak self, weak folder] in
-                guard let self, let folder else { return false }
-                return acceptsListRequest(ticket) && allFolders.contains(where: { $0 === folder })
-            },
-            hydrate: { [weak self] in
-                guard let self else { return nil }
-                if let hydration { chatProjection.finish(hydration) }
-                let projection = chatProjection.begin(chatID: id)
-                hydration = projection
-                return await getCustomChat(from: id, for: position.list, client: client, projection: projection)
-            },
-            prepare: { hydration?.project($0) },
-            onFinish: { [weak self] in
-                if let hydration { self?.chatProjection.finish(hydration) }
-                hydration = nil
-            },
-        )
-    }
-
-    private func refreshChat(id: Int64) {
-        guard let (ticket, client) = captureListRequest() else { return }
-        let requestID = UUID()
-        chatRefreshIDs[id] = requestID
-        let projectionOwner = chatProjection
-        let projection = projectionOwner.beginRefresh(chatID: id)
-        Task { [weak self] in
+    func loadMoreChats(in folder: CustomFolder) {
+        guard loggedIn, allFolders.contains(where: { $0 === folder }),
+              !folder.isLoading, folder.hasMoreChats else { return }
+        let client = td
+        let accountID = activeAccountID
+        let desiredCount = folder.chats.count + 100
+        folder.isLoading = true
+        folder.loadError = nil
+        let generation = folderConfigurationGeneration
+        folderLoadTasks[folder.id] = Task { [weak self, weak folder] in
+            guard let self, let folder else { return }
             defer {
-                projectionOwner.finish(projection)
-                if self?.chatRefreshIDs[id] == requestID { self?.chatRefreshIDs[id] = nil }
+                if !Task.isCancelled, generation == folderConfigurationGeneration,
+                   allFolders.contains(where: { $0 === folder })
+                {
+                    folder.isLoading = false
+                    folderLoadTasks[folder.id] = nil
+                }
             }
-            guard let self, acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
-            let revision = chatProjection.revision
-            guard let latest = try? await client.getChat(chatId: id),
-                  acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
-            let projected = projection.project(latest, after: revision)
-            for folder in allFolders {
-                guard let chat = folder.chats.first(where: { $0.id == id }) else { continue }
-                chat.chat = projected
-                chat.unreadCount = projected.unreadCount
-                chat.lastMessage = projected.lastMessage
-                chat.draftMessage = projected.draftMessage
-                folder.chatDidChange.send(id)
+            while !Task.isCancelled, folder.chats.count < desiredCount {
+                guard activeAccountID == accountID, td.id == client.id,
+                      generation == folderConfigurationGeneration,
+                      allFolders.contains(where: { $0 === folder }) else { return }
+                do {
+                    _ = try await client.send(TDNativeRequests.loadChats(chatList: folder.chatList, limit: 100))
+                    await Task.yield()
+                } catch {
+                    guard !Task.isCancelled, activeAccountID == accountID, td.id == client.id else { return }
+                    if let error = error as? TDLibError, error.code == 404 {
+                        folder.hasMoreChats = false
+                    } else {
+                        folder.loadError = error.localizedDescription
+                    }
+                    return
+                }
             }
         }
     }

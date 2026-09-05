@@ -29,13 +29,9 @@ enum Route {
     @Published var activeAccountID: UUID?
     @Published var scopeNotificationSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
     var cancellables = Set<AnyCancellable>()
-    let listAuthority = RootListAuthority()
-    let chatInsertions = RootChatInsertion()
-    let scopeSettingsLoading = RootScopeSettingsLoading()
-    let chatProjection = RootChatProjection()
-    var folderProjection: RootChatProjection.Lease?
-    var folderLoadID: UUID?
-    var chatRefreshIDs = [Int64: UUID]()
+    var folderLoadTasks = [Int: Task<Void, Never>]()
+    var folderConfigurationTask: Task<Void, Never>?
+    var folderConfigurationGeneration = UUID()
 
     @Published var loggedIn = false
 
@@ -57,6 +53,7 @@ enum Route {
         self.activeAccountID = TDLib.shared.activeAccountID
         self.loggedIn = TDLib.shared.isActiveAccountReady
         setPublishers()
+        restoreChatListContext()
         if loggedIn {
             loadScopeNotificationSettings()
         }
@@ -91,67 +88,13 @@ enum Route {
         }
     }
 
-    func captureListRequest() -> (RootListAuthority.Ticket, TDLibClient)? {
-        guard let ticket = listAuthority.capture(
-            ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource,
-        ) else { return nil }
-        let client = td
-        guard client.id == ticket.source.clientID else { return nil }
-        return (ticket, client)
-    }
-
-    func acceptsListRequest(_ ticket: RootListAuthority.Ticket) -> Bool {
-        !Task.isCancelled && listAuthority.accepts(
-            ticket, ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource,
-        )
-    }
-
-    func getCustomChat(
-        from id: Int64, for chatList: ChatList, client: TDLibClient,
-        projection: RootChatProjection.Lease? = nil,
-    ) async -> CustomChat? {
-        await hydrateChat(id: id, list: chatList, client: client, projection: projection)
-    }
-
     func getCustomChatForNavigation(from id: Int64, client: TDLibClient) async -> CustomChat? {
         await hydrateChat(id: id, list: nil, client: client, projection: nil)
     }
 
-    func getCustomFolder(
-        from info: ChatFolderInfo, client: TDLibClient, projection: RootChatProjection.Lease,
-    ) async -> CustomFolder? {
-        guard let folder = try? await client.getChatFolder(chatFolderId: info.id),
-              projection.isValid,
-              let chats = await getCustomChats(
-                  for: .chatListFolder(ChatListFolder(chatFolderId: info.id)),
-                  client: client,
-                  projection: projection,
-              )
-        else { return nil }
-        return CustomFolder(chats: chats, type: .folder(info, folder))
-    }
-
-    func getCustomChats(
-        for chatList: ChatList, client: TDLibClient, projection: RootChatProjection.Lease,
-    ) async -> [CustomChat]? {
-        guard projection.isValid else { return nil }
-        projection.beginList(chatList, revision: chatProjection.revision)
-        // A consumed chat list must be reloaded before getChats can return a recreated folder.
-        _ = try? await client.send(TDNativeRequests.loadChats(chatList: chatList, limit: 200))
-        guard projection.isValid else { return nil }
-        guard let ids = try? await client.getChats(chatList: chatList, limit: 200).chatIds,
-              projection.isValid else { return nil }
-        return await ids.asyncCompactMap { await getCustomChat(
-            from: $0,
-            for: chatList,
-            client: client,
-            projection: projection,
-        ) }
-    }
-
-    private func hydrateChat(
-        id: Int64,
-        list: ChatList?,
+    private func getCustomChat(
+        from chat: Chat,
+        position: ChatPosition,
         client: TDLibClient,
         projection: RootChatProjection.Lease?,
     ) async -> CustomChat? {

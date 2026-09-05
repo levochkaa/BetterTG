@@ -397,14 +397,8 @@ final class TDLib: @unchecked Sendable {
                     break
                 }
             }
-            let source = TdUpdateSource(accountID: accountID, clientID: client.id)
-            publishAuthorizationState(state, source: source)
-            update(incomingUpdate, source: source)
-
-            clientReadiness.update(
-                ready: state == .authorizationStateReady && !lifecycleSuspended,
-                source: TdUpdateSource(accountID: accountID, clientID: client.id),
-            )
+            TelegramChatListStore.shared.consume(incomingUpdate, accountID: accountID, clientID: client.id)
+            update(incomingUpdate)
 
             switch state {
             case .authorizationStateReady:
@@ -420,9 +414,20 @@ final class TDLib: @unchecked Sendable {
         }
 
         guard isActive(client: client, accountID: accountID) else { return }
-        let source = TdUpdateSource(accountID: accountID, clientID: client.id)
-        mediaUpdates.publish(incomingUpdate, source: source)
-        update(incomingUpdate, source: source)
+        TelegramChatListStore.shared.consume(incomingUpdate, accountID: accountID, clientID: client.id)
+        publishMediaUpdate(incomingUpdate)
+        update(incomingUpdate)
+    }
+
+    private func publishMediaUpdate(_ update: Update) {
+        switch update {
+        case .updateFile(let fileUpdate):
+            fileUpdates.send(fileUpdate)
+        case .updateDeleteMessages(let deleteUpdate):
+            deleteMessageUpdatesSubject.send(deleteUpdate)
+        default:
+            break
+        }
     }
 
     private func isActive(client: TDLibClient, accountID: UUID) -> Bool {

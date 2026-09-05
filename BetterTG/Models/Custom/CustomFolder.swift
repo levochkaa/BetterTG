@@ -13,6 +13,9 @@ import TDLibKit
     }
 
     @Published var chats: [CustomChat]
+    @Published var isLoading = false
+    @Published var loadError: String?
+    var hasMoreChats = true
     let chatDidChange = PassthroughSubject<Int64, Never>()
     let type: CustomFolderType
 

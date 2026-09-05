@@ -327,7 +327,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private var filteredChats: [CustomChat] {
         folder.chats
-            .sorted { $0.position.order > $1.position.order }
+            .sorted { $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order }
             .filter {
                 query.isEmpty
                     || $0.displayTitle.localizedCaseInsensitiveContains(query)
@@ -393,6 +393,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        loadMoreChatsIfNeeded()
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-ui-smoke-scroll-chats") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -466,15 +467,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         NavigationStorage.shared.push(.customChat(chat))
     }
 
-    func clientRestorationViewport() -> ChatListViewportSnapshot {
-        guard isViewLoaded, didSetInitialSearchOffset else {
-            return clientViewportRestoration.pending ?? ChatListViewportSnapshot(
-                chatID: nil,
-                rowMinYRelativeToViewport: 0,
-                offsetFromTop: initialSearchScrollOffset,
-            )
+    override func tableView(_ tableView: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
+        if indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - 12 {
+            loadMoreChatsIfNeeded()
         }
-        return .capture(tableView: tableView) { dataSource.itemIdentifier(for: $0) }
     }
 
     func tableView(_: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
@@ -592,6 +588,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func startStateUpdates() {
+        folder.$isLoading
+            .combineLatest(folder.$loadError)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.updateLoadingFooter()
+            }
+            .store(in: &cancellables)
+
         folder.$chats
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -655,13 +659,39 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 snapshot.reconfigureItems(reconfigured)
             }
         }
-        let applyToken = clientViewportRestoration.beginApply()
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
-            guard let self else { return }
-            clientViewportRestoration.completeApply(applyToken)
-            if !didSetInitialSearchOffset { view.setNeedsLayout() }
+            self?.loadMoreChatsIfNeeded()
         }
         tableView.backgroundView = filteredChats.isEmpty ? emptyLabel() : nil
+    }
+
+    private func loadMoreChatsIfNeeded() {
+        guard isViewLoaded, view.window != nil, folder.loadError == nil,
+              tableView.contentOffset.y + tableView.bounds.height >= tableView.contentSize.height - 12 * 76
+        else { return }
+        rootVM.loadMoreChats(in: folder)
+    }
+
+    private func updateLoadingFooter() {
+        if let error = folder.loadError {
+            let button = UIButton(type: .system)
+            button.frame.size = CGSize(width: tableView.bounds.width, height: 52)
+            button.setTitle(L10n.telegram("Common.Retry"), for: .normal)
+            button.accessibilityLabel = "\(error). \(L10n.telegram("Common.Retry"))"
+            button.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                rootVM.loadMoreChats(in: folder)
+            }, for: .touchUpInside)
+            tableView.tableFooterView = button
+        } else if folder.isLoading {
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.frame.size = CGSize(width: tableView.bounds.width, height: 44)
+            spinner.startAnimating()
+            tableView.tableFooterView = spinner
+        } else {
+            tableView.tableFooterView = nil
+            loadMoreChatsIfNeeded()
+        }
     }
 
     private func emptyLabel() -> UIView {
