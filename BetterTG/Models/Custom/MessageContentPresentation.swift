@@ -94,7 +94,7 @@ struct MessageContentPresentation {
             return Self(
                 formattedText: nil,
                 isVisualMedia: false,
-                summary: "Rich message",
+                summary: RichMessageText.summary(message.message),
                 supplement: .richMessage(message.message),
             )
         case .messageAnimation(let message):

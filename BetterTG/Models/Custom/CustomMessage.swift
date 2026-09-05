@@ -8,7 +8,11 @@ import TDLibKit
     // MARK: Internal
 
     @Published var message: Message {
-        didSet { richContentState.invalidateContent() }
+        didSet {
+            if oldValue.editDate != message.editDate || oldValue.content.typeID != message.content.typeID {
+                richContentState.invalidateContent()
+            }
+        }
     }
 
     @Published var senderUser: User?

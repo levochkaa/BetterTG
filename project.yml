@@ -35,6 +35,9 @@ packages:
   libwebp:
     url: https://github.com/SDWebImage/libwebp-Xcode.git
     exactVersion: 1.6.0
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath.git
+    exactVersion: 1.7.3
   TDLibKit:
     url: https://github.com/levochkaa/TDLibKit.git
     exactVersion: 2.0.0
@@ -52,6 +55,7 @@ targets:
       - package: FFmpegBridge
       - package: Lottie
       - package: libwebp
+      - package: SwiftMath
       - package: TDLibKit
         product: TDLibKitShared
         embed: true

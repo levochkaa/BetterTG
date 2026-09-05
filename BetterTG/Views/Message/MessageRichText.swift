@@ -10,7 +10,7 @@ import UIKit
     let formatted: FormattedText
     let buttons: [String: TDNativeInlineButton]
 
-    init(_ text: TDNativeRichText, font: UIFont = .body, isRTL: Bool = false) {
+    init(_ text: TDNativeRichText, font: UIFont = .body, isRTL: Bool = false, traits: UITraitCollection = .current) {
         let result = NSMutableAttributedString()
         var entities = [TextEntity]()
         var buttons = [String: TDNativeInlineButton]()
@@ -103,6 +103,23 @@ import UIKit
                             .customEmojiId)),
                 ))
             case .richTextMathematicalExpression(let value):
+                if let rendered = MessageMathRenderer.render(
+                    value.expression,
+                    fontSize: font.pointSize,
+                    inline: true,
+                    traits: traits,
+                ) {
+                    let attachment = NSTextAttachment()
+                    attachment.image = rendered.image
+                    attachment.bounds = CGRect(
+                        x: 0,
+                        y: -rendered.descent,
+                        width: rendered.image.size.width,
+                        height: rendered.image.size.height,
+                    )
+                    result.append(NSAttributedString(attachment: attachment))
+                    break
+                }
                 result.append(NSAttributedString(
                     string: value.expression,
                     attributes: attributes.merging([.font: UIFont.monospaced]) { _, value in value },

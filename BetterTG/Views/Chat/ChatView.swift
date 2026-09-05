@@ -3650,7 +3650,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if chatVM.isReadOnlyTopic {
             var readOnlyActions = [TelegramContextMenuAction]()
             if message.properties.canBeCopied,
-               let text = formattedText(from: message.message.content)
+               let text = copyableText(from: message.message.content)
             {
                 readOnlyActions.append(TelegramContextMenuAction(
                     title: "Copy",
@@ -3677,7 +3677,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 })
             }
         }
-        if message.properties.canBeEdited {
+        let isRichMessage =
+            if case .messageRichMessage = message.message.content {
+                true
+            } else {
+                false
+            }
+        if message.properties.canBeEdited, !isRichMessage {
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Common.Edit"),
                 image: UIImage(systemName: "square.and.pencil"),
@@ -3686,7 +3692,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
         if message.properties.canBeCopied,
-           let text = formattedText(from: message.message.content)
+           let text = copyableText(from: message.message.content)
         {
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.ContextMenuCopy"),
@@ -4294,5 +4300,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         default:
             nil
         }
+    }
+
+    private func copyableText(from content: MessageContent) -> FormattedText? {
+        if case .messageRichMessage(let message) = content {
+            let text = RichMessageText.copyText(message.message)
+            return text.isEmpty ? nil : FormattedText(entities: [], text: text)
+        }
+        return formattedText(from: content)
     }
 }

@@ -698,7 +698,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             avatarView.isHidden = true
         }
 
-        isAccessibilityElement = !isVideoNoteMessage
+        let isRichMessage =
+            if case .richMessage = presentation.supplement {
+                true
+            } else {
+                false
+            }
+        isAccessibilityElement = selectionActive || (!isVideoNoteMessage && !isRichMessage)
         let accessibilityContent =
             if structuredContentView.handlesAlbumCaptions {
                 message.album.map { MessageContentPresentation.make($0).summary }.joined(separator: ", ")

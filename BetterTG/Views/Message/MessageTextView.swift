@@ -127,6 +127,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         for range in spoilerRanges {
             result.removeAttribute(.backgroundColor, range: range)
             if !spoilersRevealed {
+                result.enumerateAttribute(.attachment, in: range) { value, attachmentRange, _ in
+                    guard let attachment = value as? NSTextAttachment else { return }
+                    let hidden = NSTextAttachment()
+                    hidden.bounds = attachment.bounds
+                    result.addAttribute(.attachment, value: hidden, range: attachmentRange)
+                }
                 result.addAttributes([
                     .foregroundColor: UIColor.clear,
                     .underlineColor: UIColor.clear,

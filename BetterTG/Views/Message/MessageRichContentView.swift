@@ -64,6 +64,10 @@ final class MessageRichContentView: UIView, MessageSupplementView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         render()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: MessageRichContentView, _) in
+            view.render()
+            view.onAction(.richContentLayoutChanged)
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -136,7 +140,7 @@ final class MessageRichContentView: UIView, MessageSupplementView {
         path: String,
         font: UIFont = .body,
     ) -> MessageTextContentView {
-        let rich = MessageRichText(value, font: font, isRTL: source.isRtl)
+        let rich = MessageRichText(value, font: font, isRTL: source.isRtl, traits: traitCollection)
         let view = MessageTextContentView()
         view.configure(
             formattedText: rich.formatted,
@@ -146,7 +150,14 @@ final class MessageRichContentView: UIView, MessageSupplementView {
             spoilersRevealed: state.revealedSpoilers.contains(path),
             richAttributedText: rich.attributed,
         )
-        view.onRevealSpoilers = { [weak state] in state?.revealedSpoilers.insert(path) }
+        view.accessibilityLabel = RichMessageText.plainText(
+            value,
+            revealSpoilers: state.revealedSpoilers.contains(path),
+        )
+        view.onRevealSpoilers = { [weak state, weak view] in
+            state?.revealedSpoilers.insert(path)
+            view?.accessibilityLabel = RichMessageText.plainText(value, revealSpoilers: true)
+        }
         view.onOpenRichURL = { [weak self] url in
             guard let button = rich.buttons[url.absoluteString] else { return false }
             self?.perform(button)
@@ -389,7 +400,11 @@ final class MessageRichContentView: UIView, MessageSupplementView {
                 row.spacing = 6
                 parent.addArrangedSubview(row)
             case .pageBlockMathematicalExpression(let value):
-                addText(.richTextPlain(TDNativeRichTextPlain(text: value.expression)), font: .monospaced)
+                if let formula = MessageMathRenderer.block(value.expression, width: width, traits: traitCollection) {
+                    parent.addArrangedSubview(formula)
+                } else {
+                    addText(.richTextPlain(TDNativeRichTextPlain(text: value.expression)), font: .monospaced)
+                }
             case .pageBlockMap(let value):
                 parent.addArrangedSubview(actionButton("📍 " + L10n.telegram("Map.Map")) { [weak self] _ in
                     self?.onAction(.openLocation(location: value.location, title: ""))
