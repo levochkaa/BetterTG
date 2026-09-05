@@ -190,3 +190,5 @@
 "Notifications.PermissionsOpenSettings" = "Open Settings";
 
 "PeerInfo.ButtonSearch" = "Search";
+
+"ChatImportActivity.Retry" = "Retry";

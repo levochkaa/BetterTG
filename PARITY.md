@@ -4043,7 +4043,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   including unselected indicators. The count title has symmetric navigation bounds around Cancel.
 - Validation: SwiftFormat on all 12 changed Swift files, warning-free `./build.sh build` on Xcode 26.6
   / iOS 26.5 (`build-Debug-20260905-174328-31642-5978.log`); wrapper launch on the existing simulator.
-  Interactive visual verification is in progress; physical-device layout proof remains pending.
+  Simulator screenshots/hierarchy confirm list/chat search 8pt bottom gaps, trailing unread badges, one-row profile actions and glass tabs, avatar Profile/Search, root Delete/Back, exact bubble-edge menu alignment, centered selection title and complete cleanup on Cancel/last deselection. See `.build/ui-probe-evidence/parity-fixes-20260905/stage1/SMOKE.md`. Physical-device layout proof remains pending.
 
 
 ## TDLib chat-list ownership and paging — 2026-09-05
@@ -4061,8 +4061,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   remain separate. `ChatListStoreDebugProbe` exercises order ties, movement/removal, partial read
   updates, retained native values and account/client isolation without making server requests.
 - Validation: SwiftFormat on all task-modified Swift files; warning-free `./build.sh build` on
-  Xcode 26.6 / iOS 26.5 (`build-Debug-20260905-175331-35225-7160.log`). Live pagination and the
-  opt-in native-cache probe await the next coordinated simulator launch.
+  Xcode 26.6 / iOS 26.5 (`build-Debug-20260905-175331-35225-7160.log`). The opt-in native-cache probe passed all nine checks on a real TDLib model, without server mutations. Main, custom-folder and Archive lists populated correctly after the snapshot fix below. A visible scroll sample does not establish a measured row-200 crossing.
 
 
 ## Selection pan and deletion submenu separator — 2026-09-05
@@ -4077,3 +4076,16 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
 - The submenu now places a section divider between Back and deletion modes, as requested.
 - Validation: SwiftFormat on every task-modified Swift file and warning-free wrapper build
   (`build-Debug-20260905-175726-36643-20849.log`). Live two-finger/edge-scroll verification pending.
+
+
+## Chat-list snapshot race found during launch verification — 2026-09-05
+
+- Real startup exposed a UITableView dequeue assertion: membership reached the diffable snapshot
+  before the separately queued provider cache, causing a fallback cell with the wrong reuse type.
+- Each snapshot now populates its cache first; applies serialize and coalesce pending identifiers.
+  Old row objects survive removal animations and are pruned only after completion. This also
+  prevents scope/account metadata bursts from racing structural list updates.
+- Validation: warning-free wrapper build `build-Debug-20260905-180601-39253-15148.log`;
+  fixed launch PID 39691 remained running, main/custom/archive populated with expected visible
+  order, and the repeated native-cache probe passed nine checks. Evidence is under
+  `.build/ui-probe-evidence/parity-fixes-20260905/stage2/`.

@@ -309,6 +309,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var chatsByID = [Int64: CustomChat]()
     private var pendingChangedChatIDs = Set<Int64>()
     private var chatUpdateScheduled = false
+    private var isApplyingSnapshot = false
+    private var snapshotNeedsApply = false
+    private var pendingSnapshotAnimated = false
+    private var pendingSnapshotChangedIDs = Set<Int64>()
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
 
     var isInteractingWithList: Bool {
@@ -575,12 +579,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             Section,
             Int64,
         >(tableView: tableView) { [weak self] tableView, indexPath, id in
-            guard let self,
+            guard let self, let chat = chat(for: id),
                   let cell = tableView.dequeueReusableCell(
                       withIdentifier: ChatListCell.reuseIdentifier,
                       for: indexPath,
-                  ) as? ChatListCell,
-                  let chat = chat(for: id)
+                  ) as? ChatListCell
             else { return UITableViewCell() }
             cell.configure(chat: chat, isMuted: rootVM.isMuted(chat), client: actionAuthority.client)
             return cell
@@ -627,8 +630,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func rebuildChatIndex() {
-        chatsByID = Dictionary(uniqueKeysWithValues: folder.chats.map { ($0.id, $0) })
-        for id in Array(prefetchTasks.keys) where chatsByID[id] == nil {
+        // Retain rows from the previous snapshot until its animations finish.
+        chatsByID.merge(
+            Dictionary(uniqueKeysWithValues: folder.chats.map { ($0.id, $0) }),
+            uniquingKeysWith: { _, latest in latest },
+        )
+        let currentIDs = Set(folder.chats.map(\.id))
+        for id in Array(prefetchTasks.keys) where !currentIDs.contains(id) {
             prefetchTasks[id]?.cancel()
             prefetchTasks[id] = nil
         }
@@ -649,9 +657,26 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private func updateSnapshot(animated: Bool, changedIDs: Set<Int64> = []) {
         guard isViewLoaded else { return }
+        snapshotNeedsApply = true
+        pendingSnapshotAnimated = pendingSnapshotAnimated || animated
+        pendingSnapshotChangedIDs.formUnion(changedIDs)
+        applyPendingSnapshot()
+    }
+
+    private func applyPendingSnapshot() {
+        guard snapshotNeedsApply, !isApplyingSnapshot else { return }
+        snapshotNeedsApply = false
+        let animated = pendingSnapshotAnimated
+        let changedIDs = pendingSnapshotChangedIDs
+        pendingSnapshotAnimated = false
+        pendingSnapshotChangedIDs.removeAll()
+        // Membership can change before a queued UI publisher runs. Populate the
+        // provider cache before publishing new identifiers, including on scope updates.
+        rebuildChatIndex()
+        let displayedChats = filteredChats
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.main])
-        snapshot.appendItems(filteredChats.map(\.id))
+        snapshot.appendItems(displayedChats.map(\.id))
         if !changedIDs.isEmpty {
             let current = Set(dataSource.snapshot().itemIdentifiers)
             let reconfigured = snapshot.itemIdentifiers.filter { changedIDs.contains($0) && current.contains($0) }
@@ -659,10 +684,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 snapshot.reconfigureItems(reconfigured)
             }
         }
+        isApplyingSnapshot = true
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
-            self?.loadMoreChatsIfNeeded()
+            guard let self else { return }
+            isApplyingSnapshot = false
+            let retainedIDs = Set(dataSource.snapshot().itemIdentifiers).union(folder.chats.map(\.id))
+            chatsByID = chatsByID.filter { retainedIDs.contains($0.key) }
+            loadMoreChatsIfNeeded()
+            DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
         }
-        tableView.backgroundView = filteredChats.isEmpty ? emptyLabel() : nil
+        tableView.backgroundView = displayedChats.isEmpty ? emptyLabel() : nil
     }
 
     private func loadMoreChatsIfNeeded() {
@@ -676,8 +707,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         if let error = folder.loadError {
             let button = UIButton(type: .system)
             button.frame.size = CGSize(width: tableView.bounds.width, height: 52)
-            button.setTitle(L10n.telegram("Common.Retry"), for: .normal)
-            button.accessibilityLabel = "\(error). \(L10n.telegram("Common.Retry"))"
+            button.setTitle(L10n.telegram("ChatImportActivity.Retry"), for: .normal)
+            button.accessibilityLabel = "\(error). \(L10n.telegram("ChatImportActivity.Retry"))"
             button.addAction(UIAction { [weak self] _ in
                 guard let self else { return }
                 rootVM.loadMoreChats(in: folder)
