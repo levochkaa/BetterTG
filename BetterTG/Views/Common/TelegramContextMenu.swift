@@ -197,7 +197,7 @@ extension UIViewController {
         performsInitialFeedback: Bool = true,
         presentationStyle: TelegramContextMenuPresentationStyle = .message,
         previewController: UIViewController? = nil,
-        onDismiss: (() -> Void)? = nil,
+        reactionsProvider: TelegramContextReactionsProvider? = nil,
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
@@ -210,7 +210,7 @@ extension UIViewController {
             sourceTransform: sourceBaseTransform ?? sourceView.transform,
             presentationStyle: presentationStyle,
             previewController: previewController,
-            owner: self, onDismiss: onDismiss,
+            reactionsProvider: reactionsProvider,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
@@ -262,6 +262,9 @@ private final class TelegramContextMenuController: UIViewController {
     private let sourceTransform: CGAffineTransform
     private let presentationStyle: TelegramContextMenuPresentationStyle
     private let previewController: UIViewController?
+    private let reactionsProvider: TelegramContextReactionsProvider?
+    private let reactionStrip = TelegramReactionStripView()
+    private var reactionTask: Task<Void, Never>?
     private weak var trackingGesture: UIGestureRecognizer?
     private var actions: [TelegramContextMenuAction]
     private var parentActions = [[TelegramContextMenuAction]]()
@@ -303,8 +306,7 @@ private final class TelegramContextMenuController: UIViewController {
         sourceTransform: CGAffineTransform,
         presentationStyle: TelegramContextMenuPresentationStyle,
         previewController: UIViewController?,
-        owner: UIViewController,
-        onDismiss: (() -> Void)?,
+        reactionsProvider: TelegramContextReactionsProvider?,
     ) {
         self.sourceView = sourceView
         self.sourceTransform = sourceTransform
@@ -312,8 +314,7 @@ private final class TelegramContextMenuController: UIViewController {
         self.trackingGesture = trackingGesture
         self.presentationStyle = presentationStyle
         self.previewController = previewController
-        self.owner = owner
-        self.onDismiss = onDismiss
+        self.reactionsProvider = reactionsProvider
         super.init(nibName: nil, bundle: nil)
         trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
         NotificationCenter.default.addObserver(
@@ -326,7 +327,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        reactionTask?.cancel()
         trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
@@ -453,6 +454,23 @@ private final class TelegramContextMenuController: UIViewController {
         menuEffectView.addGestureRecognizer(menuSelectionGesture)
 
         rebuildActions()
+        reactionStrip.isHidden = reactionsProvider == nil
+        reactionStrip.alpha = 0
+        view.addSubview(reactionStrip)
+        reactionStrip.onSelect = { [weak self] reaction in
+            guard let self, !isPerformingAction else { return }
+            isPerformingAction = true
+            dismissMenu(completion: reaction.handler)
+        }
+        if let reactionsProvider {
+            reactionTask = Task { [weak self] in
+                let reactions = await reactionsProvider()
+                guard let self, !Task.isCancelled, !isDismissing else { return }
+                reactionStrip.configure(reactions)
+                reactionStrip.isHidden = reactions.isEmpty
+                UIView.animate(withDuration: 0.2) { self.layoutPreviewAndMenu() }
+            }
+        }
     }
 
     private func rebuildActions() {
@@ -493,8 +511,9 @@ private final class TelegramContextMenuController: UIViewController {
         switch presentationStyle {
         case .message:
             let spacing: CGFloat = 10
+            let reactionHeight: CGFloat = reactionStrip.isHidden ? 0 : 56
             let baseSourceFrame = sourceFrameAtBaseTransform()
-            let maximumPreviewHeight = max(44, maximumBottom - verticalInset - menuHeight - spacing)
+            let maximumPreviewHeight = max(44, maximumBottom - verticalInset - reactionHeight - menuHeight - spacing)
             messageContentSize = sourceView.bounds.size
             targetMessageScale = min(
                 1,
@@ -508,7 +527,7 @@ private final class TelegramContextMenuController: UIViewController {
                 : baseSourceFrame.minX
             let previewX = min(max(0, alignedPreviewX), view.bounds.width - previewWidth)
             let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
-            let previewY = min(max(verticalInset, baseSourceFrame.minY), maximumPreviewY)
+            let previewY = min(max(verticalInset + reactionHeight, baseSourceFrame.minY), maximumPreviewY)
             targetPreviewFrame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
             let alignedMenuX = baseSourceFrame.midX > view.bounds.midX
                 ? targetPreviewFrame.maxX - menuWidth
@@ -625,6 +644,16 @@ private final class TelegramContextMenuController: UIViewController {
                 }
         }
         menuEffectView.frame = targetMenuFrame
+        if presentationStyle == .message, !reactionStrip.isHidden {
+            let width = min(availableWidth, reactionStrip.preferredWidth)
+            let proposedX = targetPreviewFrame.midX > view.bounds.midX
+                ? targetPreviewFrame.maxX - width
+                : targetPreviewFrame.minX
+            reactionStrip.frame = CGRect(
+                x: min(max(horizontalInset, proposedX), view.bounds.width - horizontalInset - width),
+                y: targetPreviewFrame.minY - 56, width: width, height: 46,
+            )
+        }
         previewView?.frame = previewContainer.bounds
         if presentationStyle == .avatar {
             previewView?.layoutIfNeeded()
@@ -656,6 +685,7 @@ private final class TelegramContextMenuController: UIViewController {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
         menuEffectView.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+        reactionStrip.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
         UIView.animate(
             withDuration: 0.34,
             delay: 0,
@@ -699,13 +729,15 @@ private final class TelegramContextMenuController: UIViewController {
             }
             self.menuEffectView.alpha = 1
             self.menuEffectView.transform = .identity
+            self.reactionStrip.alpha = 1
+            self.reactionStrip.transform = .identity
         }
     }
 
     private func dismissMenu(completion: (() -> Void)? = nil) {
         guard !isDismissing else { return }
         isDismissing = true
-        dismissCompletion = completion
+        reactionTask?.cancel()
         let returnFrame = sourceFrameAtBaseTransform()
         UIView.animate(
             withDuration: 0.24,
@@ -741,31 +773,25 @@ private final class TelegramContextMenuController: UIViewController {
                     : self.originalContentCornerRadius
             }
             self.menuEffectView.alpha = 0
+            self.reactionStrip.alpha = 0
             self.menuEffectView.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
-        } completion: { _ in self.finishDismissal() }
-    }
-
-    private func finishDismissal() {
-        guard !didFinishDismissal else { return }
-        didFinishDismissal = true
-        isDismissing = true
-        sourceView?.transform = sourceTransform
-        if let previewView, let extractedSource { extractedSource.putBackContextMenuContent(previewView) }
-        previewController?.willMove(toParent: nil)
-        previewController?.view.removeFromSuperview()
-        previewController?.removeFromParent()
-        sourceView?.alpha = 1
-        beginAppearanceTransition(false, animated: false)
-        view.removeFromSuperview()
-        endAppearanceTransition()
-        presentationHostView = nil
-        if Self.activeController === self { Self.activeController = nil }
-        let action = dismissCompletion
-        let callback = onDismiss
-        dismissCompletion = nil
-        onDismiss = nil
-        action?()
-        callback?()
+        } completion: { _ in
+            self.sourceView?.transform = self.sourceTransform
+            self.reactionStrip.prepareForReuse()
+            if let previewView = self.previewView, let extractedSource = self.extractedSource {
+                extractedSource.putBackContextMenuContent(previewView)
+            }
+            self.previewController?.willMove(toParent: nil)
+            self.previewController?.view.removeFromSuperview()
+            self.previewController?.removeFromParent()
+            self.sourceView?.alpha = 1
+            self.beginAppearanceTransition(false, animated: false)
+            self.view.removeFromSuperview()
+            self.endAppearanceTransition()
+            self.presentationHostView = nil
+            Self.activeController = nil
+            completion?()
+        }
     }
 
     private func sourceFrameAtBaseTransform() -> CGRect {
@@ -832,6 +858,7 @@ private final class TelegramContextMenuController: UIViewController {
         case .changed:
             updateTrackedButton(at: gesture.location(in: view))
         case .ended:
+            if reactionStrip.selectTrackedReaction() { return }
             if let trackedButton {
                 perform(trackedButton)
             }
@@ -860,6 +887,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func updateTrackedButton(at location: CGPoint?) {
+        reactionStrip.updateTracking(at: location.map { reactionStrip.convert($0, from: view) })
         let button = location.flatMap { point in
             actionButtons.first { $0.convert($0.bounds, to: view).contains(point) }
         }

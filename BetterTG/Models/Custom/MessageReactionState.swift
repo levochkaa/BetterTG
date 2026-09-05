@@ -136,6 +136,14 @@ extension ReactionType {
 }
 
 extension AvailableReactions {
+    func contextReactionTypes(isPremium: Bool) -> [ReactionType] {
+        guard unavailabilityReason == nil else { return [] }
+        var seen = Set<ReactionType>()
+        return (recentReactions + topReactions + popularReactions)
+            .filter { (isPremium || !$0.needsPremium) && !$0.type.isPaid }
+            .compactMap { seen.insert($0.type).inserted ? $0.type : nil }
+    }
+
     var nonPremiumReactionTypes: [ReactionType] {
         var seen = Set<ReactionType>()
         return (topReactions + recentReactions + popularReactions)

@@ -150,7 +150,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var metadataNavigationTask: Task<Void, Never>?
     private var messageHighlightTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
-    private var reactionPickerTask: Task<Void, Never>?
     private var messageSearchActive = false
     private var isTerminatingNavigation = false
     private var composerLeadingConstraint: NSLayoutConstraint?
@@ -326,7 +325,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageNavigationTask?.cancel()
         metadataNavigationTask?.cancel()
         messageHighlightTask?.cancel()
-        reactionPickerTask?.cancel()
         selectionCapabilityTask?.cancel()
         pendingDeleteSnapshotWorkItem?.cancel()
         for transition in pendingComposerSendTransitions.values {
@@ -3610,7 +3608,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             tracking: gesture,
             sourceBaseTransform: baseTransform,
             performsInitialFeedback: false,
-            onDismiss: { [weak self] in self?.retryClientRestoration() },
+            reactionsProvider: contextReactionsProvider(for: message),
         )
         if !presented {
             restorePressedMessageSource()
@@ -3689,15 +3687,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 title: L10n.telegram("Conversation.ContextMenuCopy"),
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
             ) { UIPasteboard.setFormattedText(text) })
-        }
-        if canOfferReactionPicker(for: message) {
-            elements.append(TelegramContextMenuAction(
-                title: "React",
-                image: UIImage(systemName: "face.smiling"),
-            ) { [weak self, weak message] in
-                guard let message else { return }
-                self?.presentReactionPicker(for: message)
-            })
         }
         if canOfferPinAction(for: message) {
             elements.append(TelegramContextMenuAction(
@@ -4043,103 +4032,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
-    private func presentReactionPicker(for message: CustomMessage) {
+    private func contextReactionsProvider(for message: CustomMessage) -> TelegramContextReactionsProvider? {
         guard canOfferReactionPicker(for: message),
-              reactionPickerTask == nil,
-              let accountID = TDLib.shared.activeAccountID,
-              accountID == chatVM.accountID,
-              TDLib.shared.activeClient.id == chatVM.client.id
-        else { return }
+              let accountID = TDLib.shared.activeAccountID, accountID == chatVM.accountID else { return nil }
         let client = chatVM.client
+        let chatID = chatVM.chatID
         let messageID = message.id
-        reactionPickerTask = Task { [weak self, weak message] in
-            guard let self else { return }
-            defer { reactionPickerTask = nil
-                retryClientRestoration()
-            }
-            guard let message else {
-                reactionPickerTask = nil
-                return
-            }
+        return { [weak self, weak message] in
+            guard let self, let message, TDLib.shared.activeClient.id == client.id else { return [] }
             do {
-                let available = try await client.getMessageAvailableReactions(
-                    chatId: chatVM.chatID,
+                async let availableRequest = client.getMessageAvailableReactions(
+                    chatId: chatID,
                     messageId: messageID,
-                    rowSize: 8,
+                    rowSize: 7,
                 )
-                guard !Task.isCancelled,
-                      TDLib.shared.activeAccountID == accountID,
+                async let userRequest = client.getMe()
+                let (available, user) = try await (availableRequest, userRequest)
+                let types = Array(available.contextReactionTypes(isPremium: user.isPremium).prefix(24))
+                let stickers = await CustomEmojiStickerRepository.shared.stickers(
+                    for: types.compactMap(\.customEmojiID),
+                    client: client,
+                )
+                guard !Task.isCancelled, TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id,
-                      chatVM.displayedMessageID(containing: messageID)
-                          .flatMap({ self.message(for: $0) }) === message
-                else {
-                    reactionPickerTask = nil
-                    return
+                      chatVM.displayedMessageID(containing: messageID).flatMap({ self.message(for: $0) }) === message
+                else { return [] }
+                return types.map { type in
+                    TelegramContextMenuReaction(
+                        type: type,
+                        isChosen: MessageReactionStateReducer.isChosen(
+                            type,
+                            in: message.reactions,
+                        ),
+                        sticker: type.customEmojiID.flatMap { stickers[$0] },
+                    ) { [
+                        weak self,
+                        weak message,
+                    ] in
+                        guard let self, let message, TDLib.shared.activeAccountID == accountID,
+                              TDLib.shared.activeClient.id == client.id else { return }
+                        chatVM.toggleReaction(on: message, type: type, isBig: false)
+                    }
                 }
-                reactionPickerTask = nil
-                if let reason = available.unavailabilityReason {
-                    presentReactionUnavailable(reason)
-                    return
-                }
-                let emojiTypes = available.nonPremiumReactionTypes.compactMap { type -> ReactionType? in
-                    type.standardEmoji == nil ? nil : type
-                }
-                guard !emojiTypes.isEmpty else {
-                    presentReactionUnavailable(nil)
-                    return
-                }
-                let picker = UIAlertController(
-                    title: "React",
-                    message: nil,
-                    preferredStyle: .actionSheet,
-                )
-                for type in emojiTypes.prefix(12) {
-                    guard let emoji = type.standardEmoji else { continue }
-                    picker.addAction(UIAlertAction(title: emoji, style: .default) { [weak self, weak message] _ in
-                        guard let self, let message,
-                              TDLib.shared.activeAccountID == accountID,
-                              TDLib.shared.activeClient.id == client.id
-                        else { return }
-                        chatVM.toggleReaction(on: message, type: type, isBig: true)
-                    })
-                }
-                picker.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-                if let popover = picker.popoverPresentationController {
-                    popover.sourceView = view
-                    popover.sourceRect = CGRect(
-                        x: view.bounds.midX,
-                        y: view.bounds.maxY - view.safeAreaInsets.bottom,
-                        width: 1,
-                        height: 1,
-                    )
-                }
-                guard presentedViewController == nil else { return }
-                present(picker, animated: true)
-            } catch is CancellationError {
-                reactionPickerTask = nil
-            } catch {
-                reactionPickerTask = nil
-                presentReactionUnavailable(nil)
-            }
+            } catch { return [] }
         }
-    }
-
-    private func presentReactionUnavailable(_ reason: ReactionUnavailabilityReason?) {
-        guard presentedViewController == nil else { return }
-        let message =
-            switch reason {
-            case .reactionUnavailabilityReasonAnonymousAdministrator:
-                "Anonymous administrators can't add reactions here."
-            case .reactionUnavailabilityReasonGuest:
-                "Join the group before adding reactions."
-            case .reactionUnavailabilityReasonRestricted:
-                "Your reaction permission is restricted in this chat."
-            case nil:
-                "No non-Premium emoji reactions are available for this message."
-            }
-        let alert = UIAlertController(title: "Reaction Unavailable", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
     }
 
     private func reconfigureMessages(ids: [DisplayedMessageID]) {

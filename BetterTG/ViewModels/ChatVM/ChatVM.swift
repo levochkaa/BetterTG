@@ -1588,7 +1588,8 @@ import UIKit
                         messageId: messageID,
                         rowSize: 8,
                     )
-                    guard available.allowsNonPremium(type) else {
+                    let isPremium = try await client.getMe().isPremium
+                    guard available.contextReactionTypes(isPremium: isPremium).contains(type) else {
                         throw ReactionMutationFailure.unavailable
                     }
                     guard TDLib.shared.activeAccountID == accountID,
