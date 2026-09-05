@@ -30,8 +30,9 @@ import TDLibKit
         started = true
         let client = TDLib.shared.activeClient
         let path = documents.appendingPathComponent("parity-test-fixtures.json")
-        if let previous = try? JSONDecoder().decode(Manifest.self, from: Data(contentsOf: path)),
-           previous.accountID == accountID { return }
+        let previous = try? JSONDecoder().decode(Manifest.self, from: Data(contentsOf: path))
+        guard previous == nil || previous?.accountID == accountID else { return }
+        if previous?.completed == true, (previous?.messageIDs.count ?? 0) >= 3 { return }
         sendObserver = nc.publisher(for: .updateMessageSendSucceeded)
             .receive(on: DispatchQueue.main)
             .sink { update in
@@ -44,7 +45,8 @@ import TDLibKit
                 if let data = try? JSONEncoder().encode(saved) { try? data.write(to: path, options: .atomic) }
             }
         Task {
-            var manifest = Manifest(accountID: accountID, chatID: 0)
+            var manifest = previous ?? Manifest(accountID: accountID, chatID: 0)
+            manifest.error = nil
             @MainActor func save() {
                 manifest.messageIDs = manifest.messageIDs.map { acceptedIDs[$0] ?? $0 }
                 if let data = try? JSONEncoder().encode(manifest) { try? data.write(to: path, options: .atomic) }
@@ -70,34 +72,51 @@ import TDLibKit
             }
             do {
                 try checkAccount()
-                let created = try await client.send(TDNativeRequests.createNewSupergroupChat(
-                    title: "BetterTG test", isForum: true, isChannel: false,
-                    description: "Private BetterTG UI test fixtures. Created by Codex; no other members are invited.",
-                    location: nil, messageAutoDeleteTime: 0, forImport: false,
-                ))
-                manifest.chatID = created.id
-                save()
+                if manifest.chatID == 0 {
+                    let created = try await client.send(TDNativeRequests.createNewSupergroupChat(
+                        title: "BetterTG test", isForum: true, isChannel: false,
+                        description: "Private BetterTG UI test fixtures. Created by Codex; no other members are invited.",
+                        location: nil, messageAutoDeleteTime: 0, forImport: false,
+                    ))
+                    manifest.chatID = created.id
+                    save()
+                }
                 try checkAccount()
+                let fixtureChat = try await client.getChat(chatId: manifest.chatID)
+                guard fixtureChat.title == "BetterTG test",
+                      case .chatTypeSupergroup(let type) = fixtureChat.type else { return }
+                let group = try await client.send(TDNativeRequests.getSupergroup(supergroupId: type.supergroupId))
+                guard case .chatMemberStatusCreator = group.status,
+                      group.usernames?.activeUsernames.isEmpty != false,
+                      !group.isChannel, group.memberCount <= 1 else { return }
+                if !group.isForum {
+                    try checkAccount()
+                    _ = try await client.send(TDNativeRequests.toggleSupergroupIsForum(
+                        supergroupId: type.supergroupId, isForum: true, hasForumTabs: false,
+                    ))
+                }
                 let icons = try? await client.send(TDNativeRequests.getForumTopicDefaultIcons())
                 var emojiID: Int64 = 0
                 if let first = icons?.stickers.first, case .stickerFullTypeCustomEmoji(let emoji) = first.fullType {
                     emojiID = emoji.customEmojiId
                 }
-                let topic = try await client.send(TDNativeRequests.createForumTopic(
-                    chatId: created.id,
-                    name: "UI test",
-                    isNameImplicit: false,
-                    icon: ForumTopicIcon(
-                        color: 0x6FB9F0,
-                        customEmojiId: emojiID,
-                    ),
-                ))
-                manifest.topicID = topic.forumTopicId
-                save()
+                if manifest.topicID == nil {
+                    let topic = try await client.send(TDNativeRequests.createForumTopic(
+                        chatId: manifest.chatID,
+                        name: "UI test",
+                        isNameImplicit: false,
+                        icon: ForumTopicIcon(
+                            color: 0x6FB9F0,
+                            customEmojiId: emojiID,
+                        ),
+                    ))
+                    manifest.topicID = topic.forumTopicId
+                    save()
+                }
                 let body = "BetterTG test: hidden spoiler and bold link. Tap to reveal the hidden text."
                 let spoiler = (body as NSString).range(of: "hidden spoiler")
                 let bold = (body as NSString).range(of: "bold link")
-                try await send(.inputMessageText(InputMessageText(
+                if manifest.messageIDs.isEmpty { try await send(.inputMessageText(InputMessageText(
                     clearDraft: false, linkPreviewOptions: nil,
                     text: FormattedText(entities: [
                         TextEntity(length: spoiler.length, offset: spoiler.location, type: .textEntityTypeSpoiler),
@@ -108,12 +127,13 @@ import TDLibKit
                             type: .textEntityTypeTextUrl(TextEntityTypeTextUrl(url: "https://telegram.org")),
                         ),
                     ], text: body),
-                )))
-                try await send(.inputMessageText(InputMessageText(
+                ))) }
+                if manifest.messageIDs.count < 2 { try await send(.inputMessageText(InputMessageText(
                     clearDraft: false,
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: "BetterTG test link preview https://telegram.org/blog"),
-                )))
+                ))) }
+                if manifest.messageIDs.count < 3 { try await send(richFixture()) }
                 manifest.completed = true
                 save()
             } catch {
@@ -121,6 +141,53 @@ import TDLibKit
                 save()
             }
         }
+    }
+
+    private static func richFixture() -> InputMessageContent {
+        func plain(_ value: String) -> TDNativeRichText { .richTextPlain(TDNativeRichTextPlain(text: value)) }
+        func paragraph(_ text: TDNativeRichText)
+            -> TDNativeInputPageBlock { .inputPageBlockParagraph(TDNativeInputPageBlockParagraph(text: text)) }
+        func cell(_ value: String, header: Bool = false) -> TDNativePageBlockTableCell {
+            TDNativePageBlockTableCell(
+                text: plain(value),
+                isHeader: header,
+                colspan: 1,
+                rowspan: 1,
+                align: .pageBlockHorizontalAlignmentLeft,
+                valign: .pageBlockVerticalAlignmentTop,
+            )
+        }
+        let blocks: [TDNativeInputPageBlock] = [
+            .inputPageBlockSectionHeading(TDNativeInputPageBlockSectionHeading(
+                text: plain("BetterTG test rich message"),
+                size: 2,
+            )),
+            paragraph(.richTexts(TDNativeRichTexts(texts: [
+                plain("Native blocks with "), .richTextBold(TDNativeRichTextBold(text: plain("bold"))), plain(", "),
+                .richTextItalic(TDNativeRichTextItalic(text: plain("italic"))), plain(" and a "),
+                .richTextSpoiler(TDNativeRichTextSpoiler(text: plain("hidden rich spoiler"))), plain("."),
+            ]))),
+            .inputPageBlockBlockQuote(TDNativeInputPageBlockBlockQuote(
+                blocks: [paragraph(plain("A quote with its own layout."))],
+                credit: nil,
+            )),
+            .inputPageBlockTable(TDNativeInputPageBlockTable(caption: plain(""), cells: [
+                [cell("Feature", header: true), cell("Result", header: true)],
+                [cell("Rich text"), cell("Visible")], [cell("Spoiler"), cell("Tap to reveal")],
+            ], isBordered: true, isStriped: true, isCompact: false)),
+            .inputPageBlockDetails(TDNativeInputPageBlockDetails(
+                header: plain("Expand test details"),
+                blocks: [paragraph(plain("Expanded content stays with this message when the cell is reused."))],
+                isOpen: false,
+            )),
+        ]
+        return .inputMessageRichMessage(TDNativeInputMessageRichMessage(
+            message: TDNativeInputRichMessage(
+                source: .richMessageSourceBlocks(TDNativeRichMessageSourceBlocks(blocks: blocks)),
+                isRtl: false,
+                detectAutomaticBlocks: false,
+            ), clearDraft: false,
+        ))
     }
 }
 #endif
