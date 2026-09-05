@@ -29,7 +29,7 @@ struct TelegramContextMenuAction {
     let title: String
     let image: UIImage?
     let isDestructive: Bool
-    let startsNewSection: Bool
+    var startsNewSection: Bool
     let children: [TelegramContextMenuAction]
     let handler: () -> Void
 
@@ -796,7 +796,9 @@ private final class TelegramContextMenuController: UIViewController {
                 title: L10n.telegram("Common.Back"),
                 image: UIImage(systemName: "chevron.left"),
             ) { [weak self] in self?.showParentActions() }
-            actions = [back] + button.menuAction.children
+            var children = button.menuAction.children
+            children[0].startsNewSection = true
+            actions = [back] + children
             showActions()
             return
         }
@@ -1072,8 +1074,8 @@ final class TelegramContextGestureRecognizer: UIGestureRecognizer {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
-        guard touches.count == 1, let touch = touches.first, let view else {
-            state = .failed
+        guard touches.count == 1, numberOfTouches == 1, let touch = touches.first, let view else {
+            cancelBeforeActivation()
             return
         }
         initialLocation = touch.location(in: view)
