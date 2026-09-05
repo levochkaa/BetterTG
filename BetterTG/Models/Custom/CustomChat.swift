@@ -23,7 +23,10 @@ import TDLibKit
     var id: Int64 { chat.id }
 
     var displayTitle: String {
-        isSavedMessages ? L10n.telegram("Conversation.SavedMessages") : chat.title
+        if isSavedMessages { return L10n.telegram("Conversation.SavedMessages") }
+        return chat.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? L10n.telegram("User.DeletedAccount")
+            : chat.title
     }
 
     var isSavedMessages: Bool {
