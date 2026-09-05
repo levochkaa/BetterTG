@@ -64,8 +64,10 @@ final class CustomEmojiInlineView: UIView {
     private var contentView: (UIView & AnimatedFileView)?
     private var playbackVisible = false
 
-    func configure(sticker: Sticker, client: TDLibClient) {
+    func configure(sticker: Sticker) {
+        let firstFrameReady = onFirstFrameReady
         prepareForReuse()
+        onFirstFrameReady = firstFrameReady
         let view: UIView & AnimatedFileView =
             switch sticker.format {
             case .stickerFormatTgs:

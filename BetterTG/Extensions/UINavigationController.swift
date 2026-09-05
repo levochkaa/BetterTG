@@ -21,6 +21,22 @@ final class TelegramNavigationController: UINavigationController, UIGestureRecog
         // Keep Telegram's plain bar buttons on iOS 26, including screens which
         // create their Edit/Done items after the navigation transition begins.
         if #available(iOS 26.0, *) {
+            for controller in viewControllers.dropFirst() {
+                let item = controller.navigationItem
+                if item.leftBarButtonItems?.isEmpty != false, !item.hidesBackButton {
+                    item.hidesBackButton = true
+                    let back = UIBarButtonItem(
+                        image: UIImage(
+                            systemName: "chevron.backward",
+                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 21, weight: .medium),
+                        ),
+                        style: .plain, target: self, action: #selector(popBack),
+                    )
+                    back.accessibilityLabel = L10n.telegram("Common.Back")
+                    back.hidesSharedBackground = true
+                    item.leftBarButtonItem = back
+                }
+            }
             for item in navigationBar.items ?? [] {
                 for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
                     if !button.hidesSharedBackground { button.hidesSharedBackground = true }
@@ -62,4 +78,6 @@ final class TelegramNavigationController: UINavigationController, UIGestureRecog
             velocity.x > 0
         }
     }
+
+    @objc private func popBack() { popViewController(animated: true) }
 }

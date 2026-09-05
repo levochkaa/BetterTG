@@ -89,8 +89,8 @@ import UIKit
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
-    private let applyButton = UIButton(type: .system)
-    private let cancelButton = UIButton(type: .system)
+    private let applyButton = LanguagePreviewActionButton()
+    private let cancelButton = LanguagePreviewActionButton()
     private let dimmer = UIControl()
     private let sheetStack = UIStackView()
     private let textStack = UIStackView()
@@ -141,13 +141,7 @@ import UIKit
         cancelButton.layer.cornerRadius = 16
         cancelButton.clipsToBounds = true
         for button in [applyButton, cancelButton] {
-            button.setTitleColor(.systemBlue, for: .normal)
-            button.setTitleColor(.tertiaryLabel, for: .disabled)
-            button.titleLabel?.font = .systemFont(ofSize: 20, weight: .medium)
             button.heightAnchor.constraint(equalToConstant: 57).isActive = true
-            button.configurationUpdateHandler = { button in
-                button.backgroundColor = button.isHighlighted ? .tertiarySystemBackground : .secondarySystemBackground
-            }
         }
         applyButton.setTitle(L10n.telegram("ApplyLanguage.ChangeLanguageAction"), for: .normal)
         applyButton.accessibilityIdentifier = "language-pack-apply"
@@ -282,5 +276,43 @@ import UIKit
         guard !isApplying else { return }
         task?.cancel()
         dismiss(animated: true)
+    }
+}
+
+// MARK: - LanguagePreviewActionButton
+
+private final class LanguagePreviewActionButton: UIControl {
+    override var isEnabled: Bool { didSet { updateAppearance() } }
+    override var isHighlighted: Bool { didSet { updateAppearance() } }
+
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        label.font = .systemFont(ofSize: 20, weight: .medium)
+        label.textAlignment = .center
+        label.isUserInteractionEnabled = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        isAccessibilityElement = true
+        updateAppearance()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setTitle(_ title: String?, for _: UIControl.State) {
+        label.text = title
+        accessibilityLabel = title
+    }
+
+    private func updateAppearance() {
+        backgroundColor = isHighlighted ? .tertiarySystemBackground : .secondarySystemBackground
+        label.textColor = isEnabled ? .systemBlue : .tertiaryLabel
+        accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
     }
 }
