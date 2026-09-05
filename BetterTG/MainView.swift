@@ -931,6 +931,10 @@ final class FolderPickerView: UIView {
         buttonStack.distribution = .fill
         buttonStack.spacing = 0
         controlContainer.addSubview(buttonStack)
+        controlContainer.onViewportWidthChange = { [weak self] in
+            self?.updateResolvedWidths()
+            self?.layoutSelection(animated: false)
+        }
 
         let separator = UIView()
         separator.translatesAutoresizingMaskIntoConstraints = false
@@ -1025,7 +1029,7 @@ final class FolderPickerView: UIView {
         guard let index = items.firstIndex(where: { $0.id == selectedID }),
               buttons.indices.contains(index) else { return }
         layoutIfNeeded()
-        let selectedFrame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
+        let selectedFrame = segmentFrame(at: index)
         let maximumOffset = max(0, controlContainer.contentSize.width - controlContainer.bounds.width)
         let centeredOffset = selectedFrame.midX - controlContainer.bounds.width / 2
         let targetOffset = min(max(0, centeredOffset), maximumOffset)
@@ -1037,7 +1041,7 @@ final class FolderPickerView: UIView {
         let naturalTotal = naturalSegmentWidths.reduce(0, +)
         let availableWidth = controlContainer.bounds.width
         let widths: [CGFloat]
-        if naturalTotal < availableWidth {
+        if naturalTotal <= availableWidth {
             let regularWidth = floor(availableWidth / CGFloat(buttons.count))
             widths = buttons.indices.map { index in
                 index == buttons.count - 1
@@ -1056,6 +1060,17 @@ final class FolderPickerView: UIView {
         buttonStack.layoutIfNeeded()
     }
 
+    private func segmentFrame(at index: Int) -> CGRect {
+        // Constraints may not have reached the button frames during the viewport
+        // layout callback. The resolved widths own both buttons and selection.
+        CGRect(
+            x: resolvedSegmentWidths.prefix(index).reduce(0, +),
+            y: 0,
+            width: resolvedSegmentWidths[index],
+            height: controlContainer.bounds.height,
+        )
+    }
+
     private func layoutSelection(animated: Bool) {
         guard !buttons.isEmpty else {
             selectionEffectView.alpha = 0
@@ -1067,8 +1082,8 @@ final class FolderPickerView: UIView {
                let toIndex = items.firstIndex(where: { $0.id == interactiveSelection.toID }),
                buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
             {
-                let fromFrame = buttons[fromIndex].convert(buttons[fromIndex].bounds, to: controlContainer)
-                let toFrame = buttons[toIndex].convert(buttons[toIndex].bounds, to: controlContainer)
+                let fromFrame = segmentFrame(at: fromIndex)
+                let toFrame = segmentFrame(at: toIndex)
                 let fraction = interactiveSelection.fraction
                 return CGRect(
                     x: fromFrame.minX + (toFrame.minX - fromFrame.minX) * fraction,
@@ -1079,7 +1094,7 @@ final class FolderPickerView: UIView {
             } else if let index = items.firstIndex(where: { $0.id == selectedID }),
                       buttons.indices.contains(index)
             {
-                return buttons[index].convert(buttons[index].bounds, to: controlContainer)
+                return segmentFrame(at: index)
             } else {
                 return nil
             }
@@ -1219,9 +1234,17 @@ final class FolderPickerView: UIView {
 // MARK: - FolderPickerScrollView
 
 private final class FolderPickerScrollView: UIScrollView {
+    var onViewportWidthChange: (() -> Void)?
+
+    private var previousViewportWidth: CGFloat = 0
+
     override func layoutSubviews() {
         super.layoutSubviews()
         layer.cornerRadius = bounds.height / 2
+        if abs(previousViewportWidth - bounds.width) > 0.5 {
+            previousViewportWidth = bounds.width
+            onViewportWidthChange?()
+        }
     }
 
     override func touchesShouldCancel(in _: UIView) -> Bool {
