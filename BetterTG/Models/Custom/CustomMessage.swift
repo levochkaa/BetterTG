@@ -21,6 +21,8 @@ import TDLibKit
     @Published var isPinned: Bool
     @Published private(set) var deliveryState = MessageDeliveryState.none
 
+    @Published var spoilersRevealed = false
+
     var isReplyQuoteExpanded = false
 
     var id: Int64 { message.id }

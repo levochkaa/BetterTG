@@ -186,12 +186,12 @@ enum MessageContentAction {
 
 // MARK: - MessageSupplementView
 
-private protocol MessageSupplementView where Self: UIView {
+protocol MessageSupplementView where Self: UIView {
     func prepareForReuse()
     func setPlaybackVisible(_ isVisible: Bool)
 }
 
-private extension MessageSupplementView {
+extension MessageSupplementView {
     func setPlaybackVisible(_: Bool) {}
 }
 
@@ -258,6 +258,8 @@ final class MessageStructuredContentView: UIView {
                 TelegramFileMessageView(document: document, client: client, onAction: onAction)
             case .location(let location):
                 LocationMessageContentView(content: location, onAction: onAction)
+            case .linkPreview(let preview):
+                MessageLinkPreviewView(preview: preview)
             case .none:
                 nil
             case .poll(let poll):

@@ -30,6 +30,13 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     // MARK: Private
 
+    var onRevealSpoilers: (() -> Void)?
+    var onUnhandledTap: (() -> Void)?
+
+    private var spoilerRanges = [NSRange]()
+    private var spoilersRevealed = false
+    private var spoilerViews = [TelegramSpoilerView]()
+    private var lastSpoilerRects = [CGRect]()
     private var formattedText: FormattedText?
     private var spoilerState: MessageTextSpoilerState?
     private var spoilerSubscription: AnyCancellable?
@@ -90,6 +97,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         bringSubviewToFront(statusLabel)
         layoutCustomEmojiViews()
         layoutQuoteHighlightViews()
+        layoutSpoilers()
         lastLayoutWidth = bounds.width
         if abs(oldWidth - bounds.width) > 0.5 {
             invalidateIntrinsicContentSize()
@@ -102,34 +110,40 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusText: String,
         statusColor: UIColor,
         maximumWidth: CGFloat = Utils.maxMessageContentWidth,
-        spoilerState: MessageTextSpoilerState? = nil,
+        spoilersRevealed: Bool = false,
     ) {
-        let state = spoilerState ?? MessageTextSpoilerState(text: formattedText, source: nil)
-        configurePresentation(
-            state: state,
-            client: client,
-            statusText: statusText,
-            statusColor: statusColor,
-            maximumWidth: maximumWidth,
-        )
-    }
-
-    func configurePresentation(
-        state: MessageTextSpoilerState, client: TDLibClient?, statusText: String, statusColor: UIColor,
-        maximumWidth: CGFloat,
-    ) {
-        spoilerState = state
-        emojiClient = client
-        formattedText = state.presentation.text
-        spoilerSubscription = state.changes.sink { [weak self, weak state] in
-            guard let self, let state, spoilerState === state else { return }
-            renderText()
-        }
+        clearCustomEmojiViews()
+        self.formattedText = formattedText
+        self.spoilersRevealed = spoilersRevealed
+        spoilerRanges = TelegramSpoilers.ranges(in: formattedText)
         maximumLayoutWidth = maximumWidth
         statusLabel.text = statusText
         statusLabel.textColor = statusColor
         statusLabel.sizeToFit()
-        renderText()
+        let result = NSMutableAttributedString(
+            attributedString: NSAttributedString(getAttributedString(from: formattedText)),
+        )
+        for range in spoilerRanges {
+            result.removeAttribute(.backgroundColor, range: range)
+            if !spoilersRevealed {
+                result.addAttributes([
+                    .foregroundColor: UIColor.clear,
+                    .underlineColor: UIColor.clear,
+                    .strikethroughColor: UIColor.clear,
+                ], range: range)
+                result.removeAttribute(.link, range: range)
+            }
+        }
+        result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
+        attributedText = result
+        loadCustomEmoji(from: formattedText)
+        bringSubviewToFront(statusLabel)
+        invalidateIntrinsicContentSize()
+        accessibilityLabel = TelegramSpoilers.accessibilityText(formattedText, revealed: spoilersRevealed)
+        accessibilityCustomActions = !spoilersRevealed && !spoilerRanges.isEmpty
+            ? [UIAccessibilityCustomAction(name: "Reveal spoiler") { [weak self] _ in self?.revealSpoilers() ?? false }]
+            : nil
+        layoutSpoilers()
     }
 
     func setMaximumLayoutWidth(_ width: CGFloat) {
@@ -147,6 +161,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         spoilerState = nil
         emojiClient = nil
         formattedText = nil
+        onRevealSpoilers = nil
+        onUnhandledTap = nil
+        spoilerRanges.removeAll()
+        spoilerViews.forEach { $0.removeFromSuperview() }
+        spoilerViews.removeAll()
+        lastSpoilerRects.removeAll()
         attributedText = NSAttributedString()
         statusLabel.text = nil
         accessibilityLabel = nil
@@ -204,55 +224,23 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         textView.selectedTextRange = nil
     }
 
-    func permitsCustomEmoji(range: NSRange, generation: Int) -> Bool {
-        guard generation == customEmojiGeneration, let state = spoilerState,
-              range.location >= 0, range.length > 0, range.location <= state.presentation.text.text.utf16.count,
-              range.length <= state.presentation.text.text.utf16.count - range.location
-        else { return false }
-        return !state.presentation.conceals(range, revealed: state.revealed)
-    }
-
-    func activateEntity(at point: CGPoint, perform: (MessageTextSpoilerPresentation.Action) -> Void) {
-        guard let state = spoilerState else { return }
-        layoutManager.ensureLayout(for: textContainer)
-        let location = CGPoint(x: point.x - textContainerInset.left, y: point.y - textContainerInset.top)
-        var fraction = CGFloat.zero
-        let index = layoutManager.characterIndex(
-            for: location,
-            in: textContainer,
-            fractionOfDistanceBetweenInsertionPoints: &fraction,
+    @discardableResult func revealSpoilers() -> Bool {
+        guard !spoilersRevealed, !spoilerRanges.isEmpty, let formattedText else { return false }
+        let overlays = spoilerViews
+        spoilerViews.removeAll()
+        lastSpoilerRects.removeAll()
+        configure(
+            formattedText: formattedText,
+            statusText: statusLabel.text ?? "",
+            statusColor: statusLabel.textColor,
+            maximumWidth: maximumLayoutWidth,
+            spoilersRevealed: true,
         )
-        guard index < state.presentation.text.text.utf16.count else { return }
-        let glyphs = layoutManager.glyphRange(
-            forCharacterRange: NSRange(location: index, length: 1),
-            actualCharacterRange: nil,
-        )
-        guard layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer).contains(location) else { return }
-        let action = state.presentation.action(at: index, revealed: state.revealed)
-        if action == .reveal {
-            state.reveal()
-        } else {
-            perform(action)
-        }
-    }
-
-    private func renderText() {
-        guard let state = spoilerState else { return }
-        clearCustomEmojiViews()
-        let result = state.presentation.attributedText(revealed: state.revealed)
-        if statusLabel.text?.isEmpty == false {
-            result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
-        }
-        attributedText = result
-        if let emojiClient { loadCustomEmoji(from: state.presentation.text, client: emojiClient) }
-        bringSubviewToFront(statusLabel)
-        invalidateIntrinsicContentSize()
-        accessibilityLabel = state.presentation.accessibilityText(revealed: state.revealed)
-        // UITextView otherwise derives a value from its original string; the safe label owns spoken text.
-        accessibilityValue = ""
-        accessibilityCustomActions = !state.revealed && !state.presentation.ranges.isEmpty
-            ? [UIAccessibilityCustomAction(name: "Reveal spoiler") { [weak state] _ in state?.reveal() == true }]
-            : nil
+        UIView.animate(withDuration: 0.22, animations: { overlays.forEach { $0.alpha = 0 } }, completion: { _ in
+            overlays.forEach { $0.removeFromSuperview() }
+        })
+        onRevealSpoilers?()
+        return true
     }
 
     private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
@@ -405,7 +393,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
                 width: side,
                 height: side,
             )
-            placement.view.isHidden = false
+            placement.view.isHidden = !spoilersRevealed && spoilerRanges.contains {
+                NSIntersectionRange($0, placement.range).length > 0
+            }
         }
         bringSubviewToFront(statusLabel)
     }
@@ -434,14 +424,64 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     }
 
     @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended else { return }
-        activateEntity(at: gesture.location(in: self)) { action in
-            switch action {
-            case .copy(let text): UIPasteboard.setPlainText(text)
-            case .open(let url): UIApplication.shared.open(url)
-            case .none, .reveal: break
+        guard gesture.state == .ended, let formattedText else { return }
+        let point = gesture.location(in: self)
+        var fraction = CGFloat.zero
+        let index = layoutManager.characterIndex(
+            for: CGPoint(x: point.x - textContainerInset.left, y: point.y - textContainerInset.top),
+            in: textContainer,
+            fractionOfDistanceBetweenInsertionPoints: &fraction,
+        )
+        if !spoilersRevealed, spoilerRanges.contains(where: { $0.contains(index) }) {
+            _ = revealSpoilers()
+            return
+        }
+        for entity in formattedText.entities {
+            let range = NSRange(location: entity.offset, length: entity.length)
+            guard range.contains(index) else { continue }
+            switch entity.type {
+            case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
+                UIPasteboard.setPlainText(rawText(for: entity, in: formattedText.text))
+            case .textEntityTypeUrl:
+                open(getUrl(from: rawText(for: entity, in: formattedText.text)))
+            case .textEntityTypeTextUrl(let textUrl):
+                open(getUrl(from: textUrl.url))
+            case .textEntityTypeEmailAddress:
+                open(URL(string: "mailto:\(rawText(for: entity, in: formattedText.text))"))
+            case .textEntityTypePhoneNumber:
+                open(URL(string: "tel:\(rawText(for: entity, in: formattedText.text))"))
+            default:
+                continue
             }
         }
+    }
+
+    private func layoutSpoilers() {
+        var rects = [CGRect]()
+        if !spoilersRevealed, bounds.width > 0 {
+            layoutManager.ensureLayout(for: textContainer)
+            for range in spoilerRanges where NSMaxRange(range) <= textStorage.length {
+                let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                layoutManager.enumerateEnclosingRects(
+                    forGlyphRange: glyphs,
+                    withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                    in: textContainer,
+                ) { rect, _ in
+                    if !rect.isEmpty, !rect.isNull {
+                        rects.append(rect.offsetBy(dx: self.textContainerInset.left, dy: self.textContainerInset.top))
+                    }
+                }
+            }
+        }
+        guard rects != lastSpoilerRects else { return }
+        lastSpoilerRects = rects
+        spoilerViews.forEach { $0.removeFromSuperview() }
+        spoilerViews = rects.map { rect in
+            let view = TelegramSpoilerView(frame: rect)
+            addSubview(view)
+            return view
+        }
+        bringSubviewToFront(statusLabel)
     }
 
     private func rawText(for entity: TextEntity, in text: String) -> String {

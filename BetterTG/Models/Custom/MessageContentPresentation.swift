@@ -31,6 +31,7 @@ struct MessageContentPresentation {
         case dice(DiceContent)
         case document(Document)
         case location(LocationContent)
+        case linkPreview(LinkPreview)
         case none
         case poll(MessagePoll)
         case service(ServiceContent)
@@ -82,9 +83,11 @@ struct MessageContentPresentation {
     ) -> Self {
         switch content {
         case .messageText(let message):
-            return presentation(
+            return Self(
                 formattedText: message.text,
+                isVisualMedia: false,
                 summary: message.text.text,
+                supplement: message.linkPreview.map { .linkPreview($0) } ?? .none,
             )
         case .messageRichMessage:
             return unsupported(

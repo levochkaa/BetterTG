@@ -616,6 +616,20 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         mediaView.isHidden = !hasMedia
 
+        let previewBelowText: Bool =
+            if case .linkPreview(let preview) = presentation.supplement {
+                !preview.showAboveText
+            } else {
+                false
+            }
+        if let textIndex = bubbleStack.arrangedSubviews.firstIndex(of: textView),
+           let structuredIndex = bubbleStack.arrangedSubviews.firstIndex(of: structuredContentView),
+           (structuredIndex > textIndex) != previewBelowText
+        {
+            bubbleStack.removeArrangedSubview(structuredContentView)
+            let updatedTextIndex = bubbleStack.arrangedSubviews.firstIndex(of: textView) ?? 3
+            bubbleStack.insertArrangedSubview(structuredContentView, at: updatedTextIndex + (previewBelowText ? 1 : 0))
+        }
         let hasStructuredContent = structuredContentView.configure(
             presentation: presentation,
             messageID: message.id,
@@ -634,13 +648,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let timestampColor: UIColor = delivery == .failed ? .systemRed : .secondaryLabel
         if let formatted = displayedFormattedText {
             textView.isHidden = false
+            textView.onRevealSpoilers = { [weak message] in message?.spoilersRevealed = true }
             textView.configure(
                 formattedText: formatted,
-                client: client,
-                statusText: timestampText,
+                statusText: previewBelowText ? "" : timestampText,
                 statusColor: timestampColor,
                 maximumWidth: maximumTextWidth(for: bounds.width),
-                spoilerState: textSpoilers.states[textSourceID],
+                spoilersRevealed: message.spoilersRevealed,
             )
         } else {
             textView.prepareForReuse()
@@ -665,7 +679,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaTimestampLabel.text = timestampText
         mediaTimestampLabel.textColor = delivery == .failed ? .systemRed : .white
         let hasVisualMedia = hasMedia && message.hasVisualMedia
-        timestampLabel.isHidden = displayedFormattedText != nil || hasVisualMedia || presentation.isService
+        timestampLabel.isHidden = (displayedFormattedText != nil && !previewBelowText) || hasVisualMedia || presentation
+            .isService
         mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || presentation.isService
         mediaView.bringSubviewToFront(mediaTimestampLabel)
 
@@ -683,12 +698,15 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
 
         isAccessibilityElement = !isVideoNoteMessage
-        let accessibilityStates = structuredContentView.handlesAlbumCaptions
-            ? message.album.compactMap { textSpoilers.states[$0.id] }
-            : [textSpoilers.states[textSourceID]].compactMap(\.self)
-        let accessibilityAlbum = structuredContentView.handlesAlbumCaptions ? message.album : []
-        let fallbackAccessibilityContent = MessageTextSpoilerPresentation.summary(for: message.message)
-        let prefix = [
+        let accessibilityContent =
+            if structuredContentView.handlesAlbumCaptions {
+                message.album.map { MessageContentPresentation.make($0).summary }.joined(separator: ", ")
+            } else {
+                displayedFormattedText
+                    .map { TelegramSpoilers.accessibilityText($0, revealed: message.spoilersRevealed) }
+                    ?? presentation.summary
+            }
+        accessibilityLabel = [
             message.forwardPresentation?.accessibilityDescription,
             message.replyPresentation?.accessibilityDescription,
         ]
@@ -698,19 +716,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             delivery.spoken,
         ]
         var metadataAccessibilityActions = [UIAccessibilityCustomAction]()
-        for (index, source) in message.sourceMessages.enumerated()
-            where !MediaRevealPermit.allows(source, permit: mediaRevealSession?.permit(for: source))
+        if let formatted = displayedFormattedText, !message.spoilersRevealed,
+           !TelegramSpoilers.ranges(in: formatted).isEmpty
         {
-            if MediaRevealSession.Key(message: source)?.isSecret == false {
-                metadataAccessibilityActions.append(UIAccessibilityCustomAction(
-                    name: message.sourceMessages.count > 1
-                        ? "Reveal media spoiler \(index + 1)"
-                        : "Reveal media spoiler",
-                ) { _ in
-                    onMediaTap(message.sourceMessages, source.id)
-                    return true
-                })
-            }
+            metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Reveal spoiler") { [weak self] _ in
+                self?.textView.revealSpoilers() ?? false
+            })
         }
         if let reply = message.replyPresentation {
             if reply.isManualQuote, !message.isReplyQuoteExpanded {
