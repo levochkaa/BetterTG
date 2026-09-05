@@ -118,6 +118,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private let navigationBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let pinnedMessageBanner = PinnedMessageBannerView()
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
@@ -471,7 +472,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + customNavigationBar.visibleContentHeight
         messageSelectionToolbarHeightConstraint?.constant =
             MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom
     }
@@ -1083,6 +1084,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func configureNavigationBar() {
+        navigationBackground.translatesAutoresizingMaskIntoConstraints = false
+        navigationBackground.isUserInteractionEnabled = false
+        view.addSubview(navigationBackground)
+        customNavigationBar.useSharedBackground()
         customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
         customNavigationBar.onBack = presentationMode == .full ? { NavigationStorage.shared.pop() } : nil
         customNavigationBar.onProfile = presentationMode == .full ? { [weak self] in self?.openProfile() } : nil
@@ -1095,8 +1100,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
             messageSearchActive = active
-            if active { abandonRestoredViewport() }
-            else { retryClientRestoration() }
+            navigationBarHeightConstraint.constant = view.safeAreaInsets.top + customNavigationBar.visibleContentHeight
             composerView.setHiddenForSearch(active)
             updateScrollToLatestButtonVisibility(animated: true)
             if !active {
@@ -1112,7 +1116,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         view.addSubview(customNavigationBar)
         navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
-            equalToConstant: view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight,
+            equalToConstant: view.safeAreaInsets.top + customNavigationBar.visibleContentHeight,
         )
         NSLayoutConstraint.activate([
             customNavigationBar.topAnchor.constraint(equalTo: view.topAnchor),
@@ -1135,6 +1139,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             pinnedMessageBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pinnedMessageBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pinnedMessageBannerHeightConstraint,
+            navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
+            navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            navigationBackground.bottomAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
         ])
         updatePinnedMessageBanner(animated: false)
     }
@@ -1918,6 +1926,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         customNavigationBar.configureAvatar(
             file: chat.photo?.small,
+            largeFile: chat.photo?.big,
             minithumbnail: chat.photo?.minithumbnail,
             placeholder: chatVM.customChat.telegramAvatarPlaceholder,
             client: chatVM.client,
@@ -2047,18 +2056,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard timelineSourceIsCurrent else { timelineSnapshots.retire()
             return
         }
-        timelineSnapshots.enqueue(demand)
-        drainTimelineSnapshots()
-    }
-
-    private func makeTimelineContent(_ demand: ChatTimelineSnapshotState.Demand) -> ChatTimelineSnapshotState.Content {
-        mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
-        let wasSelectingMessages = isSelectingMessages
-        if demand.structural, isSelectingMessages {
+        subscribeToMessages()
+        var selectionModeEnded = false
+        if isSelectingMessages {
             let displayedIDs = Set(chatVM.messages.map(\.displayedID))
             selectedDisplayedMessageIDs.formIntersection(displayedIDs)
             if selectedDisplayedMessageIDs.isEmpty {
                 endMessageSelection(reconfigure: false)
+                selectionModeEnded = true
             } else {
                 updateMessageSelectionChrome(reconfigureIDs: [])
             }
@@ -2150,10 +2155,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }) else { return }
         var snapshot = NSDiffableDataSourceSnapshot<Section, ChatTimelineItemID>()
         snapshot.appendSections([.messages])
-        snapshot.appendItems(batch.content.ids)
-        snapshot.reconfigureItems(Array(batch.content.reconfigure.filter { item in
-            item.displayedMessageID.map { !timelineSnapshots.deleting.contains($0) } ?? true
-        }))
+        snapshot.appendItems(itemIDs)
+        let headerIDs = itemIDs.filter {
+            if case .dateHeader = $0 {
+                true
+            } else if case .topicHeader = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        snapshot.reconfigureItems(selectionModeEnded ? itemIDs : headerIDs)
         timelineLayoutMutationDepth += 1
         recordMessageNavigationGeometry("snapshot-before")
         #if DEBUG
@@ -3728,7 +3740,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             elements.append(TelegramContextMenuAction(
                 title: "Forward",
                 image: UIImage(systemName: "arrowshape.turn.up.right"),
-                startsNewSection: true,
             ) { [weak self] in
                 self?.presentForwardPicker(forDisplayedMessageIDs: [message.displayedID])
             })
@@ -3742,29 +3753,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
 
-        let deleteSelf = TelegramContextMenuAction(
-            title: L10n.telegram("Conversation.DeleteMessagesForMe"),
-            image: UIImage(systemName: "trash"),
-            isDestructive: true,
-            startsNewSection: true,
-        ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false) }
-        let deleteAll = TelegramContextMenuAction(
-            title: L10n.telegram("Conversation.DeleteMessagesForEveryone"),
-            image: UIImage(systemName: "trash.fill"),
-            isDestructive: true,
-            startsNewSection: true,
-        ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) }
-        if message.properties.canBeDeletedOnlyForSelf, message.properties.canBeDeletedForAllUsers {
-            elements.append(deleteSelf)
-            elements.append(TelegramContextMenuAction(
-                title: deleteAll.title,
-                image: deleteAll.image,
+        var deleteActions = [TelegramContextMenuAction]()
+        if message.properties.canBeDeletedOnlyForSelf {
+            deleteActions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.DeleteMessagesForMe"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false) })
+        }
+        if message.properties.canBeDeletedForAllUsers {
+            deleteActions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.DeleteMessagesForEveryone"),
+                image: UIImage(systemName: "trash.fill"),
                 isDestructive: true,
             ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) })
-        } else if message.properties.canBeDeletedForAllUsers {
-            elements.append(deleteAll)
-        } else if message.properties.canBeDeletedOnlyForSelf {
-            elements.append(deleteSelf)
+        }
+        if !deleteActions.isEmpty {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Common.Delete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+                children: deleteActions,
+            ))
         }
         return elements
     }

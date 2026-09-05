@@ -374,7 +374,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.keyboardDismissMode = .interactive
         tableView.alwaysBounceVertical = true
         let initialTopInset = searchActive
-            ? TelegramListNavigationBar.titleHeight
+            ? ChatListNavigationSearchView.scrollHeight
             : TelegramListNavigationBar.expandedContentHeight
         tableView.contentInset.top = initialTopInset
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
@@ -550,7 +550,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
         guard isViewLoaded else { return }
         let targetTopInset = active
-            ? TelegramListNavigationBar.titleHeight
+            ? ChatListNavigationSearchView.scrollHeight
             : TelegramListNavigationBar.expandedContentHeight
         let changes = {
             self.tableView.contentInset.top = targetTopInset

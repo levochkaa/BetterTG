@@ -673,6 +673,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             avatarView.isHidden = false
             avatarView.configure(
                 file: sender.profilePhoto?.small,
+                largeFile: sender.profilePhoto?.big,
                 minithumbnail: sender.profilePhoto?.minithumbnail,
                 placeholder: sender.telegramAvatarPlaceholder,
                 client: client,

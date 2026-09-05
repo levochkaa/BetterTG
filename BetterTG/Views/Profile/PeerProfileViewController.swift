@@ -87,7 +87,6 @@ ClientRestorableNavigationEntry {
     private let bioLabel = UILabel()
     private let detailsLabel = UILabel()
     private let actionStack = UIStackView()
-    private let managementActionStack = UIStackView()
     private lazy var messageActionButton = profileButton(
         title: "Message",
         symbol: "message.fill",
@@ -108,13 +107,9 @@ ClientRestorableNavigationEntry {
         symbol: "person.badge.key.fill",
         action: #selector(administratorsPressed),
     )
-    private lazy var editActionButton = profileButton(
-        title: "Edit",
-        symbol: "pencil",
-        action: #selector(editPressed),
-    )
     private let profileHeaderView = UIView()
-    private let segmentedControl = UISegmentedControl(items: SharedTab.allCases.map(\.title))
+    private let sharedTabs = FolderPickerView()
+    private var selectedSharedTab = SharedTab.media
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
     private var messagesByID = [Int64: Message]()
@@ -166,7 +161,7 @@ ClientRestorableNavigationEntry {
     var navigationClientSource: TdUpdateSource? { restorationIdentity.origin }
 
     private var currentSharedTab: SharedTab {
-        SharedTab(rawValue: segmentedControl.selectedSegmentIndex) ?? .media
+        selectedSharedTab
     }
 
     private var displayedAvatarFile: File? {
@@ -744,19 +739,21 @@ ClientRestorableNavigationEntry {
         actionStack.addArrangedSubview(searchActionButton)
         headerStack.addArrangedSubview(actionStack)
 
-        managementActionStack.axis = .horizontal
-        managementActionStack.distribution = .fillEqually
-        managementActionStack.spacing = 10
-        managementActionStack.addArrangedSubview(membersActionButton)
-        managementActionStack.addArrangedSubview(administratorsActionButton)
-        managementActionStack.addArrangedSubview(editActionButton)
-        headerStack.addArrangedSubview(managementActionStack)
+        actionStack.addArrangedSubview(membersActionButton)
+        actionStack.addArrangedSubview(administratorsActionButton)
         updateActionAvailability()
 
-        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        segmentedControl.selectedSegmentIndex = (restoration?.tab ?? .media).rawValue
-        segmentedControl.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
-        profileHeaderView.addSubview(segmentedControl)
+        sharedTabs.translatesAutoresizingMaskIntoConstraints = false
+        sharedTabs.configure(
+            items: SharedTab.allCases.map { .init(id: $0.rawValue, title: $0.title) },
+            selectedID: selectedSharedTab.rawValue,
+        )
+        sharedTabs.onSelection = { [weak self] id in
+            guard let self, let tab = SharedTab(rawValue: id), tab != selectedSharedTab else { return }
+            selectedSharedTab = tab
+            tabChanged()
+        }
+        profileHeaderView.addSubview(sharedTabs)
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: profileHeaderView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor, constant: 20),
@@ -767,11 +764,11 @@ ClientRestorableNavigationEntry {
             avatarLoadingIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
-            managementActionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
-            segmentedControl.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
-            segmentedControl.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor, constant: 12),
-            segmentedControl.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor, constant: -12),
-            segmentedControl.bottomAnchor.constraint(equalTo: profileHeaderView.bottomAnchor, constant: -8),
+            sharedTabs.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
+            sharedTabs.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor),
+            sharedTabs.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor),
+            sharedTabs.heightAnchor.constraint(equalToConstant: 58),
+            sharedTabs.bottomAnchor.constraint(equalTo: profileHeaderView.bottomAnchor, constant: -8),
         ])
     }
 
@@ -780,7 +777,13 @@ ClientRestorableNavigationEntry {
         configuration.title = title
         configuration.image = UIImage(systemName: symbol)
         configuration.imagePlacement = .top
-        configuration.imagePadding = 2
+        configuration.imagePadding = 4
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 12, weight: .medium)
+            return outgoing
+        }
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 2, bottom: 8, trailing: 2)
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: action, for: .touchUpInside)
         return button
@@ -1491,13 +1494,17 @@ ClientRestorableNavigationEntry {
             case .bot, .user:
                 true
             }
-        editActionButton.isHidden =
+        let canEdit =
             if let user = customChat.user {
-                user.id != accountUserID
+                user.id == accountUserID
             } else {
-                !infoPermission.canChangeInfo
+                peerProfileCanChangeInfo(status: customChat.group?.status ?? customChat.supergroup?.status)
             }
-        managementActionStack.isHidden = managementActionStack.arrangedSubviews.allSatisfy(\.isHidden)
+        navigationItem.rightBarButtonItem = canEdit
+            ? UIBarButtonItem(
+                title: L10n.telegram("Common.Edit"), style: .plain, target: self, action: #selector(editPressed),
+            )
+            : nil
     }
 
     private func configureSharedMessageRefresh() {

@@ -30,6 +30,7 @@ struct TelegramContextMenuAction {
     let image: UIImage?
     let isDestructive: Bool
     let startsNewSection: Bool
+    let children: [TelegramContextMenuAction]
     let handler: () -> Void
 
     init(
@@ -37,12 +38,14 @@ struct TelegramContextMenuAction {
         image: UIImage? = nil,
         isDestructive: Bool = false,
         startsNewSection: Bool = false,
-        handler: @escaping () -> Void,
+        children: [TelegramContextMenuAction] = [],
+        handler: @escaping () -> Void = {},
     ) {
         self.title = title
         self.image = image
         self.isDestructive = isDestructive
         self.startsNewSection = startsNewSection
+        self.children = children
         self.handler = handler
     }
 }
@@ -260,7 +263,8 @@ private final class TelegramContextMenuController: UIViewController {
     private let presentationStyle: TelegramContextMenuPresentationStyle
     private let previewController: UIViewController?
     private weak var trackingGesture: UIGestureRecognizer?
-    private let actions: [TelegramContextMenuAction]
+    private var actions: [TelegramContextMenuAction]
+    private var parentActions = [[TelegramContextMenuAction]]()
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
     private let dimView = UIView()
     private let previewContainer = UIView()
@@ -448,6 +452,16 @@ private final class TelegramContextMenuController: UIViewController {
         menuSelectionGesture.cancelsTouchesInView = true
         menuEffectView.addGestureRecognizer(menuSelectionGesture)
 
+        rebuildActions()
+    }
+
+    private func rebuildActions() {
+        updateTrackedButton(at: nil)
+        actionButtons.removeAll()
+        for child in menuStack.arrangedSubviews {
+            menuStack.removeArrangedSubview(child)
+            child.removeFromSuperview()
+        }
         for (index, action) in actions.enumerated() {
             if index > 0, action.startsNewSection {
                 menuStack.addArrangedSubview(TelegramContextMenuSectionDivider())
@@ -496,9 +510,10 @@ private final class TelegramContextMenuController: UIViewController {
             let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
             let previewY = min(max(verticalInset, baseSourceFrame.minY), maximumPreviewY)
             targetPreviewFrame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
-            let menuX = baseSourceFrame.midX > view.bounds.midX
-                ? view.bounds.width - horizontalInset - menuWidth
-                : horizontalInset
+            let alignedMenuX = baseSourceFrame.midX > view.bounds.midX
+                ? targetPreviewFrame.maxX - menuWidth
+                : targetPreviewFrame.minX
+            let menuX = min(max(horizontalInset, alignedMenuX), view.bounds.width - horizontalInset - menuWidth)
             targetMenuFrame = CGRect(
                 x: menuX,
                 y: targetPreviewFrame.maxY + spacing,
@@ -775,10 +790,39 @@ private final class TelegramContextMenuController: UIViewController {
 
     private func perform(_ button: TelegramContextMenuActionButton) {
         guard !isPerformingAction else { return }
+        if !button.menuAction.children.isEmpty {
+            parentActions.append(actions)
+            let back = TelegramContextMenuAction(
+                title: L10n.telegram("Common.Back"),
+                image: UIImage(systemName: "chevron.left"),
+            ) { [weak self] in self?.showParentActions() }
+            actions = [back] + button.menuAction.children
+            showActions()
+            return
+        }
+        if !parentActions.isEmpty, button === actionButtons.first {
+            showParentActions()
+            return
+        }
         isPerformingAction = true
         trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
         let handler = button.menuAction.handler
         dismissMenu(completion: handler)
+    }
+
+    private func showParentActions() {
+        guard let parent = parentActions.popLast() else { return }
+        actions = parent
+        showActions()
+    }
+
+    private func showActions() {
+        rebuildActions()
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.layoutPreviewAndMenu()
+            self.menuEffectView.layoutIfNeeded()
+        }
+        UIAccessibility.post(notification: .layoutChanged, argument: actionButtons.first)
     }
 
     @objc private func trackingGestureChanged(_ gesture: UIGestureRecognizer) {

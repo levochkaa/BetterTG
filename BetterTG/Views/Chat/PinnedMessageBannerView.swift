@@ -18,7 +18,6 @@ final class PinnedMessageBannerView: UIView {
 
     static let contentHeight = CGFloat(50)
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let accentView = UIView()
     private let thumbnailView = TDImageLoadingView()
     private let titleLabel = UILabel()
@@ -35,9 +34,6 @@ final class PinnedMessageBannerView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
-
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(blurView)
 
         let separator = UIView()
         separator.translatesAutoresizingMaskIntoConstraints = false
@@ -98,10 +94,6 @@ final class PinnedMessageBannerView: UIView {
             constant: 0,
         )
         NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: bottomAnchor),

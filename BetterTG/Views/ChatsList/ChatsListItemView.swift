@@ -19,9 +19,10 @@ final class ChatListCell: UITableViewCell {
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
-    private let messageRow = UIStackView()
+    private let trailingStatusView = UIView()
+    private var accessoryWidthConstraint: NSLayoutConstraint!
     private let dateLabel = UILabel()
-    private let deliveryLabel = UILabel()
+    private let deliveryView = UIImageView()
     private let headerAccessoryRow = UIStackView()
     private let unreadLabel = TelegramUnreadBadgeLabel(
         minimumDiameter: 20,
@@ -79,7 +80,7 @@ final class ChatListCell: UITableViewCell {
     }
 
     private static func deliveryState(for chat: CustomChat) -> (
-        text: String,
+        image: UIImage?,
         color: UIColor,
         accessibilityText: String,
     )? {
@@ -89,13 +90,13 @@ final class ChatListCell: UITableViewCell {
         else { return nil }
         switch message.sendingState {
         case .messageSendingStateFailed:
-            return ("!", .systemRed, "Failed to send")
+            return (UIImage(systemName: "exclamationmark.circle"), .systemRed, "Failed to send")
         case .messageSendingStatePending:
-            return ("◷", .secondaryLabel, "Sending")
+            return (UIImage(systemName: "clock"), .secondaryLabel, "Sending")
         case nil:
             return message.id <= chat.chat.lastReadOutboxMessageId
-                ? ("✓✓", .systemBlue, "Read")
-                : ("✓", .systemBlue, "Delivered")
+                ? (TelegramDeliveryCheck.image(isRead: true), .systemBlue, "Read")
+                : (TelegramDeliveryCheck.image(isRead: false), .systemBlue, "Delivered")
         }
     }
 
@@ -105,18 +106,23 @@ final class ChatListCell: UITableViewCell {
         messageLabel.attributedText = ChatSummary.attributedText(for: chat)
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         pinView.isHidden = !pinned || hasUnread
-        muteView.isHidden = !isMuted || hasUnread
+        muteView.isHidden = !isMuted || hasUnread || pinned
         unreadLabel.text = chat.unreadCount > 0 ? compactNumericCountString(chat.unreadCount) : nil
         unreadLabel.backgroundColor = isMuted ? .systemGray : .systemBlue
         unreadLabel.isHidden = !hasUnread
         dateLabel.text = Self.dateText(for: chat)
         let delivery = Self.deliveryState(for: chat)
-        deliveryLabel.text = delivery?.text
-        deliveryLabel.textColor = delivery?.color
-        deliveryLabel.isHidden = delivery == nil
+        deliveryView.image = delivery?.image
+        deliveryView.tintColor = delivery?.color
+        deliveryView.isHidden = delivery == nil
+        accessoryWidthConstraint.constant = hasUnread
+            ? unreadLabel.intrinsicContentSize.width
+            : (pinned || isMuted ? 14 : 0)
+        setNeedsLayout()
         updateBackground(highlighted: isHighlighted || isSelected, animated: false)
         avatarView.configure(
             file: chat.chat.photo?.small,
+            largeFile: chat.chat.photo?.big,
             minithumbnail: chat.chat.photo?.minithumbnail,
             placeholder: chat.telegramAvatarPlaceholder,
             client: client,
@@ -160,7 +166,7 @@ final class ChatListCell: UITableViewCell {
         rowView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(rowView)
 
-        for item in [avatarView, titleLabel, headerAccessoryRow, messageRow, separatorView] {
+        for item in [avatarView, titleLabel, headerAccessoryRow, messageLabel, trailingStatusView, separatorView] {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
         }
@@ -169,16 +175,15 @@ final class ChatListCell: UITableViewCell {
         headerAccessoryRow.axis = .horizontal
         headerAccessoryRow.alignment = .center
         headerAccessoryRow.spacing = 4
-        headerAccessoryRow.addArrangedSubview(deliveryLabel)
+        headerAccessoryRow.addArrangedSubview(deliveryView)
         headerAccessoryRow.addArrangedSubview(dateLabel)
 
-        messageRow.axis = .horizontal
-        messageRow.alignment = .center
-        messageRow.spacing = 6
-        messageRow.addArrangedSubview(messageLabel)
-        messageRow.addArrangedSubview(muteView)
-        messageRow.addArrangedSubview(pinView)
-        messageRow.addArrangedSubview(unreadLabel)
+        for accessory in [muteView, pinView, unreadLabel] {
+            accessory.translatesAutoresizingMaskIntoConstraints = false
+            trailingStatusView.addSubview(accessory)
+        }
+        // Pin and mute share the fixed trailing slot; unread always owns it when present.
+        deliveryView.contentMode = .center
 
         for imageView in [pinView, muteView] {
             imageView.tintColor = .secondaryLabel
@@ -204,14 +209,15 @@ final class ChatListCell: UITableViewCell {
             maximumPointSize: 14,
         )
         dateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        deliveryLabel.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
-        deliveryLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        deliveryView.setContentCompressionResistancePriority(.required, for: .horizontal)
         unreadLabel.textColor = .white
         unreadLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        unreadLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        unreadLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        unreadLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
     private func configureConstraints() {
+        accessoryWidthConstraint = trailingStatusView.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             rowView.topAnchor.constraint(equalTo: contentView.topAnchor),
             rowView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -226,15 +232,26 @@ final class ChatListCell: UITableViewCell {
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerAccessoryRow.leadingAnchor, constant: -6),
             headerAccessoryRow.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             headerAccessoryRow.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            messageRow.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            messageRow.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
-            messageRow.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
-            messageRow.bottomAnchor.constraint(lessThanOrEqualTo: rowView.bottomAnchor, constant: -9),
+            messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            messageLabel.trailingAnchor.constraint(equalTo: trailingStatusView.leadingAnchor, constant: -6),
+            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            messageLabel.bottomAnchor.constraint(lessThanOrEqualTo: rowView.bottomAnchor, constant: -9),
+            trailingStatusView.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
+            trailingStatusView.centerYAnchor.constraint(equalTo: messageLabel.centerYAnchor),
+            trailingStatusView.heightAnchor.constraint(equalToConstant: 20),
+            accessoryWidthConstraint,
+            pinView.centerXAnchor.constraint(equalTo: trailingStatusView.centerXAnchor),
+            pinView.centerYAnchor.constraint(equalTo: trailingStatusView.centerYAnchor),
             pinView.widthAnchor.constraint(equalToConstant: 14),
             pinView.heightAnchor.constraint(equalToConstant: 14),
+            muteView.centerXAnchor.constraint(equalTo: trailingStatusView.centerXAnchor),
+            muteView.centerYAnchor.constraint(equalTo: trailingStatusView.centerYAnchor),
             muteView.widthAnchor.constraint(equalToConstant: 14),
             muteView.heightAnchor.constraint(equalToConstant: 14),
-            unreadLabel.heightAnchor.constraint(equalToConstant: 20),
+            unreadLabel.topAnchor.constraint(equalTo: trailingStatusView.topAnchor),
+            unreadLabel.bottomAnchor.constraint(equalTo: trailingStatusView.bottomAnchor),
+            unreadLabel.leadingAnchor.constraint(equalTo: trailingStatusView.leadingAnchor),
+            unreadLabel.trailingAnchor.constraint(equalTo: trailingStatusView.trailingAnchor),
             separatorView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             separatorView.trailingAnchor.constraint(equalTo: rowView.trailingAnchor),
             separatorView.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),

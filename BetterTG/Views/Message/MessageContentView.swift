@@ -905,6 +905,8 @@ final class TDImageLoadingView: UIImageView {
     private var fileRequest: AnimatedFileDownload?
     private var renderGeneration = UUID()
     private var hasFullImage = false
+    private var imageTransitionDuration: TimeInterval = 0
+    private var downloadTask: Task<Void, Never>?
     private var decodeTask: Task<Void, Never>?
     private var placeholderTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
@@ -966,6 +968,8 @@ final class TDImageLoadingView: UIImageView {
         maximumPixelSize: Int = 1280,
         accountID: UUID? = nil,
         client: TDLibClient,
+        preservingImage: Bool = false,
+        transitionDuration: TimeInterval = 0,
     ) {
         load(
             file: file,
@@ -982,8 +986,7 @@ final class TDImageLoadingView: UIImageView {
         origin: TDImageOrigin?,
     ) {
         cancel()
-        image = nil
-        guard let origin, admit(origin) else { return }
+        imageTransitionDuration = transitionDuration
         let request = RequestIdentity(
             accountID: origin.source.accountID,
             clientID: origin.source.clientID,
@@ -993,18 +996,30 @@ final class TDImageLoadingView: UIImageView {
         )
         representedRequest = request
         renderGeneration = request.generation
+        if !preservingImage { image = nil }
+        hasFullImage = false
         if let cached = TDImageThumbnailPipeline.shared.cachedImage(for: request.thumbnailKey.cacheKey) {
             apply(UIImage(cgImage: cached.image), asFullImageFor: request)
             return
         }
-        preparePlaceholder(placeholderData, for: request)
-        let download = origin.request(fileID: file.id)
-        fileRequest = download
-        download.start(
-            file: file,
-            onFile: { [weak self] in self?.update(file: $0, for: request) },
-            onInvalidated: { [weak self] in self?.invalidate() },
-        )
+        if !preservingImage { preparePlaceholder(placeholderData, for: request) }
+        update(file: file, for: request)
+        downloadTask = Task { [weak self] in
+            let downloaded = try? await client.downloadFile(
+                fileId: file.id,
+                limit: 0,
+                offset: 0,
+                priority: 1,
+                synchronous: true,
+            )
+            guard let self,
+                  !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id,
+                  let downloaded
+            else { return }
+            update(file: downloaded, for: request)
+        }
     }
 
     func loadPlaceholder(data: Data?, maximumPixelSize: Int = 960, client: TDLibClient) {
@@ -1042,6 +1057,7 @@ final class TDImageLoadingView: UIImageView {
     }
 
     func cancel() {
+        imageTransitionDuration = 0
         renderGeneration = UUID()
         representedRequest = nil
         representedOrigin = nil
@@ -1140,7 +1156,18 @@ final class TDImageLoadingView: UIImageView {
         hasFullImage = true
         placeholderTask?.cancel()
         placeholderTask = nil
-        image = decoded
+        let result = UIImage(cgImage: prepared.image)
+        if imageTransitionDuration > 0, image != nil {
+            UIView.transition(
+                with: self,
+                duration: imageTransitionDuration,
+                options: [.transitionCrossDissolve, .allowAnimatedContent, .beginFromCurrentState],
+            ) {
+                self.image = result
+            }
+        } else {
+            image = result
+        }
     }
 }
 

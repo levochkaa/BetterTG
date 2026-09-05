@@ -59,7 +59,7 @@ final class TelegramListNavigationBar: UIView {
         currentScrollOffset = clipped
         guard !isSearchActive else {
             searchView.applyScroll(offset: clipped, animated: false)
-            onVisibleHeightChange?(Self.titleHeight)
+            onVisibleHeightChange?(ChatListNavigationSearchView.scrollHeight)
             return
         }
         searchView.applyScroll(offset: clipped, animated: animated)
@@ -151,7 +151,9 @@ final class TelegramListNavigationBar: UIView {
     private func setSearchActive(_ active: Bool) {
         let parentView = superview
         parentView?.layoutIfNeeded()
-        onVisibleHeightChange?(active ? Self.titleHeight : Self.expandedContentHeight - currentScrollOffset)
+        onVisibleHeightChange?(active
+            ? ChatListNavigationSearchView.scrollHeight
+            : Self.expandedContentHeight - currentScrollOffset)
         onSearchActiveChange?(active)
 
         UIView.animate(
@@ -163,7 +165,7 @@ final class TelegramListNavigationBar: UIView {
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
             self.searchView.transform = active
-                ? CGAffineTransform(translationX: 0, y: -(Self.titleHeight + 4))
+                ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity
             parentView?.layoutIfNeeded()
         }
@@ -185,6 +187,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     // MARK: Private
 
+    private let separator = UIView()
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let backButton = UIButton(type: .system)
     private let titleControl = TelegramNavigationTitleControl()
@@ -206,6 +209,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var configuredStatus = ""
     private var configuredStatusColor = UIColor.secondaryLabel
 
+    var visibleContentHeight: CGFloat { searchActive ? ChatListNavigationSearchView.scrollHeight : Self.contentHeight }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
@@ -213,6 +218,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func useSharedBackground() {
+        blurView.isHidden = true
+        separator.isHidden = true
     }
 
     func configure(title: String, status: String, statusColor: UIColor) {
@@ -261,11 +271,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     func configureAvatar(
         file: File?,
+        largeFile: File?,
         minithumbnail: Minithumbnail?,
         placeholder: TelegramAvatarPlaceholder,
         client: TDLibClient,
     ) {
-        avatarView.configure(file: file, minithumbnail: minithumbnail, placeholder: placeholder, client: client)
+        avatarView.configure(file: file, largeFile: largeFile, minithumbnail: minithumbnail, placeholder: placeholder)
+        avatarView.onOpenProfile = { [weak self] in self?.onProfile?() }
+        avatarView.onSearch = { [weak self] in self?.beginSearch() }
     }
 
     func setSearchResultFound(_ found: Bool?) {
@@ -383,7 +396,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         selectionCancelButton.addTarget(self, action: #selector(selectionCancelPressed), for: .touchUpInside)
         addSubview(selectionCancelButton)
 
-        let separator = UIView()
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.backgroundColor = .separator
         addSubview(separator)
@@ -392,11 +404,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         regularTitleTrailingConstraint = titleControl.trailingAnchor.constraint(equalTo: avatarView.leadingAnchor)
         selectionTitleLeadingConstraint = titleControl.leadingAnchor.constraint(
             equalTo: safeAreaLayoutGuide.leadingAnchor,
-            constant: 12,
+            constant: 80,
         )
         selectionTitleTrailingConstraint = titleControl.trailingAnchor.constraint(
-            equalTo: selectionCancelButton.leadingAnchor,
-            constant: -4,
+            equalTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -80,
         )
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
@@ -419,12 +431,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             titleControl.topAnchor.constraint(equalTo: backButton.topAnchor),
             titleControl.bottomAnchor.constraint(equalTo: backButton.bottomAnchor),
             titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: titleControl.leadingAnchor, constant: 4),
-            titleStack.trailingAnchor.constraint(lessThanOrEqualTo: titleControl.trailingAnchor, constant: -8),
+            titleStack.trailingAnchor.constraint(lessThanOrEqualTo: titleControl.trailingAnchor, constant: -4),
             titleStack.centerXAnchor.constraint(equalTo: titleControl.centerXAnchor),
             titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
 
             closeButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            closeButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 38),
             closeButton.heightAnchor.constraint(equalToConstant: 38),
             selectionCancelButton.trailingAnchor.constraint(
@@ -436,7 +448,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             selectionCancelButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
-            searchField.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
             searchField.heightAnchor.constraint(equalToConstant: 36),
 
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),

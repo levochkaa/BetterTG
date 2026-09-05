@@ -8,10 +8,16 @@ import UIKit
 // MARK: - ProfileAvatarView
 
 final class ProfileAvatarView: TelegramContextMenuExtractableView {
+    var onOpenProfile: (() -> Void)?
+    var onSearch: (() -> Void)?
+
     // MARK: Private
 
     private let placeholderView = TelegramAvatarPlaceholderView()
     private let imageView = TDImageLoadingView()
+
+    private var highResolutionTask: Task<Void, Never>?
+    private var highResolutionFile: File?
     private var sourceFile: File?
     private var sourceMinithumbnailData: Data?
     private var sourceUsesPeerPhotoForSavedMessages = false
@@ -82,6 +88,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
 
     func configure(
         file: File?,
+        largeFile: File? = nil,
         minithumbnail: Minithumbnail?,
         placeholder: TelegramAvatarPlaceholder,
         usesPeerPhotoForSavedMessages: Bool = false,
@@ -89,6 +96,10 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         accountUserID: Int64? = nil,
         client: TDLibClient,
     ) {
+        if self.placeholder?.peerID != placeholder.peerID || sourceFile?.id != file?.id {
+            highResolutionTask?.cancel()
+        }
+        highResolutionFile = largeFile
         sourceFile = file
         sourceMinithumbnailData = minithumbnail?.data
         sourceUsesPeerPhotoForSavedMessages = usesPeerPhotoForSavedMessages
@@ -102,6 +113,11 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     }
 
     func prepareForReuse() {
+        highResolutionTask?.cancel()
+        highResolutionTask = nil
+        highResolutionFile = nil
+        onOpenProfile = nil
+        onSearch = nil
         imageView.cancel()
         sourceFile = nil
         sourceMinithumbnailData = nil
@@ -190,17 +206,23 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
 
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, let hostController = nearestViewController else { return }
-        let chatController = hostController as? ChatViewController
+        loadHighResolutionPreview()
         hostController.presentTelegramContextMenu(sourceView: self, actions: [
             TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.ContextMenuOpenProfile"),
                 image: UIImage(systemName: "person.crop.circle"),
-            ) {},
+            ) { [weak self, weak hostController] in
+                guard let self else { return }
+                if let onOpenProfile { onOpenProfile() }
+                else { openPeer(from: hostController, search: false) }
+            },
             TelegramContextMenuAction(
                 title: L10n.telegram("PeerInfo.ButtonSearch"),
                 image: UIImage(systemName: "magnifyingglass"),
-            ) { [weak chatController] in
-                chatController?.beginMessageSearch()
+            ) { [weak self, weak hostController] in
+                guard let self else { return }
+                if let onSearch { onSearch() }
+                else { openPeer(from: hostController, search: true) }
             },
             TelegramContextMenuAction(
                 title: L10n.telegram("Gallery.SaveImage"),
@@ -210,6 +232,78 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                 UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
             },
         ], tracking: gesture, presentationStyle: .avatar)
+    }
+
+    private func loadHighResolutionPreview() {
+        guard let placeholder, displayedIcon(for: placeholder) == .none,
+              let accountID = sourceAccountID ?? TDLib.shared.activeAccountID else { return }
+        let client = sourceClient ?? td
+        let peerID = placeholder.peerID
+        let file = highResolutionFile
+        highResolutionTask?.cancel()
+        highResolutionTask = Task { [weak self] in
+            let resolvedFile: File? =
+                if let file {
+                    file
+                } else if peerID > 0 {
+                    try? await client.getUser(userId: peerID).profilePhoto?.big
+                } else {
+                    try? await client.getChat(chatId: peerID).photo?.big
+                }
+            guard let self, !Task.isCancelled, self.placeholder?.peerID == peerID,
+                  TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id,
+                  let resolvedFile else { return }
+            imageView.load(
+                file: resolvedFile,
+                maximumPixelSize: 1280,
+                accountID: accountID,
+                client: client,
+                preservingImage: true,
+                transitionDuration: 0.2,
+            )
+        }
+    }
+
+    private func openPeer(from host: UIViewController?, search: Bool) {
+        guard let host, let peerID = placeholder?.peerID,
+              let accountID = sourceAccountID ?? TDLib.shared.activeAccountID else { return }
+        let client = sourceClient ?? td
+        Task { [weak host] in
+            let chatID: Int64
+            if peerID > 0 {
+                guard let chat = try? await client.createPrivateChat(force: false, userId: peerID) else { return }
+                chatID = chat.id
+            } else {
+                chatID = peerID
+            }
+            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
+                  TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id,
+                  let host, let navigation = host.navigationController else { return }
+            if search {
+                let controller = ChatViewController(customChat: chat)
+                navigation.pushViewController(controller, animated: true)
+                if let coordinator = navigation.transitionCoordinator {
+                    coordinator.animate(alongsideTransition: nil) { _ in controller.beginMessageSearch() }
+                } else {
+                    controller.beginMessageSearch()
+                }
+            } else {
+                let profile = PeerProfileViewController(
+                    customChat: chat,
+                    topic: nil,
+                    client: client,
+                    accountID: accountID,
+                )
+                profile.onSearch = { [weak profile] in
+                    guard let navigation = profile?.navigationController else { return }
+                    let controller = ChatViewController(customChat: chat)
+                    navigation.pushViewController(controller, animated: true)
+                    navigation.transitionCoordinator?
+                        .animate(alongsideTransition: nil) { _ in controller.beginMessageSearch() }
+                }
+                navigation.pushViewController(profile, animated: true)
+            }
+        }
     }
 }
 

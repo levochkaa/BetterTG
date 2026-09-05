@@ -791,6 +791,11 @@ enum FolderMenuAction {
 final class FolderPickerView: UIView {
     // MARK: Internal
 
+    struct Item: Equatable {
+        let id: Int
+        let title: String
+    }
+
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
@@ -814,6 +819,7 @@ final class FolderPickerView: UIView {
     }()
 
     private var folders = [CustomFolder]()
+    private var items = [Item]()
     private var selectedID: Int?
     private var naturalSegmentWidths = [CGFloat]()
     private var resolvedSegmentWidths = [CGFloat]()
@@ -849,22 +855,17 @@ final class FolderPickerView: UIView {
                 FolderUnreadState.empty
             }
         }
-        let needsRebuild = self.folders.count != folders.count || zip(self.folders, folders).contains { pair in
-            pair.0.id != pair.1.id || pair.0.name != pair.1.name
-        }
-        let unreadStatesChanged = self.unreadStates != displayedUnreadStates
         self.folders = folders
-        self.unreadStates = displayedUnreadStates
-        let resolvedSelectedID = selectedID ?? folders.first?.id
-        guard needsRebuild else {
-            if unreadStatesChanged {
-                updateButtonContents(animated: true)
-            }
-            select(id: resolvedSelectedID, animated: true)
-            return
-        }
-        self.selectedID = resolvedSelectedID
-        rebuildControl()
+        applyItems(
+            folders.map { Item(id: $0.id, title: $0.name) },
+            selectedID: selectedID,
+            unreadStates: displayedUnreadStates,
+        )
+    }
+
+    func configure(items: [Item], selectedID: Int?) {
+        folders = []
+        applyItems(items, selectedID: selectedID, unreadStates: items.map { _ in .empty })
     }
 
     func select(id: Int?, animated: Bool = true) {
@@ -882,6 +883,21 @@ final class FolderPickerView: UIView {
         interactiveSelection = (fromID, toID, min(max(0, fraction), 1))
         layoutSelection(animated: false)
         updateButtonAppearance()
+    }
+
+    private func applyItems(_ items: [Item], selectedID: Int?, unreadStates: [FolderUnreadState]) {
+        let needsRebuild = self.items != items
+        let unreadStatesChanged = self.unreadStates != unreadStates
+        self.items = items
+        self.unreadStates = unreadStates
+        let resolvedSelectedID = selectedID ?? items.first?.id
+        guard needsRebuild else {
+            if unreadStatesChanged { updateButtonContents(animated: true) }
+            select(id: resolvedSelectedID, animated: true)
+            return
+        }
+        self.selectedID = resolvedSelectedID
+        rebuildControl()
     }
 
     private func configureViews() {
@@ -959,19 +975,19 @@ final class FolderPickerView: UIView {
         }
         segmentWidthConstraints.removeAll()
         buttons.removeAll()
-        naturalSegmentWidths = folders.indices.map { index in
-            naturalSegmentWidth(for: folders[index], unreadState: unreadStates[index])
+        naturalSegmentWidths = items.indices.map { index in
+            naturalSegmentWidth(for: items[index], unreadState: unreadStates[index])
         }
         resolvedSegmentWidths = naturalSegmentWidths
-        for (index, folder) in folders.enumerated() {
+        for (index, folder) in items.enumerated() {
             let button = FolderButton(type: .system)
             button.tag = index
-            button.configure(title: folder.name, unreadState: unreadStates[index], animated: false)
+            button.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
             button.addTarget(self, action: #selector(folderPressed(_:)), for: .touchUpInside)
             let longPress = UILongPressGestureRecognizer(target: self, action: #selector(folderLongPressed(_:)))
             longPress.minimumPressDuration = 0.3
             longPress.allowableMovement = 8
-            button.addGestureRecognizer(longPress)
+            if !folders.isEmpty { button.addGestureRecognizer(longPress) }
             buttonStack.addArrangedSubview(button)
             let width = button.widthAnchor.constraint(equalToConstant: naturalSegmentWidths[index])
             width.isActive = true
@@ -986,27 +1002,27 @@ final class FolderPickerView: UIView {
     }
 
     private func updateButtonContents(animated: Bool) {
-        guard folders.count == buttons.count, unreadStates.count == buttons.count else { return }
+        guard items.count == buttons.count, unreadStates.count == buttons.count else { return }
         for index in buttons.indices {
             buttons[index].configure(
-                title: folders[index].name,
+                title: items[index].title,
                 unreadState: unreadStates[index],
                 animated: animated,
             )
         }
-        naturalSegmentWidths = folders.indices.map { index in
-            naturalSegmentWidth(for: folders[index], unreadState: unreadStates[index])
+        naturalSegmentWidths = items.indices.map { index in
+            naturalSegmentWidth(for: items[index], unreadState: unreadStates[index])
         }
         updateResolvedWidths()
         layoutSelection(animated: animated)
     }
 
-    private func naturalSegmentWidth(for folder: CustomFolder, unreadState: FolderUnreadState) -> CGFloat {
-        max(60, ceil(FolderButton.contentWidth(title: folder.name, unreadCount: unreadState.count)) + 32)
+    private func naturalSegmentWidth(for folder: Item, unreadState: FolderUnreadState) -> CGFloat {
+        max(60, ceil(FolderButton.contentWidth(title: folder.title, unreadCount: unreadState.count)) + 32)
     }
 
     private func scrollSelectedSegmentIntoView(animated: Bool) {
-        guard let index = folders.firstIndex(where: { $0.id == selectedID }),
+        guard let index = items.firstIndex(where: { $0.id == selectedID }),
               buttons.indices.contains(index) else { return }
         layoutIfNeeded()
         let selectedFrame = buttons[index].convert(buttons[index].bounds, to: controlContainer)
@@ -1047,8 +1063,8 @@ final class FolderPickerView: UIView {
         }
         let frame: CGRect? = {
             if let interactiveSelection,
-               let fromIndex = folders.firstIndex(where: { $0.id == interactiveSelection.fromID }),
-               let toIndex = folders.firstIndex(where: { $0.id == interactiveSelection.toID }),
+               let fromIndex = items.firstIndex(where: { $0.id == interactiveSelection.fromID }),
+               let toIndex = items.firstIndex(where: { $0.id == interactiveSelection.toID }),
                buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
             {
                 let fromFrame = buttons[fromIndex].convert(buttons[fromIndex].bounds, to: controlContainer)
@@ -1060,7 +1076,7 @@ final class FolderPickerView: UIView {
                     width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
                     height: controlContainer.bounds.height,
                 )
-            } else if let index = folders.firstIndex(where: { $0.id == selectedID }),
+            } else if let index = items.firstIndex(where: { $0.id == selectedID }),
                       buttons.indices.contains(index)
             {
                 return buttons[index].convert(buttons[index].bounds, to: controlContainer)
@@ -1095,9 +1111,9 @@ final class FolderPickerView: UIView {
         for (index, button) in buttons.enumerated() {
             let selectedAlpha: CGFloat =
                 if let interactiveSelection,
-                let fromIndex = folders
+                let fromIndex = items
                     .firstIndex(where: { $0.id == interactiveSelection.fromID }),
-                    let toIndex = folders
+                    let toIndex = items
                         .firstIndex(where: { $0.id == interactiveSelection.toID })
                 {
                     if index == fromIndex {
@@ -1108,7 +1124,7 @@ final class FolderPickerView: UIView {
                         0
                     }
                 } else {
-                    folders[index].id == selectedID ? 1 : 0
+                    items[index].id == selectedID ? 1 : 0
                 }
             button.updateAppearance(
                 titleColor: UIColor.label.withAlphaComponent(0.68 + selectedAlpha * 0.32),
@@ -1117,8 +1133,8 @@ final class FolderPickerView: UIView {
     }
 
     @objc private func folderPressed(_ sender: FolderButton) {
-        guard folders.indices.contains(sender.tag) else { return }
-        let folder = folders[sender.tag]
+        guard items.indices.contains(sender.tag) else { return }
+        let folder = items[sender.tag]
         if selectedID == folder.id {
             scrollSelectedSegmentIntoView(animated: true)
             onReselection?(folder.id)
