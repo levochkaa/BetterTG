@@ -3614,6 +3614,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             sourceBaseTransform: baseTransform,
             performsInitialFeedback: false,
             reactionsProvider: contextReactionsProvider(for: message),
+            quoteSelection: message.properties.canBeReplied && message.properties.canBeCopied && !chatVM.isReadOnlyTopic
+                && formattedText(from: message.message.content)?.text.isEmpty == false
+                ? TelegramContextQuoteSelection(textView: cell.contextQuoteTextView) { [
+                    weak self,
+                    weak message,
+                ] range in
+                    guard let self, let message else { return }
+                    chatVM.beginQuoteReply(to: message, range: range)
+                }
+                : nil,
         )
         if !presented {
             restorePressedMessageSource()
@@ -3668,14 +3678,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 ) { [weak self] in
                     self?.chatVM.beginReply(to: message)
                 })
-            if formattedText(from: message.message.content)?.text.isEmpty == false {
-                elements.append(TelegramContextMenuAction(
-                    title: "Quote",
-                    image: UIImage(systemName: "quote.opening"),
-                ) { [weak self] in
-                    self?.chatVM.beginQuoteReply(to: message)
-                })
-            }
         }
         let isRichMessage =
             if case .messageRichMessage = message.message.content {

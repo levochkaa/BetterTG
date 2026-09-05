@@ -1868,7 +1868,7 @@ import UIKit
         reconcileActiveChatActionAfterReplyChange()
     }
 
-    func beginQuoteReply(to message: CustomMessage) {
+    func beginQuoteReply(to message: CustomMessage, range: NSRange) {
         guard location.matches(message: message.message) else { return }
         if isAllMessagesForum, let topicID = message.forumTopicID {
             refreshForumTopic(id: topicID)
@@ -1898,7 +1898,7 @@ import UIKit
                 }
             guard replySelectionGeneration == generation,
                   replyMessage === message,
-                  let quote = MessageQuoteBuilder.make(from: formattedText, maximumLength: maximumLength)
+                  let quote = MessageQuoteBuilder.make(from: formattedText, maximumLength: maximumLength, range: range)
             else { return }
             replyQuote = quote
         }

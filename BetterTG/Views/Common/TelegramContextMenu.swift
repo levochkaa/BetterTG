@@ -50,6 +50,13 @@ struct TelegramContextMenuAction {
     }
 }
 
+// MARK: - TelegramContextQuoteSelection
+
+struct TelegramContextQuoteSelection {
+    let textView: MessageTextContentView
+    let handler: (NSRange) -> Void
+}
+
 // MARK: - TelegramContextMenuPresentationStyle
 
 enum TelegramContextMenuPresentationStyle: Equatable {
@@ -64,7 +71,10 @@ enum TelegramContextMenuPresentationStyle: Equatable {
 private enum TelegramContextMenuKeyboardHost {
     // MARK: Internal
 
-    static func visibleKeyboardWindow(for sourceWindow: UIWindow) -> UIWindow? {
+    static func visibleKeyboardWindow(for sourceWindow: UIWindow, sourceView: UIView?) -> UIWindow? {
+        guard let owner = sourceView?.nearestViewController?.viewIfLoaded,
+              owner.keyboardLayoutGuide.layoutFrame.height > owner.safeAreaInsets.bottom + 1
+        else { return nil }
         if #available(iOS 16.0, *),
            let screen = sourceWindow.windowScene?.screen,
            let keyboardWindow = remoteKeyboardWindow(on: screen),
@@ -198,6 +208,7 @@ extension UIViewController {
         presentationStyle: TelegramContextMenuPresentationStyle = .message,
         previewController: UIViewController? = nil,
         reactionsProvider: TelegramContextReactionsProvider? = nil,
+        quoteSelection: TelegramContextQuoteSelection? = nil,
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
@@ -211,6 +222,7 @@ extension UIViewController {
             presentationStyle: presentationStyle,
             previewController: previewController,
             reactionsProvider: reactionsProvider,
+            quoteSelection: quoteSelection,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
@@ -262,6 +274,8 @@ private final class TelegramContextMenuController: UIViewController {
     private let sourceTransform: CGAffineTransform
     private let presentationStyle: TelegramContextMenuPresentationStyle
     private let previewController: UIViewController?
+    private let quoteSelection: TelegramContextQuoteSelection?
+    private var selectableTextViews = [MessageTextContentView]()
     private let reactionsProvider: TelegramContextReactionsProvider?
     private let reactionStrip = TelegramReactionStripView()
     private var reactionTask: Task<Void, Never>?
@@ -307,6 +321,7 @@ private final class TelegramContextMenuController: UIViewController {
         presentationStyle: TelegramContextMenuPresentationStyle,
         previewController: UIViewController?,
         reactionsProvider: TelegramContextReactionsProvider?,
+        quoteSelection: TelegramContextQuoteSelection?,
     ) {
         self.sourceView = sourceView
         self.sourceTransform = sourceTransform
@@ -315,6 +330,7 @@ private final class TelegramContextMenuController: UIViewController {
         self.presentationStyle = presentationStyle
         self.previewController = previewController
         self.reactionsProvider = reactionsProvider
+        self.quoteSelection = quoteSelection
         super.init(nibName: nil, bundle: nil)
         trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
         NotificationCenter.default.addObserver(
@@ -351,13 +367,21 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     fileprivate func show(in sourceWindow: UIWindow) {
-        let hostView = TelegramContextMenuKeyboardHost.visibleKeyboardWindow(for: sourceWindow) ?? sourceWindow
+        let hostView = TelegramContextMenuKeyboardHost
+            .visibleKeyboardWindow(for: sourceWindow, sourceView: sourceView) ?? sourceWindow
+        #if DEBUG
+        TelegramQuoteSelectionDiagnostics
+            .record(
+                "host=\(NSStringFromClass(type(of: hostView))) key=\(hostView.isKeyWindow)",
+            )
+        #endif
         presentationHostView = hostView
         Self.activeController = self
         loadViewIfNeeded()
         view.frame = hostView.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.layer.zPosition = 1000
+        // Added last above the app/keyboard content. Leave the normal layer
+        // order so UIKit can present the selected text's edit menu above us.
         hostView.addSubview(view)
         beginAppearanceTransition(true, animated: false)
         endAppearanceTransition()
@@ -417,6 +441,15 @@ private final class TelegramContextMenuController: UIViewController {
             }
         }
 
+        if let quoteSelection, presentationStyle == .message {
+            let textView = quoteSelection.textView
+            let handler = quoteSelection.handler
+            textView.setContextQuoteAction { [weak self] range in
+                self?.dismissMenu { handler(range) }
+            }
+            selectableTextViews = [textView]
+        }
+
         menuEffectView.layer.cornerRadius = 30
         menuEffectView.layer.cornerCurve = .continuous
         menuEffectView.cornerConfiguration = .corners(radius: 30)
@@ -468,7 +501,7 @@ private final class TelegramContextMenuController: UIViewController {
                 guard let self, !Task.isCancelled, !isDismissing else { return }
                 reactionStrip.configure(reactions)
                 reactionStrip.isHidden = reactions.isEmpty
-                UIView.animate(withDuration: 0.2) { self.layoutPreviewAndMenu() }
+                UIView.performWithoutAnimation { self.layoutPreviewAndMenu() }
             }
         }
     }
@@ -685,7 +718,6 @@ private final class TelegramContextMenuController: UIViewController {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
         menuEffectView.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
-        reactionStrip.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
         UIView.animate(
             withDuration: 0.34,
             delay: 0,
@@ -730,13 +762,14 @@ private final class TelegramContextMenuController: UIViewController {
             self.menuEffectView.alpha = 1
             self.menuEffectView.transform = .identity
             self.reactionStrip.alpha = 1
-            self.reactionStrip.transform = .identity
         }
     }
 
     private func dismissMenu(completion: (() -> Void)? = nil) {
         guard !isDismissing else { return }
         isDismissing = true
+        selectableTextViews.forEach { $0.setContextQuoteAction(nil) }
+        selectableTextViews.removeAll()
         reactionTask?.cancel()
         let returnFrame = sourceFrameAtBaseTransform()
         UIView.animate(
@@ -1204,3 +1237,18 @@ extension UIView {
         return nil
     }
 }
+
+#if DEBUG
+@MainActor enum TelegramQuoteSelectionDiagnostics {
+    private static var events = [String]()
+
+    static func record(_ event: String) {
+        guard ProcessInfo.processInfo.arguments.contains("-custom-emoji-text-probe") else { return }
+        events.append(event)
+        if events.count > 40 { events.removeFirst(events.count - 40) }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("quote-selection-ui-probe.txt")
+        try? events.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+#endif

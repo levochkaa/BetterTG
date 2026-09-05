@@ -4,7 +4,20 @@ import Combine
 import TDLibKit
 import UIKit
 
-final class MessageTextContentView: UITextView, UITextViewDelegate {
+final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuInteractionDelegate {
+    private final class QuoteTapDelegate: NSObject, UIGestureRecognizerDelegate {
+        weak var owner: MessageTextContentView?
+
+        init(owner: MessageTextContentView) { self.owner = owner }
+
+        func gestureRecognizer(
+            _: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer,
+        ) -> Bool {
+            owner?.contextQuoteAction != nil
+        }
+    }
+
     private struct CustomEmojiRequest {
         let identifier: Int64
         let range: NSRange
@@ -17,7 +30,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     // MARK: Internal
 
-    override var canBecomeFirstResponder: Bool { false }
+    override var canBecomeFirstResponder: Bool { contextQuoteAction != nil }
 
     override var intrinsicContentSize: CGSize {
         guard attributedText.length > 0 else { return .zero }
@@ -34,6 +47,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     var onUnhandledTap: (() -> Void)?
     var onOpenRichURL: ((URL) -> Bool)?
 
+    private var contextQuoteAction: ((NSRange) -> Void)?
+    private lazy var quoteMenuInteraction = UIEditMenuInteraction(delegate: self)
+    private var quoteMenuTask: Task<Void, Never>?
+    private lazy var entityTapDelegate = QuoteTapDelegate(owner: self)
+    private lazy var entityTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleEntityTap(_:)))
     private var spoilerRanges = [NSRange]()
     private var spoilersRevealed = false
     private var spoilerViews = [TelegramSpoilerView]()
@@ -78,7 +96,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.isUserInteractionEnabled = false
         addSubview(statusLabel)
 
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleEntityTap(_:))))
+        entityTapGesture.delegate = entityTapDelegate
+        addGestureRecognizer(entityTapGesture)
+        addInteraction(quoteMenuInteraction)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -163,6 +183,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     }
 
     func prepareForReuse() {
+        setContextQuoteAction(nil)
         clearQuoteHighlight()
         clearCustomEmojiViews()
         customEmojiPlaybackVisible = false
@@ -231,8 +252,67 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         }
     }
 
+    func setContextQuoteAction(_ action: ((NSRange) -> Void)?) {
+        contextQuoteAction = action
+        entityTapGesture.cancelsTouchesInView = action == nil
+        isSelectable = action != nil && formattedText != nil
+        if action == nil {
+            quoteMenuTask?.cancel()
+            quoteMenuTask = nil
+            quoteMenuInteraction.dismissMenu()
+            selectedTextRange = nil
+            resignFirstResponder()
+        }
+    }
+
     func textViewDidChangeSelection(_ textView: UITextView) {
-        textView.selectedTextRange = nil
+        guard contextQuoteAction != nil else {
+            textView.selectedTextRange = nil
+            return
+        }
+        // The invisible timestamp spacer is outside the original message text.
+        if let formattedText, selectedRange.location != NSNotFound {
+            let bounded = NSIntersectionRange(
+                selectedRange,
+                NSRange(location: 0, length: formattedText.text.utf16.count),
+            )
+            if bounded != selectedRange { selectedRange = bounded }
+            if bounded.length > 0, !isFirstResponder { becomeFirstResponder() }
+            #if DEBUG
+            if bounded.length > 0 {
+                TelegramQuoteSelectionDiagnostics
+                    .record(
+                        "selection=\(bounded.location),\(bounded.length) responder=\(isFirstResponder) key=\(window?.isKeyWindow ?? false)",
+                    )
+            }
+            #endif
+            if bounded.length > 0, !spoilersRevealed,
+               spoilerRanges.contains(where: { NSIntersectionRange($0, bounded).length > 0 })
+            {
+                revealSpoilers()
+                selectedRange = bounded
+            }
+            scheduleQuoteMenu()
+        }
+    }
+
+    func editMenuInteraction(
+        _: UIEditMenuInteraction, menuFor _: UIEditMenuConfiguration, suggestedActions: [UIMenuElement],
+    ) -> UIMenu? {
+        #if DEBUG
+        TelegramQuoteSelectionDiagnostics.record("owned-menu=\(selectedRange.location),\(selectedRange.length)")
+        #endif
+        return quoteMenu(for: selectedRange, suggestedActions: suggestedActions)
+    }
+
+    func editMenuInteraction(_: UIEditMenuInteraction, targetRectFor _: UIEditMenuConfiguration) -> CGRect {
+        quoteSelectionRect()
+    }
+
+    func textView(
+        _: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement],
+    ) -> UIMenu? {
+        quoteMenu(for: range, suggestedActions: suggestedActions)
     }
 
     @discardableResult func revealSpoilers() -> Bool {
@@ -253,6 +333,44 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         })
         onRevealSpoilers?()
         return true
+    }
+
+    private func scheduleQuoteMenu() {
+        quoteMenuTask?.cancel()
+        let range = selectedRange
+        guard contextQuoteAction != nil, range.location != NSNotFound, range.length > 0 else {
+            quoteMenuInteraction.dismissMenu()
+            return
+        }
+        quoteMenuTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled, let self, contextQuoteAction != nil, selectedRange == range,
+                  window != nil else { return }
+            layoutIfNeeded()
+            let rect = quoteSelectionRect()
+            guard !rect.isNull, !rect.isEmpty else { return }
+            quoteMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: "message-quote" as NSString,
+                sourcePoint: CGPoint(x: rect.midX, y: rect.midY),
+            ))
+        }
+    }
+
+    private func quoteSelectionRect() -> CGRect {
+        guard let selectedTextRange else { return .null }
+        return firstRect(for: selectedTextRange)
+    }
+
+    private func quoteMenu(for range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let contextQuoteAction, range.length > 0 else { return nil }
+        #if DEBUG
+        TelegramQuoteSelectionDiagnostics
+            .record("native-menu=\(range.location),\(range.length) responder=\(isFirstResponder)")
+        #endif
+        let hidden = !spoilersRevealed && spoilerRanges.contains { NSIntersectionRange($0, range).length > 0 }
+        guard !hidden else { return UIMenu(children: []) }
+        let quote = UIAction(title: L10n.telegram("Conversation.ContextMenuQuote")) { _ in contextQuoteAction(range) }
+        return UIMenu(children: [quote] + suggestedActions)
     }
 
     private func measureText(maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
@@ -437,6 +555,10 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     }
 
     @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {
+        if contextQuoteAction != nil {
+            scheduleQuoteMenu()
+            return
+        }
         guard gesture.state == .ended, let formattedText else { return }
         let point = gesture.location(in: self)
         var fraction = CGFloat.zero

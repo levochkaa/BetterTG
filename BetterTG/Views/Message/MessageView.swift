@@ -271,6 +271,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     )
 
     var contextPreviewView: UIView { bubbleContainerView }
+    var contextQuoteTextView: MessageTextContentView { textView }
 
     private var bubbleView: UIView { bubbleContainerView.extractedContentView }
 
