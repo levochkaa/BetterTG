@@ -15,6 +15,7 @@ import TDLibKit
         var messageIDs = [Int64]()
         var completed = false
         var error: String?
+        var phase: String?
     }
 
     private static var started = false
@@ -47,6 +48,7 @@ import TDLibKit
         Task {
             var manifest = previous ?? Manifest(accountID: accountID, chatID: 0)
             manifest.error = nil
+            manifest.phase = "resuming"
             @MainActor func save() {
                 manifest.messageIDs = manifest.messageIDs.map { acceptedIDs[$0] ?? $0 }
                 if let data = try? JSONEncoder().encode(manifest) { try? data.write(to: path, options: .atomic) }
@@ -71,6 +73,7 @@ import TDLibKit
                 save()
             }
             do {
+                save()
                 try checkAccount()
                 if manifest.chatID == 0 {
                     let created = try await client.send(TDNativeRequests.createNewSupergroupChat(
@@ -86,21 +89,29 @@ import TDLibKit
                 guard fixtureChat.title == "BetterTG test",
                       case .chatTypeSupergroup(let type) = fixtureChat.type else { return }
                 let group = try await client.send(TDNativeRequests.getSupergroup(supergroupId: type.supergroupId))
+                manifest.phase = "group: forum=\(group.isForum), channel=\(group.isChannel), members=\(group.memberCount), public=\(group.usernames?.activeUsernames.isEmpty == false)"
+                save()
                 guard case .chatMemberStatusCreator = group.status,
                       group.usernames?.activeUsernames.isEmpty != false,
                       !group.isChannel, group.memberCount <= 1 else { return }
                 if !group.isForum {
                     try checkAccount()
+                    manifest.phase = "enable forum"
+                    save()
                     _ = try await client.send(TDNativeRequests.toggleSupergroupIsForum(
                         supergroupId: type.supergroupId, isForum: true, hasForumTabs: false,
                     ))
                 }
+                manifest.phase = "fetch icons"
+                save()
                 let icons = try? await client.send(TDNativeRequests.getForumTopicDefaultIcons())
                 var emojiID: Int64 = 0
                 if let first = icons?.stickers.first, case .stickerFullTypeCustomEmoji(let emoji) = first.fullType {
                     emojiID = emoji.customEmojiId
                 }
                 if manifest.topicID == nil {
+                    manifest.phase = "create topic"
+                    save()
                     let topic = try await client.send(TDNativeRequests.createForumTopic(
                         chatId: manifest.chatID,
                         name: "UI test",
@@ -113,6 +124,8 @@ import TDLibKit
                     manifest.topicID = topic.forumTopicId
                     save()
                 }
+                manifest.phase = "send fixtures"
+                save()
                 let body = "BetterTG test: hidden spoiler and bold link. Tap to reveal the hidden text."
                 let spoiler = (body as NSString).range(of: "hidden spoiler")
                 let bold = (body as NSString).range(of: "bold link")
