@@ -1812,7 +1812,7 @@ final class TelegramContactDetailsViewController: UIViewController {
 
         private static func run(in window: UIWindow) {
             let controller = ProbeViewController()
-            let navigation = UINavigationController(rootViewController: controller)
+            let navigation = TelegramNavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
             guard let presenter = window.rootViewController else { return }
             presenter.present(navigation, animated: false)

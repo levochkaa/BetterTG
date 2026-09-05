@@ -3118,7 +3118,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         switch action {
         case .openContact(let contact):
             let details = TelegramContactDetailsViewController(contact: contact)
-            let navigation = ClassicNavigation.controller(rootViewController: details)
+            let navigation = TelegramNavigationController(rootViewController: details)
             navigation.modalPresentationStyle = .pageSheet
             present(navigation, animated: true)
         case .openDocument(let url):
@@ -3424,7 +3424,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 Task { await chatVM?.sendAnimation(animation) }
             }
         }
-        let navigation = ClassicNavigation.controller(rootViewController: picker)
+        let navigation = TelegramNavigationController(rootViewController: picker)
         navigation.modalPresentationStyle = .pageSheet
         navigation.sheetPresentationController?.detents = [.medium(), .large()]
         navigation.sheetPresentationController?.prefersGrabberVisible = false
@@ -4198,7 +4198,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             picker.onFinished = { [weak self] _ in
                 self?.endMessageSelection()
             }
-            let navigationController = ClassicNavigation.controller(rootViewController: picker)
+            let navigationController = TelegramNavigationController(rootViewController: picker)
             navigationController.modalPresentationStyle = .fullScreen
             present(navigationController, animated: true)
         } catch {

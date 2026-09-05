@@ -8,9 +8,7 @@ import UIKit
 
     static let shared = NavigationStorage()
 
-    let navigationController = ClassicNavigation.controller()
-
-    private var clientRestoration: NavigationClientRestoration?
+    let navigationController = TelegramNavigationController()
 
     var viewControllers: [UIViewController] {
         navigationController.viewControllers

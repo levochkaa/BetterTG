@@ -146,7 +146,7 @@
                 && location.withForumTopic(id: 77).forumTopicID == 77
 
             let controller = ProbeViewController(topics: sorted)
-            let navigation = UINavigationController(rootViewController: controller)
+            let navigation = TelegramNavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
             topPresenter(from: window.rootViewController)?.present(navigation, animated: false)
             controller.view.layoutIfNeeded()

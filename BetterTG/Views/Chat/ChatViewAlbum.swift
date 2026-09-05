@@ -2595,7 +2595,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     destinationCount == 1 ? "Forwarded to 1 chat" : "Forwarded to \(destinationCount) chats",
                 )
             }
-            let navigationController = ClassicNavigation.controller(rootViewController: picker)
+            let navigationController = TelegramNavigationController(rootViewController: picker)
             navigationController.modalPresentationStyle = .fullScreen
             present(navigationController, animated: true)
         } catch {

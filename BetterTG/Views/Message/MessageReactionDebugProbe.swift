@@ -160,7 +160,7 @@
                 && MessageReactionStateReducer.visible(initial).count == 5
 
             let controller = ProbeViewController(reactions: initial, unreadTypes: [heart])
-            let navigation = UINavigationController(rootViewController: controller)
+            let navigation = TelegramNavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
             topPresenter(from: window.rootViewController)?.present(navigation, animated: false)
             controller.view.layoutIfNeeded()

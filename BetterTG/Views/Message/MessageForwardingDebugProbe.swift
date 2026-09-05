@@ -102,7 +102,7 @@
             private func showForwardPicker() {
                 guard selected, presentedViewController == nil else { return }
                 let picker = ProbeForwardPickerViewController()
-                let navigation = UINavigationController(rootViewController: picker)
+                let navigation = TelegramNavigationController(rootViewController: picker)
                 navigation.modalPresentationStyle = .fullScreen
                 present(navigation, animated: true)
             }
@@ -303,7 +303,7 @@
             }
 
             let controller = ProbeViewController()
-            let navigation = UINavigationController(rootViewController: controller)
+            let navigation = TelegramNavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
             topPresenter(from: window.rootViewController)?.present(navigation, animated: false)
             controller.view.layoutIfNeeded()

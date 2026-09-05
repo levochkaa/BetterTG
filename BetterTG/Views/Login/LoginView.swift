@@ -248,7 +248,7 @@ final class LoginViewController: UIViewController {
             selectedCountry = country
             render()
         }
-        present(ClassicNavigation.controller(rootViewController: countries), animated: true)
+        present(TelegramNavigationController(rootViewController: countries), animated: true)
     }
 
     @objc private func continueLogin() {

@@ -2,8 +2,8 @@
 
 import UIKit
 
-extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
-    override open func viewDidLoad() {
+final class TelegramNavigationController: UINavigationController, UIGestureRecognizerDelegate {
+    override func viewDidLoad() {
         super.viewDidLoad()
 
         let panGesture = UIPanGestureRecognizer(
@@ -16,7 +16,36 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
         interactivePopGestureRecognizer?.isEnabled = false
     }
 
-    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        // Keep Telegram's plain bar buttons on iOS 26, including screens which
+        // create their Edit/Done items after the navigation transition begins.
+        if #available(iOS 26.0, *) {
+            for item in navigationBar.items ?? [] {
+                for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
+                    if !button.hidesSharedBackground { button.hidesSharedBackground = true }
+                }
+                if item.backBarButtonItem == nil {
+                    item.backBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: nil, action: nil)
+                }
+                if item.backBarButtonItem?.hidesSharedBackground == false {
+                    item.backBarButtonItem?.hidesSharedBackground = true
+                }
+            }
+        }
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // A trim/scrub drag belongs to its editor even when it moves toward Back.
+        var touchedView = touch.view
+        while let candidate = touchedView, candidate !== view {
+            if candidate is VoiceRecordingTrimView || candidate is UISlider { return false }
+            touchedView = candidate.superview
+        }
+        return true
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard viewControllers.count > 1,
               transitionCoordinator == nil,
               let panGesture = gestureRecognizer as? UIPanGestureRecognizer
