@@ -264,9 +264,11 @@ private final class TelegramContextMenuController: UIViewController {
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
     private let dimView = UIView()
     private let previewContainer = UIView()
-    private let menuEffectView = UIVisualEffectView(
-        effect: UIBlurEffect(style: .systemMaterial),
-    )
+    private let menuEffectView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        return UIVisualEffectView(effect: effect)
+    }()
 
     private let menuStack = UIStackView()
     private let selectionHighlightView = UIView()
@@ -410,14 +412,15 @@ private final class TelegramContextMenuController: UIViewController {
             }
         }
 
-        menuEffectView.layer.cornerRadius = 16
+        menuEffectView.layer.cornerRadius = 30
         menuEffectView.layer.cornerCurve = .continuous
+        menuEffectView.cornerConfiguration = .corners(radius: 30)
         menuEffectView.clipsToBounds = true
         menuEffectView.alpha = 0
         view.addSubview(menuEffectView)
 
         selectionHighlightView.backgroundColor = .contextMenuSelectionHighlight
-        selectionHighlightView.layer.cornerRadius = 10
+        selectionHighlightView.layer.cornerRadius = 20
         selectionHighlightView.layer.cornerCurve = .continuous
         selectionHighlightView.alpha = 0
         selectionHighlightView.isUserInteractionEnabled = false

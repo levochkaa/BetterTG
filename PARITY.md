@@ -4,11 +4,14 @@ This file is the checkpoint ledger for the UIKit + Combine + TDLibKit implementa
 `telegram-upstream/master` unless a commit is pinned. The classic pre-Liquid baseline is
 `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, the parent of Telegram's first first-parent `Glass` commit.
 
-Implementation status and verification are separate. **done** means the recorded bounded scope has its stated proof;
-**implemented breadth** means the main code paths exist, with the listed verification limits; **partial** has known gaps;
-**next** identifies the next bounded slice; **queued** has not started. None implies exhaustive Telegram parity.
-Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and Telegram infrastructure
-(Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
+User-approved visual exception (2026-09-05): preserve BetterTG's existing Liquid Glass folder picker and shared context
+menus, as restored from `64625ed^`. Keep the inset scrolling glass capsule, moving glass selection and full-width background
+blur, plus the glass menu surface and rounded highlights. Future parity work must retain this presentation while extending
+actions and state handling; the classic baseline does not require replacing these two surfaces.
+
+Status values: **done** has local implementation proof, **partial** is usable with listed gaps, **next** is the next
+bounded slice, and **queued** has not started. Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and
+Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
 
 ## Revalidation before new features — 2026-10-02
 
@@ -3163,10 +3166,10 @@ is imported. This source pass does not prove every content's real rendering/acti
 | P0 | Forum-aware Forward destinations | pre-Liquid/current `ChatControllerForwardMessages.swift` and `PeerSelectionController.swift` | `getForumTopics`, `getForumTopic`, `forwardMessages(topicId:)` | **implemented breadth** — destination identity is `(chatID, MessageTopic?)`, so ordinary chats and multiple topics in one forum coexist in one selection. Forum rows drill into an exact-cursor UIKit topic picker; closed/hidden topics require creator/manage-topics authority and every content permission is rechecked at delivery. Source account/topic membership is fetched both at preparation and immediately before mutation. TDLib results must have exact count/chat/topic; transient forum metadata failures disable rather than fall through to General. Classic full-width material headers, plain Back and table-header search avoid iOS 26 floating glass. Live idb proof selected a real forum topic locally without pressing Forward. |
 | P0 | Composer and send/delete transitions | pre-Liquid chat input panel and message transition paths | `FormattedText`, `InputMessageContent`, `sendMessage`, edit/reply/delete APIs | **partial** — one UIKit floating blur island owns formatted text, emoji insertion, non-Premium installed stickers, saved GIFs, photos/camera, security-scoped multi-file documents, reply/edit and voice/video states in ordinary, explicit-topic and all-messages chats. Sends serialize to prevent duplicate rapid-tap delivery and clear UI only after TDLib acceptance. Real UIKit snapshots of visible reply/text/photo/album/document/voice/video-preview-or-retry sources follow temporary→final IDs and fly into canonical insertion; viewport anchoring remains independent. Sticker/GIF sends use exact permission/topic/reply contexts, captured draft cleanup, account-fenced search, offscreen-paused/cancelled media and no Premium/Stars results. Voice/video retry authority and document upload leases survive UI teardown. Full-bubble deletes fade+slide then collapse under a surviving anchor; no dust/particles. Remaining: public inline-GIF search, custom-emoji authoring and forward comment/draft. |
 | P1 | Profiles, shared media, fullscreen gallery | pre-Liquid/current `PeerInfoScreen.swift`, `PeerInfoAvatarListNode.swift`, `PeerInfoPaneContainerNode.swift`, `PeerInfoScreenOpenMessage.swift` and gallery controllers | peer/full-info/status/title/photo updates; `getUserProfilePhotos`, `getBasicGroupFullInfo`, `getSupergroupMembers`, `getChatAdministrators`, `getChatMember`, `getMessageProperties`, topic/history APIs, `downloadFile`, `forwardMessages`, `deleteMessages`, `setName`, `setBio`, `setChatTitle`, `setChatDescription`, `setChatMemberTag`; message/file APIs | **partial — live UIKit profile + shared/avatar galleries + management/actions** — account-fenced user/bot/self/group/channel profile exposes live title/status/bio/usernames/phone/member/photo state and Media/Files/Links/Audio. Separate Members/Admins lists retain server order and roles, paginate raw supergroup offsets, react to membership/full-info changes and preserve a visible-row anchor; permission-gated self/chat Edit uses changed-only sequential writes, live cached visibility and exact pre-write member-rights revalidation. User rows open a standalone tag editor whose fresh self/other-member authority matrix, stale-baseline conflict check and awaited write follow current Telegram behavior without coupling tags to administrator rights. Shared media retains the profile under exact-source append-paged gallery with cancel-safe pan, unified video chrome, scrollable formatted/spoiler-safe captions and authoritative totals. Gallery Open in Chat captures the selected identity, re-fetches it through the captured client, revalidates account/client/topic through fade-dismiss completion, then routes into the source timeline without competing reverse transitions. Save and system Share now share one original-resource export boundary with fresh copy-protection checks, full TDLib download, account/generation fences and managed temp ownership; Photos receives signature-validated still images/GIF/MP4 and WEBP sticker frame PNG without moving TDLib cache files. Forward reuses the production topic/destination/comment picker and offers selected-item versus authoritatively bounded whole-album semantics. Delete intersects fresh per-ID modes, repeats pre-write authority, commits one batch and coalesces all-media permanent updates into one terminal fade without returning deleted playback/PiP owners. Header avatar opens a real-`ChatPhoto` gallery with user/bot/self role-aware raw-offset history, group/channel current full-info photo, exact item+file transition, zoom and no-flash central muted video loop. Generic Saved Messages self now preserves upstream title/blank-status/action semantics while rendering the captured account's real avatar and gallery instead of the Saved glyph. Typed peer/full-info bursts coalesce into one render; generation fences prevent stale `getChat`/full-info resurrection; role signatures reconcile populated avatar galleries without dismissing them. Warning-free proofs are below. Remaining: promote/demote/remove management tools and exhaustive profile actions. |
-| P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **partial — existing account breadth, isolation unverified** — add/auth/switch/remove/logout and client/storage paths already exist. Revalidate their production lifecycle and event/subscription ownership; animation A05/A06 and voice A13 expose cross-flow isolation gaps. Do not implement a second account shell from the old queued label. |
-| P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists and paging already exist; folder tabs are classic full-width material, and chat cells now use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
+| P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **queued** — isolated clients/storage/subscriptions plus add/auth/switch/remove/logout. |
+| P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists and paging already exist; folder tabs retain the approved Liquid Glass capsule over full-width background blur, and chat cells use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
 | P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover structural snapshots. Composer/keyboard insets, object-driven and autonomous cell self-sizing, bulk reconfigure, Dynamic Type and rotation now capture the same anchor or latest edge; mutation depth discards stale deferred anchors and never fights active dragging. Every chat emits one stable localized date row per day with exact date→topic ordering. Remaining proof/gaps: a live pagination/album seam, software-keyboard-attached runtime proof and eliminating residual metadata work from the main actor. |
-| P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars, `ChatListFilterTabContainerNode.swift` and `ChatListItem.swift` | n/a | **implemented classic shell/list breadth** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Chat-list cards are replaced by contiguous 76pt full-width rows with 60pt avatars at x=10 and separators from x=80. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proofs are below. Remaining P2: systematic audit of secondary navigation/search/action surfaces. |
+| P2 | Shell/navigation polish | pre-Liquid navigation and `ChatListItem.swift`; approved BetterTG glass folder/menu baseline `64625ed^` | n/a | **implemented shell/list breadth** — the folder bar keeps edge-to-edge `systemChromeMaterial` through the safe area behind an inset 42pt Liquid Glass capsule and continuously moving glass selection. Shared context menus use `UIGlassEffect` with 30pt menu and 20pt highlight corners. Later folder/menu actions, unread state, localization and gestures remain. Chat-list rows retain contiguous 76pt full-width geometry with 60pt avatars at x=10 and separators from x=80. Warning-free build and real-state idb proofs are recorded below. Remaining P2: audit secondary navigation/search/action surfaces while preserving the explicit glass exception. |
 
 ## Checkpoint
 
@@ -3393,12 +3396,31 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Fixed the inherited profile header-width defect: centered labels now use the full header content width, consistent with
   Telegram upstream `PeerInfoHeaderNode`'s screen-width-based text layout. On iPhone 17 Pro / iOS 26.5, a long group title
   changed from x=154 / 94×54.67 pt (split and truncated) to x=20 / 362×26.67 pt (complete on one line); avatar remains 96×96 pt.
-  Evidence: `03-profile` versus `14-fixed-profile` PNG/JSON in the UI evidence directory above. Final app PID `8105` remains
-  running on the corrected profile; action buttons and media grid are unobscured.
+  Evidence: `03-profile` versus `14-fixed-profile` PNG/JSON in the UI evidence directory above. At that checkpoint, PID `8105`
+  was running on the corrected profile; action buttons and media grid were unobscured.
 - Generator cleanup: `td.py` moved to `script/td.py`; the wrapper, repository-root calculation, generated header and both
   agent documents use the new path. The final warning-free build exercised the relocated generator with the existing package cache.
 
-## Historical implementation slices
+### Liquid Glass folder picker and context-menu restoration — 2026-09-05
+
+- User request: restore the existing folder picker and context-menu UI from before the parity classic-shell conversion;
+  retain any later behavior and action work. The exact visual regression is `64625ed`.
+- Reversed only that commit's styling hunks in `MainView.swift` and `TelegramContextMenu.swift`. The folder picker again has
+  a 42pt glass capsule inset 16pt, a clipped scrolling viewport and a moving glass selection over the full-width background blur.
+  Menus again use regular Liquid Glass, 30pt outer corners and 20pt selection corners. The shared menu source matches `64625ed^`.
+- Retained later localization, TDLibKit 2 migration, forum routes and folder reselect scroll repair. Folder actions, unread
+  badges, page transitions, extracted previews, keyboard hosting and context action handlers are unchanged by the restoration.
+- Build: SwiftFormat checked both changed Swift files; `./build.sh build --simulator-id 8108A92F-7E93-49C8-87F4-FA53A5A40A99`
+  succeeded on Xcode 26.6 / iOS 26.5 with zero warnings or errors. Log: `.build/logs/xcodebuild/build-Debug-20260905-163828-11292-31865.log`.
+- Runtime: launched through `./build.sh run --skip-build` on the same iPhone 17 Pro / iOS 26.5 (PID `12092`).
+  CLI idb/simctl captures show the restored glass picker, folder tap loading channels, content swipe returning to All, strip
+  scrolling that fully reveals the groups badge and later tabs, and groups selection centering its glass capsule. Before/after
+  PNG/JSON evidence is under `.build/ui-probe-evidence/glass-restore-20260905/` (01/02/04 before, 05–14 after).
+  Reselecting groups returns the scrolled list to the first pinned row; the shared folder menu shows all six actions in the
+  restored glass surface, and Edit Folder opens the correct configuration and returns via Back without saving. No new control
+  clipping or overlap was found in this bounded smoke. App remains on the groups list with the picker visible.
+  `SMOKE.md` records the exact checks and limits: separate chat/message menus were not repeated after restoration and no
+  server mutation action was submitted.
 
 ### UIKit peer profile and shared-media slice
 
@@ -3854,7 +3876,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/classic-chat-rows-*`; first tap opens Saved Messages; PID 35152 alive; Simulator booted.
 - Deferred: typing/action preview, verified/scam/status/story adornments, archive reveal gestures and full account fencing for list mutations.
 
-### Classic shell blur slice
+### Classic shell blur slice (historical; folder/menu styling superseded 2026-09-05)
+
+The Liquid Glass restoration above supersedes this slice for the folder picker and shared context menus only.
 
 - **P2 flow:** full-width folder/tab chrome and context-menu material, based on pre-Liquid `ChatListFilterTabContainerNode` selection
   geometry and classic UIKit material rather than Liquid Glass.
@@ -3862,7 +3886,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   text; ordinary system-material context menu; classic 16/10pt menu/highlight corners; all Glass-only APIs and marker strings removed.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-062914-33482-14249.log`; real account hierarchy/screenshot and long-press
   menu evidence `.build/ui-probe-evidence/classic-shell-*`; PID 33820 alive; Simulator booted.
-- Deferred: remaining navigation/search/action surfaces still need a complete full-width/no-floating audit.
+- Deferred at that checkpoint: remaining navigation/search/action surfaces needed an audit. The approved folder/menu glass
+  surfaces are excluded from any subsequent full-width/no-floating conversion.
 
 ### Forum topic browsing slice
 
