@@ -3116,6 +3116,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func performContentAction(_ action: MessageContentAction) {
         switch action {
+        case .richContentLayoutChanged:
+            collectionView.collectionViewLayout.invalidateLayout()
         case .openContact(let contact):
             let details = TelegramContactDetailsViewController(contact: contact)
             let navigation = TelegramNavigationController(rootViewController: details)

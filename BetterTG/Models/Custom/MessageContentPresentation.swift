@@ -34,6 +34,7 @@ struct MessageContentPresentation {
         case linkPreview(LinkPreview)
         case none
         case poll(MessagePoll)
+        case richMessage(TDNativeRichMessage)
         case service(ServiceContent)
         case unsupported(ServiceContent)
     }
@@ -89,10 +90,12 @@ struct MessageContentPresentation {
                 summary: message.text.text,
                 supplement: message.linkPreview.map { .linkPreview($0) } ?? .none,
             )
-        case .messageRichMessage:
-            return unsupported(
-                title: "Rich message",
-                detail: "This rich message layout isn't supported yet.",
+        case .messageRichMessage(let message):
+            return Self(
+                formattedText: nil,
+                isVisualMedia: false,
+                summary: "Rich message",
+                supplement: .richMessage(message.message),
             )
         case .messageAnimation(let message):
             return presentation(

@@ -7,7 +7,10 @@ import TDLibKit
 @MainActor final class CustomMessage: ObservableObject {
     // MARK: Internal
 
-    @Published var message: Message
+    @Published var message: Message {
+        didSet { richContentState.invalidateContent() }
+    }
+
     @Published var senderUser: User?
     @Published var replyPresentation: MessageReplyPresentation?
     @Published var forwardPresentation: MessageForwardPresentation?
@@ -24,6 +27,7 @@ import TDLibKit
     @Published var spoilersRevealed = false
 
     var isReplyQuoteExpanded = false
+    let richContentState = MessageRichContentState()
 
     var id: Int64 { message.id }
     var contentPresentation: MessageContentPresentation {

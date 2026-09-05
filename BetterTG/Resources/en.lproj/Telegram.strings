@@ -204,3 +204,9 @@
 "Conversation.SelectedMessagesFormat_any" = "{} Selected";
 
 "ChatImportActivity.Retry" = "Retry";
+
+"Chat.RichText.ShowMore" = "Show more";
+
+"ChatList.Search.ShowLess" = "Show less";
+
+"Map.Map" = "Map";

@@ -633,10 +633,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let hasStructuredContent = structuredContentView.configure(
             presentation: presentation,
             messageID: message.id,
+            chatID: message.message.chatId,
             album: message.album,
             client: client,
             pollInteractionStore: pollInteractionStore,
-            textSpoilers: textSpoilers,
+            richContentState: message.richContentState,
             onAction: onContentAction,
         )
         structuredContentView.isHidden = !hasStructuredContent

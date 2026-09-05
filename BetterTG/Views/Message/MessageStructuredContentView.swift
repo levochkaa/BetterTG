@@ -11,11 +11,8 @@ enum MessageContentAction {
     case openDocument(URL)
     case openContact(Contact)
     case openLocation(location: Location, title: String)
-    case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
-
-    @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
-        if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
-    }
+    case submitPollAnswer(messageID: Int64, optionIDs: [Int])
+    case richContentLayoutChanged
 }
 
 // MARK: - MessagePollInteractionStore
@@ -228,10 +225,11 @@ final class MessageStructuredContentView: UIView {
     @discardableResult func configure(
         presentation: MessageContentPresentation,
         messageID: Int64,
+        chatID: Int64 = 0,
         album: [Message],
         client: TDLibClient,
         pollInteractionStore: MessagePollInteractionStore,
-        textSpoilers: MessageTextSpoilerStore? = nil,
+        richContentState: MessageRichContentState? = nil,
         onAction: @escaping (MessageContentAction) -> Void,
     ) -> Bool {
         prepareForReuse()
@@ -268,6 +266,11 @@ final class MessageStructuredContentView: UIView {
                     content: poll,
                     interactionStore: pollInteractionStore,
                     onAction: onAction,
+                )
+            case .richMessage(let richMessage):
+                MessageRichContentView(
+                    content: richMessage, messageID: messageID, chatID: chatID,
+                    client: client, state: richContentState ?? MessageRichContentState(), onAction: onAction,
                 )
             case .service(let content):
                 ServiceMessageContentView(content: content, isUnsupported: false)
@@ -441,7 +444,7 @@ private final class AttachmentAlbumItemView: UIView {
 
 // MARK: - TelegramFileMessageView
 
-private final class TelegramFileMessageView: UIView, MessageSupplementView {
+final class TelegramFileMessageView: UIView, MessageSupplementView {
     private enum Content {
         case audio(Audio)
         case document(Document)
@@ -1843,6 +1846,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                     pollInteractionStore: pollInteractionStore,
                 ) { action in
                     switch action {
+                    case .richContentLayoutChanged:
+                        break
                     case .openContact:
                         actions.append("contact")
                     case .openDocument:

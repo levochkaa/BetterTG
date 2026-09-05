@@ -32,15 +32,14 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     var onRevealSpoilers: (() -> Void)?
     var onUnhandledTap: (() -> Void)?
+    var onOpenRichURL: ((URL) -> Bool)?
 
     private var spoilerRanges = [NSRange]()
     private var spoilersRevealed = false
     private var spoilerViews = [TelegramSpoilerView]()
     private var lastSpoilerRects = [CGRect]()
     private var formattedText: FormattedText?
-    private var spoilerState: MessageTextSpoilerState?
-    private var spoilerSubscription: AnyCancellable?
-    private var emojiClient: TDLibClient?
+    private var richAttributedText: NSAttributedString?
     private var lastLayoutWidth = CGFloat.zero
     private var maximumLayoutWidth = Utils.maxMessageContentWidth
     private let statusLabel = UILabel()
@@ -111,9 +110,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusColor: UIColor,
         maximumWidth: CGFloat = Utils.maxMessageContentWidth,
         spoilersRevealed: Bool = false,
+        richAttributedText: NSAttributedString? = nil,
     ) {
         clearCustomEmojiViews()
         self.formattedText = formattedText
+        self.richAttributedText = richAttributedText
         self.spoilersRevealed = spoilersRevealed
         spoilerRanges = TelegramSpoilers.ranges(in: formattedText)
         maximumLayoutWidth = maximumWidth
@@ -121,7 +122,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         statusLabel.textColor = statusColor
         statusLabel.sizeToFit()
         let result = NSMutableAttributedString(
-            attributedString: NSAttributedString(getAttributedString(from: formattedText)),
+            attributedString: richAttributedText ?? NSAttributedString(getAttributedString(from: formattedText)),
         )
         for range in spoilerRanges {
             result.removeAttribute(.backgroundColor, range: range)
@@ -134,7 +135,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
                 result.removeAttribute(.link, range: range)
             }
         }
-        result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
+        if !statusText.isEmpty { result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9)) }
         attributedText = result
         loadCustomEmoji(from: formattedText)
         bringSubviewToFront(statusLabel)
@@ -161,8 +162,10 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         spoilerState = nil
         emojiClient = nil
         formattedText = nil
+        richAttributedText = nil
         onRevealSpoilers = nil
         onUnhandledTap = nil
+        onOpenRichURL = nil
         spoilerRanges.removeAll()
         spoilerViews.forEach { $0.removeFromSuperview() }
         spoilerViews.removeAll()
@@ -235,6 +238,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             statusColor: statusLabel.textColor,
             maximumWidth: maximumLayoutWidth,
             spoilersRevealed: true,
+            richAttributedText: richAttributedText,
         )
         UIView.animate(withDuration: 0.22, animations: { overlays.forEach { $0.alpha = 0 } }, completion: { _ in
             overlays.forEach { $0.removeFromSuperview() }
@@ -248,7 +252,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: maximumWidth, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
-        container.lineBreakMode = .byWordWrapping
+        container.lineBreakMode = textContainer.lineBreakMode
+        container.maximumNumberOfLines = textContainer.maximumNumberOfLines
         manager.addTextContainer(container)
         storage.addLayoutManager(manager)
         manager.ensureLayout(for: container)
@@ -454,6 +459,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
                 continue
             }
         }
+        onUnhandledTap?()
     }
 
     private func layoutSpoilers() {
@@ -491,6 +497,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     private func open(_ url: URL?) {
         guard let url else { return }
+        if onOpenRichURL?(url) == true { return }
         TelegramLinkRouter.shared.open(url, from: nearestViewController)
     }
 }
