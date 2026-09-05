@@ -33,7 +33,7 @@ import TDLibKit
         let path = documents.appendingPathComponent("parity-test-fixtures.json")
         let previous = try? JSONDecoder().decode(Manifest.self, from: Data(contentsOf: path))
         guard previous == nil || previous?.accountID == accountID else { return }
-        if previous?.completed == true, (previous?.messageIDs.count ?? 0) >= 3 { return }
+        if previous?.completed == true, (previous?.messageIDs.count ?? 0) >= 4 { return }
         sendObserver = nc.publisher(for: .updateMessageSendSucceeded)
             .receive(on: DispatchQueue.main)
             .sink { update in
@@ -180,6 +180,7 @@ import TDLibKit
                     text: FormattedText(entities: [], text: "BetterTG test link preview https://telegram.org/blog"),
                 ))) }
                 if manifest.messageIDs.count < 3 { try await send(richFixture()) }
+                if manifest.messageIDs.count < 4 { try await send(mathFixture()) }
                 manifest.completed = true
                 save()
             } catch {
@@ -225,6 +226,29 @@ import TDLibKit
                 header: plain("Expand test details"),
                 blocks: [paragraph(plain("Expanded content stays with this message when the cell is reused."))],
                 isOpen: false,
+            )),
+        ]
+        return .inputMessageRichMessage(TDNativeInputMessageRichMessage(
+            message: TDNativeInputRichMessage(
+                source: .richMessageSourceBlocks(TDNativeRichMessageSourceBlocks(blocks: blocks)),
+                isRtl: false,
+                detectAutomaticBlocks: false,
+            ), clearDraft: false,
+        ))
+    }
+
+    private static func mathFixture() -> InputMessageContent {
+        let blocks: [TDNativeInputPageBlock] = [
+            .inputPageBlockSectionHeading(TDNativeInputPageBlockSectionHeading(
+                text: .richTextPlain(TDNativeRichTextPlain(text: "BetterTG test formulas")), size: 2,
+            )),
+            .inputPageBlockParagraph(TDNativeInputPageBlockParagraph(text: .richTexts(TDNativeRichTexts(texts: [
+                .richTextPlain(TDNativeRichTextPlain(text: "Inline ")),
+                .richTextMathematicalExpression(TDNativeRichTextMathematicalExpression(expression: "\\sqrt{x^2+y^2}")),
+                .richTextPlain(TDNativeRichTextPlain(text: " stays on the text baseline.")),
+            ])))),
+            .inputPageBlockMathematicalExpression(TDNativeInputPageBlockMathematicalExpression(
+                expression: "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}",
             )),
         ]
         return .inputMessageRichMessage(TDNativeInputMessageRichMessage(
