@@ -171,10 +171,31 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             ForumTopicDebugProbe.runIfRequested(in: window)
         #endif
 
+        for context in connectionOptions.urlContexts {
+            TelegramLinkRouter.shared.handle(context.url, from: window.rootViewController)
+        }
+        for activity in connectionOptions.userActivities {
+            if let url = activity.webpageURL {
+                TelegramLinkRouter.shared.handle(url, from: window.rootViewController)
+            }
+        }
+
         if let response = connectionOptions.notificationResponse {
             Task {
                 await PushRelayCoordinator.shared.handleNotificationResponse(response)
             }
+        }
+    }
+
+    func scene(_: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            TelegramLinkRouter.shared.handle(context.url, from: window?.rootViewController)
+        }
+    }
+
+    func scene(_: UIScene, continue userActivity: NSUserActivity) {
+        if let url = userActivity.webpageURL {
+            TelegramLinkRouter.shared.handle(url, from: window?.rootViewController)
         }
     }
 

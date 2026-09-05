@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.levochkaaa.BetterTG</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>bettertg</string></array>
+		</dict>
+	</array>
 	<key>BetterTGRelayBaseURL</key>
 	<string>$(BETTERTG_RELAY_BASE_URL)</string>
 	<key>NSAppTransportSecurity</key>

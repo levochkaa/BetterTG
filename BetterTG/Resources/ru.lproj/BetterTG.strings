@@ -55,3 +55,5 @@
 "Accessibility.VoiceWaveform" = "Форма волны голосового сообщения";
 "Accessibility.SearchMessagesHint" = "Удерживайте, чтобы искать сообщения";
 "Accessibility.FolderActions" = "Действия для папки %@";
+
+"Localization.Preview" = "Использовать %1$@ как язык приложения?\n\nПереведено: %2$d%%. Язык можно изменить в настройках.";

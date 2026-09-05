@@ -191,4 +191,16 @@
 
 "PeerInfo.ButtonSearch" = "Search";
 
+"ApplyLanguage.ChangeLanguageAlreadyActive" = "The language %1$@ is already active.";
+
+"ApplyLanguage.ChangeLanguageTitle" = "Change Language?";
+
+"ApplyLanguage.ChangeLanguageAction" = "Change";
+
+"ApplyLanguage.LanguageNotSupportedError" = "Sorry, this language doesn't seem to exist.";
+
+"Conversation.SelectedMessagesFormat_1" = "{} Selected";
+
+"Conversation.SelectedMessagesFormat_any" = "{} Selected";
+
 "ChatImportActivity.Retry" = "Retry";

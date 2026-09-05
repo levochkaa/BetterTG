@@ -248,7 +248,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             avatarView.isHidden = true
             titleControl.isUserInteractionEnabled = false
             applyTitle(
-                title: count == 1 ? "1 Message Selected" : "\(count) Messages Selected",
+                title: L10n.telegramPlural("Conversation.SelectedMessagesFormat", count: count)
+                    .replacingOccurrences(of: "{}", with: String(count)),
                 status: "",
                 statusColor: .secondaryLabel,
             )
@@ -389,7 +390,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         addSubview(closeButton)
 
         selectionCancelButton.translatesAutoresizingMaskIntoConstraints = false
-        selectionCancelButton.setTitle("Cancel", for: .normal)
+        selectionCancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
         selectionCancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
         selectionCancelButton.accessibilityLabel = "Cancel Selection"
         selectionCancelButton.isHidden = true

@@ -116,6 +116,7 @@ final class AppLocalization: @unchecked Sendable {
     private var cancellables = Set<AnyCancellable>()
     private var isStarted = false
     private var packs = [String: StoredLanguagePack]()
+    @MainActor private var applicationGeneration = UUID()
     private var selectedLanguagePackIDStorage: String
 
     var availableLanguages: [AppLanguage] {
@@ -420,8 +421,21 @@ final class AppLocalization: @unchecked Sendable {
         await refreshAvailableLanguages(using: TDLib.shared.activeClient)
     }
 
-    func apply(_ language: AppLanguage) async throws {
+    @MainActor func languagePack(id: String) async throws -> AppLanguage {
         let client = TDLib.shared.activeClient
+        let accountID = TDLib.shared.activeAccountID
+        let info = try await client.getLanguagePackInfo(languagePackId: id)
+        guard client.id == TDLib.shared.activeClient.id, accountID == TDLib.shared.activeAccountID else {
+            throw CancellationError()
+        }
+        return Self.language(from: info)
+    }
+
+    @MainActor func apply(_ language: AppLanguage) async throws {
+        let generation = UUID()
+        applicationGeneration = generation
+        let client = TDLib.shared.activeClient
+        let accountID = TDLib.shared.activeAccountID
         let downloadedPack: StoredLanguagePack?
         let downloadedBasePack: StoredLanguagePack?
 
@@ -439,12 +453,19 @@ final class AppLocalization: @unchecked Sendable {
             downloadedBasePack = nil
         }
 
+        try Task.checkCancellation()
+        guard applicationGeneration == generation, client.id == TDLib.shared.activeClient.id,
+              accountID == TDLib.shared.activeAccountID else { throw CancellationError() }
         _ = try await client.setOption(
             name: "language_pack_id",
             value: .optionValueString(OptionValueString(value: language.id)),
         )
 
-        lock.withLock {
+        guard applicationGeneration == generation, client.id == TDLib.shared.activeClient.id,
+              accountID == TDLib.shared.activeAccountID else { throw CancellationError() }
+        let languages = lock.withLock {
+            availableLanguagesStorage.removeAll { $0.id == language.id }
+            availableLanguagesStorage.insert(language, at: 0)
             selectedLanguagePackIDStorage = language.id
             if let downloadedPack {
                 packs[downloadedPack.id] = downloadedPack
@@ -452,7 +473,10 @@ final class AppLocalization: @unchecked Sendable {
             if let downloadedBasePack {
                 packs[downloadedBasePack.id] = downloadedBasePack
             }
+            return availableLanguagesStorage
         }
+        Self.saveAvailableLanguages(languages)
+        nc.post(name: .availableAppLanguagesChanged)
         UserDefaults.standard.set(language.id, forKey: Self.defaultsKey)
         Self.applyLayoutDirection(isRTL: language.isRTL)
         nc.post(name: .appLanguageChanged)
@@ -462,7 +486,7 @@ final class AppLocalization: @unchecked Sendable {
         let result: (String, String) = lock.withLock {
             let selectedID = selectedLanguagePackIDStorage
             if let value = ordinaryString(key, in: selectedID) {
-                return (value, selectedID)
+                return (value, packs[selectedID]?.pluralCode ?? selectedID)
             }
             return (bundledTelegramString(key), "en")
         }
@@ -517,7 +541,14 @@ final class AppLocalization: @unchecked Sendable {
                 if $1.id == selectedLanguagePackID { return false }
                 return $0.nativeName.localizedCaseInsensitiveCompare($1.nativeName) == .orderedAscending
             }
-            lock.withLock { availableLanguagesStorage = languages }
+            languages = lock.withLock {
+                let downloadedCustom = availableLanguagesStorage.filter { installed in
+                    !installed.isOfficial && !languages.contains(where: { $0.id == installed.id })
+                }
+                let merged = languages + downloadedCustom
+                availableLanguagesStorage = merged
+                return merged
+            }
             Self.saveAvailableLanguages(languages)
             nc.post(name: .availableAppLanguagesChanged)
         } catch {

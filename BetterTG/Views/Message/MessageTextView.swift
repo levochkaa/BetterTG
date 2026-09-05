@@ -443,4 +443,14 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             }
         }
     }
+
+    private func rawText(for entity: TextEntity, in text: String) -> String {
+        let range = stringRange(for: text, start: entity.offset, length: entity.length)
+        return String(text[range])
+    }
+
+    private func open(_ url: URL?) {
+        guard let url else { return }
+        TelegramLinkRouter.shared.open(url, from: nearestViewController)
+    }
 }

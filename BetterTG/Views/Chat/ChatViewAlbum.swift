@@ -1792,7 +1792,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func openCaptionURL(_ url: URL, requiresConfirmation: Bool) {
         guard hasCurrentContext else { return }
         guard requiresConfirmation else {
-            UIApplication.shared.open(url)
+            TelegramLinkRouter.shared.open(url, from: self)
             return
         }
         guard presentedViewController == nil else { return }
@@ -1802,8 +1802,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             preferredStyle: .alert,
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Open", style: .default) { _ in
-            UIApplication.shared.open(url)
+        alert.addAction(UIAlertAction(title: "Open", style: .default) { [weak self] _ in
+            TelegramLinkRouter.shared.open(url, from: self)
         })
         present(alert, animated: true)
     }
