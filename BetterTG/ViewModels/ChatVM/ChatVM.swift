@@ -47,6 +47,18 @@ import UIKit
         case send
     }
 
+    // MARK: Private
+
+    private enum VoiceNoteFailure: Swift.Error {
+        case couldNotStartRecorder
+        case resendUnavailable
+    }
+
+    private enum VoiceRecordingTrimContinuation {
+        case resume
+        case send
+    }
+
     private static let historyPageSize = 30
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
@@ -118,8 +130,9 @@ import UIKit
     var timer: Timer?
     var wave = [Float]()
     var sendMessageTask: Task<Void, Never>?
+    var voiceFinalizeTask: Task<Void, Never>?
+    var recordingVoiceNoteURL: URL?
     var chatInfoTask: Task<Void, Never>?
-    var savedVoiceNoteUrl = URL(filePath: "")
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
         didSet {
@@ -464,7 +477,109 @@ import UIKit
         }
         return resultString
     }
-    
+
+    var voiceRecordingPreviewDuration: Int {
+        guard let activeVoiceRecordingDraft else { return max(1, Int(ceil(timerCount))) }
+        let range = activeVoiceRecordingDraft.effectiveRange
+        return max(1, Int(ceil(range.upperBound - range.lowerBound)))
+    }
+
+    var canPauseVoiceRecording: Bool {
+        recordingVoiceNote
+            && voiceRecordingInteractionState == .locked
+            && voiceRecordingDraftTask == nil
+            && (activeVoiceRecordingDraft != nil || timerCount - voiceRecordingTimerBaseline >= 0.5)
+    }
+
+    var voiceRecordingPreviewPath: String? {
+        guard voiceRecordingInteractionState == .preview else { return nil }
+        return activeVoiceRecordingDraft?.fileURL.path()
+    }
+
+    var voiceRecordingPreviewWaveform: [CGFloat] {
+        guard let activeVoiceRecordingDraft else { return [] }
+        return VoiceNoteCodec.normalizedWaveform(data: activeVoiceRecordingDraft.waveform).map(CGFloat.init)
+    }
+
+    var voiceRecordingPreviewProgress: CGFloat {
+        guard let draft = activeVoiceRecordingDraft, draft.exactDuration > 0 else { return 0 }
+        return min(1, max(0, CGFloat(voiceRecordingPreviewPosition / draft.exactDuration)))
+    }
+
+    var voiceRecordingPreviewReady: Bool {
+        voiceRecordingInteractionState == .preview
+            && activeVoiceRecordingDraft != nil
+            && voiceRecordingDraftTask == nil
+            && voiceRecordingTrimTask == nil
+            && !voiceRecordingTrimIsUpdating
+    }
+
+    var voiceRecordingTrimControlsEnabled: Bool {
+        voiceRecordingInteractionState == .preview
+            && activeVoiceRecordingDraft != nil
+            && voiceRecordingDraftTask == nil
+            && voiceRecordingTrimTask == nil
+    }
+
+    var voiceRecordingPreviewExactDuration: Double {
+        activeVoiceRecordingDraft?.exactDuration ?? timerCount
+    }
+
+    var voiceRecordingTrimRange: Range<Double>? {
+        activeVoiceRecordingDraft?.effectiveRange
+    }
+
+    var voiceRecordingResumeRequiresTrimConfirmation: Bool {
+        guard let draft = activeVoiceRecordingDraft else { return false }
+        let range = draft.effectiveRange
+        return range.lowerBound > 0.000_001 || abs(range.upperBound - draft.exactDuration) > 0.000_001
+    }
+
+    var formattedVoiceRecordingPreviewDuration: String {
+        guard let draft = activeVoiceRecordingDraft else { return formattedTimerCount }
+        let range = draft.effectiveRange
+        return formatVoiceDuration(range.upperBound - range.lowerBound)
+    }
+
+    private var pendingVideoRetryStatusMessage: String? {
+        guard let failed = pendingVideoNote?.failedSendState else { return nil }
+        if failed.requiredPaidMessageStarCount > 0 {
+            return "This video-message retry requires a paid-message flow, which BetterTG doesn’t support."
+        }
+        if failed.needAnotherReplyQuote || failed.needAnotherSender {
+            return "This failed video message can’t be retried with the original reply or sender."
+        }
+        if !failed.canRetry {
+            return "TDLib marked this video message as non-retryable."
+        }
+        if failed.retryAvailableAt > Foundation.Date() {
+            return "This video message can be retried shortly."
+        }
+        return nil
+    }
+
+    private var pendingVoiceRetryStatusMessage: String? {
+        guard let draft = pendingVoiceNote else { return nil }
+        if draft.enqueueStartedAt != nil {
+            return "A previous voice send ended before its status was confirmed. Check the chat before discarding it."
+        }
+        guard let failedState = draft.failedSendState else { return nil }
+        if failedState.requiredPaidMessageStarCount > 0 {
+            return "Retrying this voice message requires a paid message, which BetterTG does not support."
+        }
+        if failedState.needAnotherReplyQuote || failedState.needAnotherSender {
+            return "Telegram requires a different reply or sender before this voice message can be retried."
+        }
+        guard failedState.canRetry else {
+            return "Telegram marked this voice message as non-retryable. You can discard the draft."
+        }
+        if failedState.retryAvailableAt > Foundation.Date() {
+            let seconds = max(1, Int(ceil(failedState.retryAvailableAt.timeIntervalSinceNow)))
+            return "Telegram will allow retrying this voice message in \(seconds) seconds."
+        }
+        return nil
+    }
+
     private var oldestLoadedMessageID: Int64 {
         guard let oldestMessage = messages.last else { return 0 }
         return ([oldestMessage.id] + oldestMessage.album.map(\.id)).min() ?? oldestMessage.id
@@ -492,6 +607,8 @@ import UIKit
         }
 
         setPublishers()
+        observeVoiceRecordingPreviewPlayer()
+        observeVoiceRecordingInterruptions()
         loadGroupInfo()
         loadMessages()
         if isReadOnlyTopic, forumTopicInfo == nil, forumTopicTask == nil {
@@ -613,9 +730,19 @@ import UIKit
         log("deinit \(chatID)")
         loadingMessagesTask?.cancel()
         sendMessageTask?.cancel()
+        voiceFinalizeTask?.cancel()
+        voiceRecordingDraftTask?.cancel()
+        voiceRecordingTrimTask?.cancel()
+        voiceRetryAvailabilityTask?.cancel()
+        videoRetryAvailabilityTask?.cancel()
+        videoRetryTask?.cancel()
+        voiceRecordingPreviewPlayer.stop()
         chatInfoTask?.cancel()
         timer?.invalidate()
         audioRecorder?.stop()
+        if let recordingVoiceNoteURL {
+            try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
+        }
         let client = td
         let closingChatID = chatID
         Task { try? await client.closeChat(chatId: closingChatID) }
@@ -958,7 +1085,7 @@ import UIKit
             break
         }
     }
-    
+
     func loadMessages() {
         guard loadingMessagesTask == nil, hasMoreMessages else { return }
         let fromMessageID = oldestLoadedMessageID
@@ -1195,10 +1322,7 @@ import UIKit
         }
     }
 
-    func viewMessages(ids: [Int64]) {
-        guard !ids.isEmpty else { return }
-        let client = client
-        let accountID = accountID
+    func viewMessage(id: Int64) {
         Task {
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
@@ -1210,459 +1334,6 @@ import UIKit
                 source: nil,
             )
         }
-    }
-
-    func readAllReactions() {
-        let client = client
-        let accountID = accountID
-        Task {
-            guard TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id
-            else { return }
-            _ =
-                if let forumTopicID = location.forumTopicID {
-                    try? await client.readAllForumTopicReactions(
-                        chatId: chatID,
-                        forumTopicId: forumTopicID,
-                    )
-                } else {
-                    try? await client.readAllChatReactions(chatId: chatID)
-                }
-        }
-    }
-
-    func submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission) {
-        guard submission.messageID == messageID,
-              pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
-        guard !isReadOnlyTopic,
-              locationContextIsCurrent,
-              messages.contains(where: { message in
-                  message.id == messageID || message.album.contains(where: { $0.id == messageID })
-              })
-        else {
-            pollInteractionStore.failSubmission(submission)
-            return
-        }
-        let client = client
-        Task {
-            do {
-                guard pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
-                guard locationContextIsCurrent else {
-                    pollInteractionStore.failSubmission(submission)
-                    return
-                }
-                _ = try await client.setPollAnswer(
-                    chatId: chatID,
-                    messageId: messageID,
-                    optionIds: optionIDs,
-                )
-            } catch {
-                if pollInteractionStore.failSubmission(submission) {
-                    log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    func toggleReaction(
-        on message: CustomMessage,
-        type: ReactionType,
-        isBig: Bool,
-    ) {
-        guard !type.isPaid,
-              !message.reactionMutationInFlight,
-              location.matches(message: message.message),
-              message.message.selfDestructType == nil,
-              message.message.ephemeralMessageId == 0,
-              TDLib.shared.activeAccountID == accountID,
-              TDLib.shared.activeClient.id == client.id,
-              messages.contains(where: { $0 === message })
-        else { return }
-        let previous = message.reactions
-        let wasChosen = MessageReactionStateReducer.isChosen(type, in: previous)
-        let generation = UUID()
-        let messageID = message.id
-        message.reactionMutationInFlight = true
-        reactionMutationGenerations[messageID] = generation
-        messageRefresh?.setMutationBlocked(true, messageID: messageID, owner: .reaction)
-        let client = client
-        reactionMutationTasks[messageID] = Task { [weak self, weak message] in
-            guard let self else { return }
-            defer { settleMessageMutation(messageID, owner: .reaction) }
-            var optimistic: MessageReactions?
-            var appliedOptimisticState = false
-            do {
-                guard TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == client.id
-                else {
-                    throw ReactionMutationFailure.accountChanged
-                }
-                let areTags: Bool
-                if wasChosen {
-                    areTags = previous?.areTags ?? false
-                } else {
-                    let available = try await client.getMessageAvailableReactions(
-                        chatId: chatID,
-                        messageId: messageID,
-                        rowSize: 8,
-                    )
-                    guard available.allowsNonPremium(type) else {
-                        throw ReactionMutationFailure.unavailable
-                    }
-                    guard TDLib.shared.activeAccountID == accountID,
-                          TDLib.shared.activeClient.id == client.id
-                    else {
-                        throw ReactionMutationFailure.accountChanged
-                    }
-                    areTags = available.areTags
-                }
-                optimistic = MessageReactionStateReducer.toggling(
-                    type,
-                    in: previous,
-                    areTags: areTags,
-                    maximumChosenCount: maximumChosenReactionCount,
-                )
-                if optimistic != previous {
-                    message?.reactions = optimistic
-                    appliedOptimisticState = true
-                }
-                _ =
-                    if wasChosen {
-                        try await client.removeMessageReaction(
-                            chatId: chatID,
-                            messageId: messageID,
-                            reactionType: type,
-                        )
-                    } else {
-                        try await client.addMessageReaction(
-                            chatId: chatID,
-                            isBig: isBig,
-                            messageId: messageID,
-                            reactionType: type,
-                            updateRecentReactions: true,
-                        )
-                    }
-                guard reactionMutationGenerations[messageID] == generation else { return }
-                reactionMutationTasks[messageID] = nil
-                reactionMutationGenerations[messageID] = nil
-                message?.reactionMutationInFlight = false
-            } catch is CancellationError {
-                guard reactionMutationGenerations[messageID] == generation else { return }
-                reactionMutationTasks[messageID] = nil
-                reactionMutationGenerations[messageID] = nil
-                message?.reactionMutationInFlight = false
-            } catch {
-                guard reactionMutationGenerations[messageID] == generation else { return }
-                reactionMutationTasks[messageID] = nil
-                reactionMutationGenerations[messageID] = nil
-                if appliedOptimisticState,
-                   let message,
-                   message.reactions == optimistic
-                {
-                    message.reactions = previous
-                }
-                message?.reactionMutationInFlight = false
-                reactionErrorMessage =
-                    switch error as? ReactionMutationFailure {
-                    case .accountChanged:
-                        "The active Telegram account changed."
-                    case .unavailable:
-                        "This reaction isn't available for the message."
-                    case nil:
-                        wasChosen
-                            ? "The reaction couldn't be removed."
-                            : "The reaction couldn't be added."
-                    }
-            }
-        }
-    }
-
-    func updateChatPermissions(_ permissions: ChatPermissions) {
-        currentChatPermissions = permissions
-        canAddReactions = permissions.canReactToMessages
-        objectWillChange.send()
-        messagesDidChange.send()
-    }
-
-    func updateAvailableReactions(_ availableReactions: ChatAvailableReactions) {
-        maximumChosenReactionCount = availableReactions.maximumChosenReactionCount
-    }
-
-    func updateForumTopicInfo(_ info: ForumTopicInfo) {
-        guard info.chatId == location.chatID else { return }
-        if isAllMessagesForum {
-            guard locationContextIsCurrent, let source = TDLib.shared.activeUpdateSource else { return }
-            allMessagesTopicReads?.receive(info, source: source)
-            return
-        }
-        if info.forumTopicId == location.forumTopicID {
-            forumTopicInfoRevision &+= 1
-            forumTopicInfo = info
-        }
-        if let topic = forumTopicsByID[info.forumTopicId] {
-            forumTopicsByID[info.forumTopicId] = topic.replacing(info: info)
-            messagesDidChange.send()
-        }
-    }
-
-    func forumTopic(id: Int) -> ForumTopic? {
-        forumTopicsByID[id]
-    }
-
-    func refreshForumTopic(id: Int) {
-        guard let reader = allMessagesForumReader() else { return }
-        reader.request(id)
-        // Reply/draft callers install their context synchronously after requesting.
-        queueForumTopicDemandRefresh()
-    }
-
-    func receiveAllMessagesForumTopicUpdate(_ update: UpdateForumTopic, source: TdUpdateSource) {
-        guard isAllMessagesForum, locationContextIsCurrent else { return }
-        allMessagesTopicReads?.receive(update, source: source)
-    }
-
-    func retryAllMessagesForumTopics() {
-        refreshAllMessagesForumTopicsIfNeeded()
-        allMessagesTopicReads?.retryMissing()
-    }
-
-    func loadForumTopic() {
-        guard let forumTopicID = location.forumTopicID, forumTopicID > 0, locationContextIsCurrent,
-              let metadataRead = forumTopicLiveUpdates.beginRead(source: TDLib.shared.activeUpdateSource),
-              let receiptRead = deliveryReceipts.beginRead(source: TDLib.shared.activeUpdateSource, location: location)
-        else { return }
-        forumTopicTask?.cancel()
-        let requestID = UUID()
-        forumTopicRequestID = requestID
-        let client = client
-        let location = location
-        let expectedComposerRevision = composerRevision
-        let expectedInfoRevision = forumTopicInfoRevision
-        forumTopicTask = Task { [weak self] in
-            defer {
-                if let self, forumTopicRequestID == requestID {
-                    forumTopicLiveUpdates.finishRead(metadataRead, topic: nil, source: TDLib.shared.activeUpdateSource)
-                    deliveryReceipts.finishForumRead(
-                        receiptRead, topic: nil, source: TDLib.shared.activeUpdateSource, location: location,
-                    )
-                    forumTopicRequestID = nil
-                    forumTopicTask = nil
-                }
-            }
-            guard !Task.isCancelled, self?.locationContextIsCurrent == true,
-                  self?.forumTopicRequestID == requestID else { return }
-            do {
-                let topic = try await client.getForumTopic(
-                    chatId: location.chatID,
-                    forumTopicId: forumTopicID,
-                )
-                guard let self, !Task.isCancelled, locationContextIsCurrent, forumTopicRequestID == requestID,
-                      topic.info.chatId == location.chatID, topic.info.forumTopicId == forumTopicID
-                else { return }
-                if deliveryReceipts.finishForumRead(
-                    receiptRead, topic: topic, source: TDLib.shared.activeUpdateSource, location: location,
-                ) { refreshDeliveryStates() }
-                guard var accepted = forumTopicLiveUpdates.finishRead(
-                    metadataRead, topic: topic, source: TDLib.shared.activeUpdateSource,
-                ) else { return }
-                if forumTopicInfoRevision != expectedInfoRevision, let forumTopicInfo {
-                    accepted = accepted.replacing(info: forumTopicInfo)
-                }
-                forumTopic = accepted
-                forumTopicInfo = accepted.info
-                if awaitingAuthoritativeDraftClear, accepted.draftMessage == nil {
-                    awaitingAuthoritativeDraftClear = false
-                    composerIsDirty = false
-                } else if !awaitingAuthoritativeDraftClear, canWriteBasicMessages {
-                    applyAuthoritativeDraft(
-                        accepted.draftMessage,
-                        expectedRevision: expectedComposerRevision,
-                    )
-                }
-            } catch {} // Keep current scalar state; the existing Ready/user refresh can retry.
-        }
-    }
-
-    func refreshPinnedMessages() {
-        guard supportsPinnedMessages else { return }
-        pinnedMessageGeneration &+= 1
-        let generation = pinnedMessageGeneration
-        pinnedMessageTask?.cancel()
-        let client = client
-        let accountID = accountID
-        pinnedMessageTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let message = try await client.getChatPinnedMessage(chatId: chatID)
-                guard !Task.isCancelled,
-                      pinnedMessageGeneration == generation,
-                      TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == client.id
-                else { return }
-                pinnedMessageAuthoritativeRevision &+= 1
-                pinnedMessage = message.topicId == nil ? message : nil
-                pinnedMessageTask = nil
-            } catch is CancellationError {
-                guard pinnedMessageGeneration == generation else { return }
-                pinnedMessageTask = nil
-            } catch {
-                guard !Task.isCancelled,
-                      pinnedMessageGeneration == generation,
-                      TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == client.id
-                else { return }
-                if PinnedMessageState.fetchErrorMeansNoPinnedMessage(error) {
-                    pinnedMessageAuthoritativeRevision &+= 1
-                    pinnedMessage = nil
-                }
-                pinnedMessageTask = nil
-            }
-        }
-    }
-
-    func hidePinnedMessageBanner() {
-        locallyHiddenPinnedMessageID = pinnedMessage?.id
-    }
-
-    func applyPinnedMessageUpdate(messageID: Int64, isPinned: Bool) {
-        notePartialMessageUpdate([messageID])
-        pinnedMessageAuthoritativeRevision &+= 1
-        pinAuthoritativeRevisions[messageID, default: 0] &+= 1
-        messages.first(where: { $0.id == messageID })?.isPinned = isPinned
-        if !isPinned, pinnedMessage?.id == messageID {
-            pinnedMessage = nil
-        }
-        refreshPinnedMessages()
-    }
-
-    func applyPermanentPinnedMessageDeletion(_ messageIDs: [Int64]) {
-        guard pinnedMessage.map({ messageIDs.contains($0.id) }) == true else { return }
-        pinnedMessageAuthoritativeRevision &+= 1
-        pinnedMessage = nil
-        refreshPinnedMessages()
-    }
-
-    func pinMessage(
-        _ message: CustomMessage,
-        mode: MessagePinMode,
-    ) {
-        setMessagePinned(
-            message,
-            pinned: true,
-            disableNotification: mode.disableNotification,
-            onlyForSelf: mode.onlyForSelf,
-        )
-    }
-
-    func unpinMessage(_ message: CustomMessage) {
-        setMessagePinned(
-            message,
-            pinned: false,
-            disableNotification: true,
-            onlyForSelf: false,
-        )
-    }
-
-    func beginReply(to message: CustomMessage) {
-        guard location.matches(message: message.message) else { return }
-        if isAllMessagesForum, let topicID = message.forumTopicID {
-            refreshForumTopic(id: topicID)
-        }
-        markComposerDirty()
-        replySelectionGeneration &+= 1
-        replyMessage = message
-        replyQuote = nil
-        replyInputOverride = nil
-        replyFallbackPresentation = nil
-        reconcileActiveChatActionAfterReplyChange()
-    }
-
-    func beginQuoteReply(to message: CustomMessage) {
-        guard location.matches(message: message.message) else { return }
-        if isAllMessagesForum, let topicID = message.forumTopicID {
-            refreshForumTopic(id: topicID)
-        }
-        guard let formattedText = message.formattedText, !formattedText.text.isEmpty else {
-            beginReply(to: message)
-            return
-        }
-        markComposerDirty()
-        replySelectionGeneration &+= 1
-        let generation = replySelectionGeneration
-        replyMessage = message
-        replyQuote = nil
-        replyInputOverride = nil
-        replyFallbackPresentation = nil
-        reconcileActiveChatActionAfterReplyChange()
-        let client = client
-        Task { [weak self, weak message] in
-            guard let self, let message else { return }
-            let maximumLength: Int =
-                if case .optionValueInteger(let value) = try? await client.getOption(
-                    name: "message_reply_quote_length_max",
-                ) {
-                    max(1, Int(clamping: value.value.rawValue))
-                } else {
-                    1024
-                }
-            guard replySelectionGeneration == generation,
-                  replyMessage === message,
-                  let quote = MessageQuoteBuilder.make(from: formattedText, maximumLength: maximumLength)
-            else { return }
-            replyQuote = quote
-        }
-    }
-
-    func cancelReply(markDirty: Bool = true) {
-        if markDirty {
-            markComposerDirty()
-        }
-        replySelectionGeneration &+= 1
-        replyMessage = nil
-        replyQuote = nil
-        replyInputOverride = nil
-        replyFallbackPresentation = nil
-        reconcileActiveChatActionAfterReplyChange()
-    }
-
-    func updateComposerTextFromUser(_ value: AttributedString) {
-        markComposerDirty()
-        text = value
-    }
-
-    func appendComposerEmoji(_ emoji: String) {
-        guard !emoji.isEmpty else { return }
-        markComposerDirty()
-        if editCustomMessage == nil {
-            text.append(AttributedString(emoji))
-        } else {
-            editMessageText.append(AttributedString(emoji))
-        }
-        composerMediaDraftTask?.cancel()
-        composerMediaDraftTask = Task { [weak self] in
-            try? await Task<Never, Never>.sleep(for: .milliseconds(350))
-            guard let self, !Task.isCancelled else { return }
-            await updateDraft()
-            composerMediaDraftTask = nil
-        }
-    }
-
-    func replaceDisplayedDocuments(_ documents: [SelectedDocument]) {
-        let previousURLs = displayedDocuments.map(\.url)
-        displayedDocuments = documents
-        removeTemporaryDocuments(previousURLs)
-    }
-
-    func removeDisplayedDocument(id: UUID) {
-        let removedURLs = displayedDocuments.filter { $0.id == id }.map(\.url)
-        displayedDocuments.removeAll { $0.id == id }
-        removeTemporaryDocuments(removedURLs)
-    }
-
-    func discardDisplayedDocuments() {
-        let removedURLs = displayedDocuments.map(\.url)
-        displayedDocuments = []
-        removeTemporaryDocuments(removedURLs)
     }
 
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
@@ -1731,6 +1402,36 @@ import UIKit
         return customMessage
     }
 
+    func getForwardedFrom(_ origin: MessageOrigin?) async -> String? {
+        guard let origin else { return nil }
+        
+        switch origin {
+        case .messageOriginChat(let chat):
+            if let title = await (try? td.getChat(chatId: chat.senderChatId))?.title {
+                return !chat.authorSignature.isEmpty ? "\(title) (\(chat.authorSignature))" : title
+            } else {
+                return !chat.authorSignature.isEmpty ? chat.authorSignature : nil
+            }
+        case .messageOriginChannel(let channel):
+            if let title = await (try? td.getChat(chatId: channel.chatId))?.title {
+                return !channel.authorSignature.isEmpty ? "\(title) (\(channel.authorSignature))" : title
+            } else {
+                return !channel.authorSignature.isEmpty ? channel.authorSignature : nil
+            }
+        case .messageOriginHiddenUser(let messageOriginHiddenUser):
+            return messageOriginHiddenUser.senderName
+        case .messageOriginUser(let messageOriginUser):
+            return await (try? td.getUser(userId: messageOriginUser.senderUserId))?.firstName
+        }
+    }
+
+    func getReplyToMessage(_ replyTo: MessageReplyTo?) async -> Message? {
+        if case .messageReplyToMessage(let messageReplyToMessage) = replyTo, messageReplyToMessage.messageId != 0 {
+            return try? await td.getMessage(chatId: customChat.chat.id, messageId: messageReplyToMessage.messageId)
+        }
+        return nil
+    }
+
     func getInputReplyToMessage(_ inputMessageReplyTo: InputMessageReplyTo?) async -> CustomMessage? {
         switch inputMessageReplyTo {
         case .inputMessageReplyToMessage(let message):
@@ -1746,33 +1447,7 @@ import UIKit
             return nil
         }
     }
-    
-    func sendMessageVoiceNote(duration: Int, waveform: Data) async {
-        _ = try? await td.sendMessage(
-            chatId: customChat.chat.id,
-            inputMessageContent: .inputMessageVoiceNote(
-                .init(
-                    voiceNote: .init(
-                        voiceNote: .inputFileLocal(.init(path: savedVoiceNoteUrl.path())),
-                        duration: duration,
-                        waveform: waveform,
-                    ),
-                    caption: FormattedText(
-                        entities: getEntities(from: text),
-                        text: text.string,
-                    ),
-                    selfDestructType: nil,
-                ),
-            ),
-            options: nil,
-            replyMarkup: nil,
-            replyTo: getMessageReplyTo(from: replyMessage),
-            topicId: nil,
-        )
-        text = ""
-        try? await tdSendChatAction(.chatActionCancel)
-    }
-    
+
     func sendMessage() async {
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
@@ -1864,151 +1539,13 @@ import UIKit
         }
     }
 
-    func sendMessageDocuments() async throws -> (context: ResolvedSendContext, messages: [Message]) {
-        let context = try resolveSendContext(
-            for: .document,
-            replyingTo: replyMessage,
-            useCurrentReplyOverride: true,
-        )
-        let documents = Array(displayedDocuments.prefix(10))
-        guard !documents.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
-        let caption: FormattedText? = text.characters.isEmpty
-            ? nil
-            : FormattedText(entities: getEntities(from: text), text: text.string)
-        let provisionalMessageIDs = documents.map { _ in -Int64.random(in: 1...Int64.max) }
-        var persistedProvisionalMessageIDs = [Int64]()
-        do {
-            for (document, provisionalMessageID) in zip(documents, provisionalMessageIDs) {
-                try SelectedDocumentFileStore.lease(
-                    document.url,
-                    accountID: context.accountID,
-                    chatID: context.chatID,
-                    messageID: provisionalMessageID,
-                )
-                persistedProvisionalMessageIDs.append(provisionalMessageID)
-            }
-        } catch {
-            for provisionalMessageID in persistedProvisionalMessageIDs {
-                SelectedDocumentFileStore.unlease(
-                    accountID: context.accountID,
-                    chatID: context.chatID,
-                    messageID: provisionalMessageID,
-                )
-            }
-            throw error
-        }
-        var boundProvisionalMessageIDs = Set<Int64>()
-        do {
-            try await sendChatAction(.chatActionUploadingDocument(.init(progress: 0)), in: context)
-            let contents = documents.enumerated().map { index, document in
-                InputMessageContent.inputMessageDocument(.init(
-                    caption: index == 0 ? caption : nil,
-                    document: InputDocument(
-                        disableContentTypeDetection: true,
-                        document: .inputFileLocal(.init(path: document.url.path(percentEncoded: false))),
-                        thumbnail: nil,
-                    ),
-                ))
-            }
-            guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
-            let messages: [Message]
-            if contents.count == 1, let content = contents.first {
-                let message = try await client.sendMessage(
-                    chatId: context.chatID,
-                    inputMessageContent: content,
-                    options: nil,
-                    replyMarkup: nil,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                messages = [message]
-            } else {
-                let result = try await client.sendMessageAlbum(
-                    chatId: context.chatID,
-                    inputMessageContents: contents,
-                    options: nil,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                messages = result.messages ?? []
-            }
-            for index in 0..<min(messages.count, documents.count) {
-                let resolvedMessageID = bufferedDocumentMessageIDAliases[messages[index].id] ?? messages[index].id
-                let provisionalMessageID = provisionalMessageIDs[index]
-                boundProvisionalMessageIDs.insert(provisionalMessageID)
-                do {
-                    try SelectedDocumentFileStore.replaceMessageID(
-                        accountID: context.accountID,
-                        chatID: context.chatID,
-                        old: provisionalMessageID,
-                        new: resolvedMessageID,
-                    )
-                } catch {
-                    outgoingDocumentProvisionalLeaseIDsByMessageID[resolvedMessageID] = provisionalMessageID
-                }
-            }
-            for provisionalMessageID in provisionalMessageIDs
-                where !boundProvisionalMessageIDs.contains(provisionalMessageID)
-            {
-                SelectedDocumentFileStore.unlease(
-                    accountID: context.accountID,
-                    chatID: context.chatID,
-                    messageID: provisionalMessageID,
-                )
-            }
-            retainOutgoingDocumentFiles(messages: messages, documents: documents)
-            guard messages.count == contents.count else {
-                let acceptedDocumentIDs = Set(documents.prefix(messages.count).map(\.id))
-                displayedDocuments.removeAll { acceptedDocumentIDs.contains($0.id) }
-                throw ChatSendContextError.partialAlbum(sent: messages.count, expected: contents.count)
-            }
-            guard messages.allSatisfy({ context.matches(message: $0) }) else {
-                throw ChatSendContextError.unexpectedDestination
-            }
-            try? await cancelChatAction(in: context)
-            return (context, messages)
-        } catch {
-            for provisionalMessageID in provisionalMessageIDs
-                where !boundProvisionalMessageIDs.contains(provisionalMessageID)
-            {
-                SelectedDocumentFileStore.unlease(
-                    accountID: context.accountID,
-                    chatID: context.chatID,
-                    messageID: provisionalMessageID,
-                )
-            }
-            try? await cancelChatAction(in: context)
-            throw error
-        }
-    }
-
-    func sendSticker(_ sticker: Sticker) async {
-        guard !sendingComposerMessage else { return }
-        sendingComposerMessage = true
-        let transitionID = UUID()
-        let sentReplyID = replyMessage?.id
-        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
-        defer { sendingComposerMessage = false }
-        do {
-            let context = try resolveSendContext(
-                for: .sticker,
-                replyingTo: replyMessage,
-                useCurrentReplyOverride: true,
-            )
-            guard case .stickerFullTypeRegular(let regular) = sticker.fullType,
-                  regular.premiumAnimation == nil
-            else { throw ChatSendContextError.chatPermissionDenied }
-            let message = try await client.sendMessage(
-                chatId: context.chatID,
-                inputMessageContent: .inputMessageSticker(.init(
-                    emoji: sticker.emoji,
-                    sticker: InputSticker(
-                        height: sticker.height,
-                        sticker: .inputFileId(.init(id: sticker.sticker.id)),
-                        thumbnail: nil,
-                        width: sticker.width,
-                    ),
-                )),
+    func sendMessagePhotos() async {
+        try? await tdSendChatAction(.chatActionUploadingPhoto(.init(progress: 0)))
+        
+        if displayedImages.count == 1, let photo = displayedImages.first {
+            _ = try? await td.sendMessage(
+                chatId: customChat.chat.id,
+                inputMessageContent: makeInputMessageContent(for: photo.url),
                 options: nil,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
@@ -2036,179 +1573,7 @@ import UIKit
         }
     }
 
-    func sendAnimation(_ animation: Animation) async {
-        guard !sendingComposerMessage else { return }
-        sendingComposerMessage = true
-        let transitionID = UUID()
-        let sentText = text
-        let sentReplyID = replyMessage?.id
-        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
-        defer { sendingComposerMessage = false }
-        do {
-            let context = try resolveSendContext(
-                for: .animation,
-                replyingTo: replyMessage,
-                useCurrentReplyOverride: true,
-            )
-            let caption: FormattedText? = sentText.characters.isEmpty
-                ? nil
-                : FormattedText(entities: getEntities(from: sentText), text: sentText.string)
-            let message = try await client.sendMessage(
-                chatId: context.chatID,
-                inputMessageContent: .inputMessageAnimation(.init(
-                    animation: InputAnimation(
-                        addedStickerFileIds: [],
-                        animation: .inputFileId(.init(id: animation.animation.id)),
-                        duration: animation.duration,
-                        height: animation.height,
-                        thumbnail: nil,
-                        width: animation.width,
-                    ),
-                    caption: caption,
-                    hasSpoiler: false,
-                    showCaptionAboveMedia: false,
-                )),
-                options: nil,
-                replyMarkup: nil,
-                replyTo: context.replyTo,
-                topicId: context.destinationTopic,
-            )
-            guard locationContextIsCurrent,
-                  context.matches(message: message)
-            else { throw ChatSendContextError.unexpectedDestination }
-            let draftClearSucceeded = await clearRouteDraft(context)
-            if text == sentText {
-                text = ""
-            }
-            if replyMessage?.id == sentReplyID {
-                cancelReply(markDirty: false)
-            }
-            composerRevision &+= 1
-            let hasNewComposerState = !text.characters.isEmpty
-                || replyMessage != nil
-                || !displayedImages.isEmpty
-                || !displayedDocuments.isEmpty
-            awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
-            composerIsDirty = awaitingAuthoritativeDraftClear || hasNewComposerState || !draftClearSucceeded
-            if hasNewComposerState {
-                await updateDraft()
-            } else if location.isTopicScoped {
-                loadForumTopic()
-            }
-            sendErrorMessage = nil
-            await Task.yield()
-            sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
-        } catch {
-            sendTransitionCancelled.send(transitionID)
-            sendErrorMessage = error.localizedDescription
-        }
-    }
-
-    func releaseOutgoingDocumentFile(messageID: Int64) {
-        if let url = outgoingDocumentURLsByMessageID.removeValue(forKey: messageID) {
-            if let provisionalMessageID = outgoingDocumentProvisionalLeaseIDsByMessageID.removeValue(
-                forKey: messageID,
-            ) {
-                SelectedDocumentFileStore.unlease(
-                    accountID: accountID,
-                    chatID: chatID,
-                    messageID: provisionalMessageID,
-                )
-                SelectedDocumentFileStore.remove([url])
-            } else {
-                SelectedDocumentFileStore.complete(
-                    accountID: accountID,
-                    chatID: chatID,
-                    messageID: messageID,
-                )
-                removeTemporaryDocuments([url])
-            }
-        } else if sendingComposerMessage, !displayedDocuments.isEmpty {
-            bufferedTerminalDocumentMessageIDs.insert(messageID)
-        }
-    }
-
-    func replaceOutgoingDocumentMessageID(old: Int64, new: Int64) {
-        if let url = outgoingDocumentURLsByMessageID.removeValue(forKey: old) {
-            outgoingDocumentURLsByMessageID[new] = url
-            let persistedMessageID = outgoingDocumentProvisionalLeaseIDsByMessageID.removeValue(forKey: old) ?? old
-            do {
-                try SelectedDocumentFileStore.replaceMessageID(
-                    accountID: accountID,
-                    chatID: chatID,
-                    old: persistedMessageID,
-                    new: new,
-                )
-            } catch {
-                outgoingDocumentProvisionalLeaseIDsByMessageID[new] = persistedMessageID
-            }
-        } else if sendingComposerMessage, !displayedDocuments.isEmpty {
-            bufferedDocumentMessageIDAliases[old] = new
-        }
-    }
-
-    func sendMessagePhotos() async throws -> (context: ResolvedSendContext, messages: [Message]) {
-        let context = try resolveSendContext(
-            for: .photo,
-            replyingTo: replyMessage,
-            useCurrentReplyOverride: true,
-        )
-        let images = displayedImages
-        guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
-        let caption = FormattedText(entities: getEntities(from: text), text: text.string)
-        try await sendChatAction(.chatActionUploadingPhoto(.init(progress: 0)), in: context)
-        do {
-            let sentMessages: [Message]
-            var messageContents = [InputMessageContent]()
-            for image in images {
-                await messageContents.append(makeInputMessageContent(for: image.url, caption: caption))
-            }
-            guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
-            if messageContents.count == 1, let content = messageContents.first {
-                let message = try await client.sendMessage(
-                    chatId: context.chatID,
-                    inputMessageContent: content,
-                    options: nil,
-                    replyMarkup: nil,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                guard context.matches(message: message) else {
-                    throw ChatSendContextError.unexpectedDestination
-                }
-                sentMessages = [message]
-            } else {
-                let result = try await client.sendMessageAlbum(
-                    chatId: context.chatID,
-                    inputMessageContents: messageContents,
-                    options: nil,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                let messages = result.messages ?? []
-                guard messages.count == messageContents.count else {
-                    throw ChatSendContextError.partialAlbum(
-                        sent: messages.count,
-                        expected: messageContents.count,
-                    )
-                }
-                guard messages.allSatisfy({ context.matches(message: $0) }) else {
-                    throw ChatSendContextError.unexpectedDestination
-                }
-                sentMessages = messages
-            }
-            try? await cancelChatAction(in: context)
-            return (context, sentMessages)
-        } catch {
-            try? await cancelChatAction(in: context)
-            throw error
-        }
-    }
-
-    func makeInputMessageContent(
-        for url: URL,
-        caption: FormattedText,
-    ) async -> InputMessageContent {
+    func makeInputMessageContent(for url: URL) async -> InputMessageContent {
         let path = url.path()
         let dimensions = await Task.detached(priority: .userInitiated) {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -2242,14 +1607,9 @@ import UIKit
         )
     }
 
-    func sendMessageText() async throws -> (context: ResolvedSendContext, messages: [Message]) {
-        let context = try resolveSendContext(
-            for: .text,
-            replyingTo: replyMessage,
-            useCurrentReplyOverride: true,
-        )
-        let message = try await client.sendMessage(
-            chatId: context.chatID,
+    func sendMessageText() async {
+        _ = try? await td.sendMessage(
+            chatId: customChat.chat.id,
             inputMessageContent: .inputMessageText(
                 .init(
                     text: FormattedText(
@@ -2371,10 +1731,7 @@ import UIKit
                     paidMessageStarCount: 0,
                     quote: nil,
                 )
-                guard let resentMessage = resent.messages?.first else { throw CancellationError() }
-                guard activeSendContext.matches(message: resentMessage) else {
-                    throw ChatSendContextError.unexpectedDestination
-                }
+                guard let resentMessage = resent.messages.first else { throw CancellationError() }
                 message = resentMessage
                 draft.failedSendState = nil
             } else {
@@ -2503,8 +1860,7 @@ import UIKit
                 originRecordingDraftID: draft.originRecordingDraftID,
                 replyingTo: pendingVideoReplyMessage,
                 storedReplyMessageID: draft.replyMessageID,
-                storedReplyTo: draft.replyTo,
-                storedSendTopic: draft.sendTopic,
+                storedReplyTo: draft.replyTo?.native,
             )
             switch result {
             case .enqueued(let messageID):
@@ -2642,7 +1998,7 @@ import UIKit
             topicId: nil,
         )
     }
-    
+
     func setEditMessageText(from message: Message?) {
         switch message?.content {
         case .messageText(let messageText):
@@ -2691,45 +2047,13 @@ import UIKit
         voiceRecordingTimerBaseline = 0
         voiceRecordingLastRecorderTime = 0
     }
-    
+
     func tdSendChatAction(_ chatAction: ChatAction) async throws {
         _ = try await td.sendChatAction(
             action: chatAction,
             businessConnectionId: "",
             chatId: customChat.chat.id,
             topicId: nil,
-        )
-        try await sendChatAction(chatAction, in: context)
-    }
-
-    func tdSendFrozenMediaChatAction(
-        _ chatAction: ChatAction,
-        sendTopic: MessageTopic?,
-        replyTo: InputMessageReplyTo?,
-    ) async throws {
-        guard let accountID = location.accountID,
-              locationContextIsCurrent
-        else { throw ChatSendContextError.accountUnavailable }
-        if case .chatActionCancel = chatAction {
-            guard !isAllMessagesForum || sendTopic != nil else {
-                throw ChatSendContextError.unexpectedDestination
-            }
-            let context = ResolvedSendContext(
-                accountID: accountID,
-                chatID: location.chatID,
-                clientID: location.clientID,
-                destinationTopic: sendTopic ?? location.topic,
-                draftTopic: location.topic,
-                replyTo: replyTo,
-            )
-            try await cancelChatAction(in: context)
-            return
-        }
-        let context = try resolveFrozenMediaSendContext(
-            for: sendContentKind(for: chatAction),
-            destination: location.draftKey,
-            sendTopic: sendTopic,
-            replyTo: replyTo,
         )
         try await sendChatAction(chatAction, in: context)
     }
@@ -2815,7 +2139,7 @@ import UIKit
             return false
         }
     }
-    
+
     func mediaStopRecordingVoice() {
         guard !voiceRecordingLifecycle.isSuspended else { return }
         switch voiceRecordingInteractionState {
@@ -4120,12 +3444,12 @@ import UIKit
         let message = try await client.sendMessage(
             chatId: context.chatID,
             inputMessageContent: .inputMessageVideoNote(
-                .init(selfDestructType: nil, videoNote: inputVideoNote),
+                .init(videoNote: inputVideoNote, selfDestructType: nil),
             ),
             options: nil,
             replyMarkup: nil,
-            replyTo: draft.replyTo,
-            topicId: context.destinationTopic,
+            replyTo: draft.replyTo?.native,
+            topicId: nil,
         )
         guard context.matches(message: message) else {
             throw ChatSendContextError.unexpectedDestination
@@ -4240,13 +3564,15 @@ import UIKit
                     let draft = VoiceRecordingDraft(
                         id: draftID,
                         chatID: chatID,
-                        caption: FormattedText(entities: getEntities(from: text), text: text.string),
+                        caption: MediaDraftFormattedText(FormattedText(
+                            entities: getEntities(from: text),
+                            text: text.string,
+                        )),
                         createdAt: Foundation.Date(),
                         exactDuration: inspection.duration,
                         fileURL: sourceURL,
                         replyMessageID: reply?.id,
-                        replyTo: recordingContext?.replyTo ?? getMessageReplyTo(from: reply),
-                        sendTopic: recordingContext?.destinationTopic,
+                        replyTo: getMessageReplyTo(from: reply).map(MediaDraftInputMessageReplyTo.init),
                         revision: 0,
                         trimEnd: nil,
                         trimStart: nil,
@@ -4330,7 +3656,7 @@ import UIKit
         pendingVoiceNote = VoiceNoteSendDraft(
             id: UUID(),
             chatID: chatID,
-            caption: FormattedText(entities: getEntities(from: text), text: text.string),
+            caption: MediaDraftFormattedText(FormattedText(entities: getEntities(from: text), text: text.string)),
             createdAt: Foundation.Date(),
             duration: max(1, Int(duration)),
             enqueueStartedAt: nil,
@@ -4338,8 +3664,7 @@ import UIKit
             fileURL: sourceURL,
             isEncoded: false,
             replyMessageID: reply?.id,
-            replyTo: context?.replyTo ?? getMessageReplyTo(from: reply),
-            sendTopic: context?.destinationTopic,
+            replyTo: getMessageReplyTo(from: reply).map(MediaDraftInputMessageReplyTo.init),
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
             destination: context?.draftKey ?? location.draftKey,
@@ -4696,7 +4021,7 @@ import UIKit
         pendingVoiceNote = VoiceNoteSendDraft(
             id: draftID,
             chatID: chatID,
-            caption: FormattedText(entities: getEntities(from: text), text: text.string),
+            caption: MediaDraftFormattedText(FormattedText(entities: getEntities(from: text), text: text.string)),
             createdAt: Foundation.Date(),
             duration: max(1, Int(recordedDuration)),
             enqueueStartedAt: nil,
@@ -4704,8 +4029,7 @@ import UIKit
             fileURL: sourceURL,
             isEncoded: false,
             replyMessageID: reply?.id,
-            replyTo: recordingContext?.replyTo ?? getMessageReplyTo(from: reply),
-            sendTopic: recordingContext?.destinationTopic,
+            replyTo: getMessageReplyTo(from: reply).map(MediaDraftInputMessageReplyTo.init),
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
             destination: recordingContext?.draftKey ?? location.draftKey,
@@ -4749,19 +4073,19 @@ import UIKit
             chatId: context.chatID,
             inputMessageContent: .inputMessageVoiceNote(
                 .init(
-                    caption: draft.caption,
-                    selfDestructType: nil,
                     voiceNote: .init(
-                        duration: draft.duration,
                         voiceNote: .inputFileLocal(.init(path: fileURL.path())),
+                        duration: draft.duration,
                         waveform: draft.waveform,
                     ),
+                    caption: draft.caption.native,
+                    selfDestructType: nil,
                 ),
             ),
             options: nil,
             replyMarkup: nil,
-            replyTo: draft.replyTo,
-            topicId: context.destinationTopic,
+            replyTo: draft.replyTo?.native,
+            topicId: nil,
         )
         _ = try? await cancelChatAction(in: context)
         return message
@@ -4867,7 +4191,7 @@ import UIKit
                         paidMessageStarCount: 0,
                         quote: nil,
                     )
-                    guard let resentMessage = resentMessages.messages?.first else {
+                    guard let resentMessage = resentMessages.messages.first else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
                     message = resentMessage

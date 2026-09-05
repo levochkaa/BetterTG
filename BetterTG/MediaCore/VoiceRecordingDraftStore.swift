@@ -1,21 +1,20 @@
 // VoiceRecordingDraftStore.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - VoiceRecordingDraft
 
 struct VoiceRecordingDraft: ChatDraftScoped, Equatable {
     let id: UUID
     let chatID: Int64
-    let caption: FormattedText
+    let caption: MediaDraftFormattedText
     let createdAt: Foundation.Date
     var editRevision = 0
     var exactDuration: Double
     var fileURL: URL
     let replyMessageID: Int64?
-    let replyTo: InputMessageReplyTo?
-    var sendTopic: MessageTopic?
+    let replyTo: MediaDraftInputMessageReplyTo?
     var revision: Int
     var trimEnd: Double?
     var trimStart: Double?
@@ -34,14 +33,13 @@ struct VoiceRecordingDraft: ChatDraftScoped, Equatable {
 private struct VoiceRecordingDraftManifest: Codable {
     let id: UUID
     let chatID: Int64
-    let caption: FormattedText
+    let caption: MediaDraftFormattedText
     let createdAt: Foundation.Date
     let editRevision: Int?
     let exactDuration: Double
     let mediaFileName: String
     let replyMessageID: Int64?
-    let replyTo: InputMessageReplyTo?
-    let sendTopic: MessageTopic?
+    let replyTo: MediaDraftInputMessageReplyTo?
     let revision: Int
     let trimEnd: Double?
     let trimStart: Double?

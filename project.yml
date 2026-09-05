@@ -27,12 +27,17 @@ settings:
     SWIFT_VERSION: "5.0"
     WATCHOS_DEPLOYMENT_TARGET: 9.0
 packages:
+  FFmpegBridge:
+    path: Packages/FFmpegBridge
+  Lottie:
+    url: https://github.com/airbnb/lottie-ios.git
+    exactVersion: 4.6.1
+  libwebp:
+    url: https://github.com/SDWebImage/libwebp-Xcode.git
+    exactVersion: 1.6.0
   TDLibKit:
     url: https://github.com/levochkaa/TDLibKit.git
     exactVersion: 2.0.0
-  MobileVLCKit:
-    url: https://github.com/levochkaa/MobileVLCKit
-    exactVersion: 3.7.3
 targets:
   BetterTG:
     type: application
@@ -44,6 +49,9 @@ targets:
           - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
+      - package: FFmpegBridge
+      - package: Lottie
+      - package: libwebp
       - package: TDLibKit
         product: TDLibKitShared
         embed: true

@@ -11,6 +11,10 @@
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 const char *BetterTGFFmpegVersion(void);
 int BetterTGFFmpegHasVP9Decoder(void);
 int BetterTGFFmpegHasOpusDecoder(void);
@@ -207,5 +211,9 @@ int BetterTGFFmpegPlaybackJobExplicitSeekCount(const BetterTGFFmpegPlaybackJob *
 int BetterTGFFmpegPlaybackJobMaximumPendingPacketCount(const BetterTGFFmpegPlaybackJob *job);
 int64_t BetterTGFFmpegPlaybackJobMaximumPendingPacketBytes(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobErrorCode(const BetterTGFFmpegPlaybackJob *job);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

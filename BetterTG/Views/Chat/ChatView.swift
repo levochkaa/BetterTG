@@ -1320,8 +1320,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatID: chatVM.chatID,
             draftKey: chatVM.location.draftKey,
             replyMessageID: restoredDraft?.replyMessageID ?? replySnapshot?.id,
-            replyTo: replyInput,
-            sendTopic: sendTopic,
+            replyTo: restoredDraft?.replyTo?.native ?? chatVM.getMessageReplyTo(from: replySnapshot),
         )
         recorder.onStateChange = { [weak self, weak recorder] state in
             guard let self, videoNoteRecorder === recorder else { return }

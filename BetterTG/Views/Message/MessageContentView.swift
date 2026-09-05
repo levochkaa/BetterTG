@@ -80,38 +80,100 @@ final class MessageMediaView: UIView {
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):
-                let fileView = FileMediaPreviewView()
-                fileView.configure(
-                    file: animation.animation.animation,
-                    thumbnail: animation.animation.thumbnail,
-                    minithumbnail: animation.animation.minithumbnail,
-                    size: CGSize(
-                        width: CGFloat(animation.animation.width),
-                        height: CGFloat(animation.animation.height),
-                    ),
-                    showsPlayIcon: true,
-                ) { onTap([message.message], message.id) }
-                view = fileView
+                if telegramAnimationUsesFFmpeg(animation.animation) {
+                    let animationView = FFmpegAnimatedVideoView()
+                    animationView.configure(
+                        file: animation.animation.animation,
+                        thumbnail: animation.animation.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: CGFloat(animation.animation.width),
+                            height: CGFloat(animation.animation.height),
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = animationView
+                } else {
+                    let fileView = FileMediaPreviewView()
+                    fileView.configure(
+                        file: animation.animation.animation,
+                        thumbnail: animation.animation.thumbnail,
+                        minithumbnail: animation.animation.minithumbnail,
+                        size: CGSize(
+                            width: CGFloat(animation.animation.width),
+                            height: CGFloat(animation.animation.height),
+                        ),
+                        showsPlayIcon: true,
+                    ) { onTap([message.message], message.id) }
+                    view = fileView
+                }
             case .messageSticker(let sticker):
-                let fileView = FileMediaPreviewView()
-                fileView.configure(
-                    file: sticker.sticker.sticker,
-                    thumbnail: sticker.sticker.thumbnail,
-                    minithumbnail: nil,
-                    size: CGSize(width: CGFloat(sticker.sticker.width), height: CGFloat(sticker.sticker.height)),
-                    showsPlayIcon: sticker.sticker.format.typeID != TDNativeStickerFormatWebp.typeID,
-                ) { onTap([message.message], message.id) }
-                view = fileView
+                if sticker.sticker.format.typeID == TDNativeStickerFormatTgs.typeID {
+                    let stickerView = TGSStickerView()
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: CGFloat(sticker.sticker.width),
+                            height: CGFloat(sticker.sticker.height),
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = stickerView
+                } else if sticker.sticker.format.typeID == TDNativeStickerFormatWebp.typeID {
+                    let stickerView = AnimatedWebPView()
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: CGFloat(sticker.sticker.width),
+                            height: CGFloat(sticker.sticker.height),
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = stickerView
+                } else if sticker.sticker.format.typeID == TDNativeStickerFormatWebm.typeID {
+                    let stickerView = FFmpegAnimatedVideoView()
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: telegramMediaDisplaySize(source: CGSize(
+                            width: CGFloat(sticker.sticker.width),
+                            height: CGFloat(sticker.sticker.height),
+                        )),
+                        onTap: { onTap([message.message], message.id) },
+                    )
+                    view = stickerView
+                } else {
+                    let fileView = FileMediaPreviewView()
+                    fileView.configure(
+                        file: sticker.sticker.sticker,
+                        thumbnail: sticker.sticker.thumbnail,
+                        minithumbnail: nil,
+                        size: CGSize(width: CGFloat(sticker.sticker.width), height: CGFloat(sticker.sticker.height)),
+                        showsPlayIcon: sticker.sticker.format.typeID != TDNativeStickerFormatWebp.typeID,
+                    ) { onTap([message.message], message.id) }
+                    view = fileView
+                }
             case .messageVideo(let video):
-                let fileView = FileMediaPreviewView()
-                fileView.configure(
-                    file: video.video.video,
-                    thumbnail: video.video.thumbnail,
-                    minithumbnail: video.video.minithumbnail,
-                    size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
-                    showsPlayIcon: true,
-                ) { onTap([message.message], message.id) }
-                view = fileView
+                if let videoPlaybackOwner = videoPlaybackOwners[message.id] {
+                    let inlineView = InlineVideoMediaView()
+                    inlineView.configure(
+                        owner: videoPlaybackOwner,
+                        size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
+                    ) { onTap([message.message], message.id) }
+                    view = inlineView
+                } else {
+                    let fileView = FileMediaPreviewView()
+                    fileView.configure(
+                        file: video.video.video,
+                        thumbnail: video.video.thumbnail,
+                        minithumbnail: video.video.minithumbnail,
+                        size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
+                        showsPlayIcon: true,
+                        usesFileAsThumbnailFallback: false,
+                    ) { onTap([message.message], message.id) }
+                    view = fileView
+                }
             default:
                 view = nil
             }
@@ -901,6 +963,14 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
+    func makeImageSnapshot(contentMode: UIView.ContentMode) -> UIView? {
+        guard let image else { return snapshotView(afterScreenUpdates: false) }
+        let snapshot = UIImageView(image: image)
+        snapshot.contentMode = contentMode
+        snapshot.clipsToBounds = true
+        return snapshot
+    }
+
     func cancel() {
         renderGeneration = UUID()
         representedRequest = nil
@@ -996,7 +1066,12 @@ enum TDMediaPrefetcher {
         let files: [(file: File, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox).map { [$0.photo.id] } ?? []
+                photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
+            case .messageVoiceNote(let voice):
+                [(voice.voiceNote.voice.id, .none)]
+            case .messageVideoNote(let video):
+                [video.videoNote.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+                    + [(video.videoNote.video.id, .none)]
             case .messageAnimation(let animation):
                 if telegramAnimationUsesFFmpeg(animation.animation) {
                     [animation.animation.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
@@ -1012,32 +1087,56 @@ enum TDMediaPrefetcher {
             case .messageDice(let dice):
                 dice.value == 0 ? stickerFiles(regularSticker(dice.initialState)) : []
             case .messageVideo(let video):
-                [video.video.thumbnail?.file.id].compactMap(\.self)
+                [video.video.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
             default:
                 []
             }
         let client = td
         let accountID = TDLib.shared.activeAccountID
-        for fileID in fileIDs where !Task.isCancelled {
-            let downloaded = try? await client.downloadFile(
-                fileId: fileID,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: true,
-            )
+        for file in files where !Task.isCancelled {
+            let downloaded = await withTaskCancellationHandler {
+                try? await client.downloadFile(
+                    fileId: file.id,
+                    limit: 0,
+                    offset: 0,
+                    priority: 1,
+                    synchronous: true,
+                )
+            } onCancel: {
+                Task { try? await client.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
+            }
             guard let downloaded,
                   downloaded.local.isDownloadingCompleted,
                   !downloaded.local.path.isEmpty,
                   !Task.isCancelled
             else { continue }
-            let key = TDImageThumbnailKey(
-                accountID: accountID,
-                clientID: client.id,
-                fileID: fileID,
-                maximumPixelSize: 960,
-            )
-            _ = await TDImageThumbnailPipeline.shared.image(at: downloaded.local.path, key: key)
+            switch file.decodeKind {
+            case .none:
+                let key = TDImageThumbnailKey(
+                    accountID: accountID,
+                    clientID: client.id,
+                    fileID: file.id,
+                    maximumPixelSize: 960,
+                )
+                _ = await TDImageThumbnailPipeline.shared.image(at: downloaded.local.path, key: key)
+            case .tgs:
+                _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
+            case .webP:
+                _ = await AnimatedWebPRepository.asset(at: downloaded.local.path)
+            case .ffmpegVideo:
+                _ = await FFmpegVideoRepository.asset(at: downloaded.local.path)
+            }
+        }
+    }
+
+    private static func decodeKind(for format: StickerFormat) -> DecodeKind {
+        switch format {
+        case .stickerFormatTgs:
+            .tgs
+        case .stickerFormatWebp:
+            .webP
+        case .stickerFormatWebm:
+            .ffmpegVideo
         }
     }
 
@@ -1077,6 +1176,8 @@ private func telegramMessageMediaSize(_ message: Message) -> CGSize {
         telegramPhotoSize(photo.photo)
     case .messageVideo(let video):
         CGSize(width: CGFloat(max(video.video.width, 1)), height: CGFloat(max(video.video.height, 1)))
+    case .messageVideoNote(let video):
+        CGSize(width: CGFloat(max(video.videoNote.length, 1)), height: CGFloat(max(video.videoNote.length, 1)))
     case .messageAnimation(let animation):
         CGSize(width: CGFloat(max(animation.animation.width, 1)), height: CGFloat(max(animation.animation.height, 1)))
     case .messageSticker(let sticker):

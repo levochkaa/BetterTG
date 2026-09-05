@@ -4,7 +4,7 @@ import Combine
 import Foundation
 import Lottie
 import QuartzCore
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - TGSAnimationRepository

@@ -3,7 +3,7 @@
 import AVFoundation
 import FFmpegBridge
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - VoiceNoteCodec
 
@@ -141,8 +141,8 @@ enum VoiceNoteCodec {
                     let sendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 42))
                     let draft = VoiceNoteSendDraft(
                         id: UUID(),
-                        chatID: sendDestination.chatID,
-                        caption: FormattedText(entities: [], text: ""),
+                        chatID: Int64.min + 1,
+                        caption: MediaDraftFormattedText(FormattedText(entities: [], text: "")),
                         createdAt: Foundation.Date(),
                         duration: 1,
                         enqueueStartedAt: nil,
@@ -235,7 +235,7 @@ enum VoiceNoteCodec {
                     let recordingDraft = VoiceRecordingDraft(
                         id: recordingDraftID,
                         chatID: probeChatID,
-                        caption: FormattedText(entities: [], text: ""),
+                        caption: MediaDraftFormattedText(FormattedText(entities: [], text: "")),
                         createdAt: Foundation.Date(),
                         exactDuration: mergedInspection.duration,
                         fileURL: mergedURL,

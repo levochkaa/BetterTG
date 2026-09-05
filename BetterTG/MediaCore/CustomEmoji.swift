@@ -1,6 +1,6 @@
 // CustomEmoji.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - CustomEmojiStickerRepository
@@ -17,13 +17,12 @@ actor CustomEmojiStickerRepository {
 
     static let shared = CustomEmojiStickerRepository()
 
-    private var stickersByKey = [CacheKey: Sticker]()
-    private var missingKeys = Set<CacheKey>()
+    // MARK: Private
 
-    func stickers(
-        for identifiers: [TdInt64],
-        client: TDLibClient,
-    ) async -> [TdInt64: Sticker] {
+    private var stickersByIdentifier = [Int64: Sticker]()
+    private var missingStickerIdentifiers = Set<Int64>()
+
+    func stickers(for identifiers: [Int64]) async -> [Int64: Sticker] {
         let uniqueIdentifiers = Array(Set(identifiers)).prefix(200)
         let keys = uniqueIdentifiers.map { CacheKey(clientID: client.id, identifier: $0) }
         let missingIdentifiers = uniqueIdentifiers.filter {
@@ -33,7 +32,7 @@ actor CustomEmojiStickerRepository {
         if !missingIdentifiers.isEmpty,
            let response = try? await client.getCustomEmojiStickers(customEmojiIds: Array(missingIdentifiers))
         {
-            var foundIdentifiers = Set<TdInt64>()
+            var foundIdentifiers = Set<Int64>()
             for sticker in response.stickers {
                 guard case .stickerFullTypeCustomEmoji(let fullType) = sticker.fullType else { continue }
                 let key = CacheKey(clientID: client.id, identifier: fullType.customEmojiId)

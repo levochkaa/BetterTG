@@ -5,7 +5,7 @@ import Dispatch
 import FFmpegBridge
 import Foundation
 import QuartzCore
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - FFmpegVideoAsset

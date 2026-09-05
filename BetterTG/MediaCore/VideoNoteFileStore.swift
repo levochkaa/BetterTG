@@ -3,7 +3,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
-import TDLibKitDynamic
+import TDLibKit
 import UniformTypeIdentifiers
 
 // MARK: - VideoNoteFailedSendState
@@ -47,9 +47,8 @@ struct VideoNoteSendDraft: Codable, ChatDraftSendScoped {
     let originRecordingDraftID: UUID?
     var removalRequestedAt: Foundation.Date?
     let replyMessageID: Int64?
-    let replyTo: InputMessageReplyTo?
-    var sendTopic: MessageTopic? = nil
-    var thumbnailFileURL: URL?
+    let replyTo: MediaDraftInputMessageReplyTo?
+    let thumbnailFileURL: URL?
     let thumbnailHeight: Int?
     let thumbnailWidth: Int?
     var temporaryMessageID: Int64?
@@ -272,8 +271,7 @@ actor VideoNoteFileStore {
             originRecordingDraftID: originRecordingDraftID,
             removalRequestedAt: nil,
             replyMessageID: replyMessageID,
-            replyTo: replyTo,
-            sendTopic: sendTopic,
+            replyTo: replyTo.map(MediaDraftInputMessageReplyTo.init),
             thumbnailFileURL: thumbnailDestination,
             thumbnailHeight: thumbnail?.height,
             thumbnailWidth: thumbnail?.width,

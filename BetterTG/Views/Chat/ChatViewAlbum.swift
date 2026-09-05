@@ -2,7 +2,6 @@
 
 import AVKit
 import Combine
-import MobileVLCKit
 import TDLibKit
 import UIKit
 import UniformTypeIdentifiers

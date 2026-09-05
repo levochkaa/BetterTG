@@ -1,6 +1,6 @@
 // AnimatedFileView.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 protocol AnimatedFileView where Self: UIView {

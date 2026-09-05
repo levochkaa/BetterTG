@@ -340,6 +340,11 @@ final class TDLib: @unchecked Sendable {
             do {
                 let client = try await manager.createClient()
                 setActiveClient(client)
+                activeVODRanges = TDLibVODRangeCoordinator(
+                    accountID: accountID.uuidString,
+                    client: .live(client),
+                    updates: fileUpdates.eraseToAnyPublisher(),
+                )
 
                 if notify {
                     nc.post(name: .activeTelegramAccountChanged, object: account.id)

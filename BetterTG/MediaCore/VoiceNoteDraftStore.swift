@@ -1,7 +1,7 @@
 // VoiceNoteDraftStore.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - VoiceNoteFailedSendState
 
@@ -27,7 +27,7 @@ struct VoiceNoteFailedSendState: Codable {
 struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     let id: UUID
     let chatID: Int64
-    let caption: FormattedText
+    let caption: MediaDraftFormattedText
     let createdAt: Foundation.Date
     let duration: Int
     var enqueueStartedAt: Foundation.Date?
@@ -35,8 +35,7 @@ struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     var fileURL: URL
     var isEncoded: Bool
     let replyMessageID: Int64?
-    let replyTo: InputMessageReplyTo?
-    var sendTopic: MessageTopic? = nil
+    let replyTo: MediaDraftInputMessageReplyTo?
     var temporaryMessageID: Int64?
     let waveform: Data
     var destination: ChatDraftKey? = nil

@@ -198,6 +198,18 @@ extension TDClient {
         try await send(TDNativeRequests.getCountryCode())
     }
 
+    func getCustomEmojiStickers(customEmojiIds: [Int64]) async throws -> TDNativeStickers {
+        try await send(TDNativeRequests.getCustomEmojiStickers(customEmojiIds: customEmojiIds))
+    }
+
+    func getFile(fileId: Int) async throws -> TDNativeFile {
+        try await send(TDNativeRequests.getFile(fileId: fileId))
+    }
+
+    func getFileDownloadedPrefixSize(fileId: Int, offset: Int64) async throws -> TDNativeFileDownloadedPrefixSize {
+        try await send(TDNativeRequests.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))
+    }
+
     func getLanguagePackInfo(languagePackId: String) async throws -> TDNativeLanguagePackInfo {
         try await send(TDNativeRequests.getLanguagePackInfo(languagePackId: languagePackId))
     }
@@ -247,6 +259,10 @@ extension TDClient {
         try await send(TDNativeRequests.openChat(chatId: chatId))
     }
 
+    func openMessageContent(chatId: Int64, messageId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.openMessageContent(chatId: chatId, messageId: messageId))
+    }
+
     func processPushNotification(payload: String) async throws -> TDNativeOk {
         try await send(TDNativeRequests.processPushNotification(payload: payload))
     }
@@ -266,6 +282,20 @@ extension TDClient {
         try await send(TDNativeRequests.reorderChatFolders(
             chatFolderIds: chatFolderIds,
             mainChatListPosition: mainChatListPosition,
+        ))
+    }
+
+    func resendMessages(
+        chatId: Int64,
+        messageIds: [Int64],
+        paidMessageStarCount: Int64,
+        quote: TDNativeInputTextQuote?,
+    ) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.resendMessages(
+            chatId: chatId,
+            messageIds: messageIds,
+            quote: quote,
+            paidMessageStarCount: paidMessageStarCount,
         ))
     }
 

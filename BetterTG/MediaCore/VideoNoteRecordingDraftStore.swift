@@ -24,8 +24,7 @@ struct VideoNoteRecordingDraft: ChatDraftScoped, Equatable {
     let chatID: Int64
     let createdAt: Foundation.Date
     let replyMessageID: Int64?
-    let replyTo: InputMessageReplyTo?
-    var sendTopic: MessageTopic?
+    let replyTo: MediaDraftInputMessageReplyTo?
     var revision: Int
     var segments: [VideoNoteRecordingSegment]
     var trimEnd: Double?
@@ -90,8 +89,7 @@ private struct VideoNoteRecordingDraftManifest: Codable {
     let chatID: Int64
     let createdAt: Foundation.Date
     let replyMessageID: Int64?
-    let replyTo: InputMessageReplyTo?
-    let sendTopic: MessageTopic?
+    let replyTo: MediaDraftInputMessageReplyTo?
     let revision: Int
     let segments: [VideoNoteRecordingSegmentManifest]
     let trimEnd: Double?
@@ -220,8 +218,7 @@ actor VideoNoteRecordingDraftStore {
             chatID: chatID,
             createdAt: Foundation.Date(),
             replyMessageID: replyMessageID,
-            replyTo: replyTo,
-            sendTopic: sendTopic,
+            replyTo: replyTo.map(MediaDraftInputMessageReplyTo.init),
             revision: 0,
             segments: [segment],
             trimEnd: nil,
@@ -695,8 +692,7 @@ actor VideoNoteRecordingDraftStore {
                     chatID: chatID,
                     originRecordingDraftID: draft.id,
                     replyMessageID: draft.replyMessageID,
-                    replyTo: draft.replyTo,
-                    sendTopic: draft.sendTopic,
+                    replyTo: draft.replyTo?.native,
                 )
                 sendDraft = adoptedSendDraft
                 try fileManager.copyItem(at: adoptedSendDraft.fileURL, to: redundantURL)
@@ -709,8 +705,7 @@ actor VideoNoteRecordingDraftStore {
                     chatID: chatID,
                     originRecordingDraftID: draft.id,
                     replyMessageID: draft.replyMessageID,
-                    replyTo: draft.replyTo,
-                    sendTopic: draft.sendTopic,
+                    replyTo: draft.replyTo?.native,
                 )
                 let originIDs = try await VideoNoteFileStore.shared.recordingDraftOrigins()
                 guard originIDs.contains(draft.id),

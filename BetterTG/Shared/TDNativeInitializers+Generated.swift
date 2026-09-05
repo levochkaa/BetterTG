@@ -116,6 +116,12 @@ extension TDNativeDraftMessage {
     }
 }
 
+extension TDNativeFile {
+    init(expectedSize: Int64, id: Int, local: TDNativeLocalFile, remote: TDNativeRemoteFile, size: Int64) {
+        self.init(id: id, size: size, expectedSize: expectedSize, local: local, remote: remote)
+    }
+}
+
 extension TDNativeFormattedText {
     init(entities: [TDNativeTextEntity], text: String) {
         self.init(text: text, entities: entities)
@@ -175,6 +181,36 @@ extension TDNativeInputPhoto {
 extension TDNativeInputThumbnail {
     init(height: Int, thumbnail: TDNativeInputFile, width: Int) {
         self.init(thumbnail: thumbnail, width: width, height: height)
+    }
+}
+
+extension TDNativeInputVideoNote {
+    init(duration: Int, length: Int, thumbnail: TDNativeInputThumbnail?, videoNote: TDNativeInputFile) {
+        self.init(videoNote: videoNote, thumbnail: thumbnail, duration: duration, length: length)
+    }
+}
+
+extension TDNativeLocalFile {
+    init(
+        canBeDeleted: Bool,
+        canBeDownloaded: Bool,
+        downloadOffset: Int64,
+        downloadedPrefixSize: Int64,
+        downloadedSize: Int64,
+        isDownloadingActive: Bool,
+        isDownloadingCompleted: Bool,
+        path: String,
+    ) {
+        self.init(
+            path: path,
+            canBeDownloaded: canBeDownloaded,
+            canBeDeleted: canBeDeleted,
+            isDownloadingActive: isDownloadingActive,
+            isDownloadingCompleted: isDownloadingCompleted,
+            downloadOffset: downloadOffset,
+            downloadedPrefixSize: downloadedPrefixSize,
+            downloadedSize: downloadedSize,
+        )
     }
 }
 
@@ -260,6 +296,18 @@ extension TDNativeMessageProperties {
             hasProtectedContentByCurrentUser: hasProtectedContentByCurrentUser,
             hasProtectedContentByOtherUser: hasProtectedContentByOtherUser,
             needShowStatistics: needShowStatistics,
+        )
+    }
+}
+
+extension TDNativeRemoteFile {
+    init(id: String, isUploadingActive: Bool, isUploadingCompleted: Bool, uniqueId: String, uploadedSize: Int64) {
+        self.init(
+            id: id,
+            uniqueId: uniqueId,
+            isUploadingActive: isUploadingActive,
+            isUploadingCompleted: isUploadingCompleted,
+            uploadedSize: uploadedSize,
         )
     }
 }

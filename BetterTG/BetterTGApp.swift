@@ -12,6 +12,22 @@ import UIKit
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
     ) -> Bool {
+        FFmpegCapabilities.assertRequiredCodecsAvailable()
+        #if DEBUG
+            MediaDraftCodingProbe.runIfRequested()
+            VoiceNoteCodec.runDebugProbeIfRequested()
+            VideoNoteAssetWriter.runDebugProbeIfRequested()
+            VideoNoteFileStore.runDebugProbeIfRequested()
+            VideoNoteSegmentComposer.runDebugProbeIfRequested()
+            VideoNoteRecordingDraftStore.runDebugProbeIfRequested()
+            TDLibVODRangeSource.runDebugProbeIfRequested()
+            TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
+            TDLibVODFFmpegDecoder.runDebugProbeIfRequested()
+            TDLibVODResourceLoaderSession.runDebugProbeIfRequested()
+            GalleryVideoPlaybackOwner.runDebugProbeIfRequested()
+        #endif
+        VoiceNoteDraftCoordinator.shared.start()
+        VideoNoteDraftCoordinator.shared.start()
         AppLocalization.shared.start()
         AvatarColorPalette.shared.start()
         PushRelayCoordinator.shared.start()

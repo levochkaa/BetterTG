@@ -5,7 +5,7 @@ import UIKit
 
 final class MessageTextContentView: UITextView, UITextViewDelegate {
     private struct CustomEmojiRequest {
-        let identifier: TdInt64
+        let identifier: Int64
         let range: NSRange
     }
 
@@ -297,8 +297,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     private func installCustomEmoji(
         requests: [CustomEmojiRequest],
-        stickers: [TdInt64: Sticker],
-        client: TDLibClient,
+        stickers: [Int64: Sticker],
     ) {
         let generation = customEmojiGeneration
         for request in requests {

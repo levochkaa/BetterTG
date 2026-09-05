@@ -2,7 +2,7 @@
 
 import AVFoundation
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 final class VideoNotePlaybackView: UIControl, ReusableMediaView {
