@@ -99,7 +99,7 @@ Rich notifications require the Apple Developer team to configure these identifie
 - App Group `group.com.levochkaaa.BetterTG`, assigned to both `com.levochkaaa.BetterTG` and `com.levochkaaa.BetterTG.NotificationService`.
 - Communication Notifications capability on the main `com.levochkaaa.BetterTG` App ID.
 
-Both targets consume the dynamic `TDLibKitShared` product from the pinned
-TDLibKit 2 revision while importing the `TDLibKit` module. The containing app
+Both targets consume the dynamic `TDLibKitShared` product from the exact
+TDLibKit 2.0.0 release in `levochkaa/TDLibKit` while importing the `TDLibKit` module. The containing app
 embeds the framework once; the notification extension links it through
 `@executable_path/../../Frameworks` without embedding a second copy.
