@@ -64,6 +64,41 @@ import UIKit
             "deleting one emoji retains its neighbor",
             remaining.count == 1 && remaining.first?.range == NSRange(location: 1, length: 2),
         )
+        let quoteSource = FormattedText(
+            entities: entities + [TextEntity(length: value.string.utf16.count, offset: 0, type: .textEntityTypeBold)],
+            text: value.string,
+        )
+        let selectedQuote = MessageQuoteBuilder.make(
+            from: quoteSource, maximumLength: 1024, range: NSRange(location: 3, length: 3),
+        )
+        check(
+            "selected quote retains original UTF-16 position",
+            selectedQuote?.position == 3 && selectedQuote?.text.text == "🙂b",
+        )
+        check("selected quote rebases custom emoji", selectedQuote?.text.entities.contains {
+            if case .textEntityTypeCustomEmoji = $0.type {
+                $0.offset == 0 && $0.length == 2
+            } else {
+                false
+            }
+        } == true)
+        check("selected quote clips crossing formatting", selectedQuote?.text.entities.contains {
+            if case .textEntityTypeBold = $0.type {
+                $0.offset == 0 && $0.length == 3
+            } else {
+                false
+            }
+        } == true)
+        check("quote maximum never splits a surrogate", MessageQuoteBuilder.make(
+            from: quoteSource, maximumLength: 1, range: NSRange(location: 3, length: 3),
+        ) == nil)
+        check("quote rejects invalid native selection", MessageQuoteBuilder.make(
+            from: quoteSource, maximumLength: 1024, range: NSRange(location: 2, length: 2),
+        ) == nil)
+        check("quote maximum retains whole joined emoji", MessageQuoteBuilder.make(
+            from: FormattedText(entities: [], text: "a👨‍👩‍👧‍👦b"),
+            maximumLength: 5, range: NSRange(location: 1, length: 11),
+        ) == nil)
         let path = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("custom-emoji-text-probe.txt")
         try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)

@@ -22,29 +22,44 @@ enum MessageMetadataNavigationTarget: Hashable {
 // MARK: - MessageQuoteBuilder
 
 enum MessageQuoteBuilder {
-    static func make(from formattedText: FormattedText, maximumLength: Int) -> InputTextQuote? {
-        let utf16 = formattedText.text.utf16
-        var length = min(max(1, maximumLength), utf16.count)
-        var endIndex = formattedText.text.endIndex
-        while length < utf16.count {
-            let utf16Index = utf16.index(utf16.startIndex, offsetBy: length)
-            if let index = String.Index(utf16Index, within: formattedText.text) {
-                endIndex = index
-                break
-            }
-            length -= 1
+    static func make(
+        from formattedText: FormattedText, maximumLength: Int, range selectedRange: NSRange? = nil,
+    ) -> InputTextQuote? {
+        let source = formattedText.text
+        let totalLength = source.utf16.count
+        let nativeText = source as NSString
+        func isCharacterBoundary(_ offset: Int) -> Bool {
+            offset == totalLength || nativeText.rangeOfComposedCharacterSequence(at: offset).location == offset
         }
-        let text = String(formattedText.text[..<endIndex])
-        guard !text.isEmpty else { return nil }
-        let entities = formattedText.entities.filter { entity in
-            entity.offset >= 0
-                && entity.length > 0
-                && entity.offset + entity.length <= length
-                && isAllowed(entity.type)
+        let requested = selectedRange ?? NSRange(location: 0, length: totalLength)
+        guard requested.location != NSNotFound, requested.location >= 0,
+              requested.length > 0, requested.location < totalLength,
+              requested.length <= totalLength - requested.location,
+              isCharacterBoundary(requested.location),
+              isCharacterBoundary(NSMaxRange(requested))
+        else { return nil }
+        var range = NSRange(location: requested.location, length: min(max(1, maximumLength), requested.length))
+        while range.length > 0, !isCharacterBoundary(NSMaxRange(range)) {
+            range.length -= 1
+        }
+        guard range.length > 0 else { return nil }
+        let entities = formattedText.entities.compactMap { entity -> TextEntity? in
+            guard entity.offset >= 0, entity.length > 0, entity.offset <= totalLength,
+                  entity.length <= totalLength - entity.offset, isAllowed(entity.type)
+            else { return nil }
+            let original = NSRange(location: entity.offset, length: entity.length)
+            let overlap = NSIntersectionRange(range, original)
+            guard overlap.length > 0 else { return nil }
+            switch entity.type {
+            case .textEntityTypeCustomEmoji, .textEntityTypeDateTime:
+                guard overlap == original else { return nil }
+            default: break
+            }
+            return TextEntity(length: overlap.length, offset: overlap.location - range.location, type: entity.type)
         }
         return InputTextQuote(
-            position: 0,
-            text: FormattedText(entities: entities, text: text),
+            position: range.location,
+            text: FormattedText(entities: entities, text: nativeText.substring(with: range)),
         )
     }
 
