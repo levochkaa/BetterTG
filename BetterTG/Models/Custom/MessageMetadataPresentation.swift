@@ -673,7 +673,9 @@ struct MessageForwardPresentation: Equatable {
         case .messageDocument(let message):
             nonEmpty(message.caption.text) == nil ? plainText(message.document.fileName) : message.caption
         case .messagePhoto(let message):
-            nonEmpty(message.caption.text) == nil ? plainText("Photo") : message.caption
+            nonEmpty(message.caption.text) == nil
+                ? plainText(message.video == nil ? "Photo" : "Live Photo")
+                : message.caption
         case .messageVideo(let message):
             nonEmpty(message.caption.text) == nil ? plainText("Video") : message.caption
         case .messageVoiceNote(let message):

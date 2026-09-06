@@ -52,9 +52,17 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         playerSurface.isUserInteractionEnabled = false
         pin(playerSurface, to: mediaContainer)
         player.attach(to: playerSurface.playerLayer)
-        liveButton.setImage(UIImage(systemName: "livephoto"), for: .normal)
-        liveButton.setTitle(" LIVE", for: .normal)
-        liveButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(named: "Gallery/LivePhotoPlay")
+        configuration.title = "LIVE"
+        configuration.imagePadding = 4
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 11)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = UIFont.systemFont(ofSize: 12)
+            return attributes
+        }
+        liveButton.configuration = configuration
         liveButton.tintColor = .white
         liveButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         liveButton.layer.cornerRadius = 14
@@ -113,9 +121,10 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     override func layoutSubviews() {
         super.layoutSubviews()
         liveButton.frame = CGRect(
-            x: max(16, safeAreaInsets.left + 8),
-            y: safeAreaInsets.top + 52,
-            width: 86,
+            // 8 pt badge inset + 8 pt content inset + half of the 16 pt icon = Back's center (24 pt).
+            x: safeAreaInsets.left + 8,
+            y: safeAreaInsets.top + 54,
+            width: liveButton.sizeThatFits(CGSize(width: 200, height: 30)).width,
             height: 30,
         )
         spinner.center = CGPoint(x: liveButton.frame.maxX + 18, y: liveButton.center.y)
@@ -194,13 +203,13 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
                 player.load(url: url, autoplay: false, loops: false)
                 spinner.stopAnimating()
                 liveButton.isEnabled = true
-                liveButton.setTitle(" LIVE", for: .normal)
+                setLiveButtonTitle("LIVE")
                 autoplayIfNeeded()
             } catch {
                 guard let self, !Task.isCancelled, self.generation == generation else { return }
                 spinner.stopAnimating()
                 liveButton.isEnabled = true
-                liveButton.setTitle(" Retry", for: .normal)
+                setLiveButtonTitle("Retry")
             }
         }
     }
@@ -225,7 +234,7 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         case .failed:
             isUserPlaybackActive = false
             isAutoplaying = false
-            liveButton.setTitle(" Retry", for: .normal)
+            setLiveButtonTitle("Retry")
         default: break
         }
         updateVideoVisibility()
@@ -242,8 +251,20 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         }
     }
 
+    private func setLiveButtonTitle(_ title: String) {
+        var configuration = liveButton.configuration
+        configuration?.title = title
+        liveButton.configuration = configuration
+        setNeedsLayout()
+    }
+
     private func updateButton() {
-        liveButton.tintColor = isUserPlaybackActive ? .systemYellow : .white
+        var configuration = liveButton.configuration
+        configuration?.image = UIImage(named: isUserPlaybackActive
+            ? "Gallery/LivePhotoPlaying"
+            : "Gallery/LivePhotoPlay")
+        liveButton.configuration = configuration
+        liveButton.tintColor = .white
         liveButton.accessibilityLabel = isUserPlaybackActive ? "Stop Live Photo" : "Play Live Photo"
         liveButton.accessibilityValue = player.state == .playing
             ? String(format: "Playing %.1f seconds", elapsed)

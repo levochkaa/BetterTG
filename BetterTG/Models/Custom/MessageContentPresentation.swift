@@ -130,7 +130,7 @@ struct MessageContentPresentation {
         case .messagePhoto(let message):
             return presentation(
                 formattedText: nonEmpty(message.caption),
-                summary: captionSummary(label: "Photo", caption: message.caption),
+                summary: captionSummary(label: message.video == nil ? "Photo" : "Live Photo", caption: message.caption),
                 isVisualMedia: true,
             )
         case .messageSticker(let message):
