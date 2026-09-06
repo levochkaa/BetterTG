@@ -2521,28 +2521,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateHighlightState() {
-        let changed = Array(Set([lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self)))
+        let changed = Set([lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self))
         lastHighlightedMessageID = chatVM.highlightedMessageId
-        guard !changed.isEmpty else { return }
-        let identifiers = Set(changed.compactMap { chatVM.displayedMessageID(containing: $0) })
-        guard !identifiers.isEmpty else { return }
-        viewportRestorationAuthority.invalidate()
-        #if DEBUG
-            viewportCompletionProbe?.interrupt("highlight snapshot changed")
-            if messageNavigationGeometry?.isRecording == true {
-                recordMessageNavigationGeometry("highlight-before", command: true)
-            }
-        #endif
-        enqueueTimeline(.init(
-            ids: identifiers,
-            highlight: true,
-            viewportRevision: viewportRestorationAuthority.invalidationRevision,
-        ))
-        #if DEBUG
-            if messageNavigationGeometry?.isRecording == true {
-                recordMessageNavigationGeometry("highlight-after", command: true)
-            }
-        #endif
+        for id in changed {
+            guard let displayedID = chatVM.displayedMessageID(containing: id),
+                  let indexPath = dataSource.indexPath(for: .message(displayedID)),
+                  let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+                  let message = message(for: displayedID)
+            else { continue }
+            cell.setMessageHighlighted(message.sourceMessages.contains { $0.id == chatVM.highlightedMessageId })
+        }
     }
 
     private func emptyLabel() -> UIView {

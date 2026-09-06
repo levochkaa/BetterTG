@@ -218,6 +218,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
     private let bubbleStack = UIStackView()
+    private let highlightOverlay = UIView()
+    private var bubbleInsetViews = [ObjectIdentifier: MessageBubbleInsetView]()
+    private var usesFullBleedMedia = false
     private let avatarView = ProfileAvatarView()
     private let forwardView = ForwardHeaderView()
     private let replyView = ReplySnippetView()
@@ -272,6 +275,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     var contextPreviewView: UIView { bubbleContainerView }
     var contextQuoteTextView: MessageTextContentView { textView }
+
+    private var bubbleContentViews: [UIView] {
+        [forwardView, replyView, mediaView, structuredContentView, textView, reactionView, timestampLabel]
+    }
 
     private var bubbleView: UIView { bubbleContainerView.extractedContentView }
 
@@ -428,6 +435,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         reactionView.setPlaybackVisible(isVisible)
     }
 
+    func setMessageHighlighted(_ highlighted: Bool) {
+        highlightOverlay.isHidden = !highlighted
+    }
+
     func highlightQuote(_ quote: MessageQuoteHighlight) {
         textView.highlightQuote(position: quote.position, length: quote.length)
     }
@@ -541,14 +552,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             centered: presentation.isService,
         )
 
-        let isVideoNoteMessage =
-            if case .messageVideoNote = message.message.content {
-                true
-            } else {
-                false
+        let isUnframedMediaMessage =
+            switch message.message.content {
+            case .messageAnimation, .messageSticker, .messageVideoNote: true
+            default: false
             }
-        let isStandaloneVideoNote =
-            if isVideoNoteMessage,
+        let isStandaloneUnframedMedia =
+            if isUnframedMediaMessage,
             message.forwardPresentation == nil,
             message.replyPresentation == nil,
             message.formattedText == nil {
@@ -556,21 +566,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             } else {
                 false
             }
-        bubbleView.backgroundColor =
-            if presentation.isService {
-                highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear
-            } else if isStandaloneVideoNote {
-                highlighted ? UIColor.messageHighlight.withAlphaComponent(0.35) : .clear
-            } else {
-                highlighted ? .messageHighlight : .secondarySystemBackground
-            }
-        let usesEdgeToEdgeContent = isStandaloneVideoNote || presentation.isService
+        usesFullBleedMedia = presentation.isVisualMedia || isStandaloneUnframedMedia
+        let hasBubbleText = message.formattedText != nil || message.forwardPresentation != nil || message
+            .replyPresentation != nil
+        bubbleView.backgroundColor = presentation
+            .isService || isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)
+            ? .clear
+            : .secondarySystemBackground
+        setMessageHighlighted(highlighted)
+        let usesEdgeToEdgeContent = usesFullBleedMedia || presentation.isService
         bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
         bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
-        bubbleBottomConstraint.constant = usesEdgeToEdgeContent
-            ? (visibleReactions.isEmpty ? 0 : -2)
-            : -5
+        bubbleBottomConstraint.constant = usesEdgeToEdgeContent ? 0 : -5
         if let forward = message.forwardPresentation {
             forwardView.isHidden = false
             forwardView.configure(
@@ -623,13 +631,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             } else {
                 false
             }
-        if let textIndex = bubbleStack.arrangedSubviews.firstIndex(of: textView),
-           let structuredIndex = bubbleStack.arrangedSubviews.firstIndex(of: structuredContentView),
-           (structuredIndex > textIndex) != previewBelowText
+        if let textIndex = bubbleStack.arrangedSubviews.firstIndex(of: arrangedBubbleView(for: textView)),
+           let structuredIndex = bubbleStack.arrangedSubviews
+               .firstIndex(of: arrangedBubbleView(for: structuredContentView)),
+               (structuredIndex > textIndex) != previewBelowText
         {
-            bubbleStack.removeArrangedSubview(structuredContentView)
-            let updatedTextIndex = bubbleStack.arrangedSubviews.firstIndex(of: textView) ?? 3
-            bubbleStack.insertArrangedSubview(structuredContentView, at: updatedTextIndex + (previewBelowText ? 1 : 0))
+            bubbleStack.removeArrangedSubview(arrangedBubbleView(for: structuredContentView))
+            let updatedTextIndex = bubbleStack.arrangedSubviews.firstIndex(of: arrangedBubbleView(for: textView)) ?? 3
+            bubbleStack.insertArrangedSubview(
+                arrangedBubbleView(for: structuredContentView),
+                at: updatedTextIndex + (previewBelowText
+                    ? 1
+                    : 0),
+            )
         }
         let hasStructuredContent = structuredContentView.configure(
             presentation: presentation,
@@ -701,6 +715,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         let isRichMessage =
             if case .richMessage = presentation.supplement {
+                true
+            } else {
+                false
+            }
+        let isVideoNoteMessage =
+            if case .messageVideoNote = message.message.content {
                 true
             } else {
                 false
@@ -781,44 +801,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             accessibilityTraits.remove(.selected)
             accessibilityValue = nil
         }
-        refreshSpoilerAccessibility = { [weak self] in
-            guard let self else { return }
-            var content = accessibilityAlbum.isEmpty
-                ?
-                (accessibilityStates.first
-                    .map { $0.presentation.accessibilityText(revealed: $0.revealed) } ?? fallbackAccessibilityContent)
-                : accessibilityAlbum.map { MessageTextSpoilerPresentation.summary(
-                    for: $0,
-                    revealed: self.textSpoilers.states[$0.id]?.revealed == true,
-                ) }
-                .joined(separator: ", ")
-            let concealed = message.sourceMessages.filter {
-                !MediaRevealPermit.allows($0, permit: mediaRevealSession?.permit(for: $0))
-            }
-            if !concealed.isEmpty {
-                // Captions have independent A10 grants; do not project raw media metadata through the cell.
-                let captions = accessibilityStates.map { $0.presentation.accessibilityText(revealed: $0.revealed) }
-                content = (concealed.map {
-                    MediaRevealSession.Key(message: $0)?.isSecret == true ? "Protected media" : "Media spoiler"
-                } + captions).joined(separator: ", ")
-            }
-            updateSpoilerAccessibility(
-                content: content,
-                prefix: prefix,
-                suffix: suffix,
-                states: accessibilityStates,
-                actions: metadataAccessibilityActions,
-            )
-        }
-        for state in accessibilityStates {
-            state.changes.sink { [weak self] in self?.refreshSpoilerAccessibility?() }.store(in: &spoilerSubscriptions)
-        }
-        mediaRevealSession?.revisionsChanged
-            .sink { [weak self] _ in
-                self?.refreshSpoilerAccessibility?()
-            }
-            .store(in: &spoilerSubscriptions)
-        refreshSpoilerAccessibility?()
+        accessibilityCustomActions = metadataAccessibilityActions
+        updateBubbleContentInsets()
 
         bubbleContentNeedsMeasurement = true
         updateBubbleWidth(for: bounds.width)
@@ -919,20 +903,59 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             mediaTimestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
         ])
 
-        for view in [
-            forwardView,
-            replyView,
-            mediaView,
-            structuredContentView,
-            textView,
-            reactionView,
-            timestampLabel,
-        ] {
-            bubbleStack.addArrangedSubview(view)
+        for view in bubbleContentViews {
+            if view === mediaView {
+                bubbleStack.addArrangedSubview(view)
+            } else {
+                let insetView = MessageBubbleInsetView(content: view)
+                bubbleInsetViews[ObjectIdentifier(view)] = insetView
+                bubbleStack.addArrangedSubview(insetView)
+            }
         }
-        bubbleStack.setCustomSpacing(6, after: replyView)
+        bubbleStack.setCustomSpacing(6, after: arrangedBubbleView(for: replyView))
         bubbleStack.setCustomSpacing(4, after: mediaView)
-        bubbleStack.setCustomSpacing(4, after: textView)
+        bubbleStack.setCustomSpacing(4, after: arrangedBubbleView(for: textView))
+        highlightOverlay.translatesAutoresizingMaskIntoConstraints = false
+        highlightOverlay.backgroundColor = .tertiarySystemFill
+        highlightOverlay.isUserInteractionEnabled = false
+        highlightOverlay.accessibilityElementsHidden = true
+        highlightOverlay.isHidden = true
+        bubbleView.addSubview(highlightOverlay)
+        NSLayoutConstraint.activate([
+            highlightOverlay.topAnchor.constraint(equalTo: bubbleView.topAnchor),
+            highlightOverlay.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor),
+            highlightOverlay.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor),
+            highlightOverlay.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor),
+        ])
+    }
+
+    private func arrangedBubbleView(for content: UIView) -> UIView {
+        bubbleInsetViews[ObjectIdentifier(content)] ?? content
+    }
+
+    private func updateBubbleContentInsets() {
+        for content in bubbleContentViews {
+            bubbleInsetViews[ObjectIdentifier(content)]?.isHidden = content.isHidden
+        }
+        let visibleItems = bubbleStack.arrangedSubviews.filter { !$0.isHidden }
+        var mediaCorners = CACornerMask()
+        if !usesFullBleedMedia || visibleItems.first === mediaView {
+            mediaCorners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner])
+        }
+        if !usesFullBleedMedia || visibleItems.last === mediaView {
+            mediaCorners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        }
+        mediaView.setBubbleCorners(mediaCorners)
+        for insetView in bubbleInsetViews.values {
+            insetView.setInsets(usesFullBleedMedia
+                ? UIEdgeInsets(
+                    top: visibleItems.first === insetView ? 6 : 0,
+                    left: 8,
+                    bottom: visibleItems.last === insetView ? 5 : 0,
+                    right: 8,
+                )
+                : .zero)
+        }
     }
 
     private func configureSwipeToReply() {
@@ -1168,7 +1191,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         guard cellWidth > 0 else { return }
         guard bubbleContentNeedsMeasurement || abs(measuredCellWidth - cellWidth) > 0.5 else { return }
         let maximumBubbleWidth = floor(cellWidth * 0.82)
-        let maximumContentWidth = max(1, maximumBubbleWidth - 16)
+        let mediaWidth = usesFullBleedMedia && !mediaView.isHidden
+            ? mediaView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+            : 0
+        let maximumContentWidth = max(1, min(maximumBubbleWidth, mediaWidth > 0 ? mediaWidth : maximumBubbleWidth) - 16)
         textView.setMaximumLayoutWidth(maximumContentWidth)
         reactionView.setMaximumLayoutWidth(maximumContentWidth)
 
@@ -1177,7 +1203,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             height: UIView.layoutFittingCompressedSize.height,
         )
         var preferredContentWidth = CGFloat.zero
-        for view in bubbleStack.arrangedSubviews where !view.isHidden {
+        for view in bubbleContentViews where !view.isHidden {
             let width =
                 if view === textView {
                     textView.intrinsicContentSize.width
@@ -1191,7 +1217,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 }
             preferredContentWidth = max(preferredContentWidth, width)
         }
-        let preferredBubbleWidth = min(maximumBubbleWidth, ceil(preferredContentWidth) + 16)
+        let preferredBubbleWidth = min(
+            maximumBubbleWidth,
+            ceil(mediaWidth > 0 ? mediaWidth : preferredContentWidth + 16),
+        )
         if abs(bubbleWidthConstraint.constant - preferredBubbleWidth) > 0.5 {
             bubbleWidthConstraint.constant = preferredBubbleWidth
         }
@@ -1217,5 +1246,50 @@ private extension CustomMessage {
             return album.contains { MessageContentPresentation.make($0).isVisualMedia }
         }
         return contentPresentation.isVisualMedia
+    }
+}
+
+// MARK: - MessageBubbleInsetView
+
+/// Only text/metadata gets padding; visual media spans the entire bubble width.
+private final class MessageBubbleInsetView: UIView {
+    override var isHidden: Bool {
+        didSet { bottom.isActive = !isHidden }
+    }
+
+    private let leading: NSLayoutConstraint
+    private let trailing: NSLayoutConstraint
+    private let top: NSLayoutConstraint
+    private let bottom: NSLayoutConstraint
+
+    init(content: UIView) {
+        let container = UILayoutGuide()
+        self.leading = content.leadingAnchor.constraint(equalTo: container.leadingAnchor)
+        self.trailing = content.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+        self.top = content.topAnchor.constraint(equalTo: container.topAnchor)
+        self.bottom = content.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        super.init(frame: .zero)
+        addLayoutGuide(container)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: topAnchor),
+            container.leadingAnchor.constraint(equalTo: leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: bottomAnchor),
+            leading, trailing, top, bottom,
+        ])
+        self.isHidden = content.isHidden
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setInsets(_ insets: UIEdgeInsets) {
+        leading.constant = insets.left
+        trailing.constant = -insets.right
+        top.constant = insets.top
+        bottom.constant = -insets.bottom
     }
 }

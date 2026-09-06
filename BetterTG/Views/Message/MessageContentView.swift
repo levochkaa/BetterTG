@@ -94,41 +94,25 @@ final class MessageMediaView: UIView {
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):
-                if let owner = videoPlaybackOwners[message.id], owner.matches(message: message.message) {
-                    let inlineView = InlineVideoMediaView()
-                    inlineView.configure(
-                        owner: owner,
-                        size: CGSize(width: animation.animation.width, height: animation.animation.height),
-                    ) { onTap([message.message], message.id) }
-                    view = inlineView
-                } else if telegramAnimationUsesFFmpeg(animation.animation) {
+                let displaySize = telegramMediaDisplaySize(source: CGSize(
+                    width: CGFloat(animation.animation.width),
+                    height: CGFloat(animation.animation.height),
+                ))
+                if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
                     animationView.configure(
                         file: animation.animation.animation,
                         client: client,
                         thumbnail: animation.animation.thumbnail,
-                        displaySize: telegramMediaDisplaySize(source: CGSize(
-                            width: CGFloat(animation.animation.width),
-                            height: CGFloat(animation.animation.height),
-                        )),
-                        onTap: { onTap([message.message], message.id) },
+                        displaySize: displaySize,
+                        onTap: nil,
                     )
+                    animationView.accessibilityLabel = "GIF"
                     view = animationView
                 } else {
-                    let fileView = FileMediaPreviewView()
-                    fileView.configure(
-                        file: animation.animation.animation,
-                        thumbnail: animation.animation.thumbnail,
-                        minithumbnail: animation.animation.minithumbnail,
-                        size: CGSize(
-                            width: CGFloat(animation.animation.width),
-                            height: CGFloat(animation.animation.height),
-                        ),
-                        showsPlayIcon: true,
-                        usesFileAsThumbnailFallback: false,
-                        client: client,
-                    ) { onTap([message.message], message.id) }
-                    view = fileView
+                    let animationView = InlineAnimationMediaView()
+                    animationView.configure(animation: animation.animation, displaySize: displaySize)
+                    view = animationView
                 }
             case .messageSticker(let sticker):
                 if sticker.sticker.format.typeID == TDNativeStickerFormatTgs.typeID {
@@ -235,8 +219,7 @@ final class MessageMediaView: UIView {
     }
 
     func prepareForReuse() {
-        transitionGeneration = UUID()
-        revealSubscription = nil
+        alpha = 1
         (contentView as? ReusableMediaView)?.prepareForReuse()
         contentView?.removeFromSuperview()
         contentView = nil
@@ -258,6 +241,12 @@ final class MessageMediaView: UIView {
             return albumView.restoreInlineVideoPlaybackOwner(owner)
         }
         return false
+    }
+
+    func setBubbleCorners(_ corners: CACornerMask) {
+        layer.cornerRadius = corners.isEmpty ? 0 : 13
+        layer.maskedCorners = corners
+        (contentView as? AlbumMediaView)?.setBubbleCorners(corners)
     }
 
     func galleryTransitionSourceView(for messageID: Int64) -> UIView? {
@@ -473,6 +462,16 @@ final class AlbumMediaView: UIView, ReusableMediaView {
             tiles.append(tile)
         }
         setNeedsLayout()
+    }
+
+    func setBubbleCorners(_ corners: CACornerMask) {
+        layer.cornerRadius = corners.isEmpty ? 0 : 13
+        layer.maskedCorners = corners
+        for tile in tiles {
+            let tileCorners = tile.layer.maskedCorners.intersection(corners)
+            tile.layer.maskedCorners = tileCorners
+            tile.layer.cornerRadius = tileCorners.isEmpty ? 0 : 13
+        }
     }
 
     @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {
