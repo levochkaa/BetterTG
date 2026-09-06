@@ -72,6 +72,7 @@ final class ChatComposerView: UIView {
     private let actionButton = UIButton(type: .system)
     private let restrictionLabel = UILabel()
     private let recordingRow = UIStackView()
+    private lazy var recordingRowHeightConstraint = recordingRow.heightAnchor.constraint(equalToConstant: 36)
     private let cancelRecordingButton = UIButton(type: .system)
     private let recordingPauseResumeButton = UIButton(type: .system)
     private let recordingPreviewPlayButton = UIButton(type: .system)
@@ -293,9 +294,11 @@ final class ChatComposerView: UIView {
     func setKeyboardAttached(_ attached: Bool) {
         guard keyboardAttached != attached else { return }
         keyboardAttached = attached
-        layer.maskedCorners = attached
+        let corners: CACornerMask = attached
             ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        layer.maskedCorners = corners
+        blurView.layer.maskedCorners = corners
     }
 
     func setHiddenForSearch(_ hidden: Bool) {
@@ -480,8 +483,19 @@ final class ChatComposerView: UIView {
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
         photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
         documentsScroll.isHidden = !canWrite || chatVM.displayedDocuments.isEmpty
+        let showsRecording = canWrite && isRecordingMedia
+        if showsRecording, !recordingRowHeightConstraint.isActive {
+            recordingRowHeightConstraint.constant = max(
+                36,
+                inputRow.bounds.height,
+                textView.intrinsicContentSize.height,
+            )
+            recordingRowHeightConstraint.isActive = true
+        } else if !showsRecording {
+            recordingRowHeightConstraint.isActive = false
+        }
         inputRow.isHidden = !canWrite || isRecordingMedia
-        recordingRow.isHidden = !canWrite || !isRecordingMedia
+        recordingRow.isHidden = !showsRecording
         if isRecordingVideoNote {
             setVoiceGestureDeferral(
                 isHoldingVideoNote
@@ -533,6 +547,7 @@ final class ChatComposerView: UIView {
 
         blurView.clipsToBounds = true
         blurView.layer.cornerRadius = 22
+        blurView.layer.cornerCurve = .continuous
         blurView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
@@ -651,6 +666,7 @@ final class ChatComposerView: UIView {
         restrictionLabel.textAlignment = .center
         restrictionLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
 
+        recordingRowHeightConstraint.priority = UILayoutPriority(999)
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
         recordingRow.spacing = 8
