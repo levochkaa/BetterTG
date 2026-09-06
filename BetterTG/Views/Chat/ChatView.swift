@@ -2640,8 +2640,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let keepLatestVisible = !userIsScrolling && !hasPendingMessageNavigation
             && (!didPerformInitialScroll || isNearLatest)
         let previousOffset = collectionView.contentOffset
-        let anchor = !userIsScrolling && !hasPendingMessageNavigation && !keepLatestVisible
-            ? captureSnapshotAnchor()
+        let bottomInsetDelta = updatedInsets.top - collectionView.contentInset.top
+        let anchor = !userIsScrolling && !keepLatestVisible
+            ? captureSnapshotAnchor().map {
+                // The timeline is inverted: preserve distance from the composer as its top edge moves.
+                SnapshotAnchor(itemID: $0.itemID, minYRelativeToViewport: $0.minYRelativeToViewport + bottomInsetDelta)
+            }
             : nil
         timelineLayoutMutationDepth += 1
         defer { finishTimelineLayoutMutation() }
@@ -2924,6 +2928,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.highlightMessage(id: messageID)
         }
         if isChatMedia { gallery.enableChatHistoryPaging(client: chatVM.client, location: location) }
+        // End the composer's editing session before UIKit retains it for the modal transition.
+        // Otherwise cancelling an interactive dismissal can restore its keyboard over the gallery.
+        view.endEditing(true)
         present(gallery, animated: true)
     }
 
