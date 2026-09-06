@@ -335,7 +335,7 @@ final class ChatComposerView: UIView {
         lastReplyID = chatVM.replyMessage?.id
         lastEditID = chatVM.editCustomMessage?.id
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
-        let canWrite = chatVM.canWriteAnyMessage
+        let canWrite = chatVM.canWriteAnyMessage || chatVM.pendingForward != nil
         let canWriteText = chatVM.canWriteBasicMessages
         textView.isEditable = canWriteText
         textView.isSelectable = canWriteText
@@ -439,6 +439,10 @@ final class ChatComposerView: UIView {
                     )
                 }
             }
+        } else if let forward = chatVM.pendingForward {
+            showsReplyPreview = true
+            closeReplyButton.isHidden = false
+            replySnippet.configure(title: forward.title, text: forward.summary) {}
         } else if let reply = chatVM.replyMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
@@ -1024,6 +1028,7 @@ final class ChatComposerView: UIView {
             || !chatVM.text.characters.isEmpty
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
+            || chatVM.pendingForward != nil
         let isPreparingVoice = chatVM.loadingVoiceDraft || chatVM.startingVoiceNote || chatVM.finalizingVoiceNote
         let isSendingComposer = chatVM.sendingComposerMessage
         let isFinalizingVoice = isPreparingVoice && !hasContent
@@ -1324,11 +1329,10 @@ final class ChatComposerView: UIView {
     }
 
     @objc private func cancelReplyOrEdit() {
-        if chatVM.editCustomMessage != nil {
-            chatVM.cancelMessageEditing()
-        } else {
-            chatVM.cancelReply()
-        }
+        chatVM.pendingForward = nil
+        chatVM.cancelReply()
+        chatVM.editCustomMessage = nil
+        chatVM.editMessageText = ""
     }
 
     @objc private func actionTapped(_ sender: UIButton) {
@@ -1356,6 +1360,7 @@ final class ChatComposerView: UIView {
             || !chatVM.text.characters.isEmpty
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
+            || chatVM.pendingForward != nil
         if chatVM.hasPendingVoiceNote, !hasContent {
             if chatVM.canRetryPendingVoiceNote {
                 chatVM.retryPendingVoiceNote()

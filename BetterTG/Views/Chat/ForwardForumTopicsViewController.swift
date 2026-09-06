@@ -10,7 +10,7 @@ import UIKit
         case topics
     }
 
-    var onToggle: ((ForumTopic, Bool) -> Void)?
+    var onSelect: ((ForumTopic) -> Void)?
 
     #if DEBUG
     var probeReadPage: ((String, ForumTopicPageCursor) async throws -> ForumTopics)?
@@ -159,14 +159,7 @@ import UIKit
               allowedTopicIDs.contains(topicID),
               let topic = snapshotState.topic(id: topicID)
         else { return }
-        let selected = !selectedTopicIDs.contains(topicID)
-        if selected {
-            selectedTopicIDs.insert(topicID)
-        } else {
-            selectedTopicIDs.remove(topicID)
-        }
-        onToggle?(topic, selected)
-        applySnapshot()
+        onSelect?(topic)
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {

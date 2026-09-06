@@ -2760,10 +2760,24 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 accountID: accountID,
                 seedChats: seedChats,
             )
-            picker.onFinished = { [weak self] destinationCount in
-                self?.showActionStatus(
-                    destinationCount == 1 ? "Forwarded to 1 chat" : "Forwarded to \(destinationCount) chats",
-                )
+            picker.onSelect = { [weak self] chat, topic, draft in
+                guard let self, hasCurrentContext else { return }
+                dismiss(animated: true) {
+                    guard TDLib.shared.activeAccountID == accountID,
+                          TDLib.shared.activeClient.id == client.id else { return }
+                    let destination = ChatLocation.current(
+                        chatID: chat.id,
+                        topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
+                        client: client,
+                    )
+                    let controller = ChatViewController(
+                        customChat: chat,
+                        location: destination,
+                        forumTopic: topic,
+                        pendingForward: draft,
+                    )
+                    NavigationStorage.shared.navigationController.pushViewController(controller, animated: true)
+                }
             }
             let navigationController = TelegramNavigationController(rootViewController: picker)
             navigationController.modalPresentationStyle = .fullScreen

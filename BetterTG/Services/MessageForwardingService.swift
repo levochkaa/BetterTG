@@ -111,6 +111,22 @@ struct PreparedMessageForward: Equatable {
     }
 }
 
+// MARK: - PendingMessageForward
+
+/// The destination composer owns this until the user sends or cancels it.
+struct PendingMessageForward: Equatable {
+    let id = UUID()
+    let prepared: PreparedMessageForward
+    let mode: MessageForwardMode
+    let summary: String
+
+    var title: String {
+        prepared.request.messageIDs.count == 1
+            ? "Forward message"
+            : "Forward \(prepared.request.messageIDs.count) messages"
+    }
+}
+
 // MARK: - MessageForwardContentRequirement
 
 enum MessageForwardContentRequirement: Hashable {

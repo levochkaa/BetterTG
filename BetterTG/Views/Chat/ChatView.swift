@@ -286,6 +286,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         presentationMode: PresentationMode = .full,
         targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil,
+        pendingForward: PendingMessageForward? = nil,
         tdlib: TDLib = .shared,
     ) {
         let resolvedLocation = location ?? ChatLocation.current(
@@ -306,6 +307,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             targetQuote: targetQuote,
             tdlib: tdlib,
         )
+        if let pendingForward { chatVM.beginForward(pendingForward) }
+        self.targetMessageID = targetMessageID
+        self.targetQuote = targetQuote
+        self.tdlib = tdlib
+        super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -4185,8 +4191,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 accountID: accountID,
                 seedChats: seedChats,
             )
-            picker.onFinished = { [weak self] _ in
-                self?.endMessageSelection()
+            picker.onSelect = { [weak self] chat, topic, draft in
+                guard let self, TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == chatVM.client.id else { return }
+                endMessageSelection()
+                let destination = ChatLocation.current(
+                    chatID: chat.id,
+                    topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
+                    client: chatVM.client,
+                )
+                if destination == location {
+                    chatVM.beginForward(draft)
+                } else {
+                    let controller = ChatViewController(
+                        customChat: chat,
+                        location: destination,
+                        forumTopic: topic,
+                        pendingForward: draft,
+                    )
+                    self.navigationController?.pushViewController(controller, animated: true)
+                }
             }
             let navigationController = TelegramNavigationController(rootViewController: picker)
             navigationController.modalPresentationStyle = .fullScreen

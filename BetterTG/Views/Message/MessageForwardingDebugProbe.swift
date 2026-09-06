@@ -113,7 +113,7 @@
 
             private let firstRecipient = ProbeRecipientControl(title: "Saved Messages", subtitle: "Private Chat")
             private let secondRecipient = ProbeRecipientControl(title: "Design Group", subtitle: "Group")
-            private let toolbar = ForwardDestinationToolbar()
+            private let toolbar = LegacyProbeForwardToolbar()
             private let resultLabel = UILabel()
             private var toolbarHeightConstraint: NSLayoutConstraint!
             private var selectedRecipientCount = 0
@@ -165,7 +165,7 @@
                 }
                 view.addSubview(toolbar)
                 toolbarHeightConstraint = toolbar.heightAnchor.constraint(
-                    equalToConstant: ForwardDestinationToolbar.contentHeight + view.safeAreaInsets.bottom,
+                    equalToConstant: LegacyProbeForwardToolbar.contentHeight + view.safeAreaInsets.bottom,
                 )
                 NSLayoutConstraint.activate([
                     stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
@@ -187,7 +187,7 @@
             override func viewSafeAreaInsetsDidChange() {
                 super.viewSafeAreaInsetsDidChange()
                 toolbarHeightConstraint?.constant =
-                    ForwardDestinationToolbar.contentHeight + view.safeAreaInsets.bottom
+                    LegacyProbeForwardToolbar.contentHeight + view.safeAreaInsets.bottom
             }
 
             @objc private func recipientPressed(_ sender: ProbeRecipientControl) {
@@ -338,4 +338,106 @@
             )
         }
     }
+
+private final class LegacyProbeForwardToolbar: UIView {
+    static let contentHeight: CGFloat = 56
+
+    var onSend: (() -> Void)?
+
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let summaryLabel = UILabel()
+    private let sendButton = UIButton(type: .system)
+    private let spinner = UIActivityIndicatorView(style: .medium)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configureViews()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(selectedCount: Int, messageCount: Int, isSending: Bool) {
+        if isSending {
+            summaryLabel.text = "Forwarding…"
+        } else if selectedCount == 0 {
+            summaryLabel.text = messageCount == 1 ? "1 message" : "\(messageCount) messages"
+        } else {
+            let chats = selectedCount == 1 ? "1 chat" : "\(selectedCount) chats"
+            let messages = messageCount == 1 ? "1 message" : "\(messageCount) messages"
+            summaryLabel.text = "\(messages) · \(chats)"
+        }
+        sendButton.isEnabled = selectedCount > 0 && !isSending
+        sendButton.alpha = 1
+        spinner.isHidden = !isSending
+        if isSending {
+            spinner.startAnimating()
+        } else {
+            spinner.stopAnimating()
+        }
+    }
+
+    private func configureViews() {
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(blurView)
+
+        let separator = UIView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = .separator
+        addSubview(separator)
+
+        summaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        summaryLabel.font = .preferredFont(forTextStyle: .subheadline)
+        summaryLabel.textColor = .secondaryLabel
+        summaryLabel.adjustsFontForContentSizeCategory = true
+        addSubview(summaryLabel)
+
+        sendButton.translatesAutoresizingMaskIntoConstraints = false
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Forward"
+        configuration.image = UIImage(
+            systemName: "arrow.up",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold),
+        )
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 8
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 14)
+        configuration.baseBackgroundColor = .systemBlue
+        configuration.baseForegroundColor = .white
+        sendButton.configuration = configuration
+        sendButton.addTarget(self, action: #selector(sendPressed), for: .touchUpInside)
+        addSubview(sendButton)
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.hidesWhenStopped = true
+        addSubview(spinner)
+
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            separator.topAnchor.constraint(equalTo: topAnchor),
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
+            summaryLabel.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            summaryLabel.topAnchor.constraint(equalTo: topAnchor),
+            summaryLabel.heightAnchor.constraint(equalToConstant: Self.contentHeight),
+            sendButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -14),
+            sendButton.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            sendButton.heightAnchor.constraint(equalToConstant: 42),
+            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: spinner.leadingAnchor, constant: -10),
+            spinner.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -10),
+            spinner.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
+        ])
+    }
+
+    @objc private func sendPressed() {
+        onSend?()
+    }
+}
+
 #endif
