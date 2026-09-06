@@ -32,8 +32,16 @@ import UIKit
     private var queryGeneration = UInt64.zero
     private var queryTask: Task<Void, Never>?
     private var query = ""
+    private var searchActive = false
+    private var didSetInitialOffset = false
 
-    var searchOffset: CGFloat { max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top) }
+    var searchOffset: CGFloat {
+        guard isViewLoaded, didSetInitialOffset else { return 0 }
+        return min(
+            ChatListNavigationSearchView.scrollHeight,
+            max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
+        )
+    }
 
     private var contextIsCurrent: Bool {
         TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
@@ -64,7 +72,8 @@ import UIKit
         super.viewDidLoad()
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.delegate = self
-        tableView.keyboardDismissMode = .onDrag
+        tableView.keyboardDismissMode = .interactive
+        tableView.alwaysBounceVertical = true
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 56
         tableView.contentInsetAdjustmentBehavior = .never
@@ -90,7 +99,39 @@ import UIKit
             cell.configure(chat: chat, enabled: true, client: client)
             return cell
         }
+        updateTableInsets()
         loadChats(query: query)
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateTableInsets()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard !didSetInitialOffset else { return }
+        didSetInitialOffset = true
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+        onScroll?(searchOffset)
+    }
+
+    func setSearchActive(_ active: Bool, animated: Bool) {
+        searchActive = active
+        guard isViewLoaded else { return }
+        let changes = {
+            self.updateTableInsets()
+            self.tableView.layoutIfNeeded()
+            self.tableView.contentOffset = CGPoint(x: 0, y: -self.tableView.adjustedContentInset.top)
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.22,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+                animations: changes,
+            )
+        } else { changes() }
     }
 
     func updateQuery(_ value: String) {
@@ -99,9 +140,26 @@ import UIKit
         if isViewLoaded { loadChats(query: value) }
     }
 
-    func scrollToTop() { tableView.setContentOffset(.zero, animated: true) }
+    func scrollToTop() {
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView.isDragging || scrollView.isDecelerating { onScroll?(searchOffset) }
+        guard scrollView === tableView, didSetInitialOffset else { return }
+        onScroll?(searchOffset)
+    }
+
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity _: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>,
+    ) {
+        guard scrollView === tableView, !searchActive else { return }
+        let top = -scrollView.adjustedContentInset.top
+        let distance = targetContentOffset.pointee.y - top
+        let searchHeight = ChatListNavigationSearchView.scrollHeight
+        guard distance > 0, distance < searchHeight else { return }
+        targetContentOffset.pointee.y = top + (distance < searchHeight * 0.5 ? 0 : searchHeight)
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -116,6 +174,26 @@ import UIKit
               indexPath.row >= dataSource.snapshot().numberOfItems - 10 else { return }
         folderChatLimit += 100
         loadChats(query: "")
+    }
+
+    private func updateTableInsets() {
+        let previousTop = tableView.contentInset.top
+        let headerHeight = searchActive
+            ? ChatListNavigationSearchView.scrollHeight
+            : TelegramListNavigationBar.expandedContentHeight
+        let insets = UIEdgeInsets(
+            top: view.safeAreaInsets.top + headerHeight,
+            left: 0,
+            bottom: view.safeAreaInsets.bottom + 58,
+            right: 0,
+        )
+        guard tableView.contentInset != insets else { return }
+        let offset = tableView.contentOffset
+        tableView.contentInset = insets
+        tableView.verticalScrollIndicatorInsets = insets
+        if didSetInitialOffset {
+            tableView.contentOffset = CGPoint(x: offset.x, y: offset.y + previousTop - insets.top)
+        }
     }
 
     private func loadChats(query rawQuery: String) {

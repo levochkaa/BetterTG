@@ -29,7 +29,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var selectionTask: Task<Void, Never>?
     private var accountCancellable: AnyCancellable?
     private var scrollObservation: NSKeyValueObservation?
-    private var transition: (from: Int, to: Int)?
+    private var transition: (from: Int, to: Int, fromOffset: CGFloat, toOffset: CGFloat)?
     private var isChangingPage = false
     private var query = ""
 
@@ -71,10 +71,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             customNavigationBar.topAnchor.constraint(equalTo: view.topAnchor),
             customNavigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             customNavigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor), navigationHeight,
-            pageController.view.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            pageController.view.topAnchor.constraint(equalTo: view.topAnchor),
             pageController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pageController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            pageController.view.bottomAnchor.constraint(equalTo: folderPicker.topAnchor),
+            pageController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             folderPicker.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -58),
             folderPicker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             folderPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -88,6 +88,11 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         customNavigationBar.onQueryChange = { [weak self] query in
             self?.query = query
             self?.pages.forEach { $0.updateQuery(query) }
+        }
+        customNavigationBar.onSearchActiveChange = { [weak self] active in
+            guard let self else { return }
+            pages.forEach { $0.setSearchActive(active, animated: $0 === self.currentPage) }
+            if active { customNavigationBar.applyScroll(offset: 0, animated: true) }
         }
         folderPicker.onSelection = { [weak self] id in self?.selectFolder(id) }
         folderPicker.onReselection = { [weak self] _ in self?.currentPage?.scrollToTop() }
@@ -134,6 +139,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                         seedChats: self.seedChats,
                     )
                     page.updateQuery(self.query)
+                    page.setSearchActive(self.customNavigationBar.isSearchActive, animated: false)
                     page.onSelect = { [weak self] chat, forum in self?.selectChat(chat, isForum: forum) }
                     page.onScroll = { [weak self, weak page] offset in
                         guard let self, currentPage === page else { return }
@@ -184,7 +190,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     func pageViewController(_: UIPageViewController, willTransitionTo pendingViewControllers: [UIViewController]) {
         guard let from = currentPage,
               let to = pendingViewControllers.first as? ForwardDestinationListViewController else { return }
-        transition = (from.folder.id, to.folder.id)
+        transition = (from.folder.id, to.folder.id, from.searchOffset, to.searchOffset)
         isChangingPage = true
     }
 
@@ -202,11 +208,28 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private func updateInteractiveSelection(_ scroll: UIScrollView) {
         guard let transition, scroll.bounds.width > 0 else { return }
-        folderPicker.updateSelectionTransition(
-            fromID: transition.from,
-            toID: transition.to,
-            fraction: abs(scroll.contentOffset.x - scroll.bounds.width) / scroll.bounds.width,
-        )
+        let fraction = min(1, abs(scroll.contentOffset.x - scroll.bounds.width) / scroll.bounds.width)
+        folderPicker.updateSelectionTransition(fromID: transition.from, toID: transition.to, fraction: fraction)
+        customNavigationBar
+            .applyScroll(offset: transition.fromOffset + (transition.toOffset - transition.fromOffset) * fraction)
+    }
+
+    private func applySearchOffset(_ offset: CGFloat, animated: Bool) {
+        guard animated else {
+            customNavigationBar.applyScroll(offset: offset)
+            return
+        }
+        view.layoutIfNeeded()
+        UIView.animate(
+            withDuration: 0.28,
+            delay: 0,
+            usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            self.customNavigationBar.applyScroll(offset: offset)
+            self.view.layoutIfNeeded()
+        }
     }
 
     private func selectFolder(_ id: Int) {
@@ -214,7 +237,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         let old = pages.firstIndex(where: { $0 === currentPage }) ?? index
         isChangingPage = true
         folderPicker.select(id: id)
-        customNavigationBar.applyScroll(offset: pages[index].searchOffset)
+        applySearchOffset(pages[index].searchOffset, animated: true)
         pageController.setViewControllers(
             [pages[index]],
             direction: index >= old ? .forward : .reverse,
