@@ -1561,7 +1561,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     fileprivate func setTransitionContentHidden(_ hidden: Bool) {
-        selectedGalleryCell()?.contentView.isHidden = hidden
+        selectedGalleryCell()?.setTransitionMediaHidden(hidden)
     }
 
     fileprivate func setInteractiveDismissalChromeAlpha(_ alpha: CGFloat) {
@@ -1570,6 +1570,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         thumbnailStrip.alpha = alpha
         toolbar.alpha = alpha
         captionView.alpha = alpha
+        selectedGalleryCell()?.setTransitionChromeAlpha(alpha)
     }
 
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
@@ -1636,7 +1637,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func configureCollectionView() {
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .black
+        collectionView.backgroundColor = .clear
         collectionView.isPagingEnabled = true
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.delegate = self
@@ -3698,6 +3699,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             activityItems: [lease.fileURL] + lease.additionalFileURLs,
             applicationActivities: nil,
         )
+        activity.modalPresentationStyle = .popover
+        activity.preferredTransition = .zoom { [weak self] _ in self?.shareButton }
         activity.popoverPresentationController?.sourceView = shareButton
         activity.popoverPresentationController?.sourceRect = shareButton.bounds
         activity.completionWithItemsHandler = { [weak self, lease] _, _, _, _ in
@@ -4047,8 +4050,8 @@ private final class MediaGalleryDismissalInteraction: NSObject, UIViewController
         let controlsAlpha = 1 - min(1, abs(translation) / 50)
         let backgroundAlpha = 1 - min(1, abs(translation) / 80)
         snapshot?.frame = startFrame.offsetBy(dx: 0, dy: translation)
-        fromView.alpha = backgroundAlpha
-        gallery.setInteractiveDismissalChromeAlpha(backgroundAlpha > 0 ? controlsAlpha / backgroundAlpha : 0)
+        fromView.backgroundColor = UIColor.black.withAlphaComponent(backgroundAlpha)
+        gallery.setInteractiveDismissalChromeAlpha(controlsAlpha)
         context.updateInteractiveTransition(min(1, abs(translation) / max(1, fromView.bounds.height / 4)))
     }
 
@@ -4087,7 +4090,7 @@ private final class MediaGalleryDismissalInteraction: NSObject, UIViewController
             delay: 0,
             options: [.beginFromCurrentState, .curveEaseInOut],
         ) {
-            fromView.alpha = completed ? 0 : 1
+            fromView.backgroundColor = UIColor.black.withAlphaComponent(completed ? 0 : 1)
             gallery.setInteractiveDismissalChromeAlpha(completed ? 0 : 1)
             if !completed {
                 snapshot?.frame = self.startFrame
@@ -4198,6 +4201,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         container.addSubview(snapshot)
         gallery.setTransitionContentHidden(true)
         toView.alpha = 0
+        gallery.setInteractiveDismissalChromeAlpha(0)
         UIView.animate(
             withDuration: Self.duration,
             delay: 0,
@@ -4206,6 +4210,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
             toView.alpha = 1
+            gallery.setInteractiveDismissalChromeAlpha(1)
             snapshot.frame = destinationFrame
             (snapshot as? MediaGalleryImageTransitionView)?.setImageFrame(CGRect(
                 origin: .zero,
@@ -5460,6 +5465,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         guard !isInvalidated else { return }
         mediaView.setInteractiveDismissalActive(isActive)
     }
+
+    func setTransitionMediaHidden(_ hidden: Bool) { mediaView.setTransitionMediaHidden(hidden) }
+    func setTransitionChromeAlpha(_ alpha: CGFloat) { mediaView.setTransitionChromeAlpha(alpha) }
 
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
         guard canReturnToPresentation else { return nil }
@@ -6831,7 +6839,7 @@ final class MediaGalleryCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .black
+        backgroundColor = .clear
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -7016,6 +7024,16 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
+    func setTransitionMediaHidden(_ hidden: Bool) {
+        if let videoPlaybackOwner { videoPlaybackOwner.setTransitionMediaHidden(hidden) }
+        else { contentMediaView?.setTransitionMediaHidden(hidden) }
+    }
+
+    func setTransitionChromeAlpha(_ alpha: CGFloat) {
+        if let videoPlaybackOwner { videoPlaybackOwner.setTransitionChromeAlpha(alpha) }
+        else { contentMediaView?.setTransitionChromeAlpha(alpha) }
+    }
+
     func transitionContentFrame(in coordinateSpace: UIView) -> CGRect? {
         guard let transitionMediaSize,
               transitionMediaSize.width > 0,
@@ -7046,6 +7064,8 @@ final class MediaGalleryCell: UICollectionViewCell {
 // MARK: - GalleryMediaView
 
 protocol GalleryMediaView: AnyObject {
+    func setTransitionMediaHidden(_ hidden: Bool)
+    func setTransitionChromeAlpha(_ alpha: CGFloat)
     func makeTransitionSnapshot() -> UIView?
     func canBeginInteractiveDismissal(at point: CGPoint) -> Bool
     func performPlaybackCommand(_ command: GalleryPlaybackCommand)
@@ -7059,6 +7079,8 @@ protocol GalleryMediaView: AnyObject {
 }
 
 extension GalleryMediaView {
+    func setTransitionMediaHidden(_ hidden: Bool) { (self as? UIView)?.alpha = hidden ? 0 : 1 }
+    func setTransitionChromeAlpha(_: CGFloat) {}
     func makeTransitionSnapshot() -> UIView? { nil }
     func canBeginInteractiveDismissal(at _: CGPoint) -> Bool { true }
     func performPlaybackCommand(_: GalleryPlaybackCommand) {}
@@ -7842,6 +7864,18 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             }
         }
         updateControlIcons()
+    }
+
+    func setTransitionMediaHidden(_ hidden: Bool) {
+        preview.alpha = hidden ? 0 : 1
+        videoSurface.alpha = hidden ? 0 : 1
+        ffmpegPlayer?.surfaceView.alpha = hidden ? 0 : 1
+    }
+
+    func setTransitionChromeAlpha(_ alpha: CGFloat) {
+        controlsView.alpha = alpha
+        spinner.alpha = alpha
+        retryButton.alpha = alpha
     }
 
     func setGalleryChromeController(_ visibilityChanged: ((Bool) -> Void)?) {

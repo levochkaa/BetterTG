@@ -162,6 +162,13 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         if visible { autoplayIfNeeded() } else { stopMotion() }
     }
 
+    func setTransitionMediaHidden(_ hidden: Bool) { mediaContainer.alpha = hidden ? 0 : 1 }
+
+    func setTransitionChromeAlpha(_ alpha: CGFloat) {
+        liveButton.alpha = alpha
+        spinner.alpha = alpha
+    }
+
     func setGalleryChromeVisible(_ visible: Bool, animated: Bool) {
         let update = { self.liveButton.alpha = visible ? 1 : 0 }
         if animated { UIView.animate(withDuration: 0.2, animations: update) } else { update() }
