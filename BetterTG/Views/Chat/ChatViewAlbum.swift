@@ -798,6 +798,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         true
     }
 
+    /// Hardware shortcuts stay available without UIKit restoring a software keyboard when menus take focus.
+    override var inputView: UIView? { emptyKeyboardView }
+
     override var preferredStatusBarStyle: UIStatusBarStyle {
         .lightContent
     }
@@ -856,6 +859,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
+
+    private let emptyKeyboardView = UIView(frame: .zero)
 
     private var onRequestNewerMessages: (() -> Void)?
     private var chatHistory: ChatMediaGalleryHistory?
