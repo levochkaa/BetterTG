@@ -220,6 +220,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let bubbleStack = UIStackView()
     private let highlightOverlay = UIView()
     private var messageIsHighlighted = false
+    private var highlightConstraints = [NSLayoutConstraint]()
     private var bubbleInsetViews = [ObjectIdentifier: MessageBubbleInsetView]()
     private var usesFullBleedMedia = false
     private let avatarView = ProfileAvatarView()
@@ -303,10 +304,46 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        #if DEBUG
-            probeReuseCount += 1
-        #endif
-        resetUnavailableContent()
+        alpha = 1
+        transform = .identity
+        isUserInteractionEnabled = true
+        resumeHistoryScrolling()
+        setMessageHighlighted(nil)
+        NSLayoutConstraint.deactivate(highlightConstraints)
+        highlightConstraints = []
+        highlightOverlay.removeFromSuperview()
+        avatarView.prepareForReuse()
+        mediaView.prepareForReuse()
+        structuredContentView.prepareForReuse()
+        textView.prepareForReuse()
+        reactionView.prepareForReuse()
+        forwardView.prepareForReuse()
+        replyView.prepareForReuse()
+        forwardView.isHidden = true
+        replyView.isHidden = true
+        textView.isHidden = true
+        mediaView.isHidden = true
+        structuredContentView.isHidden = true
+        reactionView.isHidden = true
+        timestampLabel.isHidden = true
+        mediaTimestampLabel.isHidden = true
+        onSwipeToReply = nil
+        onMediaTap = nil
+        onSelectionToggle = nil
+        onSelfSizingHeightChange = nil
+        representedGalleryMessageIDs.removeAll()
+        mediaTransitionGeneration = UUID()
+        swipeToReplyRecognizer.isEnabled = false
+        selectionActive = false
+        selectionOutgoing = false
+        selectionCentered = false
+        selectionControl.isHidden = true
+        selectionIndicatorView.isHidden = true
+        selectionIndicatorView.setSelected(false)
+        accessibilityTraits.remove(.selected)
+        accessibilityCustomActions = nil
+        resetSwipeToReply(animated: false)
+        bubbleContentNeedsMeasurement = true
     }
 
     override func layoutSubviews() {
@@ -436,7 +473,26 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         reactionView.setPlaybackVisible(isVisible)
     }
 
-    func setMessageHighlighted(_ highlighted: Bool, animated: Bool = false) {
+    func setMessageHighlighted(_ messageID: Int64?, animated: Bool = false) {
+        let highlighted = messageID != nil
+        if let messageID {
+            let target = (mediaView.isHidden ? nil : mediaView.galleryTransitionSourceView(for: messageID)) ??
+                bubbleView
+            if highlightOverlay.superview !== target {
+                NSLayoutConstraint.deactivate(highlightConstraints)
+                highlightOverlay.removeFromSuperview()
+                target.addSubview(highlightOverlay)
+                highlightOverlay.layer.cornerRadius = target.layer.cornerRadius
+                highlightOverlay.layer.maskedCorners = target.layer.maskedCorners
+                highlightConstraints = [
+                    highlightOverlay.topAnchor.constraint(equalTo: target.topAnchor),
+                    highlightOverlay.leadingAnchor.constraint(equalTo: target.leadingAnchor),
+                    highlightOverlay.trailingAnchor.constraint(equalTo: target.trailingAnchor),
+                    highlightOverlay.bottomAnchor.constraint(equalTo: target.bottomAnchor),
+                ]
+                NSLayoutConstraint.activate(highlightConstraints)
+            }
+        }
         messageIsHighlighted = highlighted
         if highlighted { highlightOverlay.isHidden = false }
         let changes = { self.highlightOverlay.alpha = highlighted ? 1 : 0 }
@@ -497,7 +553,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     func configure(
         message: CustomMessage,
         chat: CustomChat,
-        highlighted: Bool,
+        highlightedMessageID: Int64?,
         client: TDLibClient,
         spoilerSource: TdUpdateSource? = nil,
         mediaRevealSession: MediaRevealSession? = nil,
@@ -591,7 +647,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             .isService || isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)
             ? .clear
             : .secondarySystemBackground
-        setMessageHighlighted(highlighted)
         let usesEdgeToEdgeContent = usesFullBleedMedia || presentation.isService
         bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
@@ -642,6 +697,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             onTap: mediaAction,
         )
         mediaView.isHidden = !hasMedia
+        setMessageHighlighted(highlightedMessageID)
 
         let previewBelowText: Bool =
             if case .linkPreview(let preview) = presentation.supplement {
@@ -939,12 +995,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         highlightOverlay.accessibilityElementsHidden = true
         highlightOverlay.isHidden = true
         bubbleView.addSubview(highlightOverlay)
-        NSLayoutConstraint.activate([
+        highlightConstraints = [
             highlightOverlay.topAnchor.constraint(equalTo: bubbleView.topAnchor),
             highlightOverlay.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor),
             highlightOverlay.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor),
             highlightOverlay.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(highlightConstraints)
     }
 
     private func arrangedBubbleView(for content: UIView) -> UIView {

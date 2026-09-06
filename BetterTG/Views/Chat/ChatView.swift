@@ -596,7 +596,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === collectionView, let messageID = pendingScrollHighlightMessageID else { return }
         pendingScrollHighlightMessageID = nil
-        highlightMessage(id: messageID)
+        guard let displayedID = chatVM.displayedMessageID(containing: messageID) else { return }
+        // Offscreen rows use estimated heights. Resolve again after UIKit has measured the destination.
+        scrollToLoadedMessage(id: displayedID, quoteTargetMessageID: messageID)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -673,6 +675,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func beginMessageSearch() {
         guard presentationMode == .full else { return }
         customNavigationBar.beginSearch()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer is UITapGestureRecognizer else { return true }
+        var touchedView = touch.view
+        while let current = touchedView, current !== collectionView {
+            if current is UIControl { return false }
+            touchedView = current.superview
+        }
+        return true
     }
 
     func gestureRecognizer(
@@ -1659,12 +1671,42 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     unavailable: { $0.resetUnavailableContent() },
                 )
             case .message(let displayedMessageID):
-                ChatTimelineCellProvider.dequeue(
-                    MessageCell.self, from: collectionView, at: indexPath,
-                    reuseIdentifier: MessageCell.reuseIdentifier,
-                    preserve: { [weak self] cell in
-                        self?.timelineSourceIsCurrent == true
-                            && self?.timelineSnapshots.canPreserveDeletingCell(cell, id: displayedMessageID) == true
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: MessageCell.reuseIdentifier,
+                    for: indexPath,
+                ) as? MessageCell,
+                    let message = message(for: displayedMessageID)
+                else { return UICollectionViewCell() }
+                let messageSelectable = canSelectMessage(message)
+                cell.configure(
+                    message: message,
+                    chat: chatVM.customChat,
+                    highlightedMessageID: message.sourceMessages
+                        .first(where: {
+                            $0.id == self.chatVM.highlightedMessageId
+                        })?.id,
+                    client: chatVM.client,
+                    pollInteractionStore: chatVM.pollInteractionStore,
+                    videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
+                    canAddReactions: chatVM.canAddReactions,
+                    selectionActive: isSelectingMessages && messageSelectable,
+                    selected: selectedDisplayedMessageIDs.contains(displayedMessageID),
+                    onSwipeToReply: presentationMode == .full
+                        && !isSelectingMessages
+                        && !chatVM.isReadOnlyTopic
+                        && message.properties.canBeReplied
+                        ? { [weak self] in self?.chatVM.beginReply(to: message) }
+                        : nil,
+                    onSelectionToggle: isSelectingMessages && messageSelectable
+                        ? { [weak self] in self?.toggleMessageSelection(displayedMessageID: displayedMessageID) }
+                        : nil,
+                    onReactionTap: { [weak self] type in
+                        guard let self,
+                              presentationMode == .full,
+                              !isSelectingMessages,
+                              !chatVM.isReadOnlyTopic
+                        else { return }
+                        chatVM.toggleReaction(on: message, type: type, isBig: false)
                     },
                     configure: { [weak self] cell in
                         guard let self, timelineSourceIsCurrent,
@@ -2474,7 +2516,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || collectionView.isDecelerating
             || selectionInteractionActive
         guard didPerformInitialScroll,
-              timelineLayoutMutationDepth == 0, !timelineSnapshots.isBusy,
+              timelineLayoutMutationDepth == 0,
+              pendingScrollHighlightMessageID == nil,
               !userIsScrolling
         else { return }
         guard !selfSizingAnchorRestoreScheduled else { return }
@@ -2496,7 +2539,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 || collectionView.isDragging
                 || collectionView.isDecelerating
                 || selectionInteractionActive
-            guard !userIsScrolling else { return }
+            guard !userIsScrolling, pendingScrollHighlightMessageID == nil else { return }
             timelineLayoutMutationDepth += 1
             defer { timelineLayoutMutationDepth -= 1 }
             synchronizeNativeSelection()
@@ -2527,6 +2570,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             defer { timelineLayoutMutationDepth -= 1 }
             synchronizeNativeSelection()
             collectionView.layoutIfNeeded()
+            guard pendingScrollHighlightMessageID == nil else { return }
             if keepLatest {
                 pinToLatestEdge(animated: false)
             } else if let anchor {
@@ -2545,7 +2589,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   let message = message(for: displayedID)
             else { continue }
             cell.setMessageHighlighted(
-                message.sourceMessages.contains { $0.id == chatVM.highlightedMessageId },
+                message.sourceMessages.first { $0.id == chatVM.highlightedMessageId }?.id,
                 animated: true,
             )
         }
@@ -2726,6 +2770,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         collectionView.layoutIfNeeded()
         pendingScrollHighlightMessageID = nil
+        let highlightedID = highlight ? (quoteTargetMessageID ?? message(for: id)?.message.id) : nil
         var didAnimateScroll = false
         if let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath) {
             let insets = collectionView.adjustedContentInset
@@ -2738,12 +2783,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
             let offset = min(max(desiredOffset, minimumOffset), maximumOffset)
             didAnimateScroll = animated && abs(offset - collectionView.contentOffset.y) > 0.5
+            if didAnimateScroll { pendingScrollHighlightMessageID = highlightedID }
             collectionView.setContentOffset(
                 CGPoint(x: collectionView.contentOffset.x, y: offset),
                 animated: didAnimateScroll,
             )
         } else {
             didAnimateScroll = animated
+            if didAnimateScroll { pendingScrollHighlightMessageID = highlightedID }
             collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
         }
         let animated = didPerformInitialScroll
@@ -2785,11 +2832,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         scheduleMessageNavigationGeometryChecks()
     }
 
-        if highlight, let messageID = quoteTargetMessageID ?? message(for: id)?.message.id {
-            if didAnimateScroll { pendingScrollHighlightMessageID = messageID }
-            else { highlightMessage(id: messageID) }
-        }
-        if let quote {
+        if !didAnimateScroll, let highlightedID { highlightMessage(id: highlightedID) }
+        if let quote, let quoteTargetMessageID {
             pendingQuoteDestination = PendingQuoteDestination(
                 displayedMessageID: displayedID,
                 quote: quote,
