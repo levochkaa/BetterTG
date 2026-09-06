@@ -884,7 +884,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var forcedDismissalSnapshot: UIView?
     private var forcesFadeDismissal = false
     private var chromeIsVisible = true
-    private var interactiveDismissalProgress = CGFloat.zero
+    private var interactiveDismissalTranslation = CGFloat.zero
     private var interactiveDismissalChromeWasVisible = true
     private var revealedCaptionSpoilerMessageIDs = Set<Int64>()
     private var captionInteractionIsActive = false
@@ -1247,8 +1247,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === interactiveDismissPanGesture else { return true }
         let velocity = interactiveDismissPanGesture.velocity(in: view)
-        guard velocity.y > 0,
-              abs(velocity.y) > abs(velocity.x) * 1.2,
+        guard abs(velocity.y) > abs(velocity.x) * 1.2,
               canBeginInteractiveDismissal,
               let cell = visibleSelectedGalleryCell()
         else { return false }
@@ -1544,6 +1543,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         selectedGalleryCell()?.contentView.isHidden = hidden
     }
 
+    fileprivate func setInteractiveDismissalChromeAlpha(_ alpha: CGFloat) {
+        let alpha = chromeIsVisible ? alpha : 0
+        topBar.alpha = alpha
+        thumbnailStrip.alpha = alpha
+        toolbar.alpha = alpha
+        captionView.alpha = alpha
+    }
+
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
         guard !forcesFadeDismissal else { return nil }
         guard let selectedMessageID else { return nil }
@@ -1627,9 +1634,6 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         view.addSubview(topBar)
         let symbol = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         closeButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        closeButton.setTitle(" " + L10n.telegram("Common.Back"), for: .normal)
-        closeButton.titleLabel?.font = .systemFont(ofSize: 17)
-        closeButton.contentHorizontalAlignment = .leading
         closeButton.accessibilityLabel = L10n.telegram("Common.Back")
         closeButton.accessibilityIdentifier = "gallery-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
@@ -1707,8 +1711,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             topBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44),
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            closeButton.widthAnchor.constraint(equalToConstant: 86),
+            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 2),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
             moreButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
             moreButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
             moreButton.widthAnchor.constraint(equalToConstant: 44),
@@ -2155,11 +2159,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             guard canBeginInteractiveDismissal,
                   let cell = visibleSelectedGalleryCell()
             else { return }
-            interactiveDismissalProgress = 0
+            interactiveDismissalTranslation = 0
             interactiveDismissalChromeWasVisible = chromeIsVisible
             cell.setInteractiveDismissalActive(true)
             collectionView.panGestureRecognizer.isEnabled = false
-            setChromeVisible(false, animated: !UIAccessibility.isReduceMotionEnabled)
             let began = mediaTransitionController.beginInteractiveDismissal(from: self) { [weak self] completed in
                 self?.interactiveDismissalEnded(completed: completed)
             }
@@ -2168,11 +2171,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             }
         case .changed:
             let translation = gesture.translation(in: view)
-            interactiveDismissalProgress = min(1, max(0, translation.y / max(view.bounds.height * 0.6, 1)))
-            mediaTransitionController.updateInteractiveDismissal(interactiveDismissalProgress)
+            interactiveDismissalTranslation = translation.y
+            mediaTransitionController.updateInteractiveDismissal(translation.y)
         case .ended:
             let velocity = gesture.velocity(in: view)
-            if interactiveDismissalProgress >= 0.28 || velocity.y >= 900 {
+            if abs(interactiveDismissalTranslation) > view.bounds.height / 4 || abs(velocity.y) > 1000 {
                 mediaTransitionController.finishInteractiveDismissal()
             } else {
                 mediaTransitionController.cancelInteractiveDismissal()
@@ -2189,7 +2192,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func interactiveDismissalEnded(completed: Bool) {
         visibleSelectedGalleryCell()?.setInteractiveDismissalActive(false)
         collectionView.panGestureRecognizer.isEnabled = true
-        interactiveDismissalProgress = 0
+        interactiveDismissalTranslation = 0
         if contextWasInvalidated {
             if completed {
                 takeContextInvalidationCompletion()?()
@@ -3849,7 +3852,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
 private final class MediaGalleryTransitionController: NSObject, UIViewControllerTransitioningDelegate {
     private(set) var isInteractiveDismissalInProgress = false
 
-    private var dismissalInteractionController: UIPercentDrivenInteractiveTransition?
+    private var dismissalInteractionController: MediaGalleryDismissalInteraction?
     private var interactiveDismissalCompletion: ((Bool) -> Void)?
 
     func animationController(
@@ -3865,9 +3868,7 @@ private final class MediaGalleryTransitionController: NSObject, UIViewController
         forDismissed dismissed: UIViewController,
     ) -> (any UIViewControllerAnimatedTransitioning)? {
         guard dismissed is MediaGalleryViewController else { return nil }
-        return MediaGalleryTransitionAnimator(isPresenting: false) { [weak self] completed in
-            self?.dismissalTransitionEnded(completed: completed)
-        }
+        return MediaGalleryTransitionAnimator(isPresenting: false)
     }
 
     func interactionControllerForDismissal(
@@ -3883,9 +3884,9 @@ private final class MediaGalleryTransitionController: NSObject, UIViewController
         guard !isInteractiveDismissalInProgress,
               gallery.presentingViewController != nil
         else { return false }
-        let interactionController = UIPercentDrivenInteractiveTransition()
-        interactionController.completionCurve = .easeOut
-        interactionController.completionSpeed = 0.85
+        let interactionController = MediaGalleryDismissalInteraction { [weak self] completed in
+            self?.dismissalTransitionEnded(completed: completed)
+        }
         dismissalInteractionController = interactionController
         interactiveDismissalCompletion = completion
         isInteractiveDismissalInProgress = true
@@ -3893,9 +3894,9 @@ private final class MediaGalleryTransitionController: NSObject, UIViewController
         return true
     }
 
-    func updateInteractiveDismissal(_ progress: CGFloat) {
+    func updateInteractiveDismissal(_ translation: CGFloat) {
         guard isInteractiveDismissalInProgress else { return }
-        dismissalInteractionController?.update(min(1, max(0, progress)))
+        dismissalInteractionController?.update(translation: translation)
     }
 
     func finishInteractiveDismissal() {
@@ -3915,6 +3916,152 @@ private final class MediaGalleryTransitionController: NSObject, UIViewController
         let completion = interactiveDismissalCompletion
         interactiveDismissalCompletion = nil
         completion?(completed)
+    }
+}
+
+// MARK: - MediaGalleryDismissalInteraction
+
+/// Telegram drags full-sized media vertically, then animates to the source on release.
+/// A percent-driven source transition would shrink and move it toward the cell mid-drag.
+private final class MediaGalleryDismissalInteraction: NSObject, UIViewControllerInteractiveTransitioning {
+    private var context: (any UIViewControllerContextTransitioning)?
+    private var snapshot: UIView?
+    private var startFrame = CGRect.zero
+    private var translation = CGFloat.zero
+    private var pendingCompletion: Bool?
+    private var dragSourceTarget: MediaGalleryTransitionTarget?
+    private var dragSourceView: UIView?
+    private var dragSourceAlpha = CGFloat(1)
+    private var isEnding = false
+    private let completion: (Bool) -> Void
+
+    init(completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+    }
+
+    func startInteractiveTransition(_ transitionContext: any UIViewControllerContextTransitioning) {
+        context = transitionContext
+        guard let gallery = transitionContext.viewController(forKey: .from) as? MediaGalleryViewController,
+              let toController = transitionContext.viewController(forKey: .to),
+              let fromView = transitionContext.view(forKey: .from),
+              let toView = transitionContext.view(forKey: .to)
+        else {
+            transitionContext.cancelInteractiveTransition()
+            transitionContext.completeTransition(false)
+            context = nil
+            completion(false)
+            return
+        }
+        let container = transitionContext.containerView
+        toView.frame = transitionContext.finalFrame(for: toController)
+        container.insertSubview(toView, belowSubview: fromView)
+        toView.layoutIfNeeded()
+        if let frame = gallery.transitionContentFrame(in: container),
+           let mediaSnapshot = gallery.makeTransitionSnapshot()
+        {
+            startFrame = frame
+            snapshot =
+                if let image = (mediaSnapshot as? UIImageView)?.image {
+                    MediaGalleryImageTransitionView(
+                        image: image,
+                        imageFrame: CGRect(origin: .zero, size: frame.size),
+                    )
+                } else {
+                    mediaSnapshot
+                }
+            snapshot?.frame = frame
+            snapshot?.clipsToBounds = true
+            if let snapshot { container.addSubview(snapshot) }
+            gallery.setTransitionContentHidden(true)
+        }
+        dragSourceTarget = gallery.currentTransitionTarget()
+        dragSourceView = dragSourceTarget?.validatedSourceView
+        dragSourceAlpha = dragSourceView?.alpha ?? 1
+        dragSourceView?.alpha = 0
+        update(translation: translation)
+        if let pendingCompletion { end(completed: pendingCompletion) }
+    }
+
+    func update(translation: CGFloat) {
+        guard !isEnding else { return }
+        self.translation = translation
+        guard let context,
+              let gallery = context.viewController(forKey: .from) as? MediaGalleryViewController,
+              let fromView = context.view(forKey: .from)
+        else { return }
+        // GalleryControllerNode: controls fade over 50 pt, background over 80 pt.
+        let controlsAlpha = 1 - min(1, abs(translation) / 50)
+        let backgroundAlpha = 1 - min(1, abs(translation) / 80)
+        snapshot?.frame = startFrame.offsetBy(dx: 0, dy: translation)
+        fromView.alpha = backgroundAlpha
+        gallery.setInteractiveDismissalChromeAlpha(backgroundAlpha > 0 ? controlsAlpha / backgroundAlpha : 0)
+        context.updateInteractiveTransition(min(1, abs(translation) / max(1, fromView.bounds.height / 4)))
+    }
+
+    func finish() { end(completed: true) }
+    func cancel() { end(completed: false) }
+
+    private func end(completed: Bool) {
+        guard !isEnding else { return }
+        guard let context,
+              let gallery = context.viewController(forKey: .from) as? MediaGalleryViewController,
+              let fromView = context.view(forKey: .from)
+        else {
+            pendingCompletion = completed
+            return
+        }
+        isEnding = true
+        if completed {
+            context.finishInteractiveTransition()
+        } else {
+            context.cancelInteractiveTransition()
+        }
+        if dragSourceTarget?.validatedSourceView === dragSourceView {
+            dragSourceView?.alpha = dragSourceAlpha
+        }
+        dragSourceTarget = nil
+        dragSourceView = nil
+        // Resolve the destination only after release; the list may have changed during the drag.
+        let target = completed ? gallery.currentTransitionTarget() : nil
+        let sourceView = target?.validatedSourceView
+        let sourceAlpha = sourceView?.alpha ?? 1
+        let destination = target?.frame(in: context.containerView)
+        sourceView?.alpha = 0
+        let snapshot = snapshot
+        UIView.animate(
+            withDuration: UIAccessibility.isReduceMotionEnabled ? 0.2 : 0.38,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseInOut],
+        ) {
+            fromView.alpha = completed ? 0 : 1
+            gallery.setInteractiveDismissalChromeAlpha(completed ? 0 : 1)
+            if !completed {
+                snapshot?.frame = self.startFrame
+            } else if let target, let destination, !UIAccessibility.isReduceMotionEnabled {
+                snapshot?.frame = destination
+                if let imageSnapshot = snapshot as? MediaGalleryImageTransitionView {
+                    imageSnapshot.setImageFrame(target.imageFrame(for: imageSnapshot.image.size))
+                }
+                snapshot?.layer.cornerRadius = target.cornerRadius
+                snapshot?.layer.maskedCorners = target.maskedCorners
+            } else {
+                snapshot?.alpha = 0
+                if !UIAccessibility.isReduceMotionEnabled {
+                    snapshot?.frame = self.startFrame.offsetBy(
+                        dx: 0, dy: self.translation + (self.translation < 0 ? -1 : 1) * fromView.bounds.height,
+                    )
+                }
+            }
+        } completion: { _ in
+            context.completeTransition(completed)
+            if completed { gallery.preparePlaybackOwnersForDismissalTransition() }
+            if target?.validatedSourceView === sourceView { sourceView?.alpha = sourceAlpha }
+            snapshot?.removeFromSuperview()
+            gallery.setTransitionContentHidden(false)
+            self.snapshot = nil
+            self.context = nil
+            self.completion(completed)
+        }
     }
 }
 
@@ -3943,11 +4090,9 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
     private static let duration = TimeInterval(0.38)
 
     private let isPresenting: Bool
-    private let transitionEnded: ((Bool) -> Void)?
 
-    init(isPresenting: Bool, transitionEnded: ((Bool) -> Void)? = nil) {
+    init(isPresenting: Bool) {
         self.isPresenting = isPresenting
-        self.transitionEnded = transitionEnded
     }
 
     func transitionDuration(using _: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
@@ -3960,10 +4105,6 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         } else {
             animateDismissal(using: transitionContext)
         }
-    }
-
-    func animationEnded(_ transitionCompleted: Bool) {
-        transitionEnded?(transitionCompleted)
     }
 
     private func animatePresentation(using transitionContext: any UIViewControllerContextTransitioning) {
@@ -3994,8 +4135,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             return
         }
         let sourceView = target.validatedSourceView
-        let sourceWasHidden = sourceView?.isHidden ?? false
-        sourceView?.isHidden = true
+        let sourceAlpha = sourceView?.alpha ?? 1
+        sourceView?.alpha = 0
         snapshot.frame = sourceFrame
         snapshot.layer.cornerRadius = target.cornerRadius
         snapshot.layer.maskedCorners = target.maskedCorners
@@ -4020,7 +4161,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         } completion: { _ in
             let completed = !transitionContext.transitionWasCancelled
             if target.validatedSourceView === sourceView {
-                sourceView?.isHidden = sourceWasHidden
+                sourceView?.alpha = sourceAlpha
             }
             snapshot.removeFromSuperview()
             gallery.setTransitionContentHidden(false)
@@ -4052,7 +4193,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             ? nil
             : gallery.currentTransitionTarget()
         let sourceView = sourceTarget?.validatedSourceView
-        let sourceWasHidden = sourceView?.isHidden ?? false
+        let sourceAlpha = sourceView?.alpha ?? 1
         var snapshot = gallery.makeTransitionSnapshot()
         let sourceFrame = sourceTarget?.frame(in: container)
         let startFrame = gallery.transitionContentFrame(in: container)
@@ -4062,7 +4203,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                 imageFrame: CGRect(origin: .zero, size: startFrame.size),
             )
         }
-        sourceView?.isHidden = true
+        sourceView?.alpha = 0
         guard let snapshot, let sourceTarget, let sourceFrame, let startFrame else {
             animateFade(
                 appearingView: toView,
@@ -4074,7 +4215,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     commit: { gallery.preparePlaybackOwnersForDismissalTransition() },
                     cleanup: {
                         if sourceTarget?.validatedSourceView === sourceView {
-                            sourceView?.isHidden = sourceWasHidden
+                            sourceView?.alpha = sourceAlpha
                         }
                         snapshot?.removeFromSuperview()
                     },
@@ -4110,7 +4251,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                 commit: { gallery.preparePlaybackOwnersForDismissalTransition() },
                 cleanup: {
                     if sourceTarget.validatedSourceView === sourceView {
-                        sourceView?.isHidden = sourceWasHidden
+                        sourceView?.alpha = sourceAlpha
                     }
                     snapshot.removeFromSuperview()
                     gallery.setTransitionContentHidden(false)
