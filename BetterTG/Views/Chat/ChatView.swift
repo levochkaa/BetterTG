@@ -1442,7 +1442,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
         addChild(recorder)
         recorder.view.translatesAutoresizingMaskIntoConstraints = false
-        view.insertSubview(recorder.view, belowSubview: composerView)
+        view.addSubview(recorder.view)
         NSLayoutConstraint.activate([
             recorder.view.topAnchor.constraint(equalTo: view.topAnchor),
             recorder.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),

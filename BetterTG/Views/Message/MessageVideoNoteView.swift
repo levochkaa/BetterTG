@@ -54,6 +54,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private var secretDeadline: TimeInterval?
     private var secretDeadlineTask: Task<Void, Never>?
     private var playbackVisible = false
+    private var hasStartedPlayback = false
     private var downloadTask: Task<Void, Never>?
     private var downloadRequestID: UUID?
     private var ownsDownload = false
@@ -195,6 +196,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         secretDeadline = nil
         playbackVisible = false
         progressLayer.strokeEnd = 0
+        progressLayer.isHidden = true
+        hasStartedPlayback = false
+        if let fileID {
+            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
+        }
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -404,11 +410,12 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     private func renderPlayerState(_ state: LocalMediaPlayer.State) {
         currentPlayerState = state
+        progressLayer.isHidden = state != .playing
         switch state {
         case .playing:
             Self.activePlaybackView = self
-            playIcon.image = UIImage(systemName: "pause.fill")
-            playIcon.isHidden = isSecret
+            hasStartedPlayback = true
+            playIcon.isHidden = true
             accessibilityValue = "Playing"
         case .buffering, .preparing:
             playIcon.image = UIImage(systemName: "clock.fill")
@@ -418,13 +425,17 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             playIcon.image = UIImage(systemName: "exclamationmark.circle.fill")
             playIcon.isHidden = false
             accessibilityValue = "Playback failed"
-        case .ended, .idle, .paused:
-            if Self.activePlaybackView === self {
-                Self.activePlaybackView = nil
-            }
+        case .paused:
+            if Self.activePlaybackView === self { Self.activePlaybackView = nil }
             playIcon.image = UIImage(systemName: "play.fill")
-            playIcon.isHidden = isSecret
+            playIcon.isHidden = isSecret || !hasStartedPlayback
             accessibilityValue = representedPath == nil ? "Downloading" : "Paused"
+        case .ended, .idle:
+            if Self.activePlaybackView === self { Self.activePlaybackView = nil }
+            hasStartedPlayback = false
+            playIcon.isHidden = true
+            progressLayer.strokeEnd = 0
+            accessibilityValue = representedPath == nil ? "Downloading" : "Ready to play"
         }
     }
 
