@@ -436,6 +436,48 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         }
     }
 
+    #if DEBUG
+    @MainActor static func runCameraSwitchProbeIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-video-note-camera-switch-probe") else { return }
+        Task { @MainActor in
+            let capture = VideoNoteCaptureSession()
+            let reportURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("video-note-camera-switch-probe.txt")
+            var report = "Camera-switch probe started\n"
+            func record(_ line: String) {
+                report += line + "\n"
+                try? report.write(to: reportURL, atomically: true, encoding: .utf8)
+            }
+            record("Preparing physical camera; no messages will be sent")
+            let observation = capture.statePublisher.sink { state in
+                if case .failed(let message) = state { print("Camera-switch probe capture failure: \(message)") }
+            }
+            defer { observation.cancel()
+            capture.stopCapture()
+            }
+            do {
+                try await Task.sleep(for: .seconds(1))
+                try await capture.prepare(position: .front, generation: UUID())
+                try await capture.startRecording()
+                record("Front recording")
+                try await Task.sleep(for: .seconds(2))
+                _ = try await capture.switchCamera()
+                record("Back recording")
+                try await Task.sleep(for: .seconds(2))
+                _ = try await capture.switchCamera()
+                record("Front recording again")
+                try await Task.sleep(for: .seconds(2))
+                let asset = try await capture.stopRecording()
+                record("PASS: two camera switches, validated duration=\(asset.duration), length=\(asset.length)")
+                try? FileManager.default.removeItem(at: asset.url)
+            } catch {
+                capture.cancelRecording()
+                record("FAIL: \(error)")
+            }
+        }
+    }
+    #endif
+
     private static func disableTorch(on device: AVCaptureDevice?) {
         guard let device, device.hasTorch, device.torchMode != .off else { return }
         do {
@@ -797,12 +839,14 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 context.videoClosed = true
             }
             writer.markVideoFinished()
-        }
-        audioOutputQueue.async { [weak self, writer = context.writer] in
-            self?.contextLock.withLock {
-                context.audioClosed = true
+            self?.audioOutputQueue.async { [weak self] in
+                self?.finishAudioIfCovered(context)
             }
-            writer.markAudioFinished()
+        }
+        // Audio capture is delivered later than video, especially after camera reconfiguration.
+        // Keep accepting microphone buffers until they cover the final accepted video frame.
+        audioOutputQueue.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.finishAudioIfCovered(context, deadlineReached: true)
         }
         do {
             let asset = try await withTaskCancellationHandler {
@@ -838,6 +882,21 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             }
             throw error
         }
+    }
+
+    private func finishAudioIfCovered(_ context: RecordingContext, deadlineReached: Bool = false) {
+        let hasCoverage = context.writer.hasCompleteAudioTail
+        let shouldClose = contextLock.withLock { () -> Bool in
+            guard recordingContext === context,
+                  context.stopRequested,
+                  context.videoClosed,
+                  !context.audioClosed,
+                  hasCoverage || deadlineReached
+            else { return false }
+            context.audioClosed = true
+            return true
+        }
+        if shouldClose { context.writer.markAudioFinished() }
     }
 
     private func clearPendingRecordingStart(_ requestID: UUID) {
@@ -1296,6 +1355,7 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
                 if result == .reachedLimit {
                     requestAutomaticStop(context)
                 }
+                finishAudioIfCovered(context)
             }
         } catch {
             handleRecordingFailure("Couldn’t encode the video note.", context: context)

@@ -50,6 +50,7 @@ enum VideoNoteAssetWriterError: Swift.Error {
     case appendFailed
     case cancelled
     case invalidAsset
+    case invalidTrackTiming(String)
     case probeFailed(String)
     case writerFailed
 }
@@ -77,6 +78,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
     private var startTime: CMTime?
     private var lastVideoTime: CMTime?
     private var lastAudioTime: CMTime?
+    private var lastAudioEndTime: CMTime?
     private var lastRenderedPixelBuffer: CVPixelBuffer?
     private var transitionSourcePixelBuffer: CVPixelBuffer?
     private var transitionFrameIndex = 0
@@ -97,6 +99,13 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
 
     var hasStarted: Bool {
         withSerialization { startTime != nil }
+    }
+
+    var hasCompleteAudioTail: Bool {
+        withSerialization {
+            guard let lastVideoTime, let lastAudioEndTime else { return false }
+            return lastAudioEndTime >= lastVideoTime + CMTime(value: 1, timescale: 30)
+        }
     }
 
     var recordedDuration: Double {
@@ -200,7 +209,13 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
               abs(audioTimeRange.start.seconds) < 0.05,
               videoTimeRange.duration.seconds >= duration - 0.05,
               audioTimeRange.duration.seconds >= duration - 0.05
-        else { throw VideoNoteAssetWriterError.invalidAsset }
+        else {
+            throw VideoNoteAssetWriterError.invalidTrackTiming(
+                "duration=\(duration), video=\(videoTimeRange.start.seconds)+\(videoTimeRange.duration.seconds), "
+                    + "audio=\(audioTimeRange.start.seconds)+\(audioTimeRange.duration.seconds), "
+                    + "videoFormats=\(videoFormats), audioFormats=\(audioFormats)",
+            )
+        }
         return VideoNoteAsset(duration: duration, length: width, url: url)
     }
 
@@ -1071,6 +1086,8 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                 throw writer.error ?? VideoNoteAssetWriterError.appendFailed
             }
             lastAudioTime = presentationTime
+            let duration = CMSampleBufferGetDuration(sampleBuffer)
+            lastAudioEndTime = presentationTime + (duration.isNumeric && duration > .zero ? duration : .zero)
             pendingAudioBuffers.removeFirst()
         }
     }
