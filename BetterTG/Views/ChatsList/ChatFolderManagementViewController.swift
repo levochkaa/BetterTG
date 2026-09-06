@@ -219,6 +219,10 @@ final class ChatFolderOrderViewController: UITableViewController {
         .none
     }
 
+    override func tableView(_: UITableView, shouldIndentWhileEditingRowAt _: IndexPath) -> Bool {
+        false
+    }
+
     override func tableView(
         _: UITableView,
         moveRowAt sourceIndexPath: IndexPath,
