@@ -170,9 +170,7 @@ import UIKit
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if contextIsCurrent, snapshotState.canSelect,
-           indexPath.row >= max(0, snapshotState.displayedIDs.count - 5)
-        {
+        if indexPath.row >= max(0, dataSource.snapshot().numberOfItems - 5) {
             load(reset: false)
         }
     }
@@ -413,6 +411,7 @@ import UIKit
         probeSnapshotStarts += 1
         #endif
         let previous = Set(dataSource.snapshot().itemIdentifiers)
+        let ids = topics.map(\.info.forumTopicId).filter(allowedTopicIDs.contains)
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int>()
         snapshot.appendSections([.topics])
         snapshot.appendItems(batch.ids)
@@ -430,6 +429,7 @@ import UIKit
             finish()
         }
         updateBackground()
+        if ids.count < 5, hasMore, !loading { load(reset: false) }
     }
 
     private func completeSnapshot(_ token: UUID) {
@@ -449,7 +449,7 @@ import UIKit
     }
 
     private func updateBackground() {
-        guard topics.isEmpty else {
+        guard allowedTopicIDs.isEmpty else {
             tableView.backgroundView = nil
             return
         }

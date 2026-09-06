@@ -26,8 +26,19 @@ import UIKit
     private let accountID: UUID
     private let seedChats: [Chat]
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private let folderScrollView = UIScrollView()
+    private let folderStack = UIStackView()
+    private let folderUnderline = UIView()
+    private var folderWidthConstraints = [Int: NSLayoutConstraint]()
+    private var folders = [CustomFolder]()
+    private var selectedFolderID = 0
+    private var folderChatLimit = 100
+    private var hasMoreFolderChats = true
+    private var isLoadingChats = false
+    private var unavailablePrivateChatIDs = Set<Int64>()
     private let commentContainer = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let commentTextView = FormattedTextView(placeholder: "Add a comment…")
+    private let commentInputBackground = UIView()
     private let actionToolbar = ForwardDestinationToolbar()
     private let searchBar = UISearchBar()
     private let optionsButton = UIButton(type: .system)
@@ -88,6 +99,7 @@ import UIKit
         view.backgroundColor = .systemBackground
         configureNavigation()
         configureTable()
+        configureFolders()
         configureToolbar()
         observeContentSizeCategory()
         observeAccount()
@@ -110,10 +122,7 @@ import UIKit
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if abs(searchBar.frame.width - tableView.bounds.width) > 0.5 {
-            searchBar.frame.size.width = tableView.bounds.width
-            tableView.tableHeaderView = searchBar
-        }
+        updateFolderUnderline(animated: false)
         updateToolbarKeyboardAttachment()
     }
 
@@ -168,6 +177,15 @@ import UIKit
         updateToolbar()
     }
 
+    func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
+        guard !isLoadingChats, hasMoreFolderChats,
+              (searchBar.text ?? "").isEmpty,
+              indexPath.row >= dataSource.snapshot().numberOfItems - 10
+        else { return }
+        folderChatLimit += 100
+        loadChats(query: "")
+    }
+
     private func configureNavigation() {
         applyClassicNavigationAppearance()
         let cancelButton = UIButton(type: .system)
@@ -190,14 +208,18 @@ import UIKit
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.delegate = self
         tableView.keyboardDismissMode = .onDrag
-        tableView.rowHeight = 62
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 72, bottom: 0, right: 0)
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 72
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 76, bottom: 0, right: 16)
+        tableView.contentInsetAdjustmentBehavior = .never
         tableView.register(ForwardDestinationCell.self, forCellReuseIdentifier: ForwardDestinationCell.reuseID)
         searchBar.delegate = self
-        searchBar.placeholder = "Search Chats"
+        searchBar.placeholder = "Search"
         searchBar.autocapitalizationType = .none
-        searchBar.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 56)
-        tableView.tableHeaderView = searchBar
+        searchBar.searchBarStyle = .minimal
+        searchBar.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.searchTextField.backgroundColor = .tertiarySystemFill
+        view.addSubview(searchBar)
         view.addSubview(tableView)
         dataSource = UITableViewDiffableDataSource<Section, Int64>(
             tableView: tableView,
@@ -221,10 +243,127 @@ import UIKit
         }
     }
 
+    private func configureFolders() {
+        folders = RootVM.shared.allFolders
+        if !folders.contains(where: { $0.id == 0 }) {
+            folders.insert(CustomFolder(chats: [], type: .main), at: 0)
+        }
+        folderScrollView.translatesAutoresizingMaskIntoConstraints = false
+        folderScrollView.showsHorizontalScrollIndicator = false
+        folderScrollView.backgroundColor = .systemBackground
+        folderStack.translatesAutoresizingMaskIntoConstraints = false
+        folderStack.axis = .horizontal
+        folderStack.spacing = 0
+        folderScrollView.addSubview(folderStack)
+        folderUnderline.backgroundColor = .systemBlue
+        folderUnderline.layer.cornerRadius = 1.5
+        folderScrollView.addSubview(folderUnderline)
+        view.addSubview(folderScrollView)
+        NSLayoutConstraint.activate([
+            searchBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
+            searchBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+            searchBar.heightAnchor.constraint(equalToConstant: 52),
+            folderScrollView.topAnchor.constraint(equalTo: searchBar.bottomAnchor),
+            folderScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            folderScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            folderScrollView.heightAnchor.constraint(equalToConstant: 44),
+            folderStack.topAnchor.constraint(equalTo: folderScrollView.contentLayoutGuide.topAnchor),
+            folderStack.bottomAnchor.constraint(equalTo: folderScrollView.contentLayoutGuide.bottomAnchor),
+            folderStack.leadingAnchor.constraint(
+                equalTo: folderScrollView.contentLayoutGuide.leadingAnchor,
+                constant: 8,
+            ),
+            folderStack.trailingAnchor.constraint(
+                equalTo: folderScrollView.contentLayoutGuide.trailingAnchor,
+                constant: -8,
+            ),
+            folderStack.heightAnchor.constraint(equalTo: folderScrollView.frameLayoutGuide.heightAnchor),
+        ])
+        for folder in folders {
+            let button = UIButton(type: .system)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.tag = folder.id
+            let width = button.widthAnchor.constraint(equalToConstant: 44)
+            width.isActive = true
+            folderWidthConstraints[folder.id] = width
+            button.accessibilityIdentifier = "forward-folder-\(folder.id)"
+            button.addAction(UIAction { [weak self] _ in
+                guard let self, !isSending, selectedFolderID != folder.id else { return }
+                selectedFolderID = folder.id
+                folderChatLimit = 100
+                hasMoreFolderChats = true
+                updateFolderButtons(animated: true)
+                apply(chatIDs: [])
+                loadChats(query: searchBar.text ?? "")
+            }, for: .touchUpInside)
+            folderStack.addArrangedSubview(button)
+        }
+        updateFolderButtons()
+    }
+
+    private func updateFolderButtons(animated: Bool = false) {
+        for case let button as UIButton in folderStack.arrangedSubviews {
+            let selected = button.tag == selectedFolderID
+            let title = folders.first(where: { $0.id == button.tag })?.name ?? ""
+            let font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(
+                ofSize: 15,
+                weight: .semibold,
+            ))
+            // Telegram measures each tab from its label.
+            folderWidthConstraints[button.tag]?.constant = max(
+                44,
+                ceil((title as NSString).size(withAttributes: [.font: font]).width) + 28,
+            )
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = title
+            configuration.baseForegroundColor = selected ? .systemBlue : .secondaryLabel
+            configuration.buttonSize = .small
+            configuration.background.backgroundColor = .clear
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var attributes = attributes
+                attributes.font = font
+                return attributes
+            }
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 10, trailing: 14)
+            button.configuration = configuration
+            button.accessibilityTraits = selected ? [.button, .selected] : [.button]
+        }
+        folderStack.layoutIfNeeded()
+        updateFolderUnderline(animated: animated)
+    }
+
+    private func updateFolderUnderline(animated: Bool) {
+        guard let button = folderStack.arrangedSubviews.first(where: { $0.tag == selectedFolderID }),
+              button.bounds.width > 0 else { return }
+        let rect = button.convert(button.bounds, to: folderScrollView)
+        let update = { self.folderUnderline.frame = CGRect(
+            x: rect.minX + 12,
+            y: rect.maxY - 3,
+            width: max(16, rect.width - 24),
+            height: 3,
+        ) }
+        if animated {
+            UIView.animate(
+                withDuration: 0.2,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut],
+                animations: update,
+            )
+            folderScrollView.scrollRectToVisible(rect.insetBy(dx: -8, dy: 0), animated: true)
+        } else { update() }
+    }
+
     private func configureToolbar() {
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         commentContainer.translatesAutoresizingMaskIntoConstraints = false
         commentTextView.translatesAutoresizingMaskIntoConstraints = false
+        commentInputBackground.translatesAutoresizingMaskIntoConstraints = false
+        commentInputBackground.backgroundColor = .tertiarySystemFill
+        commentInputBackground.layer.cornerRadius = 18
+        commentInputBackground.layer.cornerCurve = .continuous
+        commentInputBackground.isUserInteractionEnabled = false
+        commentContainer.contentView.addSubview(commentInputBackground)
         commentTextView.onTextChange = { [weak self] _ in
             self?.updateCommentHeight()
         }
@@ -241,7 +380,7 @@ import UIKit
             equalToConstant: ForwardDestinationToolbar.contentHeight + view.safeAreaInsets.bottom,
         )
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.topAnchor.constraint(equalTo: folderScrollView.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: commentContainer.topAnchor),
@@ -249,11 +388,24 @@ import UIKit
             commentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             commentContainer.bottomAnchor.constraint(equalTo: actionToolbar.topAnchor),
             commentContainerHeightConstraint,
-            commentTextView.topAnchor.constraint(equalTo: commentContainer.contentView.topAnchor, constant: 6),
-            commentTextView.leadingAnchor.constraint(equalTo: commentContainer.contentView.leadingAnchor, constant: 12),
-            commentTextView.trailingAnchor.constraint(
+            commentInputBackground.topAnchor.constraint(equalTo: commentContainer.contentView.topAnchor, constant: 6),
+            commentInputBackground.leadingAnchor.constraint(
+                equalTo: commentContainer.contentView.leadingAnchor,
+                constant: 12,
+            ),
+            commentInputBackground.trailingAnchor.constraint(
                 equalTo: commentContainer.contentView.trailingAnchor,
                 constant: -12,
+            ),
+            commentInputBackground.bottomAnchor.constraint(
+                equalTo: commentContainer.contentView.bottomAnchor,
+                constant: -6,
+            ),
+            commentTextView.topAnchor.constraint(equalTo: commentContainer.contentView.topAnchor, constant: 6),
+            commentTextView.leadingAnchor.constraint(equalTo: commentContainer.contentView.leadingAnchor, constant: 20),
+            commentTextView.trailingAnchor.constraint(
+                equalTo: commentContainer.contentView.trailingAnchor,
+                constant: -20,
             ),
             commentTextView.bottomAnchor.constraint(equalTo: commentContainer.contentView.bottomAnchor, constant: -6),
             actionToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -286,7 +438,10 @@ import UIKit
             .publisher(for: UIContentSizeCategory.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                DispatchQueue.main.async { self?.updateCommentHeight() }
+                DispatchQueue.main.async {
+                    self?.updateCommentHeight()
+                    self?.updateFolderButtons()
+                }
             }
     }
 
@@ -314,7 +469,7 @@ import UIKit
                 }
                 preparedForward = prepared
                 mode = prepared.defaultMode
-                rebuildEligibility()
+                loadChats(query: searchBar.text ?? "")
                 configureOptionsMenu()
                 updateToolbar()
                 updateBackgroundView()
@@ -331,55 +486,58 @@ import UIKit
         let generation = queryGeneration
         queryTask?.cancel()
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folder = folders.first(where: { $0.id == selectedFolderID })
+        let chatList = folder?.chatList ?? .chatListMain
+        isLoadingChats = true
+        updateBackgroundView()
         queryTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if generation == queryGeneration {
+                    isLoadingChats = false
+                    updateBackgroundView()
+                    if !Task.isCancelled, contextIsCurrent, query.isEmpty, hasMoreFolderChats,
+                       dataSource.snapshot().numberOfItems < 10
+                    {
+                        folderChatLimit += 100
+                        loadChats(query: "")
+                    }
+                }
+            }
             if !query.isEmpty {
                 try? await Task<Never, Never>.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled else { return }
             }
-            var ids = seedChatIDs(matching: query)
-            if query.isEmpty {
-                if let recent = try? await client.searchChats(limit: 50, query: "", typeFilter: nil) {
-                    ids.append(contentsOf: recent.chatIds)
-                }
-                if let main = try? await client.getChats(chatList: .chatListMain, limit: 100) {
-                    ids.append(contentsOf: main.chatIds)
-                }
-                if let archive = try? await client.getChats(chatList: .chatListArchive, limit: 100) {
-                    ids.append(contentsOf: archive.chatIds)
-                }
-                await hydrateAndApply(ids: ids, generation: generation)
-            } else {
-                if let offline = try? await client.searchChats(limit: 50, query: query, typeFilter: nil) {
-                    ids.insert(contentsOf: offline.chatIds, at: 0)
-                }
-                await hydrateAndApply(ids: ids, generation: generation)
-                guard !Task.isCancelled,
-                      generation == queryGeneration,
-                      contextIsCurrent
-                else { return }
-                if let server = try? await client.searchChatsOnServer(
-                    limit: 50,
-                    query: query,
-                    typeFilter: nil,
-                ) {
+            // TDLib must load a list before getChats can enumerate it (including custom folders).
+            _ = try? await client.send(TDNativeRequests.loadChats(chatList: chatList, limit: 100))
+            guard !Task.isCancelled, generation == queryGeneration, contextIsCurrent else { return }
+            var ids = folder?.chats.map(\.id) ?? []
+            if let page = try? await client.getChats(chatList: chatList, limit: folderChatLimit) {
+                ids = deduplicated(page.chatIds + ids)
+                hasMoreFolderChats = page.chatIds.count >= folderChatLimit
+            } else { hasMoreFolderChats = false }
+            if !query.isEmpty {
+                if let offline = try? await client.searchChats(limit: 100, query: query, typeFilter: nil) {
+                    ids = offline.chatIds
+                } else { ids = seedChatIDs(matching: query) }
+                if let server = try? await client.searchChatsOnServer(limit: 100, query: query, typeFilter: nil) {
                     ids.append(contentsOf: server.chatIds)
-                    await hydrateAndApply(ids: ids, generation: generation)
                 }
             }
+            await hydrateAndApply(ids: ids, generation: generation, chatList: chatList, query: query)
         }
     }
 
     private func hydrateAndApply(
         ids: [Int64],
         generation: UInt64,
+        chatList: ChatList,
+        query: String,
     ) async {
         let uniqueIDs = deduplicated(ids)
         for chatID in uniqueIDs {
             guard !Task.isCancelled else { return }
-            if chatsByID[chatID] == nil,
-               let chat = try? await client.getChat(chatId: chatID)
-            {
+            if let chat = try? await client.getChat(chatId: chatID) {
                 chatsByID[chatID] = chat
             }
             if let chat = chatsByID[chatID],
@@ -405,30 +563,44 @@ import UIKit
               generation == queryGeneration,
               contextIsCurrent
         else { return }
-        let hydratedIDs = uniqueIDs.filter { chatsByID[$0] != nil }
+        let hydratedIDs = uniqueIDs.filter { chatID in
+            guard let chat = chatsByID[chatID] else { return false }
+            // All Chats search can discover a recipient; a custom folder/archive search stays in that list.
+            return !query.isEmpty && chatList == .chatListMain
+                || chat.positions.contains { $0.list == chatList && $0.order != 0 }
+        }
+        for chatID in hydratedIDs {
+            guard !Task.isCancelled, generation == queryGeneration, contextIsCurrent else { return }
+            guard let chat = chatsByID[chatID], case .chatTypePrivate = chat.type,
+                  let preparedForward else { continue }
+            let eligibility = await MessageForwardingService.eligibility(
+                of: chat, topic: nil, for: preparedForward, client: client,
+            )
+            guard !Task.isCancelled, generation == queryGeneration, contextIsCurrent else { return }
+            if eligibility.isAllowed { unavailablePrivateChatIDs.remove(chatID) }
+            else { unavailablePrivateChatIDs.insert(chatID) }
+        }
         apply(chatIDs: prioritizeSavedMessages(hydratedIDs))
     }
 
     private func apply(chatIDs: [Int64]) {
         visibleChatIDs = chatIDs
         rebuildEligibility()
-        var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
-        snapshot.appendSections([.chats])
-        snapshot.appendItems(chatIDs)
-        dataSource.apply(snapshot, animatingDifferences: true)
-        updateBackgroundView()
     }
 
     private func rebuildEligibility() {
-        guard let preparedForward else { return }
+        guard let preparedForward else {
+            applyEligibleSnapshot()
+            return
+        }
         var updated = [Int64: MessageForwardDestinationEligibility]()
         for chatID in visibleChatIDs {
             guard let chat = chatsByID[chatID] else { continue }
             updated[chatID] =
-                if forumLookupFailedChatIDs.contains(chatID) {
+                if forumLookupFailedChatIDs.contains(chatID) || unavailablePrivateChatIDs.contains(chatID) {
                     MessageForwardDestinationEligibility(
                         isAllowed: false,
-                        reason: "This forum couldn't be checked. Search again to retry.",
+                        reason: "This destination is unavailable.",
                         forcedMode: nil,
                     )
                 } else {
@@ -441,7 +613,16 @@ import UIKit
         eligibilityByChatID.merge(updated, uniquingKeysWith: { _, new in new })
         let invalidSelection = selectedDestinations.filter { updated[$0.chatID]?.isAllowed == false }
         selectedDestinations.subtract(invalidSelection)
-        reconfigure(chatIDs: visibleChatIDs)
+        applyEligibleSnapshot()
+        updateToolbar()
+    }
+
+    private func applyEligibleSnapshot() {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+        snapshot.appendSections([.chats])
+        snapshot.appendItems(visibleChatIDs.filter { eligibilityByChatID[$0]?.isAllowed == true })
+        dataSource.apply(snapshot, animatingDifferences: true)
+        updateBackgroundView()
     }
 
     private func configureOptionsMenu() {
@@ -634,10 +815,10 @@ import UIKit
     }
 
     private func updateBackgroundView() {
-        if preparedForward == nil {
+        if preparedForward == nil || isLoadingChats && dataSource.snapshot().numberOfItems == 0 {
             activityIndicator.startAnimating()
             tableView.backgroundView = activityIndicator
-        } else if visibleChatIDs.isEmpty {
+        } else if dataSource.snapshot().numberOfItems == 0 {
             let label = UILabel()
             label.text = "No chats found"
             label.textAlignment = .center
@@ -703,6 +884,7 @@ import UIKit
             }
             return "\(names.count) topics selected"
         }
+        if let message = chat.lastMessage { return ChatSummary.summary(for: message) }
         switch chat.type {
         case .chatTypeBasicGroup:
             return "Group"
@@ -765,6 +947,9 @@ import UIKit
 
     @objc private func cancelPressed() {
         guard !isSending else { return }
+        queryGeneration &+= 1
+        queryTask?.cancel()
+        preparationTask?.cancel()
         dismiss(animated: true)
     }
 }
@@ -806,6 +991,9 @@ private final class ForwardDestinationCell: UITableViewCell {
         subtitleLabel.text = subtitle
         subtitleLabel.textColor = enabled ? .secondaryLabel : .systemRed
         selectionIndicator.setSelected(selected)
+        selectionIndicator.layer.borderColor = (selected ? UIColor.systemBlue : UIColor.tertiaryLabel).cgColor
+        selectionIndicator.layer.borderWidth = selected ? 0 : 1.5
+        selectionIndicator.layer.cornerRadius = 11
         selectionIndicator.alpha = enabled ? 1 : 0.3
         contentView.alpha = enabled ? 1 : 0.62
         isUserInteractionEnabled = enabled
@@ -847,11 +1035,11 @@ private final class ForwardDestinationCell: UITableViewCell {
         labels.translatesAutoresizingMaskIntoConstraints = false
         labels.axis = .vertical
         labels.spacing = 2
-        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
         titleLabel.textColor = .label
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.isAccessibilityElement = false
-        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
+        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
         subtitleLabel.numberOfLines = 1
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.isAccessibilityElement = false
@@ -863,17 +1051,22 @@ private final class ForwardDestinationCell: UITableViewCell {
         contentView.addSubview(selectionIndicator)
 
         NSLayoutConstraint.activate([
-            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 72),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            avatarView.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 10),
+            avatarView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -10),
             avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: 44),
-            avatarView.heightAnchor.constraint(equalToConstant: 44),
+            avatarView.widthAnchor.constraint(equalToConstant: 48),
+            avatarView.heightAnchor.constraint(equalToConstant: 48),
             labels.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
             labels.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            labels.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 10),
+            labels.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -10),
             labels.trailingAnchor.constraint(lessThanOrEqualTo: selectionIndicator.leadingAnchor, constant: -10),
             selectionIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             selectionIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            selectionIndicator.widthAnchor.constraint(equalToConstant: 28),
-            selectionIndicator.heightAnchor.constraint(equalToConstant: 28),
+            selectionIndicator.widthAnchor.constraint(equalToConstant: 22),
+            selectionIndicator.heightAnchor.constraint(equalToConstant: 22),
         ])
     }
 }
@@ -910,7 +1103,7 @@ final class ForwardDestinationToolbar: UIView {
             summaryLabel.text = "\(messages) · \(chats)"
         }
         sendButton.isEnabled = selectedCount > 0 && !isSending
-        sendButton.alpha = sendButton.isEnabled ? 1 : 0.35
+        sendButton.alpha = 1
         spinner.isHidden = !isSending
         if isSending {
             spinner.startAnimating()
@@ -935,8 +1128,19 @@ final class ForwardDestinationToolbar: UIView {
         addSubview(summaryLabel)
 
         sendButton.translatesAutoresizingMaskIntoConstraints = false
-        sendButton.setTitle("Forward", for: .normal)
-        sendButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Forward"
+        configuration.image = UIImage(
+            systemName: "arrow.up",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold),
+        )
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 8
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 14)
+        configuration.baseBackgroundColor = .systemBlue
+        configuration.baseForegroundColor = .white
+        sendButton.configuration = configuration
         sendButton.addTarget(self, action: #selector(sendPressed), for: .touchUpInside)
         addSubview(sendButton)
 
@@ -957,8 +1161,8 @@ final class ForwardDestinationToolbar: UIView {
             summaryLabel.topAnchor.constraint(equalTo: topAnchor),
             summaryLabel.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             sendButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -14),
-            sendButton.topAnchor.constraint(equalTo: topAnchor),
-            sendButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
+            sendButton.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            sendButton.heightAnchor.constraint(equalToConstant: 42),
             summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: spinner.leadingAnchor, constant: -10),
             spinner.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -10),
             spinner.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
