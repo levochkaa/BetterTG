@@ -45,6 +45,10 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
                 if let thumbnail = value.sticker.thumbnail { image.load(file: thumbnail.file, maximumPixelSize: 160) }
             default: image.cancel()
             }
+            updateSelection(selected)
+        }
+
+        func updateSelection(_ selected: Bool) {
             accessibilityTraits = selected ? [.button, .selected] : .button
         }
     }
@@ -55,6 +59,10 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private var messages = [Message]()
     private var selectedIndex = 0
+    private var pagingPosition = CGFloat.zero
+    private var isScrubbing = false
+    private var isSelectingByTap = false
+    private var isUpdatingLayout = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -74,6 +82,9 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        let wasUpdating = isUpdatingLayout
+        isUpdatingLayout = true
+        defer { isUpdatingLayout = wasUpdating }
         let changed = collection.bounds.size != bounds.size
         collection.frame = bounds
         collection.contentInset = UIEdgeInsets(
@@ -98,20 +109,31 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
     }
 
     func configure(messages: [Message], selectedIndex: Int) {
+        isUpdatingLayout = true
+        defer { isUpdatingLayout = false }
         let changed = self.messages.map(\.id) != messages.map(\.id)
-        let previous = self.selectedIndex
+        let previousPosition = pagingPosition
         self.messages = messages
         self.selectedIndex = selectedIndex
+        if !isScrubbing { pagingPosition = CGFloat(selectedIndex) }
         if changed { collection.reloadData() }
-        else if previous != selectedIndex {
-            collection
-                .reloadItems(at: [previous, selectedIndex].filter { messages.indices.contains($0) }.map { IndexPath(
-                    item: $0,
-                    section: 0,
-                ) })
+        // Reconfigure selection without reloading images or crossfading cells.
+        for indexPath in collection.indexPathsForVisibleItems {
+            (collection.cellForItem(at: indexPath) as? ThumbnailCell)?.updateSelection(indexPath.item == selectedIndex)
         }
-        layout.invalidateLayout()
-        centerSelection(animated: window != nil && !changed)
+        if !isScrubbing {
+            updateLayout(animated: window != nil && !changed && abs(previousPosition - pagingPosition) > 0.001)
+        }
+    }
+
+    func updatePagingPosition(_ position: CGFloat) {
+        guard !isScrubbing, !isSelectingByTap, !isUpdatingLayout, !messages.isEmpty else { return }
+        let position = min(CGFloat(messages.count - 1), max(0, position))
+        guard abs(position - pagingPosition) > 0.001 else { return }
+        pagingPosition = position
+        isUpdatingLayout = true
+        updateLayout(animated: false)
+        isUpdatingLayout = false
     }
 
     func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int { messages.count }
@@ -129,7 +151,11 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         return cell
     }
 
-    func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) { onSelect?(indexPath.item) }
+    func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        isSelectingByTap = true
+        onSelect?(indexPath.item)
+        isSelectingByTap = false
+    }
 
     func collectionView(
         _: UICollectionView,
@@ -137,20 +163,77 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         sizeForItemAt indexPath: IndexPath,
     ) -> CGSize {
         let size = Self.mediaSize(messages[indexPath.item])
-        return CGSize(
-            width: indexPath.item == selectedIndex
-                ? min(75, max(23, 42 * size.width / max(1, size.height)))
-                : 23,
-            height: 42,
-        )
+        let expandedWidth = min(75, max(31, 42 * size.width / max(1, size.height)))
+        let expansion = isScrubbing ? 0 : max(0, 1 - abs(CGFloat(indexPath.item) - pagingPosition))
+        return CGSize(width: 23 + (expandedWidth - 23) * expansion, height: 42)
+    }
+
+    func scrollViewWillBeginDragging(_: UIScrollView) {
+        isUpdatingLayout = true
+        isScrubbing = true
+        layout.invalidateLayout()
+        centerSelection(animated: false)
+        isUpdatingLayout = false
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard isScrubbing, !isUpdatingLayout,
+              scrollView.isDragging || scrollView.isDecelerating,
+              !messages.isEmpty
+        else { return }
+        // Telegram collapses the selected thumbnail while panning and selects the center item.
+        let index = min(messages.count - 1, max(0, Int(round((collection.bounds.midX - 11.5) / 25))))
+        if index != selectedIndex { onSelect?(index) }
+    }
+
+    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { finishScrubbing() }
+    }
+
+    func scrollViewDidEndDecelerating(_: UIScrollView) {
+        finishScrubbing()
+    }
+
+    private func finishScrubbing() {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        pagingPosition = CGFloat(selectedIndex)
+        isUpdatingLayout = true
+        updateLayout(animated: true)
+        isUpdatingLayout = false
+    }
+
+    private func updateLayout(animated: Bool) {
+        layout.invalidateLayout()
+        let changes = {
+            self.collection.layoutIfNeeded()
+            self.centerSelection(animated: false)
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.25,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut],
+                animations: changes,
+            )
+        } else {
+            UIView.performWithoutAnimation(changes)
+        }
     }
 
     private func centerSelection(animated: Bool) {
         guard messages.indices.contains(selectedIndex), collection.bounds.width > 0 else { return }
         collection.layoutIfNeeded()
-        collection.scrollToItem(
-            at: IndexPath(item: selectedIndex, section: 0),
-            at: .centeredHorizontally,
+        let position = isScrubbing ? CGFloat(selectedIndex) : pagingPosition
+        let lower = min(messages.count - 1, max(0, Int(floor(position))))
+        let upper = min(messages.count - 1, lower + 1)
+        guard let first = layout.layoutAttributesForItem(at: IndexPath(item: lower, section: 0)),
+              let second = layout.layoutAttributesForItem(at: IndexPath(item: upper, section: 0))
+        else { return }
+        let fraction = position - CGFloat(lower)
+        let center = first.center.x + (second.center.x - first.center.x) * fraction
+        collection.setContentOffset(
+            CGPoint(x: center - collection.bounds.width / 2, y: -collection.adjustedContentInset.top),
             animated: animated,
         )
     }

@@ -219,6 +219,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let bubbleContainerView = TelegramContextMenuExtractableView()
     private let bubbleStack = UIStackView()
     private let highlightOverlay = UIView()
+    private var messageIsHighlighted = false
     private var bubbleInsetViews = [ObjectIdentifier: MessageBubbleInsetView]()
     private var usesFullBleedMedia = false
     private let avatarView = ProfileAvatarView()
@@ -435,8 +436,25 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         reactionView.setPlaybackVisible(isVisible)
     }
 
-    func setMessageHighlighted(_ highlighted: Bool) {
-        highlightOverlay.isHidden = !highlighted
+    func setMessageHighlighted(_ highlighted: Bool, animated: Bool = false) {
+        messageIsHighlighted = highlighted
+        if highlighted { highlightOverlay.isHidden = false }
+        let changes = { self.highlightOverlay.alpha = highlighted ? 1 : 0 }
+        if animated {
+            UIView.animate(
+                withDuration: highlighted ? 0.2 : 0.35,
+                delay: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut],
+                animations: changes,
+            ) { [weak self] _ in
+                guard let self, !messageIsHighlighted else { return }
+                highlightOverlay.isHidden = true
+            }
+        } else {
+            highlightOverlay.layer.removeAllAnimations()
+            changes()
+            highlightOverlay.isHidden = !highlighted
+        }
     }
 
     func highlightQuote(_ quote: MessageQuoteHighlight) {

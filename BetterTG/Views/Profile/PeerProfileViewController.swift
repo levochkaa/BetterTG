@@ -54,6 +54,9 @@ ClientRestorableNavigationEntry {
     }
 
     var onOpenMessage: ((Int64) -> Void)?
+    var onPrepareGalleryReturn: ((Int64) async -> Bool)?
+    var onGalleryReturnCompleted: ((Int64) -> Void)?
+    var galleryReturnTarget: ((Int64) -> MediaGalleryTransitionTarget?)?
     var onSearch: (() -> Void)?
 
     private let accountID: UUID
@@ -960,21 +963,14 @@ ClientRestorableNavigationEntry {
             guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
             loadMore()
         }
-        gallery.contextIsCurrent = { [weak self] in
-            self?.contextIsCurrent == true
+        gallery.contextIsCurrent = { [accountID, clientID = client.id] in
+            TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == clientID
         }
-        gallery.onOpenMessageID = { [weak self] messageID in
-            self?.onOpenMessage?(messageID)
-        }
-        gallery.onGalleryRestored = { [weak self] restoredGallery in
-            guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
-            activeMediaGallery = restoredGallery
-            restoredGallery
-                .updateMessages(sortedSharedMessages.filter { self.sharedMessageRefresh?.allows($0.id) == true })
-            restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
-        }
+        gallery.onPrepareOpenMessageID = onPrepareGalleryReturn
+        gallery.openInChatTransitionSourceProvider = galleryReturnTarget
+        gallery.onOpenMessageTransitionCompleted = onGalleryReturnCompleted
         activeMediaGallery = gallery
-        present(gallery, animated: true)
+        (navigationController ?? self).present(gallery, animated: true)
     }
 
     private func mediaTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
@@ -2233,6 +2229,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
         super.prepareForReuse()
         imageView.cancel()
         imageView.image = nil
+        imageView.alpha = 1
         representedMessage = nil
         loadingIsPaused = false
         subscriptions.removeAll()

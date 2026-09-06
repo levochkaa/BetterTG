@@ -843,7 +843,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     var paginationIsCurrent: (() -> Bool)?
     var onGalleryRestored: ((MediaGalleryViewController) -> Void)?
     var contextIsCurrent: (() -> Bool)?
-    var onOpenMessageID: ((Int64) -> Void)? {
+    var onPrepareOpenMessageID: ((Int64) async -> Bool)? {
         didSet {
             if isViewLoaded {
                 updateMoreMenu()
@@ -851,12 +851,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    var openInChatTransitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
+    var onOpenMessageTransitionCompleted: ((Int64) -> Void)?
+
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
-    fileprivate let playbackContext: MediaGalleryPlaybackContext?
-    fileprivate let mediaRevealSession: MediaRevealSession?
-    fileprivate let pictureInPictureCoordinator: GalleryPictureInPictureCoordinator
+    private var onRequestNewerMessages: (() -> Void)?
+    private var chatHistory: ChatMediaGalleryHistory?
 
     private var messages: [Message]
     private var totalMessageCount: Int?
@@ -875,6 +877,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var shouldReleasePlaybackOwnersAfterDisappearance = false
     private var didReleasePlaybackOwners = false
     private var paginationRequestedMessageCount: Int?
+    private var newerPaginationRequestedMessageCount: Int?
+    private var thumbnailMessageIndices = [Int]()
     private var messageUpdateInProgress = false
     private var pendingMessageUpdate: [Message]?
     private var pendingDeletedPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
@@ -1182,6 +1186,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === collectionView, collectionView.bounds.width > 0 else { return }
+        let position = collectionView.contentOffset.x / collectionView.bounds.width
+        let nearest = min(messages.count - 1, max(0, Int(round(position))))
+        updateThumbnailStrip(around: nearest, pagingPosition: position)
+    }
+
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         updateSelection(from: scrollView)
     }
@@ -1463,6 +1474,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func allowMoreMessagesRetry() {
         paginationRequestedMessageCount = nil
+        newerPaginationRequestedMessageCount = nil
+    }
+
+    func enableChatHistoryPaging(client: TDLibClient, location: ChatLocation) {
+        let history = ChatMediaGalleryHistory(client: client, location: location, messages: messages)
+        chatHistory = history
+        history.onUpdate = { [weak self] messages in self?.updateMessages(messages) }
+        history.onFailure = { [weak self] in self?.allowMoreMessagesRetry() }
+        onRequestMoreMessages = { [weak history] in history?.loadOlder() }
+        onRequestNewerMessages = { [weak history] in history?.loadNewer() }
     }
 
     #if DEBUG
@@ -1554,6 +1575,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
         guard !forcesFadeDismissal else { return nil }
         guard let selectedMessageID else { return nil }
+        if openInChatDismissalGeneration != nil, let openInChatTransitionSourceProvider {
+            return openInChatTransitionSourceProvider(selectedMessageID)
+        }
         return transitionSourceProvider?(selectedMessageID)
     }
 
@@ -1580,6 +1604,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               update.isPermanent
         else { return }
         let deletedIDs = Set(update.messageIds)
+        chatHistory?.removeMessages(chatID: update.chatId, ids: deletedIDs)
         let hasMatchingMessage = messages.contains { message in
             message.chatId == update.chatId && deletedIDs.contains(message.id)
         } || pendingMessageUpdate?.contains(where: { message in
@@ -1691,8 +1716,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         thumbnailStrip.translatesAutoresizingMaskIntoConstraints = false
         thumbnailStrip.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         thumbnailHeightConstraint = thumbnailStrip.heightAnchor.constraint(equalToConstant: 0)
-        thumbnailStrip.onSelect = { [weak self] index in
-            guard let self, messages.indices.contains(index), exportTask == nil, deleteTask == nil else { return }
+        thumbnailStrip.onSelect = { [weak self] thumbnailIndex in
+            guard let self, thumbnailMessageIndices.indices.contains(thumbnailIndex), exportTask == nil,
+                  deleteTask == nil else { return }
+            let index = thumbnailMessageIndices[thumbnailIndex]
             collectionView.scrollToItem(
                 at: IndexPath(item: index, section: 0),
                 at: .centeredHorizontally,
@@ -1779,12 +1806,32 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         ])
     }
 
+    private func updateThumbnailStrip(around index: Int, pagingPosition: CGFloat, commitSelection: Bool = false) {
+        guard thumbnailHeightConstraint != nil, messages.indices.contains(index) else { return }
+        let selected = messages[index]
+        let albumIndices = selected.mediaAlbumId == 0
+            ? []
+            : messages.indices.filter {
+                messages[$0].chatId == selected.chatId && messages[$0].mediaAlbumId == selected.mediaAlbumId
+            }
+        let changedAlbum = albumIndices != thumbnailMessageIndices
+        thumbnailMessageIndices = albumIndices
+        thumbnailStrip.isHidden = albumIndices.count <= 1
+        thumbnailHeightConstraint.constant = albumIndices.count <= 1 ? 0 : 52
+        guard let first = albumIndices.first else { return }
+        if changedAlbum || commitSelection {
+            thumbnailStrip.configure(
+                messages: albumIndices.map { messages[$0] },
+                selectedIndex: albumIndices.firstIndex(of: index) ?? 0,
+            )
+        }
+        thumbnailStrip.updatePagingPosition(pagingPosition - CGFloat(first))
+    }
+
     private func updateCounter() {
         let count = max(messages.count, totalMessageCount ?? messages.count)
         counterLabel.text = actionStatusText ?? (count > 1 ? "\(selectedIndex + 1) of \(count)" : "")
-        thumbnailStrip.isHidden = messages.count <= 1
-        thumbnailHeightConstraint.constant = messages.count <= 1 ? 0 : 52
-        thumbnailStrip.configure(messages: messages, selectedIndex: selectedIndex)
+        updateThumbnailStrip(around: selectedIndex, pagingPosition: CGFloat(selectedIndex), commitSelection: true)
         updateAuthor()
         updateMoreMenu()
         updateCaption()
@@ -1999,16 +2046,17 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func requestMoreMessagesIfNeeded(near index: Int) {
-        guard hasCurrentContext,
-              !isBeingDismissed,
-              !didReleasePlaybackOwners,
-              !messageUpdateInProgress,
-              index >= max(0, messages.count - 3),
-              paginationRequestedMessageCount != messages.count,
-              let onRequestMoreMessages
-        else { return }
-        paginationRequestedMessageCount = messages.count
-        onRequestMoreMessages()
+        guard hasCurrentContext, !isBeingDismissed, !didReleasePlaybackOwners, !messageUpdateInProgress else { return }
+        if index <= 2, newerPaginationRequestedMessageCount != messages.count, let onRequestNewerMessages {
+            newerPaginationRequestedMessageCount = messages.count
+            onRequestNewerMessages()
+        }
+        if index >= max(0, messages.count - 3), paginationRequestedMessageCount != messages.count,
+           let onRequestMoreMessages
+        {
+            paginationRequestedMessageCount = messages.count
+            onRequestMoreMessages()
+        }
     }
 
     private func drainPendingMessageUpdates() {
@@ -2283,7 +2331,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             ? MediaGalleryExportAsset(messages[selectedIndex])
             : nil
         shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Live Photo files" : "Share"
-        let canOpen = hasActionContext && onOpenMessageID != nil
+        let canOpen = hasActionContext && onPrepareOpenMessageID != nil
         let canForward = hasActionContext && actionSourceLocation != nil
         let selectedMessage = messages.indices.contains(selectedIndex) ? messages[selectedIndex] : nil
         let canDelete = hasActionContext
@@ -2349,7 +2397,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               let chatID = actionChatID,
               let clientID = actionClientID,
               client.id == clientID,
-              let onOpenMessageID
+              let onPrepareOpenMessageID
         else { return }
         let selectedIdentity = MediaGalleryMessageIdentity(messages[selectedIndex])
         guard selectedIdentity.chatID == chatID else { return }
@@ -2377,10 +2425,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                       resolvedIdentity.messageID == selectedIdentity.messageID,
                       !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
                 else { throw MediaGalleryOpenInChatError.messageUnavailable }
+                guard await onPrepareOpenMessageID(resolvedIdentity.messageID),
+                      !Task.isCancelled,
+                      openInChatGeneration == generation,
+                      hasCurrentContext,
+                      !isBeingDismissed,
+                      selectedMessageID == selectedIdentity.messageID
+                else { throw MediaGalleryOpenInChatError.contextChanged }
                 openInChatTask = nil
                 setActionBusy(false)
                 openInChatDismissalGeneration = generation
-                forcesFadeDismissal = true
                 dismiss(animated: true) { [weak self] in
                     guard let self,
                           openInChatGeneration == generation,
@@ -2394,7 +2448,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     }
                     openInChatGeneration = nil
                     openInChatDismissalGeneration = nil
-                    onOpenMessageID(resolvedIdentity.messageID)
+                    onOpenMessageTransitionCompleted?(resolvedIdentity.messageID)
                 }
             } catch is CancellationError {
                 finishOpenInChat(generation: generation)
