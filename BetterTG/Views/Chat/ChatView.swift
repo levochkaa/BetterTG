@@ -122,12 +122,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let pinnedMessageBanner = PinnedMessageBannerView()
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
-    private lazy var composerView: ChatComposerView = {
-        let composer = ChatComposerView(chatVM: chatVM)
-        if let state = restoredComposerState { composer.restoreClientViewState(state, focus: false) }
-        return composer
-    }()
-
+    private let composerKeyboardEdgeView = ComposerKeyboardEdgeView()
+    private lazy var composerView = ChatComposerView(chatVM: chatVM)
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
     private let scrollToLatestButton = UIButton(type: .system)
@@ -450,8 +446,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if showsComposer {
             let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
                 < view.bounds.maxY - view.safeAreaInsets.bottom - 1
-            composerView.setKeyboardAttached(keyboardAttached)
             updateComposerFloatingState(keyboardAttached)
+            composerKeyboardEdgeView.setVisible(
+                keyboardAttached && !messageSearchActive && !isSelectingMessages,
+                animated: view.window != nil,
+            )
         }
         updateHistoryInsets()
         applyPendingMessageNavigation()
@@ -1289,6 +1288,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     finished: finished,
                 )
             }
+            view.addSubview(composerKeyboardEdgeView)
             view.addSubview(composerView)
             let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
             let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
@@ -1300,6 +1300,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 leadingConstraint,
                 trailingConstraint,
                 bottomConstraint,
+                composerKeyboardEdgeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                composerKeyboardEdgeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                composerKeyboardEdgeView.topAnchor.constraint(equalTo: composerView.topAnchor, constant: -20),
+                // Telegram extends the edge material behind the keyboard, through its rounded corners.
+                composerKeyboardEdgeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             ])
         }
         if presentationMode == .full {
@@ -2698,6 +2703,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         composerLeadingConstraint?.constant = keyboardAttached ? 8 : 0
         composerTrailingConstraint?.constant = keyboardAttached ? -8 : 0
         composerBottomConstraint?.constant = keyboardAttached ? -8 : 0
+        let animated = view.window != nil
+        composerView.setKeyboardAttached(keyboardAttached, animated: animated)
+        guard animated else { return }
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
+            self.view.layoutIfNeeded()
+        }
     }
 
     private func message(for id: DisplayedMessageID) -> CustomMessage? {

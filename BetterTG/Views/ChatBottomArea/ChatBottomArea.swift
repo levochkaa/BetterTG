@@ -56,7 +56,17 @@ final class ChatComposerView: UIView {
     var onUpdateVideoNoteTrim: ((Double, Double, Bool, Bool) -> Void)?
 
     private let chatVM: ChatVM
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let glassView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        let view = UIVisualEffectView(effect: effect)
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
+    private var glassLeadingConstraint: NSLayoutConstraint!
+    private var glassTrailingConstraint: NSLayoutConstraint!
+    private var glassBottomConstraint: NSLayoutConstraint!
     private let rootStack = UIStackView()
     private let replyContainer = UIView()
     private let replyRow = UIStackView()
@@ -291,14 +301,28 @@ final class ChatComposerView: UIView {
         update(from: chatVM)
     }
 
-    func setKeyboardAttached(_ attached: Bool) {
+    func setKeyboardAttached(_ attached: Bool, animated: Bool) {
         guard keyboardAttached != attached else { return }
         keyboardAttached = attached
-        let corners: CACornerMask = attached
-            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-            : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        layer.maskedCorners = corners
-        blurView.layer.maskedCorners = corners
+        // Move the docked glass rim past the screen edges; keep its top edge visible.
+        glassLeadingConstraint.constant = attached ? 0 : -16
+        glassTrailingConstraint.constant = attached ? 0 : 16
+        glassBottomConstraint.constant = attached ? 0 : 16
+        let radius: CGFloat = attached ? 22 : 0
+        for target in [layer, glassView.layer] {
+            let previous = target.presentation()?.cornerRadius ?? target.cornerRadius
+            target.cornerRadius = radius
+            guard animated else {
+                target.removeAnimation(forKey: "composerCornerRadius")
+                continue
+            }
+            let animation = CABasicAnimation(keyPath: "cornerRadius")
+            animation.fromValue = previous
+            animation.toValue = radius
+            animation.duration = 0.25
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            target.add(animation, forKey: "composerCornerRadius")
+        }
     }
 
     func setHiddenForSearch(_ hidden: Bool) {
@@ -544,27 +568,30 @@ final class ChatComposerView: UIView {
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
-        layer.cornerRadius = 22
+        layer.cornerRadius = 0
         layer.cornerCurve = .continuous
-        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         clipsToBounds = false
 
-        blurView.clipsToBounds = true
-        blurView.layer.cornerRadius = 22
-        blurView.layer.cornerCurve = .continuous
-        blurView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(blurView)
+        glassView.clipsToBounds = true
+        glassView.layer.cornerRadius = 0
+        glassView.layer.cornerCurve = .continuous
+        glassView.layer.maskedCorners = layer.maskedCorners
+        glassView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassView)
 
+        glassLeadingConstraint = glassView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -16)
+        glassTrailingConstraint = glassView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 16)
+        glassBottomConstraint = glassView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 16)
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         rootStack.axis = .vertical
         rootStack.spacing = 0
         addSubview(rootStack)
         NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            glassView.topAnchor.constraint(equalTo: topAnchor),
+            glassLeadingConstraint,
+            glassTrailingConstraint,
+            glassBottomConstraint,
             rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -643,7 +670,8 @@ final class ChatComposerView: UIView {
 
         inputRow.axis = .horizontal
         inputRow.alignment = .bottom
-        inputRow.spacing = 8
+        // Match the outer 10pt gutters at the visible text, including its 5pt inset.
+        inputRow.spacing = 10 - textView.textContainerInset.left
         inputRow.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 10)
         inputRow.isLayoutMarginsRelativeArrangement = true
         attachmentButton.setImage(UIImage(systemName: "plus"), for: .normal)
