@@ -244,14 +244,15 @@ extension RootVM {
         guard let (ticket, client) = captureListRequest() else { return }
         let requestID = UUID()
         chatRefreshIDs[id] = requestID
+        let projectionOwner = chatProjection
+        let projection = projectionOwner.beginRefresh(chatID: id)
         Task { [weak self] in
-            guard let self, acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
-            let projection = chatProjection.begin(chatID: id)
-            let revision = chatProjection.revision
             defer {
-                chatProjection.finish(projection)
-                if chatRefreshIDs[id] == requestID { chatRefreshIDs[id] = nil }
+                projectionOwner.finish(projection)
+                if self?.chatRefreshIDs[id] == requestID { self?.chatRefreshIDs[id] = nil }
             }
+            guard let self, acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
+            let revision = chatProjection.revision
             guard let latest = try? await client.getChat(chatId: id),
                   acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
             let projected = projection.project(latest, after: revision)

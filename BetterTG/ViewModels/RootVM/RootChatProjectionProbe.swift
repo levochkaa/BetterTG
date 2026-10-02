@@ -27,9 +27,10 @@
                     try await verifyRebuild()
                     try await verifyInsertionAdmission()
                     try await verifyInsertionRetirement()
+                    try await verifyRefreshSupersession()
                     result = "Root chat projection probe passed: actual-reducer/insertion-helper=true; "
                         + "pre-read-freshness/raw-peer-boundaries/nil-fields=true; suspended-rebuild/new-folder/complete-partial-membership=true; "
-                        + "late-insertion-unread/user/notification/title=true; coalesced-feed/terminal/supersession/epoch=true; "
+                        + "late-insertion-unread/user/notification/title=true; coalesced-feed/terminal/supersession/epoch/refresh-retirement=true; "
                         + "RootVM/notification-RPC-wiring=source-reviewed; real-folder-rebuild=unverified; server-calls=0"
                 } catch {
                     result = "Root chat projection probe failed: \(error)"
@@ -376,6 +377,53 @@
                 folder.chats[0].position == position(30) && folder.chats[0].unreadCount == 2
                 && finishes == 2 && projection.debugActiveReadCount == 0,
                 "re-add field/order/terminal contract failed",
+            )
+        }
+
+        private static func verifyRefreshSupersession() async throws {
+            let projection = RootChatProjection()
+            let first = projection.beginRefresh(chatID: 7)
+            let gate = Gate()
+            defer {
+                gate.release()
+                projection.invalidate()
+            }
+            let oldRPC = Task {
+                defer { projection.finish(first) }
+                await gate.wait()
+            }
+            try await until({ gate.continuation != nil }, "old refresh did not suspend")
+            projection.record(unread(1))
+            let second = projection.beginRefresh(chatID: 7)
+            try require(
+                !first.isValid && first.debugRetainedChatCount == 0 && projection.debugActiveReadCount == 1,
+                "superseded refresh retained projection until RPC completion",
+            )
+            for count in 0..<5000 {
+                projection.record(unread(count))
+            }
+            try require(
+                first.debugRetainedChatCount == 0 && second.debugRetainedChatCount == 1,
+                "retired refresh kept recording feed",
+            )
+            gate.release()
+            await oldRPC.value
+            try require(second.isValid && projection.debugActiveReadCount == 1, "old RPC cleanup closed replacement")
+            let other = projection.beginRefresh(chatID: 8)
+            try require(
+                second.isValid && other.isValid && projection.debugActiveReadCount == 2,
+                "refresh supersession crossed chat IDs",
+            )
+            projection.invalidate()
+            try require(
+                !second.isValid && !other.isValid && projection.debugActiveReadCount == 0,
+                "epoch invalidation retained refresh owners",
+            )
+            let replacement = projection.beginRefresh(chatID: 7)
+            projection.finish(second)
+            try require(
+                replacement.isValid && projection.debugActiveReadCount == 1,
+                "old epoch cleanup retired new owner",
             )
         }
 

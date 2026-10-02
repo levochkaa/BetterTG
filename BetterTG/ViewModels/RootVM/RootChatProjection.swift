@@ -228,6 +228,7 @@ import TDLibKitDynamic
     private(set) var revision: UInt64 = 0
 
     private var leases = [UUID: Lease]()
+    private var refreshes = [Int64: Lease]()
 
     #if DEBUG
         var debugActiveReadCount: Int { leases.count }
@@ -241,7 +242,17 @@ import TDLibKitDynamic
 
     func finish(_ lease: Lease) {
         leases[lease.id] = nil
+        if let chatID = lease.chatID, refreshes[chatID] === lease { refreshes[chatID] = nil }
         lease.close()
+    }
+
+    /// Supersession retires projection state immediately, even if the old native
+    /// RPC cannot be canceled and has not returned to its caller's defer yet.
+    func beginRefresh(chatID: Int64) -> Lease {
+        if let previous = refreshes[chatID] { finish(previous) }
+        let lease = begin(chatID: chatID)
+        refreshes[chatID] = lease
+        return lease
     }
 
     func invalidate() {
@@ -249,6 +260,7 @@ import TDLibKitDynamic
             lease.close()
         }
         leases.removeAll()
+        refreshes.removeAll()
     }
 
     func record(_ update: Update) {
