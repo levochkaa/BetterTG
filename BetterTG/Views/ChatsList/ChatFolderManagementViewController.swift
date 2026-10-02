@@ -169,10 +169,12 @@ final class ChatFolderOrderViewController: UITableViewController {
         title = "Reorder Tabs"
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .done,
+            title: "Done",
+            style: .plain,
             target: self,
             action: #selector(saveOrder),
         )
+        navigationItem.rightBarButtonItem?.accessibilityLabel = "Done"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderOrderCell")
         tableView.setEditing(true, animated: false)
         sessionObservation = session.bind(self)
@@ -469,10 +471,12 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         super.viewDidLoad()
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .done,
+            title: "Done",
+            style: .plain,
             target: self,
             action: #selector(done),
         )
+        navigationItem.rightBarButtonItem?.accessibilityLabel = "Done"
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = "Search Chats"
@@ -480,6 +484,34 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         definesPresentationContext = true
         sessionObservation = session.bind(self) { [weak self] in self?.reloadCandidates() }
     }
+
+    #if DEBUG
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-folder-selector-content"),
+                  view.window != nil, session.isCurrent else { return }
+            let empty = visibleChats.filter(\.chat.title.isEmpty)
+            let cells = tableView.visibleCells
+            let mismatches = cells.filter { cell in
+                guard let index = tableView.indexPath(for: cell), visibleChats.indices.contains(index.row)
+                else { return true }
+                return (cell.textLabel?.text ?? "") != visibleChats[index.row].displayTitle
+            }
+.count
+            let result = "Folder selector diagnostic: candidates=\(chats.count); filtered=\(visibleChats.count); "
+                + "empty-raw-title=\(empty.count); empty-deleted=\(empty.filter { $0.user?.type == .userTypeDeleted }.count); "
+                + "empty-unknown=\(empty.filter { $0.user?.type == .userTypeUnknown }.count); "
+                + "empty-non-contact=\(empty.filter { $0.user?.isContact == false }.count); "
+                + "visible-cells=\(cells.count); empty-cell-text=\(cells.filter { $0.textLabel?.text?.isEmpty != false }.count); "
+                + "cell-display-mismatches=\(mismatches); names/IDs/query/payload-logged=false"
+            log(result)
+            if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? Data(result.utf8).write(
+                    to: documents.appendingPathComponent("folder-selector-content-probe.txt"), options: .atomic,
+                )
+            }
+        }
+    #endif
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)

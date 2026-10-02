@@ -113,6 +113,7 @@
                         + "same-account-ready/draft/name/rules/selection/query/order-preserved=true; "
                         + "stale-ready/scope/pre-dispatch/late-success-error/duplicate-submit=fenced; "
                         + "root/navigation/page/modal-membership=true; popped-pixels/detached-subtree=denied; "
+                        + "selector-order-done-text/plain-style/AX/action/disabled-readiness=true; "
                         + "dispatched-create-edit-reorder-delete=uncertain; account-A-B-A=revoked; "
                         + "RootVM/native-client/real-foreground/keyboard=unverified; server-calls=0"
                 } catch {
@@ -155,6 +156,18 @@
             return field
         }
 
+        private static func verifyDoneItem(_ controller: UIViewController, action: String, enabled: Bool) throws {
+            guard let item = controller.navigationItem.rightBarButtonItem else {
+                throw Failure(description: "missing Done item")
+            }
+            try require(
+                item.title == "Done" && item.style == .plain && item.image == nil
+                    && item.accessibilityLabel == "Done" && (item.target as? UIViewController) === controller
+                    && item.action == NSSelectorFromString(action) && item.isEnabled == enabled,
+                "Done title/style/AX/target/action/enabled changed",
+            )
+        }
+
         private static func verifyEditorAndSelector() async throws {
             let fixture = try Fixture()
             defer { fixture.close() }
@@ -183,6 +196,13 @@
                 throw Failure(description: "actual editor did not open selector")
             }
             picker.loadViewIfNeeded()
+            try verifyDoneItem(picker, action: "done", enabled: true)
+            fixture.ready.send(nil)
+            try verifyDoneItem(picker, action: "done", enabled: false)
+            try press(picker)
+            try require(fixture.navigation.topViewController === picker, "disabled Done accepted selector callback")
+            fixture.ready.send(fixture.current)
+            try verifyDoneItem(picker, action: "done", enabled: true)
             picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
             let search = picker.navigationItem.searchController!
             search.searchBar.text = "Fixture"
@@ -235,6 +255,13 @@
 
             let order = ChatFolderOrderViewController(session: fixture.session)
             fixture.show(order)
+            try verifyDoneItem(order, action: "saveOrder", enabled: true)
+            fixture.ready.send(nil)
+            try verifyDoneItem(order, action: "saveOrder", enabled: false)
+            try press(order)
+            try require(fixture.writes.count == 1, "disabled Done dispatched reorder")
+            fixture.ready.send(fixture.current)
+            try verifyDoneItem(order, action: "saveOrder", enabled: true)
             order.tableView(
                 order.tableView,
                 moveRowAt: IndexPath(row: 1, section: 0),
