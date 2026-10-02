@@ -120,11 +120,11 @@ import UIKit
             clock.finish()
         }
 
-        func makeView(in window: UIWindow, captureState: UISceneCaptureState = .inactive) -> VideoNotePlaybackView {
+        func makeView(in parent: UIView, captureState: UISceneCaptureState? = nil) -> VideoNotePlaybackView {
             let view = VideoNotePlaybackView(frame: CGRect(x: 10, y: 140, width: 220, height: 220))
-            view.traitOverrides.sceneCaptureState = captureState
+            if let captureState { view.traitOverrides.sceneCaptureState = captureState }
             view.configure(message: value, backend: backend)
-            window.addSubview(view)
+            parent.addSubview(view)
             view.setPlaybackVisible(true)
             view.layoutIfNeeded()
             return view
@@ -152,7 +152,7 @@ import UIKit
                     + "source-collision/client-change/content/edit/delete/offscreen/window/inactive=revoke; "
                     + "fresh-positive-TTL/conservative-clock/no-extension=true; "
                     + "deinit/suspended-download/ordinary-tap=true; real-secret-open/account-writes=0; "
-                    + "capture-trait-admission/pending-IO/ACK/pixels/rehold/ordinary=true; "
+                    + "capture-trait-inheritance/admission/pending-IO/ACK/pixels/rehold/ordinary=true; "
                     + "server-semantics/touch-hardware/recording-hardware/screenshot-prevention=unverified"
             } catch { result = "Video note hold probe failed: \(error)" }
             log(result)
@@ -425,11 +425,48 @@ import UIKit
     }
 
     private static func verifyCaptureState(window: UIWindow, url: URL) async throws {
+        do {
+            let container = UIView(frame: window.bounds)
+            container.traitOverrides.sceneCaptureState = .active
+            window.addSubview(container)
+            let f = Fixture(url: url), v = f.makeView(in: container)
+            defer {
+                v.prepareForReuse()
+                container.removeFromSuperview()
+                f.finish()
+            }
+            container.updateTraitsIfNeeded()
+            try require(v.traitCollection.sceneCaptureState == .active, "capture trait did not inherit")
+            v.beginHoldForProbe()
+            await drain()
+            try require(f.messageCalls == 0 && !v.probeSnapshot.held, "inherited capture admitted IO")
+            setCaptureState(.inactive, on: container)
+            try require(v.traitCollection.sceneCaptureState == .inactive, "capture stop did not inherit")
+            await drain()
+            try require(f.messageCalls == 0 && !v.probeSnapshot.held, "inherited capture stop auto-opened")
+            v.beginHoldForProbe()
+            try await until("inherited inactive hold") { f.openCalls == 1 }
+            f.acknowledge(0)
+            try await until("inherited inactive native pixels") { v.probeSnapshot.visiblePixels }
+            setCaptureState(.active, on: container)
+            try require(
+                !v.probeSnapshot.held && !v.probeSnapshot.playerItem && !v.probeSnapshot.visiblePixels,
+                "inherited capture did not synchronously revoke",
+            )
+            setCaptureState(.inactive, on: container)
+            await drain()
+            try require(
+                f.openCalls == 1 && !v.probeSnapshot.held && !v.probeSnapshot.playerItem,
+                "inherited capture stop resumed playback",
+            )
+        }
+
         for captureState in [UISceneCaptureState.active, .unspecified] {
             let f = Fixture(url: url), v = f.makeView(in: window, captureState: captureState)
-            defer { v.prepareForReuse()
-            v.removeFromSuperview()
-            f.finish()
+            defer {
+                v.prepareForReuse()
+                v.removeFromSuperview()
+                f.finish()
             }
             v.beginHoldForProbe()
             await drain()
@@ -450,13 +487,15 @@ import UIKit
             if stage == "metadata" { f.suspendedMessageCall = 1 }
             if stage == "pre-open" { f.suspendedMessageCall = 2 }
             if stage == "post-ACK" { f.suspendedMessageCall = 3 }
-            if stage == "download" { f.needsDownload = true
-            f.suspendDownload = true
+            if stage == "download" {
+                f.needsDownload = true
+                f.suspendDownload = true
             }
-            let v = f.makeView(in: window)
-            defer { v.prepareForReuse()
-            v.removeFromSuperview()
-            f.finish()
+            let v = f.makeView(in: window, captureState: .inactive)
+            defer {
+                v.prepareForReuse()
+                v.removeFromSuperview()
+                f.finish()
             }
             v.beginHoldForProbe()
             if stage == "metadata" || stage == "pre-open" {
@@ -511,8 +550,9 @@ import UIKit
 
         do {
             let f = Fixture(url: url), v = f.makeView(in: window)
-            defer { v.prepareForReuse()
-            f.finish()
+            defer {
+                v.prepareForReuse()
+                f.finish()
             }
             v.removeFromSuperview()
             v.setPlaybackVisible(true)
@@ -525,9 +565,10 @@ import UIKit
         f.secret = false
         f.type = nil
         let v = f.makeView(in: window, captureState: .active)
-        defer { v.prepareForReuse()
-        v.removeFromSuperview()
-        f.finish()
+        defer {
+            v.prepareForReuse()
+            v.removeFromSuperview()
+            f.finish()
         }
         try await until("ordinary captured player") { v.probeSnapshot.playerItem }
         v.tapForProbe()
@@ -541,7 +582,7 @@ import UIKit
         )
     }
 
-    private static func setCaptureState(_ state: UISceneCaptureState, on view: VideoNotePlaybackView) {
+    private static func setCaptureState(_ state: UISceneCaptureState, on view: UIView) {
         view.traitOverrides.sceneCaptureState = state
         view.updateTraitsIfNeeded()
     }
