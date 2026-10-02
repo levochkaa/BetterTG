@@ -74,13 +74,10 @@ final class MessageMediaView: UIView {
                 let voiceView = VoiceNotePlaybackView()
                 voiceView.configure(voiceNote: voice.voiceNote)
                 view = voiceView
-            case .messageVideoNote(let video):
+            case .messageVideoNote:
                 let videoNoteView = VideoNotePlaybackView()
                 videoNoteView.configure(
-                    videoNote: video.videoNote,
-                    isSecret: video.isSecret,
-                    chatID: message.message.chatId,
-                    messageID: message.id,
+                    message: message.message, client: client, context: mediaRevealSession?.context,
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):

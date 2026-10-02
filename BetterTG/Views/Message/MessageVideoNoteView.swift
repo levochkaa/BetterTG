@@ -6,6 +6,32 @@ import TDLibKitDynamic
 import UIKit
 
 final class VideoNotePlaybackView: UIControl, ReusableMediaView {
+    #if DEBUG
+        struct ProbeSnapshot {
+            let held: Bool
+            let acknowledged: Bool
+            let visiblePixels: Bool
+            let playerItem: Bool
+            let playbackRequested: Bool
+            let thumbnail: Bool
+            let deadline: TimeInterval?
+            let path: String?
+        }
+
+        var probeSnapshot: ProbeSnapshot {
+            ProbeSnapshot(
+                held: secretHoldID != nil, acknowledged: secretAcknowledged,
+                visiblePixels: !playerSurface.isHidden && (!isSecret || secretBlurView.isHidden),
+                playerItem: player.currentItemIdentifier != nil, playbackRequested: player.isPlaybackRequested,
+                thumbnail: thumbnailView.image != nil, deadline: secretDeadline, path: representedPath,
+            )
+        }
+
+        func beginHoldForProbe() { revealSecretAndPlay() }
+        func releaseHoldForProbe() { concealSecret() }
+        func tapForProbe() { tapped() }
+    #endif
+
     private weak static var activePlaybackView: VideoNotePlaybackView?
 
     private let player = LocalMediaPlayer()
@@ -19,18 +45,30 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private var videoNote: VideoNote?
     private var representedPath: String?
     private var isSecret = false
-    private var isSecretTouchActive = false
-    private var hasOpenedSecret = false
-    private var chatID: Int64?
-    private var messageID: Int64?
+    private var message: Message?
+    private var backend: VideoNotePlaybackBackend?
+    private var configurationID = UUID()
+    private var isRevoked = false
+    private var secretHoldID: UUID?
+    private var secretAcknowledged = false
+    private var secretDeadline: TimeInterval?
+    private var secretDeadlineTask: Task<Void, Never>?
     private var playbackVisible = false
     private var downloadTask: Task<Void, Never>?
     private var downloadRequestID: UUID?
-    private var fileCancellable: AnyCancellable?
+    private var ownsDownload = false
     private var secretOpenTask: Task<Void, Never>?
+    private var bindings = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
 
     private var currentPlayerState = LocalMediaPlayer.State.idle
+
+    private var supportsSecretHold: Bool {
+        guard let message, backend != nil, !isRevoked, !message.isOutgoing,
+              case .messageSelfDestructTypeTimer(let timer) = message.selfDestructType,
+              (1...60).contains(timer.selfDestructTime) else { return false }
+        return Self.isSecret(message)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -45,7 +83,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     deinit {
         downloadTask?.cancel()
         secretOpenTask?.cancel()
+        secretDeadlineTask?.cancel()
         player.stop()
+        if ownsDownload, let backend, let fileID = videoNote?.video.id {
+            Task { await backend.cancelDownload(fileID) }
+        }
     }
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
@@ -60,6 +102,14 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         } else {
             super.endTracking(touch, with: event)
         }
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        if isSecret, !bounds.contains(touch.location(in: self)) {
+            concealSecret()
+            return false
+        }
+        return super.continueTracking(touch, with: event)
     }
 
     override func cancelTracking(with event: UIEvent?) {
@@ -80,52 +130,56 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
     }
 
-    func configure(
-        videoNote: VideoNote,
-        isSecret: Bool,
-        chatID: Int64,
-        messageID: Int64,
-    ) {
+    private static func isSecret(_ message: Message) -> Bool {
+        guard case .messageVideoNote(let value) = message.content else { return false }
+        return value.isSecret
+    }
+
+    func configure(message: Message, client: TDLibClient, context: MediaGalleryPlaybackContext?) {
+        let acceptsContext = context.map { $0.isCurrent && $0.location.matches(message: message) }
+            ?? !Self.isSecret(message)
+        configure(
+            message: message,
+            backend: acceptsContext
+                ? VideoNotePlaybackBackend.captured(client: client, context: context)
+                : nil,
+        )
+        if !isSecret, let thumbnail = videoNote?.thumbnail {
+            thumbnailView.load(file: thumbnail.file, placeholderData: videoNote?.minithumbnail?.data, client: client)
+        }
+    }
+
+    func configure(message: Message, backend: VideoNotePlaybackBackend?) {
         prepareForReuse()
+        guard case .messageVideoNote(let value) = message.content else { return }
+        let videoNote = value.videoNote
         self.videoNote = videoNote
-        self.isSecret = isSecret
-        self.chatID = chatID
-        self.messageID = messageID
+        self.message = message
+        self.backend = backend
+        isSecret = value.isSecret
         sideConstraint.constant = min(260, max(180, CGFloat(videoNote.length)))
         durationLabel.text = format(videoNote.duration)
-        if let thumbnail = videoNote.thumbnail {
-            thumbnailView.load(
-                file: thumbnail.file,
-                placeholderData: videoNote.minithumbnail?.data,
-                maximumPixelSize: 520,
-            )
-        } else {
-            if let data = videoNote.minithumbnail?.data {
-                thumbnailView.image = UIImage(data: data)
-            }
+        if !isSecret, let data = videoNote.minithumbnail?.data {
+            thumbnailView.image = UIImage(data: data)
         }
         secretBlurView.isHidden = !isSecret
         accessibilityLabel = "Video message, \(format(videoNote.duration))"
-        accessibilityHint = isSecret ? "Touch and hold to open" : "Double-tap to play or pause"
+        accessibilityHint = isSecret
+            ? (supportsSecretHold ? "Touch and hold to open" : "Protected message unavailable")
+            : "Double-tap to play or pause"
+        guard let backend, backend.isCurrent(), !isSecret || supportsSecretHold else { return }
+        observeBinding(backend)
         update(file: videoNote.video)
-        fileCancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == videoNote.video.id }
-            .sink { [weak self] update in self?.update(file: update.file) }
-        startDownloadIfNeeded()
+        if !isSecret { startDownloadIfNeeded() }
         renderPlayerState(.idle)
     }
 
     func prepareForReuse() {
-        let fileID = videoNote?.video.id
-        downloadRequestID = nil
-        downloadTask?.cancel()
-        downloadTask = nil
-        fileCancellable?.cancel()
-        fileCancellable = nil
+        configurationID = UUID()
+        concealSecret()
+        cancelDownload()
         player.stop()
-        secretOpenTask?.cancel()
-        secretOpenTask = nil
+        bindings.removeAll()
         if Self.activePlaybackView === self {
             Self.activePlaybackView = nil
         }
@@ -135,15 +189,12 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         representedPath = nil
         videoNote = nil
         isSecret = false
-        isSecretTouchActive = false
-        hasOpenedSecret = false
-        chatID = nil
-        messageID = nil
+        message = nil
+        backend = nil
+        isRevoked = false
+        secretDeadline = nil
         playbackVisible = false
         progressLayer.strokeEnd = 0
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -154,13 +205,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             } else {
                 player.pause()
             }
-            downloadRequestID = nil
-            downloadTask?.cancel()
-            downloadTask = nil
-            if let fileID = videoNote?.video.id, representedPath == nil {
-                Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-            }
-        } else {
+            cancelDownload()
+        } else if !isSecret {
             startDownloadIfNeeded()
         }
     }
@@ -215,6 +261,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         secretBlurView.translatesAutoresizingMaskIntoConstraints = false
         secretBlurView.clipsToBounds = true
         secretBlurView.isUserInteractionEnabled = false
+        secretBlurView.contentView.backgroundColor = .secondarySystemBackground
         addSubview(secretBlurView)
 
         NSLayoutConstraint.activate([
@@ -265,23 +312,56 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 self?.pauseForCompetingPlayback()
             }
             .store(in: &cancellables)
-        NotificationCenter.default
-            .publisher(for: UIApplication.didEnterBackgroundNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.setPlaybackVisible(false) }
-            .store(in: &cancellables)
-        NotificationCenter.default
-            .publisher(for: UIApplication.didBecomeActiveNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self, window != nil else { return }
-                setPlaybackVisible(true)
+    }
+
+    private func observeBinding(_ backend: VideoNotePlaybackBackend) {
+        let bindingID = configurationID
+        let accepts: (TdUpdateSource) -> Bool = { [weak self] source in
+            self?.configurationID == bindingID && backend.source == source && backend.isCurrent()
+                && self?.isRevoked == false
+        }
+        backend.observe(&bindings, for: .updateFile) { [weak self] event in
+            guard accepts(event.source) else { return }
+            self?.update(file: event.value.file)
+        }
+        backend.observe(&bindings, for: .updateMessageContent) { [weak self] event in
+            guard let self, accepts(event.source), event.value.chatId == message?.chatId,
+                  event.value.messageId == message?.id else { return }
+            guard case .messageVideoNote(let value) = event.value.newContent,
+                  value.isSecret == isSecret, value.videoNote.video.id == videoNote?.video.id
+            else {
+                revoke()
+                return
             }
-            .store(in: &cancellables)
+        }
+        backend.observe(&bindings, for: .updateMessageEdited) { [weak self] event in
+            guard let self, accepts(event.source), event.value.chatId == message?.chatId,
+                  event.value.messageId == message?.id, event.value.editDate != message?.editDate else { return }
+            revoke()
+        }
+        backend.observe(&bindings, for: .updateDeleteMessages) { [weak self] event in
+            guard let self, accepts(event.source), event.value.chatId == message?.chatId,
+                  let id = message?.id, event.value.messageIds.contains(id) else { return }
+            revoke()
+        }
+        backend.clientChanges
+            .sink { [weak self] _ in
+                guard let self, configurationID == bindingID, !backend.isCurrent() else { return }
+                revoke()
+            }
+            .store(in: &bindings)
+        backend.lifecycle
+            .sink { [weak self] event in
+                guard let self, configurationID == bindingID else { return }
+                setPlaybackVisible(event.name == UIApplication.didBecomeActiveNotification && window != nil)
+            }
+            .store(in: &bindings)
     }
 
     private func startDownloadIfNeeded() {
-        guard playbackVisible || window != nil,
+        guard let backend, backend.isCurrent(), !isRevoked,
+              !isSecret,
+              playbackVisible || window != nil,
               representedPath == nil,
               downloadTask == nil,
               let videoFileID = videoNote?.video.id
@@ -289,30 +369,29 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         let requestID = UUID()
         downloadRequestID = requestID
         downloadTask = Task { [weak self] in
-            let downloaded = await withTaskCancellationHandler {
-                try? await td.downloadFile(
-                    fileId: videoFileID,
-                    limit: 0,
-                    offset: 0,
-                    priority: 2,
-                    synchronous: false,
-                )
-            } onCancel: {
-                Task { try? await td.cancelDownloadFile(fileId: videoFileID, onlyIfPending: true) }
-            }
+            guard !Task.isCancelled, backend.isCurrent(), self?.downloadRequestID == requestID else { return }
+            self?.ownsDownload = true
+            let downloaded = try? await backend.download(videoFileID, false)
             guard let self, downloadRequestID == requestID else { return }
             downloadTask = nil
             downloadRequestID = nil
-            guard let downloaded, !Task.isCancelled else { return }
+            guard let downloaded, !Task.isCancelled, backend.isCurrent() else { return }
             update(file: downloaded)
         }
     }
 
     private func update(file: File) {
-        guard videoNote?.video.id == file.id,
-              file.local.isDownloadingCompleted,
-              !file.local.path.isEmpty
+        guard backend?.isCurrent() == true, !isRevoked, videoNote?.video.id == file.id else { return }
+        if isSecret {
+            if secretAcknowledged, !file.local.isDownloadingCompleted { revoke() }
+            return
+        }
+        guard
+            file.local.isDownloadingCompleted,
+            !file.local.path.isEmpty
         else { return }
+        ownsDownload = false
+        guard representedPath != file.local.path else { return }
         representedPath = file.local.path
         player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)
     }
@@ -344,51 +423,138 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     private func revealSecretAndPlay() {
-        guard representedPath != nil, playbackVisible else { return }
-        isSecretTouchActive = true
-        if hasOpenedSecret {
-            revealOpenedSecret()
-            return
-        }
-        guard secretOpenTask == nil, let chatID, let messageID else { return }
+        guard supportsSecretHold, playbackVisible, secretHoldID == nil,
+              let backend, let message, backend.isCurrent() else { return }
+        let token = UUID()
+        secretHoldID = token
         secretOpenTask = Task { [weak self] in
+            defer {
+                if let self, secretHoldID == token {
+                    secretOpenTask = nil
+                    if !secretAcknowledged { concealSecret() }
+                }
+            }
             do {
-                _ = try await td.openMessageContent(chatId: chatID, messageId: messageID)
-                try Task.checkCancellation()
-                guard let self else { return }
+                guard self?.isCurrentHold(token) == true else { return }
+                let requestedAt = backend.now()
+                let latest = try await backend.message(message.chatId, message.id)
+                guard self?.isCurrentHold(token) == true, self?.matches(latest) == true,
+                      self?.acceptDeadline(latest, requestedAt: requestedAt, token: token) == true,
+                      case .messageVideoNote(let value) = latest.content else { return }
+                var file = value.videoNote.video
+                if !file.local.isDownloadingCompleted {
+                    self?.ownsDownload = true
+                    file = try await backend.download(file.id, true)
+                    if self?.secretHoldID == token { self?.ownsDownload = false }
+                }
+                guard self?.isCurrentHold(token) == true, file.id == value.videoNote.video.id,
+                      file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return }
+                let checkedAt = backend.now()
+                let checked = try await backend.message(message.chatId, message.id)
+                guard self?.isCurrentHold(token) == true, self?.matches(checked) == true,
+                      self?.acceptDeadline(checked, requestedAt: checkedAt, token: token) == true else { return }
+                try await backend.open(message.chatId, message.id)
+                guard self?.isCurrentHold(token) == true else { return }
+                let openedAt = backend.now()
+                let opened = try await backend.message(message.chatId, message.id)
+                guard let self, isCurrentHold(token), matches(opened), opened.selfDestructIn > 0,
+                      acceptDeadline(opened, requestedAt: openedAt, token: token) else { return }
                 secretOpenTask = nil
-                hasOpenedSecret = true
-                guard isSecretTouchActive else { return }
-                revealOpenedSecret()
-            } catch is CancellationError {
-                self?.secretOpenTask = nil
-                return
+                secretAcknowledged = true
+                representedPath = file.local.path
+                player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)
+                guard beginExclusivePlayback(), isCurrentHold(token) else { concealSecret()
+                    return
+                }
+                player.play()
             } catch {
-                self?.secretOpenTask = nil
+                guard self?.secretHoldID == token else { return }
+                self?.concealSecret()
                 self?.accessibilityValue = "Couldn’t open"
             }
         }
     }
 
     private func concealSecret() {
-        isSecretTouchActive = false
-        player.pause()
-        player.seek(to: 0)
+        secretHoldID = nil
+        secretAcknowledged = false
+        secretOpenTask?.cancel()
+        secretOpenTask = nil
+        secretDeadlineTask?.cancel()
+        secretDeadlineTask = nil
+        if isSecret {
+            cancelDownload()
+            player.stop()
+            representedPath = nil
+            playerSurface.isHidden = true
+            playerSurface.alpha = 0
+        }
         secretBlurView.isHidden = false
     }
 
-    private func revealOpenedSecret() {
-        secretBlurView.isHidden = true
-        beginExclusivePlayback()
-        player.play()
+    private func matches(_ latest: Message) -> Bool {
+        guard let message, case .messageVideoNote(let value) = latest.content else { return false }
+        return latest.chatId == message.chatId && latest.id == message.id && latest.editDate == message.editDate
+            && latest.topicId == message.topicId && latest.selfDestructType == message.selfDestructType && !latest
+            .isOutgoing
+            && value.isSecret && value.videoNote.video.id == videoNote?.video.id
+    }
+
+    private func isCurrentHold(_ token: UUID) -> Bool {
+        !Task.isCancelled && secretHoldID == token && !isRevoked && playbackVisible && backend?.isCurrent() == true
+            && (secretDeadline.map { $0 > (backend?.now() ?? .infinity) } ?? true)
+    }
+
+    private func acceptDeadline(_ value: Message, requestedAt: TimeInterval, token: UUID) -> Bool {
+        guard value.selfDestructIn.isFinite, value.selfDestructIn >= 0, let backend else { return false }
+        if value.selfDestructIn > 0 {
+            secretDeadline = min(secretDeadline ?? .infinity, requestedAt + value.selfDestructIn)
+            secretDeadlineTask?.cancel()
+            secretDeadlineTask = Task { [weak self] in
+                do { try await backend.sleep(max(0, (self?.secretDeadline ?? 0) - backend.now())) }
+                catch { return }
+                guard let self, secretHoldID == token, !Task.isCancelled else { return }
+                revoke()
+            }
+        }
+        return isCurrentHold(token)
+    }
+
+    private func cancelDownload() {
+        downloadRequestID = nil
+        downloadTask?.cancel()
+        downloadTask = nil
+        guard ownsDownload, let backend, let fileID = videoNote?.video.id else { return }
+        ownsDownload = false
+        Task { [weak self] in
+            if let self, self.backend?.source == backend.source, videoNote?.video.id == fileID,
+               downloadRequestID != nil || secretHoldID != nil { return }
+            await backend.cancelDownload(fileID)
+        }
+    }
+
+    private func revoke() {
+        concealSecret()
+        cancelDownload()
+        isRevoked = true
+        player.stop()
+        thumbnailView.cancel()
+        thumbnailView.image = nil
+        representedPath = nil
+        playerSurface.isHidden = true
+        accessibilityValue = "Protected message unavailable"
     }
 
     private func setPlayerSurfaceReady(_ isReady: Bool) {
-        guard isReady, representedPath != nil else {
+        guard isReady, playerSurface.playerLayer.isReadyForDisplay, representedPath != nil,
+              backend?.isCurrent() == true, !isRevoked,
+              !isSecret || (secretHoldID.map(isCurrentHold) == true && secretAcknowledged)
+        else {
             playerSurface.isHidden = true
             playerSurface.alpha = 0
             return
         }
+        if isSecret { secretBlurView.isHidden = true }
         guard playerSurface.isHidden else { return }
         playerSurface.alpha = 0
         playerSurface.isHidden = false
@@ -403,29 +569,37 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     @objc private func tapped() {
-        guard !isSecret, representedPath != nil, playbackVisible else { return }
+        guard !isSecret, representedPath != nil, playbackVisible, backend?.isCurrent() == true,
+              !isRevoked else { return }
         if player.isPlaybackRequested {
             player.pause()
         } else if case .ended = currentPlayerState {
-            beginExclusivePlayback()
-            player.seek(to: 0) { [weak self] in self?.player.play() }
+            guard beginExclusivePlayback() else { return }
+            let bindingID = configurationID
+            player.seek(to: 0) { [weak self] in
+                guard let self, configurationID == bindingID, backend?.isCurrent() == true,
+                      !isRevoked, playbackVisible else { return }
+                player.play()
+            }
         } else {
-            beginExclusivePlayback()
+            guard beginExclusivePlayback() else { return }
             player.play()
         }
     }
 
-    private func beginExclusivePlayback() {
+    private func beginExclusivePlayback() -> Bool {
+        let bindingID = configurationID
         if let active = Self.activePlaybackView, active !== self {
-            active.player.pause()
+            active.pauseForCompetingPlayback()
         }
         Self.activePlaybackView = self
-        Media.shared.beginExclusivePlayback()
+        backend?.takePlayback()
+        return configurationID == bindingID && backend?.isCurrent() == true && !isRevoked
     }
 
     private func pauseForCompetingPlayback() {
         guard Self.activePlaybackView === self else { return }
-        player.pause()
+        if isSecret { concealSecret() } else { player.pause() }
         Self.activePlaybackView = nil
     }
 }
