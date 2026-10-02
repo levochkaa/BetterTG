@@ -637,26 +637,51 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
-    private func openProfile() {
-        guard presentationMode == .full,
-              let accountID = chatVM.accountID,
-              navigationController?.topViewController === self
-        else { return }
-        abandonRestoredViewport()
+    func makeProfile(
+        customChat: CustomChat, restoration: PeerProfileRestorationState? = nil,
+    ) -> PeerProfileViewController? {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              let accountID = location.accountID, customChat.id == location.chatID,
+              restoration.map({ $0.matches(
+                  accountID: accountID, actorID: tdlib.activeAccount?.userID,
+                  chatID: location.chatID, topic: location.topic,
+              ) }) != false else { return nil }
         let profile = PeerProfileViewController(
-            customChat: chatVM.customChat,
+            customChat: customChat,
             topic: location.topic,
             client: chatVM.client,
             accountID: accountID,
+            restoration: restoration,
         )
         profile.onOpenMessage = { [weak self, weak profile] messageID in
-            profile?.navigationController?.popViewController(animated: true)
-            DispatchQueue.main.async { self?.scrollToMessage(id: messageID) }
+            guard let self, chatVM.locationContextIsCurrent, routeIsRetained,
+                  let profile, navigationController?.topViewController === profile else { return }
+            profile.navigationController?.popViewController(animated: true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, chatVM.locationContextIsCurrent, routeIsRetained,
+                      navigationController?.topViewController === self else { return }
+                scrollToMessage(id: messageID)
+            }
         }
         profile.onSearch = { [weak self, weak profile] in
-            profile?.navigationController?.popViewController(animated: true)
-            DispatchQueue.main.async { self?.beginMessageSearch() }
+            guard let self, chatVM.locationContextIsCurrent, routeIsRetained,
+                  let profile, navigationController?.topViewController === profile else { return }
+            profile.navigationController?.popViewController(animated: true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, chatVM.locationContextIsCurrent, routeIsRetained,
+                      navigationController?.topViewController === self else { return }
+                beginMessageSearch()
+            }
         }
+        return profile
+    }
+
+    private func openProfile() {
+        guard presentationMode == .full,
+              navigationController?.topViewController === self
+        else { return }
+        abandonRestoredViewport()
+        guard let profile = makeProfile(customChat: chatVM.customChat) else { return }
         navigationController?.pushViewController(profile, animated: true)
     }
 

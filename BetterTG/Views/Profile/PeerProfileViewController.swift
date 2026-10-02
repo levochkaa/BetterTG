@@ -61,6 +61,9 @@ import UIKit
     private let customChat: CustomChat
     private let isSelfProfile: Bool
     private let topic: MessageTopic?
+    private let restoration: PeerProfileRestorationState?
+    private var restoredViewport: PeerProfileViewport?
+    private var restoredSnapshotApplied = false
     private let editorRetention = PeerProfileEditorRetention()
     private var infoPermission: PeerProfileInfoPermissionState
     private var currentChatTitle: String
@@ -217,7 +220,10 @@ import UIKit
         }
     }
 
-    init(customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID) {
+    init(
+        customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID,
+        restoration: PeerProfileRestorationState? = nil,
+    ) {
         self.customChat = customChat
         self.topic = topic
         self.client = client
@@ -229,6 +235,23 @@ import UIKit
         )
         let accountUserID = TDLib.shared.activeAccountID == accountID ? TDLib.shared.activeAccount?.userID : nil
         self.accountUserID = accountUserID
+        let restoration = restoration.flatMap {
+            $0.matches(accountID: accountID, actorID: accountUserID, chatID: customChat.id, topic: topic) ? $0 : nil
+        }
+        self.restoration = restoration
+        self.restoredViewport = restoration?.viewport
+        if let restoration {
+            self.messagesByID = Dictionary(
+                restoration.messages.map { ($0.id, $0) },
+                uniquingKeysWith: { _, latest in latest },
+            )
+            self.oldestMessageID = restoration.cursor
+            self.hasMore = restoration.hasMore
+            self.sharedTotalMessageCount = restoration.total
+            self.historyError = restoration.error
+            self.currentBioText = restoration.bio
+            self.currentDetailTexts = restoration.details
+        }
         self.isSelfProfile = accountUserID.map { customChat.user?.id == $0 } == true
         self.currentChatTitle = customChat.displayTitle
         self.currentChatPhotoInfo = customChat.chat.photo
@@ -261,7 +284,14 @@ import UIKit
         configureDataSource()
         observeAccount()
         loadProfileInfo()
-        loadMore()
+        if restoration != nil {
+            applySnapshot(animated: false) { [weak self] in
+                self?.restoredSnapshotApplied = true
+                self?.restoreViewportIfNeeded()
+            }
+        } else {
+            loadMore()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -297,6 +327,7 @@ import UIKit
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateProfileHeaderLayout()
+        restoreViewportIfNeeded()
     }
 
     private static func statusText(for customChat: CustomChat) -> String {
@@ -321,6 +352,8 @@ import UIKit
         case .userStatusEmpty, .userStatusOffline: "offline"
         }
     }
+
+    func scrollViewWillBeginDragging(_: UIScrollView) { restoredViewport = nil }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let id = dataSource.itemIdentifier(for: indexPath),
@@ -355,6 +388,13 @@ import UIKit
             .bottom
         guard scrollView.contentSize.height - visibleBottom < 160 else { return }
         loadMore()
+    }
+
+    private func restoreViewportIfNeeded() {
+        guard restoredSnapshotApplied, profileHeaderView.bounds.height > 0, let viewport = restoredViewport,
+              viewport.restore(collectionView, indexPath: { dataSource.indexPath(for: $0) }) else { return }
+        restoredViewport = nil
+        if restoration?.resumePage == true { loadMore() }
     }
 
     private func configureHeader() {
@@ -442,7 +482,7 @@ import UIKit
         updateActionAvailability()
 
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        segmentedControl.selectedSegmentIndex = SharedTab.media.rawValue
+        segmentedControl.selectedSegmentIndex = (restoration?.tab ?? .media).rawValue
         segmentedControl.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
         profileHeaderView.addSubview(segmentedControl)
         NSLayoutConstraint.activate([
@@ -515,9 +555,15 @@ import UIKit
             )
         #endif
         guard abs(oldInset - height) > 0.5 else { return }
+        let anchor = dataSource.map { source in
+            PeerProfileViewport.capture(collectionView, messageID: { source.itemIdentifier(for: $0) })
+        }
         collectionView.contentInset.top = height
         collectionView.verticalScrollIndicatorInsets.top = height
         collectionView.contentOffset.y = distanceFromTop - height
+        if let anchor, anchor.messageID != nil {
+            _ = anchor.restore(collectionView, indexPath: { dataSource.indexPath(for: $0) })
+        }
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -1212,7 +1258,7 @@ import UIKit
     }
 
     private func loadMore() {
-        guard historyTask == nil, hasMore, contextIsCurrent else { return }
+        guard restoredViewport == nil, historyTask == nil, hasMore, contextIsCurrent else { return }
         let fromMessageID = oldestMessageID ?? 0
         let requestedTab = currentSharedTab
         let requestID = historyRequest.begin()
@@ -1268,7 +1314,7 @@ import UIKit
         }
     }
 
-    private func applySnapshot() {
+    private func applySnapshot(animated: Bool = true, completion: (() -> Void)? = nil) {
         let messages = sortedSharedMessages
         // Revoke accepted same-ID revisions before either grid cells or the gallery can use old pixels.
         mediaRevealSession?.reconcile(messages)
@@ -1279,7 +1325,7 @@ import UIKit
         if currentSharedTab == .media {
             snapshot.reconfigureItems(messages.map(\.id).filter(existingIDs.contains))
         }
-        dataSource.apply(snapshot, animatingDifferences: true)
+        dataSource.apply(snapshot, animatingDifferences: animated, completion: completion)
         if currentSharedTab == .media {
             activeMediaGallery?.updateMessages(messages)
             activeMediaGallery?.updateTotalMessageCount(sharedTotalMessageCount)
@@ -1617,6 +1663,7 @@ import UIKit
     }
 
     @objc private func tabChanged() {
+        restoredViewport = nil
         historyRequest.invalidate()
         historyTask?.cancel()
         historyTask = nil
