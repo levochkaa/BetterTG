@@ -11,12 +11,14 @@ extension RootVM {
             .sink { [weak self] _ in
                 self?.listAuthority.invalidate()
                 self?.chatInsertions.invalidate()
+                self?.scopeSettingsLoading.invalidate()
             }
             .store(in: &cancellables)
         nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
             guard let self else { return }
             listAuthority.invalidate()
             chatInsertions.invalidate()
+            scopeSettingsLoading.invalidate()
             folderLoadID = nil
             chatRefreshIDs.removeAll()
             activeAccountID = TDLib.shared.activeAccountID
@@ -93,6 +95,7 @@ extension RootVM {
         observeListUpdate(.updateChatNotificationSettings) { $0.refreshChat(id: $1.chatId) }
         observeListUpdate(.updateChatIsMarkedAsUnread) { $0.refreshChat(id: $1.chatId) }
         observeListUpdate(.updateScopeNotificationSettings) { owner, update in
+            owner.scopeSettingsLoading.invalidate(scope: update.scope)
             var updatedSettings = owner.scopeNotificationSettings
             updatedSettings[update.scope] = update.notificationSettings
             owner.scopeNotificationSettings = updatedSettings

@@ -31,6 +31,7 @@ enum Route {
     var cancellables = Set<AnyCancellable>()
     let listAuthority = RootListAuthority()
     let chatInsertions = RootChatInsertion()
+    let scopeSettingsLoading = RootScopeSettingsLoading()
     var folderLoadID: UUID?
     var chatRefreshIDs = [Int64: UUID]()
 
@@ -71,24 +72,20 @@ enum Route {
 
     func loadScopeNotificationSettings() {
         guard let (ticket, client) = captureListRequest() else { return }
+        let loader = scopeSettingsLoading
+        let reads = loader.reserveReads()
         Task { [weak self] in
-            guard let self else { return }
-            let scopes: [NotificationSettingsScope] = [
-                .notificationSettingsScopePrivateChats,
-                .notificationSettingsScopeGroupChats,
-                .notificationSettingsScopeChannelChats,
-            ]
-            var loadedSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
-            for scope in scopes {
-                guard acceptsListRequest(ticket) else { return }
-                if let settings = try? await client.getScopeNotificationSettings(scope: scope) {
-                    loadedSettings[scope] = settings
-                }
-            }
-            guard acceptsListRequest(ticket) else { return }
-            var mergedSettings = scopeNotificationSettings
-            mergedSettings.merge(loadedSettings, uniquingKeysWith: { _, loaded in loaded })
-            scopeNotificationSettings = mergedSettings
+            await loader.load(
+                reads,
+                accepts: { self?.acceptsListRequest(ticket) == true },
+                fetch: { try await client.getScopeNotificationSettings(scope: $0) },
+                publish: { [weak self] scope, settings in
+                    guard let self else { return }
+                    var updatedSettings = scopeNotificationSettings
+                    updatedSettings[scope] = settings
+                    scopeNotificationSettings = updatedSettings
+                },
+            )
         }
     }
 
