@@ -13,9 +13,11 @@
                 let result: String
                 do {
                     try verify()
+                    let undoVerified = try verifyUndo()
                     result = "Composer entities probe passed: manual-payload/UTF16/scoped-bridge/fallback=true; "
                         + "UITextView-callback/edit-attempt/draft/snapshot=true; overlapping-toggles/range-edits/caret=true; "
-                        + "RTF-whitelist/automatic-types/identity-isolation=true; clipboard/URL/server/account-stores=0; live-IME/undo=pending"
+                        + "RTF-whitelist/automatic-types/identity-isolation=true; marked-model-feedback=true; "
+                        + "UIKit-undo-redo=\(undoVerified); clipboard/URL/server/account-stores=0; live-IME/keyboard-undo=pending"
                 } catch { result = "Composer entities probe failed: \(error)" }
                 log(result)
                 if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -68,6 +70,52 @@
             try verifyFormatting()
             try verifyTyping()
             try verifyExternalText()
+            try verifyMarkedTextFeedback()
+        }
+
+        private static func verifyMarkedTextFeedback() throws {
+            let field = FormattedTextView(placeholder: "")
+            field.onTextChange = { [weak field] value in field?.setAttributedText(value) }
+            field.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0))
+            try require(field.text == "ni" && field.markedTextRange != nil, "model feedback ended marked text")
+            try require(!field.permitsClientRestoration, "marked composition allowed route replacement")
+            field.setMarkedText("你", selectedRange: NSRange(location: 1, length: 0))
+            try require(field.text == "你" && field.markedTextRange != nil, "second marked candidate lost composition")
+            field.unmarkText()
+            try require(field.text == "你" && field.markedTextRange == nil, "marked commit lost text")
+        }
+
+        private static func verifyUndo() throws -> Bool {
+            let field = FormattedTextView(placeholder: "")
+            let original = FormattedText(entities: [
+                .init(length: 4, offset: 0, type: .textEntityTypeItalic),
+            ], text: "word")
+            field.setAttributedText(ComposerText.attributed(original))
+            guard let manager = field.undoManager else { return false }
+            manager.removeAllActions()
+            field.selectedRange = NSRange(location: 0, length: 4)
+            manager.beginUndoGrouping()
+            field.toggleFormatting(.textEntityTypeBold)
+            manager.endUndoGrouping()
+            let formatted = ComposerText.formatted(field.attributedText)
+            try require(manager.canUndo, "formatting undo not registered")
+            manager.undo()
+            try same(ComposerText.formatted(field.attributedText), original, "formatting undo changed semantics")
+            try require(manager.canRedo, "formatting redo not registered")
+            manager.redo()
+            try same(ComposerText.formatted(field.attributedText), formatted, "formatting redo changed semantics")
+            field.selectedRange = NSRange(location: 4, length: 0)
+            manager.beginUndoGrouping()
+            field.receivePastedText(NSAttributedString(string: "!"))
+            manager.endUndoGrouping()
+            let pasted = ComposerText.formatted(field.attributedText)
+            try require(pasted.text == "word!" && manager.canUndo, "paste undo not registered")
+            manager.undo()
+            try same(ComposerText.formatted(field.attributedText), formatted, "paste undo changed semantics")
+            try require(manager.canRedo, "paste redo not registered")
+            manager.redo()
+            try same(ComposerText.formatted(field.attributedText), pasted, "paste redo changed semantics")
+            return true
         }
 
         private static func verifyRanges() throws {
