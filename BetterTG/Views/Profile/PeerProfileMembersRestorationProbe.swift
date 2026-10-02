@@ -36,14 +36,11 @@ import UIKit
                     throw Failure(description: "missing window scene")
                 }
                 try verifyParentHandoff(scene: scene)
-                try PeerProfileViewController.verifyUnloadedMembersParent()
                 try await PeerProfileMembersViewController.verifyRestorationRendering(scene: scene)
                 result = "Profile members restoration probe passed: production-pagination/revision/identity=true; "
                     + "raw-offset/dedup/removed-members/demand/repeated-fullinfo/account/actor/ABA=fenced; "
                     + "actual-Members-controller/UITableView/quarantine/anchor/fresh-page/pop-cancel=true; "
-                    + "deep-error/visible-plain-Retry/explicit-only/owner-generation-old-button-fences=true; "
                     + "production-coordinator/exact-parent-child/Back/foreign-replacement=true; "
-                    + "actual-unloaded-Profile/init-readiness/epoch-callbacks/retained-state/ABA=true; "
                     + "parent-navigation-entries=value-only; TDLib/real-permission-loss/foreground=unverified; server-reads/writes=0"
             } catch { result = "Profile members restoration probe failed: \(error)" }
             log(result)
