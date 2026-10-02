@@ -96,7 +96,7 @@ integration and verification. Each implementation slice must end with proof, a f
 ### Astra findings and repair queue
 
 Active queue: A30 same-account foreground client-epoch recovery; A27 fresh group info-edit authority.
-A26 relocation and A29 frozen list mutations have integrated bounded proofs below; A29 UIKit attachment smoke remains unverified.
+A26 relocation and A29 frozen list mutations have integrated bounded proofs below; A29 cold-launch folder navigation also passes.
 A12/A13/A18 delivery correlation and accepted-update transport are repaired with bounded proofs below;
 callbacks rejected before publication and recovery without a registered temporary ID remain separate gaps.
 A11 preserves voice recording route/reply/caption, PCM, waveform, trim and revision contracts across lifecycle teardown;
@@ -136,9 +136,10 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A26 | P1 | Real own-draft reinstall at `d8ed16e` relocates the app data container: `VoiceNoteDraftStore.loadAllDrafts` rejects persisted absolute URLs and deletes the manifest although its Ogg remains. `VideoNoteFileStore.loadAllManifests` has the same absolute-path filter for MP4/thumbnail | fixed in `8519b33` (worker `2e28fad`) — relative managed filenames, strict legacy container rebasing, retained malformed/missing manifests and migration-write fallback. Isolated voice/video relocation/outcome probes and own voice recovery→reinstall→Discard pass; DEBUG fixture correction `5a87726` keeps production validation strict |
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | needs-fix — shared effective capability using chat kind/permissions/status, live updates and fresh `getChat`/`getChatMember` before writes; channels remain admin-only |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | needs-fix — registration identity on all completion/error paths. Success checks cancellation; wrong-tab content mixing is not established |
-| A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; actual UIKit attachment and server mutations remain unverified; stale same-account screens still require A30 |
+| A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
 | A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | needs-fix — restore account-scoped routes/drafts against the new client epoch without relaxing identity checks. Source-confirmed and voice-gesture control reproduces stale versus reopened chat; full send/profile/notification lifecycle proof remains open |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | needs-fix — per-submission identity across timeout/RPC failure and authoritative updates; source-only delayed-response finding |
+| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | needs-fix — audit secondary navigation controls against pinned pre-Liquid chrome; preserve full-width blur/safe-area and accessibility. A zero forbidden-marker scan does not prove UIKit's default runtime appearance |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -529,9 +530,12 @@ is imported. This source pass does not prove every content's real rendering/acti
   `astra-a29-drafts`, `astra-a29-voice`, `astra-a29-edit`. A29 runs the production bulk helper with suspended fake RPCs:
   A→B/colliding IDs, replacement client, detached owner, cancellation and unscoped source produce no new writes; late writes
   deliver no old UI result; current errors and continued bulk behavior remain intact. UIKit attachment is injected here,
-  not proved by this probe. Read-only UI opened Settings and showed the All-tab Edit Folders menu; the attempted edit-menu
-  tap did not reach the folders screen. Record this smoke as unverified, not passed; investigate the real attachment path.
-  No folder/account/server mutation was attempted. Production/dependency prohibited-marker scan is empty.
+  not proved by this probe. Read-only production UI opens Settings, then All-tab Edit Folders → populated Chat Folders →
+  empty New Folder → Back → Back to All. Settled screenshots `astra-a29-primary/current-screen.png` and `new-folder.png`
+  confirm the two authority-gated pushes. An initial AX-only check falsely looked like a no-op: idb returns generic native
+  navigation groups without those labels, and the earlier screenshot caught the outgoing menu transition. No folder/account/
+  server mutation was attempted. Cold-launch attachment works; live account/dismissal mutation races still need real proof.
+  Production/dependency prohibited-marker scan is empty, but these screenshots expose secondary chrome gap A32.
 
 ## Implementation ledger
 
@@ -564,7 +568,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   accepted-event transport proof; A04 through `ef8f4ba` has native and Simulator decoder/controller proof. A12 `847b838` and
   A18 `76f9998` have combined isolated store/stream proofs. A14 `bb01b8f` and A19 `d8ed16e` have integrated bounded probes.
   A24 `b18da97` has integrated edit-policy proof; A26 `8519b33`/`5a87726` has store and own voice reinstall/discard proof.
-  A29 `15f146f` has isolated mutation-authority proof, with UIKit attachment smoke still unverified.
+  A29 `15f146f` has isolated mutation-authority proof and read-only cold-launch folder/editor navigation smoke.
   Voice/video A15–A17, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
@@ -582,9 +586,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: A30 immutable-epoch UI restoration preserving route/composer/attachments/anchor; A27 fresh group edit
-  authority. Investigate A29 menu/attachment smoke without user mutations. Continue A05–A10/A15–A17 and
-  A20–A23/A25/A28/A31. Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
+- Exact next slices: A30a source-ready Main/Folder restoration preserving tab/search/scroll, then A30b immutable-epoch Chat/
+  ForumTopics replacement preserving composer/attachments/anchor; A27 fresh group edit authority. The full A30 transaction
+  spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15–A17 and A20–A23/A25/A28/A31/A32.
+  Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
   A12 crash before registration retains unresolved ownership; do not guess an outcome. Retain A04's cold partial-range/lookahead proof gap.
   B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
   profile/gallery and account/list/shell audit
