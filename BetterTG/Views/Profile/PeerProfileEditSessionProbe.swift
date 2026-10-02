@@ -28,7 +28,7 @@ import UIKit
         let accounts = PassthroughSubject<Void, Never>()
         let window: UIWindow
         let parent = UIViewController()
-        let navigation = UINavigationController(rootViewController: UIViewController())
+        let navigation: UINavigationController
         let retention = PeerProfileEditorRetention()
         var writes = [(TdUpdateSource, PeerProfileEditSession.Mutation)]()
         var authorizationReads = 0
@@ -81,11 +81,18 @@ import UIKit
             },
         )
 
-        init() throws {
-            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+        init(classicNavigation: Bool = false) throws {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            guard let scene = classicNavigation
+                ? scenes.first(where: { $0.windows.contains(where: \.isKeyWindow) })
+                : scenes.first
+            else {
                 throw Failure(description: "no attached window scene")
             }
             self.window = UIWindow(windowScene: scene)
+            self.navigation = classicNavigation
+                ? ClassicNavigation.controller(rootViewController: UIViewController())
+                : UINavigationController(rootViewController: UIViewController())
             window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
             self.current = first
             ready.send(first)
@@ -159,7 +166,19 @@ import UIKit
         }
     }
 
+    private struct PromptGeometry {
+        let barMaxY: CGFloat
+        let safeMinY: CGFloat
+        let fieldMinY: CGFloat
+
+        var summary: String { "bar=\(barMaxY),safe=\(safeMinY),field=\(fieldMinY)" }
+    }
+
     static func runIfRequested() {
+        if ProcessInfo.processInfo.arguments.contains("-ui-probe-navigation-prompt") {
+            Task { await runFocusedPromptProbe() }
+            return
+        }
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-profile-edit-session") else { return }
         Task {
             let result: String
@@ -186,6 +205,157 @@ import UIKit
                 )
             }
         }
+    }
+
+    private static func runFocusedPromptProbe() async {
+        var samples = [String]()
+        let result: String
+        do {
+            try await until("original key window did not attach") {
+                UIApplication.shared
+.connectedScenes
+.compactMap { $0 as? UIWindowScene }
+                    .contains { $0.windows.contains(where: \.isKeyWindow) }
+            }
+            try await verifyFocusedPrompt(samples: &samples)
+            result = "Navigation prompt probe passed: actual-classic-navbar/retained-editor/focused-field=true; "
+                + "same-client-readiness/client-replacement/retained-stack-replacement/duplicate-ready/three-delayed-samples=true; "
+                + "bar-safe-field-nonoverlap/text-selection/stack-owner=true; server-writes=0; "
+                + "native-background-foreground/IME/other-sizes=unverified"
+        } catch {
+            result = "Navigation prompt probe failed: \(error)"
+        }
+        let report = ([result] + samples).joined(separator: "\n")
+        log(report)
+        if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            try? Data(report.utf8).write(
+                to: documents.appendingPathComponent("navigation-prompt-probe.txt"), options: .atomic,
+            )
+        }
+    }
+
+    private static func settledPromptGeometry(
+        _ fixture: Fixture, editor: PeerProfileEditViewController, field: UITextField,
+        phase: String, samples: inout [String],
+    ) async throws -> PromptGeometry {
+        // Read after the transition, not only from the editor's last layout callback.
+        // Do not mark or force layout here: this baseline must expose missing invalidation.
+        try await Task.sleep(for: .milliseconds(500))
+        var result: PromptGeometry?
+        for index in 0..<3 {
+            let bar = fixture.navigation.navigationBar
+            let geometry = PromptGeometry(
+                barMaxY: bar.convert(bar.bounds, to: fixture.window).maxY,
+                safeMinY: editor.view.convert(editor.view.safeAreaLayoutGuide.layoutFrame, to: fixture.window).minY,
+                fieldMinY: field.convert(field.bounds, to: fixture.window).minY,
+            )
+            samples.append("\(phase)[\(index)]: \(geometry.summary); focused=\(field.isFirstResponder)")
+            try require(fixture.window.isKeyWindow && field.isFirstResponder, "\(phase): lost actual editor focus")
+            try require(
+                bar.bounds.width > 0 && abs(geometry.barMaxY - geometry.safeMinY) <= 1
+                && geometry.fieldMinY >= geometry.barMaxY,
+                "\(phase): settled bar/safe/field overlap",
+            )
+            if let result {
+                try require(
+                    abs(result.barMaxY - geometry.barMaxY) <= 1
+                    && abs(result.fieldMinY - geometry.fieldMinY) <= 1,
+                    "\(phase): geometry did not settle",
+                )
+            }
+            result = geometry
+            if index < 2 { try await Task.sleep(for: .milliseconds(50)) }
+        }
+        guard let result else { throw Failure(description: "missing geometry samples") }
+        return result
+    }
+
+    private static func verifyFocusedPrompt(samples: inout [String]) async throws {
+        let f = try Fixture(classicNavigation: true)
+        let previousKey = f.window.windowScene?.windows.first(where: \.isKeyWindow)
+        defer {
+            f.window.endEditing(true)
+            f.close()
+            previousKey?.makeKey()
+        }
+        let editor = f.editor(selfProfile: true), (fields, _) = try fields(editor)
+        let field = fields[0]
+        guard let scene = f.window.windowScene else { throw Failure(description: "missing fixture scene") }
+        f.window.frame = scene.effectiveGeometry.coordinateSpace.bounds
+        f.window.makeKeyAndVisible()
+        change(field, "")
+        try require(field.becomeFirstResponder(), "fixture field rejected focus")
+        field.insertText("Kept fixture")
+        guard let start = field.position(from: field.beginningOfDocument, offset: 2),
+              let end = field.position(from: field.beginningOfDocument, offset: 7)
+        else { throw Failure(description: "missing fixture selection positions") }
+        field.selectedTextRange = field.textRange(from: start, to: end)
+        let baseline = try await settledPromptGeometry(
+            f,
+            editor: editor,
+            field: field,
+            phase: "initial",
+            samples: &samples,
+        )
+        for cycle in 0..<3 {
+            f.ready.send(nil)
+            try require(
+                editor.navigationItem.prompt != nil && f.session.state == .waiting,
+                "waiting prompt was not installed",
+            )
+            let waiting = try await settledPromptGeometry(
+                f,
+                editor: editor,
+                field: field,
+                phase: "waiting-\(cycle)",
+                samples: &samples,
+            )
+            try require(waiting.barMaxY > baseline.barMaxY + 1, "waiting prompt never expanded actual bar")
+            if cycle > 0 {
+                let next = TdUpdateSource(accountID: f.first.accountID, clientID: Int32(718 + cycle))
+                f.current = next
+                f.clients.send(next)
+            }
+            if cycle == 2 {
+                f.navigation.setViewControllers([UIViewController(), f.parent, editor], animated: false)
+                try require(
+                    f.navigation.viewControllers.count == 3
+                    && f.navigation.viewControllers[1] === f.parent
+                    && f.navigation.topViewController === editor,
+                    "stack replacement lost exact retained owners",
+                )
+            }
+            f.ready.send(f.current)
+            try require(
+                editor.navigationItem.prompt == nil && f.session.state == .ready,
+                "ready prompt was not cleared",
+            )
+            let ready = try await settledPromptGeometry(
+                f,
+                editor: editor,
+                field: field,
+                phase: "ready-\(cycle)",
+                samples: &samples,
+            )
+            try require(
+                abs(ready.barMaxY - baseline.barMaxY) <= 1
+                && abs(ready.fieldMinY - baseline.fieldMinY) <= 1,
+                "ready did not restore baseline geometry",
+            )
+            try require(
+                f.navigation.topViewController === editor && f.writes.isEmpty && field.text == "Kept fixture"
+                && field.selectedTextRange.map { field.offset(from: $0.start, to: $0.end) } == 5,
+                "prompt transition changed editor/text/selection or dispatched",
+            )
+        }
+        f.ready.send(f.current)
+        _ = try await settledPromptGeometry(
+            f,
+            editor: editor,
+            field: field,
+            phase: "duplicate-ready",
+            samples: &samples,
+        )
     }
 
     private static func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
