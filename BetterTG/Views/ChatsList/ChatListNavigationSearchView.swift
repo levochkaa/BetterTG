@@ -23,6 +23,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     private var lastContentAlpha: CGFloat = 1
 
     var isActive: Bool { searchField.isFirstResponder }
+    var hasMarkedText: Bool { searchField.markedTextRange != nil }
 
     init(placeholder: String = "Search chats…") {
         self.placeholder = placeholder

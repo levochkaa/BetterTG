@@ -30,6 +30,7 @@ final class TelegramListNavigationBar: UIView {
     private var currentScrollOffset = CGFloat.zero
 
     var isSearchActive: Bool { searchView.isActive }
+    var hasMarkedText: Bool { searchView.hasMarkedText }
 
     init(
         title: String,

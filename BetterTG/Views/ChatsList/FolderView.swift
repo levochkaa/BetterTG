@@ -6,15 +6,42 @@ import UIKit
 
 // MARK: - ArchiveViewController
 
-final class ArchiveViewController: UIViewController {
+final class ArchiveViewController: UIViewController, ClientRestorableNavigationEntry {
+    struct ClientRestorationState {
+        let query: String
+        let searchWasFocused: Bool
+        let viewport: ChatListViewportSnapshot
+    }
+
     // MARK: Private
 
-    private let folderController: FolderViewController
+    private let rootVM: RootVM
+    private let actionAuthority = ChatListActionAuthority()
+    private var folderController: FolderViewController
     private let navigationBarView: TelegramListNavigationBar
     private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private var cancellables = Set<AnyCancellable>()
+    private var query: String
+    private var restoresSearchFocus: Bool
+    private var isRestoringSearchFocus = false
+    private var currentNavigationContentHeight = TelegramListNavigationBar.expandedContentHeight
 
-    init(folder: CustomFolder, rootVM: RootVM) {
-        self.folderController = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: true)
+    var navigationClientSource: TdUpdateSource? { actionAuthority.scope(owner: self).source }
+
+    init(folder: CustomFolder, rootVM: RootVM, restoration: ClientRestorationState? = nil) {
+        self.rootVM = rootVM
+        self.query = restoration?.query ?? ""
+        self.restoresSearchFocus = restoration?.searchWasFocused ?? false
+        self.folderController = FolderViewController(
+            folder: folder, rootVM: rootVM, showsStandaloneSearch: true,
+            actionAuthority: actionAuthority, restorationViewport: restoration?.viewport,
+        )
+        folderController.updateQuery(restoration?.query ?? "")
+        folderController.setSearchActive(
+            restoration?.searchWasFocused ?? false,
+            animated: false,
+            preservingViewport: true,
+        )
         self.navigationBarView = TelegramListNavigationBar(
             title: folder.name,
             placeholder: "Search \(folder.name.lowercased())…",
@@ -36,23 +63,27 @@ final class ArchiveViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
 
-        addChild(folderController)
-        folderController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(folderController.view)
-        folderController.didMove(toParent: self)
+        installFolderController()
 
         navigationBarView.translatesAutoresizingMaskIntoConstraints = false
-        navigationBarView.onQueryChange = { [weak self] query in self?.folderController.updateQuery(query) }
+        navigationBarView.restoreSearchQuery(query)
+        navigationBarView.onQueryChange = { [weak self] query in
+            guard let self else { return }
+            self.query = query
+            folderController.updateQuery(query)
+            scheduleRestorationRetry()
+        }
         navigationBarView.onSearchActiveChange = { [weak self] active in
-            self?.folderController.setSearchActive(active, animated: true)
+            guard let self else { return }
+            folderController.setSearchActive(
+                active, animated: !isRestoringSearchFocus, preservingViewport: isRestoringSearchFocus,
+            )
+            scheduleRestorationRetry()
         }
         navigationBarView.onVisibleHeightChange = { [weak self] contentHeight in
             guard let self else { return }
-            navigationBarHeightConstraint.constant = view.safeAreaInsets.top + contentHeight
-        }
-        folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
-        folderController.onSearchScrollOffsetChange = { [weak self] offset in
-            self?.navigationBarView.applyScroll(offset: offset)
+            currentNavigationContentHeight = contentHeight
+            navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
         }
         view.addSubview(navigationBarView)
         navigationBarHeightConstraint = navigationBarView.heightAnchor.constraint(
@@ -60,15 +91,16 @@ final class ArchiveViewController: UIViewController {
         )
 
         NSLayoutConstraint.activate([
-            folderController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            folderController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            folderController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            folderController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             navigationBarView.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBarHeightConstraint,
         ])
+        rootVM.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.scheduleRestorationRetry() }
+            .store(in: &cancellables)
+        reloadFolderIfNeeded()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -78,9 +110,93 @@ final class ArchiveViewController: UIViewController {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top
-            + TelegramListNavigationBar.expandedContentHeight
-            - folderController.searchScrollOffset
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + currentNavigationContentHeight
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if actionAuthority.isCurrent, restoresSearchFocus {
+            restoresSearchFocus = false
+            isRestoringSearchFocus = true
+            navigationBarView.focusSearch()
+            isRestoringSearchFocus = false
+        }
+        scheduleRestorationRetry()
+    }
+
+    func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
+        guard canRestoreClient(source), let folder = rootVM.archive else { return nil }
+        let state = ClientRestorationState(
+            query: query,
+            searchWasFocused: isViewLoaded ? navigationBarView.isSearchActive : restoresSearchFocus,
+            viewport: folderController.clientRestorationViewport(),
+        )
+        let rootVM = rootVM
+        return PreparedClientNavigationReplacement(
+            preflight: { [weak self] in
+                self?.canRestoreClient(source) == true && rootVM.archive === folder
+            },
+            commit: {
+                let replacement = ArchiveViewController(folder: folder, rootVM: rootVM, restoration: state)
+                #if DEBUG
+                    log("Archive client restoration: replacement accepted; search-focus=\(state.searchWasFocused)")
+                #endif
+                return replacement
+            },
+        )
+    }
+
+    private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
+        source == TDLib.shared.activeUpdateSource
+            && source.accountID == navigationClientSource?.accountID
+            && source.accountID == rootVM.activeAccountID
+            && !folderController.isInteractingWithList && !navigationBarView.hasMarkedText
+            && !isBeingDismissed && !isMovingFromParent
+    }
+
+    private func scheduleRestorationRetry() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            reloadFolderIfNeeded()
+            NavigationStorage.shared.retryClientRestoration()
+        }
+    }
+
+    private func reloadFolderIfNeeded() {
+        guard isViewLoaded, actionAuthority.isCurrent,
+              !folderController.isInteractingWithList, !navigationBarView.hasMarkedText,
+              let folder = rootVM.archive, folder !== folderController.folder
+        else { return }
+        let viewport = folderController.clientRestorationViewport()
+        folderController.willMove(toParent: nil)
+        folderController.view.removeFromSuperview()
+        folderController.removeFromParent()
+        folderController = FolderViewController(
+            folder: folder, rootVM: rootVM, showsStandaloneSearch: true,
+            actionAuthority: actionAuthority, restorationViewport: viewport,
+        )
+        folderController.updateQuery(query)
+        folderController.setSearchActive(navigationBarView.isSearchActive, animated: false, preservingViewport: true)
+        installFolderController()
+        view.bringSubviewToFront(navigationBarView)
+    }
+
+    private func installFolderController() {
+        folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
+        folderController.onSearchScrollOffsetChange = { [weak self] offset in
+            self?.navigationBarView.applyScroll(offset: offset)
+        }
+        folderController.onListInteractionEnded = { [weak self] in self?.scheduleRestorationRetry() }
+        addChild(folderController)
+        folderController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(folderController.view)
+        NSLayoutConstraint.activate([
+            folderController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            folderController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            folderController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            folderController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        folderController.didMove(toParent: self)
     }
 }
 
@@ -178,6 +294,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     let folder: CustomFolder
     var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
     var isSearchActive: (() -> Bool)?
+    var onListInteractionEnded: (() -> Void)?
 
     private let showsStandaloneSearch: Bool
     private let rootVM: RootVM
@@ -193,6 +310,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var pendingChangedChatIDs = Set<Int64>()
     private var chatUpdateScheduled = false
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
+
+    var isInteractingWithList: Bool {
+        guard isViewLoaded else { return false }
+        // A tracking-only touch has no terminal scroll callback to retry from.
+        return tableView.isDragging || tableView.isDecelerating
+    }
 
     var searchScrollOffset: CGFloat {
         guard isViewLoaded, didSetInitialSearchOffset else { return initialSearchScrollOffset }
@@ -312,6 +435,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         guard scrollView === tableView else { return }
         clientViewportRestoration.cancel()
         didSetInitialSearchOffset = true
+    }
+
+    override func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if scrollView === tableView, !decelerate { onListInteractionEnded?() }
+    }
+
+    override func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        if scrollView === tableView { onListInteractionEnded?() }
     }
 
     override func scrollViewWillEndDragging(
