@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: finish A04 main-video end/fallback-duration verification and shared A12 send-outcome route/correlation.
+Active queue: shared A12 send-outcome route/correlation and A18 client-generation media streams.
 A13 accepted-update provenance is repaired; callbacks rejected before publication and unscoped media streams remain separate gaps.
 A11 preserves voice recording route/reply/caption, PCM, waveform, trim and revision contracts across lifecycle teardown;
 its bounded proof and remaining runtime limits are recorded below. A12–A14 send ownership remains unchanged.
@@ -108,7 +108,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A01 | P1 | `TDLibVODRangeSource.waitForSignal/timeoutWaiter`: canceled sleep still invokes timeout; a repeated wait reuses read ID and seek generation, allowing an old callback to consume its replacement | fixed in `37c8b44`: per-registration token, cancellation return; obsolete/current-deadline probe passed |
 | A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in `37c8b44`: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
 | A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | fixed in `3005369`: deduplicate complete identical snapshots while preserving every pause transport command; settled feedback, seek/rate/EOF/offline/retry probes passed |
-| A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | needs-fix: consistent video-main-track end policy matching upstream `video ?? audio`, plus unequal-track controller proof |
+| A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | fixed by `83103ba`, `14a01c5`, `ef8f4ba` — explicit video-main end, estimated-versus-final duration authority and verified EOF/watchdog teardown; native and integrated decoder/controller probes pass, including under/overestimated metadata. Cold large-file partial-range proof remains separate |
 | A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | needs-fix: capture account/client/file generation and propagate it through consumers; reject foreign updates/completions |
 | A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | needs-fix: account/client-scoped file demand leases covering visible consumers and prefetch |
 | A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | fixed in `3917128`: native-free init, worker-isolated prepare/read/reset/deinit and setup/reuse fences; actual native-operation thread/lifecycle probe passed before and after integration |
@@ -277,6 +277,41 @@ resource media store (491/511/637–646). Current full-gallery action/gesture au
   The existing active-client gate still drops callbacks arriving after a switch; safe inactive-client outcome recovery remains open.
   A12 route/temporary-ID matching, A14 finalization leases and A18/A19 VOD/PiP are unchanged.
 
+### VOD main-track and duration-authority proof — 2026-10-02
+
+- A04 worker chain `23b1e49` → `61bb5e3` → `e87ef9c` was independently reviewed and integrated as
+  `83103ba` → `14a01c5` → `ef8f4ba`. C selects explicit video end before audio, clips the longer audio tail and preserves persistent
+  windows/final video frames. Explicit duration travels to Swift separately from container estimates. At real EOF, observed frame
+  ends resolve estimates in either direction; initialized seek cursors cannot invent media duration. Verified terminal summaries
+  cancel both watchdogs. An unknown end with no observed main frame or explicit metadata fails safely, not with a fabricated EOF.
+- Reference: pinned current/pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` chooses `video ?? audio`
+  (546/578 current, 547/579 pre-Liquid). No decoder, player-clock, queue/cache/lease architecture or dependency version was replaced.
+- Native before/after evidence: `.build/ui-probe-evidence/astra-a04-native/` and `astra-a04-fallback/`, including harness, pinned
+  fixtures, source snapshots and commands. Host FFmpeg 9.0.2 proves video 2s/audio 10.008s ends at 2s with all 20 video frames;
+  missing-video-duration container estimates 8s/20s both resolve to 12s with all 144 frames, seek 11s begins at 11s, and seek 25s
+  emits no frames but observes true EOF at 12s. Longer-video/shorter-audio, origin, standard and audio-only regressions passed.
+  These host runs are not Apple media-clock proof.
+- Worker final warning-free log: `.build/logs/xcodebuild/worker-A04-build-Debug-20261002-152136-73961-20174.log`.
+  Primary one-call SwiftFormat covered four changed Swift files (`0/4` changed); warning-free `./build.sh build` at `ef8f4ba`:
+  `.build/logs/xcodebuild/build-Debug-20261002-153032-2363-12736.log` (18s).
+- Authorized iPhone 17 Pro / iOS 26.5 Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, wrapper/idb only:
+  PID `2903` with `-media-probe-vod-main-track -media-probe-vod-ffmpeg-decode` passed both. Main-track output is
+  `.build/ui-probe-evidence/astra-integrated-vod-main-track/vod-main-track-probe.txt`; decoder output is
+  `astra-integrated-vod-decoder/vod-ffmpeg-decode-probe.txt`. Explicit 2s EOF and known/initial seek 6→2s, both estimate variants,
+  seek 25→12s, persistent sessions, cleanup and bounded queues passed. Decoder retained 24 VP9 frames/101 Opus buffers,
+  95,641 stereo sample frames, monotonic PTS, 3 persistent pumps/one open/zero rollover seeks, sparse unequal-track handling,
+  cancellation/supersession, SWR drain and close-waits.
+- PID `3401` with `-media-probe-vod-ffmpeg-controller`: `.build/ui-probe-evidence/astra-integrated-vod-controller/`
+  `vod-ffmpeg-controller-probe.txt` reports stable pause, rate 1.5, offscreen cancellation/intent, last-seek-wins, 10 persistent
+  windows/one open/zero rollover seeks, EOF, offline/retry/clamp and zero renderer errors, plus every new main-track assertion.
+  idb still sees the real Saved Messages row afterward. No sends, account switch, data reset or Simulator shutdown occurred.
+- Proof limit from independent delta audit: mixed-metadata fixture is 84,225 bytes, below the 2 MiB range fetch. Auto-fulfillment plus
+  `limit != 0` proves finite request shape, not playback before the complete small file is cached. Existing lookahead still treats
+  fallback duration as authoritative; no controller blocker was proven because original decodeStart and actual accepted frames
+  advance playback independently after the initial scan. Follow-up: reconcile lookahead duration authority and test >2 MiB media
+  with unavailable/delayed tail ranges, seek beyond an estimate and explicit incomplete-byte-coverage assertions. Live Telegram
+  streaming and active system PiP remain unverified; do not promote this bounded proof to global VOD parity.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -305,23 +340,24 @@ resource media store (491/511/637–646). Current full-gallery action/gesture au
 
 - Active continuous work resumed explicitly after `8268947`; no further resume is required. A01/A02/A03/A07 have bounded
   warning-free build/probe proof; `909215a` repairs A11 with production navigation/relaunch/Delete proof. A13 `c356513` has
-  accepted-event transport proof above. Voice/video A12/A14–A17, text A10 and VOD/PiP A18/A19 remain open. Broad parity is not complete.
+  accepted-event transport proof; A04 through `ef8f4ba` has native and Simulator decoder/controller proof. Voice/video A12/A14–A17,
+  text A10 and VOD/PiP A18/A19 remain open. Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified production slice: A13 `c356513`. Warning-free build:
-  `.build/logs/xcodebuild/build-Debug-20261002-152748-427-24895.log`. Production/dependency scan over `project.yml`, `BetterTG`,
+- Latest verified production slice: A04 `ef8f4ba`. Warning-free build:
+  `.build/logs/xcodebuild/build-Debug-20261002-153032-2363-12736.log`. Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
-- The protected auxiliary `astra-animation-worker/BetterTG` worktree holds verified A04 commits `23b1e49` → `61bb5e3` → `e87ef9c`;
-  primary integration/probes are next. Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
+- The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04 and is reused for A18 from `ef8f4ba`.
+  Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13 and is reused for A12. Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: integrate A04 including explicit-main versus fallback duration, then Simulator main-track/controller probes.
-  A12 is delegated with strict delivery identity and exact temporary-ID evidence; crash before registration must retain unresolved
-  ownership rather than guess an outcome. Then A18 stream isolation, A14 finalization and remaining A05–A10/A15–A17/A19 findings.
+- Exact next slices: review/integrate delegated A12 and A18, then their isolated Simulator probes. A12 uses strict delivery identity
+  and exact temporary-ID evidence; crash before registration must retain unresolved ownership rather than guess an outcome.
+  Then A14 finalization and remaining A05–A10/A15–A17/A19 findings; retain A04's cold partial-range/lookahead proof gap.
   B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
   profile/gallery and account/list/shell audit
   coverage. Retain completed range/renderer checks; do not restart source review unless code/dependencies change.
