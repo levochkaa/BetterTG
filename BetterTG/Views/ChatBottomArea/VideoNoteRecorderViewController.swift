@@ -1656,6 +1656,7 @@ enum VideoNoteSubmissionResult {
             _ scenario: PreservationProbeScenario,
             directory: URL,
         ) async throws {
+            VideoNotePreservationProbe.progress("\(scenario): started")
             let directory = directory.appendingPathComponent(scenario.rawValue, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let store = VideoNoteRecordingDraftStore(
@@ -1711,6 +1712,7 @@ enum VideoNoteSubmissionResult {
                 beforeFinish: beforeFinish,
                 beforeDelivery: beforeDelivery,
             )
+            VideoNotePreservationProbe.progress("\(scenario): fixture installed")
             try recorder.captureSession.verifyStalePreservationStop(generation: generation)
             var automaticTask: Task<Void, Never>?
             switch scenario {
@@ -1722,7 +1724,9 @@ enum VideoNoteSubmissionResult {
                 automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
             }
             let activeOperation = recorder.operationTask
+            VideoNotePreservationProbe.progress("\(scenario): action invoked; state=\(recorder.state)")
             await gate.waitUntilEntered()
+            VideoNotePreservationProbe.progress("\(scenario): gate entered")
             if scenario == .explicitCancel {
                 recorder.cancel()
                 await gate.open()
@@ -1751,6 +1755,7 @@ enum VideoNoteSubmissionResult {
                 unrelatedFinished = true
             }
             await unrelated.value
+            VideoNotePreservationProbe.progress("\(scenario): unrelated routes returned")
             try VideoNotePreservationProbe.require(
                 restored == nil && unrelatedFinished,
                 "route barrier missing or crosses account/chat/topic",
@@ -1766,9 +1771,12 @@ enum VideoNoteSubmissionResult {
                 recorder.captureSession.terminatePreservationProbe()
             }
             await gate.open()
+            VideoNotePreservationProbe.progress("\(scenario): gate opened")
             await automaticTask?.value
             let result = await finalization.value()
+            VideoNotePreservationProbe.progress("\(scenario): finalizer returned")
             await restoration.value
+            VideoNotePreservationProbe.progress("\(scenario): restoration returned")
             await recorder.operationTask?.value
             let failed = scenario == .appendFailure || scenario == .navigationThenBackground
             switch result {

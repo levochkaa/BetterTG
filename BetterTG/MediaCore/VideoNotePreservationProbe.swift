@@ -8,6 +8,14 @@
             let description: String
         }
 
+        @MainActor private static var lastProgress = "not started"
+
+        @MainActor static func progress(_ message: String) {
+            lastProgress = message
+            write(message, file: "video-note-preservation-progress.txt")
+            log("Video preservation progress: \(message)")
+        }
+
         static func require(_ condition: Bool, _ message: String) throws {
             guard condition else { throw Failure(description: message) }
         }
@@ -15,6 +23,17 @@
         @MainActor static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-preservation") else { return }
             Task {
+                progress("started")
+                write("Video note navigation preservation probe started", file: "video-note-preservation-probe.txt")
+                var timedOut = false
+                let deadline = Task {
+                    do { try await Task<Never, Never>.sleep(for: .seconds(45)) } catch { return }
+                    timedOut = true
+                    let result = "Video note navigation preservation probe failed: timeout at \(lastProgress)"
+                    write(result, file: "video-note-preservation-probe.txt")
+                    log(result)
+                }
+                defer { deadline.cancel() }
                 let directory = FileManager.default
 .temporaryDirectory
                     .appendingPathComponent("video-note-preservation-\(UUID().uuidString)", isDirectory: true)
@@ -33,12 +52,15 @@
                 } catch {
                     result = "Video note navigation preservation probe failed: \(error)"
                 }
-                if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                    try? Data(result.utf8).write(
-                        to: documents.appendingPathComponent("video-note-preservation-probe.txt"), options: .atomic,
-                    )
-                }
+                guard !timedOut else { return }
+                write(result, file: "video-note-preservation-probe.txt")
                 log(result)
+            }
+        }
+
+        private static func write(_ message: String, file: String) {
+            if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? Data(message.utf8).write(to: documents.appendingPathComponent(file), options: .atomic)
             }
         }
     }
