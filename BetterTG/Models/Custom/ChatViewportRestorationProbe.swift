@@ -152,6 +152,7 @@
                         + "A39-rotation-release=production-helper/value-only-consumer; nested-release/no-recursion=true; "
                         + "A39-settlement=production-driver/native-animation/estimated-compositional-cells; "
                         + "A39-flight-anchor/latest/inset-gates/resize/album-remap/quote/supersession/cancel/deferred/deadline=true; "
+                        + "A39-successive-self-size/injected-offset-convergence/strict-centering/stall-and-cap=true; "
                         + "navigation-consumer=value-only; ChatView-wiring=source-reviewed; "
                         + "real-ChatVM/TDLib/foreground/rotation=unverified; server/account-stores=0"
                 } catch { result = "Viewport authority probe failed: \(error)" }

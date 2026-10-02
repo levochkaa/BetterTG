@@ -41,6 +41,7 @@
             var deferred = false
             var height: CGFloat = 48
             var targetHeight: CGFloat = 48
+            var rowHeights = [Int: CGFloat]()
             var results = [ChatMessageNavigationScroll.Outcome]()
             var commands = [Bool]()
             var ends = 0
@@ -48,6 +49,7 @@
             var blockedWriters = 0
             var quoted = [Int]()
             var commandHook: (() -> Void)?
+            var layoutMutationTask: Task<Void, Never>?
 
             init(scene: UIWindowScene) {
                 let item = NSCollectionLayoutItem(layoutSize: .init(
@@ -72,7 +74,8 @@
                     .dataSource =
                     UICollectionViewDiffableDataSource(collectionView: collection) { [weak self] collection, path, id in
                     let cell = collection.dequeueReusableCell(withReuseIdentifier: "row", for: path) as! Cell
-                    cell.rowHeight = id == self?.targetDisplay ? self?.targetHeight ?? 48 : self?.height ?? 48
+                    cell.rowHeight = self?.rowHeights[id]
+                        ?? (id == self?.targetDisplay ? self?.targetHeight ?? 48 : self?.height ?? 48)
                     return cell
                 }
                 window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
@@ -82,7 +85,7 @@
                 root.view.addSubview(collection)
             }
 
-            func install() async {
+            func install(wake: Bool = true) async {
                 layoutReady = false
                 var snapshot = NSDiffableDataSourceSnapshot<Int, Int>()
                 snapshot.appendSections([0])
@@ -94,7 +97,7 @@
                 }
                 collection.layoutIfNeeded()
                 layoutReady = true
-                driver.layoutDidSettle()
+                if wake { driver.layoutDidSettle() }
             }
 
             func request(_ id: Int, animated: Bool) {
@@ -164,6 +167,7 @@
             }
 
             func close() {
+                layoutMutationTask?.cancel()
                 cancel()
                 window.isHidden = true
                 window.rootViewController = nil
@@ -176,9 +180,23 @@
                 return frame.intersects(collection.bounds.inset(by: collection.adjustedContentInset))
                     && collection.indexPathsForVisibleItems.contains(path) && collection.cellForItem(at: path) != nil
             }
+
+            func targetOffset(_ id: Int) -> CGFloat? {
+                guard let path = dataSource.indexPath(for: id),
+                      let frame = collection.layoutAttributesForItem(at: path)?.frame
+                else { return nil }
+                let inset = collection.adjustedContentInset
+                let minimum = -inset.top
+                let maximum = max(minimum, collection.contentSize.height - collection.bounds.height + inset.bottom)
+                return min(
+                    maximum,
+                    max(minimum, frame.midY - (collection.bounds.height + inset.top - inset.bottom) / 2),
+                )
+            }
         }
 
         static func verify() async throws {
+            try verifyCorrectionBudget()
             guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
                 throw Failure(description: "missing settlement scene")
             }
@@ -204,10 +222,14 @@
                 "animated target/quote did not settle after resize",
             )
             try require(
-                native.blockedWriters == 3 && native.commands.first == true && native.commands.count <= 3,
+                native.blockedWriters == 3 && native.commands.first == true
+                    && native.commands.dropFirst().allSatisfy { !$0 }
+                    && native.commands.count <= ChatMessageNavigationScroll.CorrectionBudget.maximum + 1,
                 "automatic writers escaped or correction budget exceeded",
             )
             try require(native.scrolls > 2 && native.ends > 0, "fixture did not exercise UIKit native animation")
+
+            try await verifySuccessiveSizing(scene: scene)
 
             let initial = Fixture(scene: scene)
             defer { initial.close() }
@@ -321,6 +343,70 @@
 
         private static func require(_ condition: Bool, _ detail: String) throws {
             guard condition else { throw Failure(description: "A39 native settlement: \(detail)") }
+        }
+
+        private static func verifyCorrectionBudget() throws {
+            var convergence = ChatMessageNavigationScroll.CorrectionBudget()
+            for error: CGFloat in [1403.833, 177.167, 46.167, 7.0] {
+                try require(convergence.admit(error: error), "converging self-size pass exhausted budget")
+            }
+            var stalled = ChatMessageNavigationScroll.CorrectionBudget()
+            try require(
+                stalled.admit(error: 46) && stalled.admit(error: 46)
+                        && !stalled.admit(error: 46),
+                "repeated no-progress correction did not stop",
+            )
+            var oscillating = ChatMessageNavigationScroll.CorrectionBudget()
+            for pass in 0..<ChatMessageNavigationScroll.CorrectionBudget.maximum {
+                try require(
+                    oscillating.admit(error: pass.isMultiple(of: 2) ? 100 : 90),
+                    "one rebounding pass could not retry",
+                )
+            }
+            try require(!oscillating.admit(error: 80), "oscillating corrections exceeded hard command cap")
+        }
+
+        private static func verifySuccessiveSizing(scene: UIWindowScene) async throws {
+            let fixture = Fixture(scene: scene)
+            defer { fixture.close() }
+            await fixture.install()
+            let rows = [67, 68, 69, 71]
+            let residuals: [CGFloat] = [1404, 177, 46, 7]
+            var appliedRows = [Int]()
+            // Real estimated cells resize in distinct passes. The post-layout offset
+            // adjustment is injected deterministically, matching the recorded UIKit
+            // compensation shape; it is not claimed as a synthetic user gesture.
+            fixture.commandHook = { [weak fixture] in
+                guard let fixture, fixture.commands.count <= rows.count else { return }
+                let pass = fixture.commands.count - 1
+                fixture.layoutReady = false
+                fixture.layoutMutationTask = Task { @MainActor [weak fixture] in
+                    guard let fixture, !Task.isCancelled, fixture.driver.ownsViewport else { return }
+                    fixture.rowHeights[rows[pass]] = CGFloat(180 - pass * 30)
+                    await fixture.install(wake: false)
+                    guard !Task.isCancelled, fixture.driver.ownsViewport,
+                          let offset = fixture.targetOffset(70) else { return }
+                    appliedRows.append(rows[pass])
+                    fixture.collection.setContentOffset(.init(x: 0, y: offset + residuals[pass]), animated: false)
+                    fixture.driver.layoutDidSettle()
+                    fixture.layoutMutationTask = nil
+                }
+            }
+            fixture.request(70, animated: false)
+            try await wait("successive sizing correction did not finish") { !fixture.results.isEmpty }
+            try require(
+                fixture.results == [.settled] && fixture.quoted == [70] && fixture.targetIsVisible(70),
+                "successive self-size lost settled target/quote: \(fixture.results)",
+            )
+            try require(
+                appliedRows == rows && fixture.commands.count > 3
+                        && fixture.commands.count <= ChatMessageNavigationScroll.CorrectionBudget.maximum + 1,
+                "successive-sizing fixture did not cross old two-correction limit",
+            )
+            try require(
+                abs(fixture.collection.contentOffset.y - (fixture.targetOffset(70) ?? .infinity)) <= 0.75,
+                "visible but off-center target falsely settled",
+            )
         }
 
         private static func wait(_ detail: String, until condition: () -> Bool) async throws {

@@ -13,6 +13,29 @@ import UIKit
     enum Resolution { case deferred, missing, cancelled, ready(Target) }
     enum Outcome: Equatable { case settled, missing, failed, cancelled }
 
+    /// Estimated neighboring cells may require more than two layout passes.
+    /// Continue only while stable residuals converge (one stalled pass may retry),
+    /// with an independent command cap and the request's failure-only deadline.
+    struct CorrectionBudget {
+        static let maximum = 8
+
+        private(set) var count = 0
+
+        private var previousError: CGFloat?
+        private var stalledPasses = 0
+
+        mutating func admit(error: CGFloat) -> Bool {
+            guard error.isFinite, error > 0.75, count < Self.maximum else { return false }
+            if let previousError {
+                stalledPasses = error < previousError - 0.75 ? 0 : stalledPasses + 1
+            }
+            guard stalledPasses < 2 else { return false }
+            previousError = error
+            count += 1
+            return true
+        }
+    }
+
     @MainActor private final class FrameObserver: NSObject {
         weak var owner: ChatMessageNavigationScroll?
 
@@ -26,7 +49,8 @@ import UIKit
         let onCommand: (Target, Bool) -> Void
         let completion: (Outcome) -> Void
         var command: UUID?
-        var corrections = 0
+        var commandAnimated = false
+        var corrections = CorrectionBudget()
     }
 
     private weak var scrollView: UIScrollView?
@@ -113,6 +137,7 @@ import UIKit
         guard let current = attempt, let scrollView else { return }
         stopChecking()
         attempt?.command = UUID()
+        attempt?.commandAnimated = animated
         receivedEnd = !animated
         issuingCommand = true
         current.onCommand(target, animated)
@@ -161,6 +186,13 @@ import UIKit
                 return
             }
             guard close(previous, scrollView.contentOffset) else {
+                if !current.commandAnimated {
+                    // Self-sizing can adjust contentOffset after a synchronous
+                    // correction. This is not a newer native animation/end pair.
+                    firstOffset = scrollView.contentOffset
+                    firstTarget = target.offset
+                    return
+                }
                 // An old end signal must not interrupt a newer moving animation.
                 stopChecking()
                 receivedEnd = false
@@ -174,10 +206,13 @@ import UIKit
             stopChecking()
             if isAtTarget(target) { finish(.settled) }
             else if receivedEnd {
-                guard current.corrections < 2 else { finish(.failed)
+                let error = max(
+                    abs(scrollView.contentOffset.x - target.offset.x),
+                    abs(scrollView.contentOffset.y - target.offset.y),
+                )
+                guard attempt?.corrections.admit(error: error) == true else { finish(.failed)
                     return
                 }
-                attempt?.corrections += 1
                 issue(target, animated: false)
             }
         }
