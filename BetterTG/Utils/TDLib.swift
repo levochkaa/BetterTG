@@ -58,8 +58,7 @@ final class TDLib: @unchecked Sendable {
     private var retiringClientIDs = Set<Int32>()
     private var recoveringClientIDs = Set<Int32>()
     private var cancellables = Set<AnyCancellable>()
-    private let fileUpdates = PassthroughSubject<UpdateFile, Never>()
-    private let deleteMessageUpdatesSubject = PassthroughSubject<UpdateDeleteMessages, Never>()
+    private var mediaUpdates = TDLibMediaUpdateStreams(source: nil)
     private var activeVODRanges: TDLibVODRangeCoordinator?
 
     var activeAccount: TelegramAccount? {
@@ -80,7 +79,7 @@ final class TDLib: @unchecked Sendable {
     }
 
     var deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never> {
-        deleteMessageUpdatesSubject.eraseToAnyPublisher()
+        mediaUpdates.deleteMessageUpdates
     }
 
     var vodRanges: TDLibVODRangeCoordinator {
@@ -323,10 +322,14 @@ final class TDLib: @unchecked Sendable {
             }
         }
         setActiveClient(client)
+        let mediaUpdates = TDLibMediaUpdateStreams(
+            source: TdUpdateSource(accountID: accountID, clientID: client.id),
+        )
+        self.mediaUpdates = mediaUpdates
         activeVODRanges = TDLibVODRangeCoordinator(
             accountID: accountID.uuidString,
             client: .live(client),
-            updates: fileUpdates.eraseToAnyPublisher(),
+            updates: mediaUpdates.fileUpdates,
         )
         try? client.setLogStream(logStream: .logStreamEmpty) { _ in }
 
@@ -372,19 +375,9 @@ final class TDLib: @unchecked Sendable {
         }
 
         guard isActive(client: client, accountID: accountID) else { return }
-        publishMediaUpdate(incomingUpdate)
-        update(incomingUpdate, source: TdUpdateSource(accountID: accountID, clientID: client.id))
-    }
-
-    private func publishMediaUpdate(_ update: Update) {
-        switch update {
-        case .updateFile(let fileUpdate):
-            fileUpdates.send(fileUpdate)
-        case .updateDeleteMessages(let deleteUpdate):
-            deleteMessageUpdatesSubject.send(deleteUpdate)
-        default:
-            break
-        }
+        let source = TdUpdateSource(accountID: accountID, clientID: client.id)
+        mediaUpdates.publish(incomingUpdate, source: source)
+        update(incomingUpdate, source: source)
     }
 
     private func isActive(client: TDLibClient, accountID: UUID) -> Bool {
