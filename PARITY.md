@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A30 profile-editor recovery after bounded folder-flow recovery. A21 secret-note scene-capture admission now has integrated native/UIKit
+Active queue: A30 quiescent profile recovery after bounded profile-editor/folder-flow recovery. A36 selector presentation and A37
+post-foreground navigation overlap have fresh runtime evidence below. A21 secret-note scene-capture admission now has integrated native/UIKit
 proof below; hardware capture and screenshot prevention remain unverified. A34/A35 now have integrated
 ordering/ownership probes; delayed live RootVM RPC remains unverified. A32 cleanup preserves native Back
 but its background remains a visual gap. A23 static-image authority and
@@ -152,12 +153,14 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | fixed in `b0db39f` (worker `1a78906`) — shared effective capability, fresh appearance hydration and scoped rights updates; captured actor/account/client plus fresh `getChat`/`getChatMember` before each title/description write. Integrated 25-case policy and delayed-request probe passes; live profile permission/save behavior remains unverified |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | fixed in `9cdc6b0` — invalidate request identity before tab cancellation; success/error/cancellation may clear busy state or publish only after consuming their exact registration. Token regression passes A→B→A, obsolete cancellation, retry and duplicate delivery; actual suspended controller/RPC race remains unverified |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
-| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84`; folder flows `850ccf8`/`b923f19`. Bounded native probes and same-PID foreground smoke pass below. Profile editor retention is next; active topic search/capture and full account/notification lifecycle remain unverified |
+| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84`; folder flows `850ccf8`/`b923f19`; profile editor `1e072ca`. Bounded native probes and same-PID foreground smoke pass below. Quiescent profile recovery is next; active topic search/capture and full account/notification lifecycle remain unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
-| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background. `3983b48` removes ineffective synthetic Back/title tracking; native nil-item policy and actual Profile/Edit/Back pass, but Back remains circular. Native search islands and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
+| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background. `3983b48` removes ineffective synthetic Back/title tracking; native nil-item policy and actual Profile/Edit/Back pass, but Back remains circular. `1b89dbd` makes folder selector/order Done plain text; selector pixels/action and native gates pass. Native search islands and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
 | A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
 | A34 | P1 | At `7426478`, `RootVM.updateChatFolders` builds main/custom snapshots, awaits archive hydration, then replaces all folders. Accepted same-epoch unread/draft/message/position events during that await mutate the old objects and are lost on replacement | fixed bounded observed fields — `4185849` reconciles newer accepted deltas across raw/peer/list reads and final insertion; `3290ba4` retires superseded refresh projections immediately. Actual reducer/insertion suspended probes pass. RootVM transport wiring is source-reviewed; unobserved fields/group updates and delayed live RPC remain open |
 | A35 | P2 | At `7426478`, `RootVM.loadScopeNotificationSettings` collects three sequential reads and finally merges old values over settings accepted from intervening updates | fixed in `67c9470` — per-scope request revisions reserved before dispatch, accepted-update revocation and immediate response publication. Actual loader suspended-read probe passes overlapping loads, late success/failure, source/epoch/cancel and value retention; real mute-badge race is unverified |
+| A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | needs-fix — selector-only title/subtitle/search/sort and scoped candidate refresh; preserve IDs, selection, valid titles and Saved semantics. Do not classify unknown/unnamed users as deleted |
+| A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | needs-fix — measure public bar/safe-area/prompt state before choosing a fix. Data/caret retention passes; no layout-parity claim. Root stack replacement and waiting→ready prompt updates are unproven causes |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1277,6 +1280,50 @@ is imported. This source pass does not prove every content's real rendering/acti
   Documentation checkpoint build `build-Debug-20261002-232053-99468-14280.log`: PASS11s, zero warnings; prohibited production/
   dependency marker scan empty, AGENTS/CLAUDE synchronized.
 
+### A30f1 retained profile editor and fresh save authority — 2026-10-02
+
+- `1e072ca` (worker `ae69e9e`) keeps the exact editor, raw fields, selection and local errors through same-account client
+  replacement. A fresh immutable account/actor/client scope is reserved for each explicit Save; stale Ready cannot renew it.
+  Account/actor departure permanently revokes the editor, including A→B→A. The actual parent retains only its attached,
+  immediate, non-revoked editor; other profile children and full profile restoration remain separate.
+- A27 permission reads remain fresh before each title/description write. Predispatch loss sends nothing; after first dispatch,
+  client/readiness loss leaves an explicit uncertain result without replay. Accepted partial ACK advances only that field's
+  baseline. Late ACK/error cannot update fields or navigation; newer typing prevents an old success from closing the editor.
+  No server-conflict reconciliation or process-death profile draft storage is added.
+- References: current/pre `PeerInfoHeaderEditingContentNode.swift`111–160/97–142 reuse existing editing fields;
+  `PeerInfoScreen.swift`1663–1755,1920–1956 / 4296–4377,4507–4543 captures explicit edit/save state. Pinned TDLib `td_api.tl`
+  13225–13230,13329–13334,13415–13423,14617–14627 supplies the existing name/bio/chat-info and authorization contracts.
+  No Telegram infrastructure copied. Primary reviewed the session, parent gate, editor and injected endpoint proof.
+- Five Swift files formatted together; `build-Debug-20261002-232350-7050-2496.log`: PASS14s, zero warnings. Native editor
+  probe at `1e072ca`, PID `9957`, passes production session/retention helper, actual UIKit fields/selection, stale Ready,
+  immutable payload/client, partial writes, typing revision and detached/account/actor rejection. A27 permission, generic
+  navigation and folder-flow regressions pass. Fresh results `23:24:47–23:24:52`; no server mutation.
+- Real Saved → own Profile → Edit: enter agent-only `AstraDraft`, Home → app icon. Same PID `9957`; lifecycle log records
+  ownership release `23:32:55`, recreation/Ready `23:33:18`. Same field/caret survives; typing `2` yields `AstraDraft2`.
+  Back retires the stale parent to restored Saved. Reopen Profile/Edit: original empty Last name is intact. Save was never
+  pressed; agent-only draft discarded. Private proof `.build/ui-probe-evidence/astra-a30f1-primary`.
+- Settled foreground screenshots also expose A37 first-field overlap. This is bounded state/authority proof, not clean layout
+  parity. Hardware keyboard/IME, live account switch, authorized server saves and full profile/gallery recovery remain unverified.
+
+### A32 folder Done contrast and A36 title classification — 2026-10-02
+
+- `1b89dbd` (worker `7a46acb`) changes only selector/order Done factories to titled `.plain` items, retaining actions,
+  target, readiness gates and AX label. Native folder-flow probe now verifies all of them, including disabled action denial.
+  Two-file format; `build-Debug-20261002-232705-14634-13985.log`: PASS8s, zero warnings.
+- Audit Simulator, source `1b89dbd`, PID `29718`: folder-flow and profile-editor regressions pass, fresh results
+  `23:36:07–23:36:09`. Actual New Folder → Always Include shows readable plain Done after transition settles. Done returns
+  to the same unsaved editor with zero selected chats; Back discards that local draft. No folder saved, reordered or deleted.
+  Order's visual appearance and VoiceOver remain unverified; native Back and bottom Search islands are still open A32 gaps.
+- Aggregate-only actual-selector diagnostic at `23:37:48`: 467 candidates, 11 empty raw titles, all 11 explicitly deleted and
+  non-contact, zero unknown; 14 visible cells, 11 empty text labels, zero model/display mismatches. No peer names/IDs/query
+  logged. This confirms A36 presentation loss rather than missing hydration or stale cell rendering.
+- Source: `CustomChat.displayTitle` returns raw `Chat.title`; selector uses it for cell/sort/search and all user subtitles say
+  Contact. Pinned TD `UserManager.cpp`5574–5585 permits empty unnamed titles; `td_api.tl`797–819 distinguishes deleted/unknown.
+  Current/pre `LocalizedPeerData/Sources/PeerTitle.swift`31–54/29–52 supplies name/deleted fallback; its phone TODO is not copied.
+  Private proof `.build/ui-probe-evidence/astra-a32-done-primary`. Candidate title/contact update freshness remains part of A36.
+  Documentation checkpoint `build-Debug-20261002-234112-48169-3610.log`: PASS6s, zero warnings; prohibited source/dependency
+  scan empty, AGENTS/CLAUDE synchronized. No Simulator was activated or shut down.
+
 ### A33 definite profile-header text width — 2026-10-02
 
 - `b97fa9b` changes the four centered header labels from `width <= stack.width` to definite available width. Multiline fitting
@@ -1499,7 +1546,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `b923f19` includes A30e `850ccf8`; folder-flow and four regression probes pass (PID `80658`).
+- Latest verified code: `1b89dbd` Done native/actual-selector proof passes (PID `29718`); A30f1 `1e072ca` actual editor
+  foreground/typing/discard/reopen and four native regressions pass (PID `9957`), with separate layout finding A37.
+  `b923f19` includes A30e `850ccf8`; folder-flow and four regression probes pass (PID `80658`).
   `f45869b` includes A21d `fd98d02`; native secret-hold/capture-trait regression passes (PID `58077`).
   `3290ba4` includes A34 `4185849` and A35 `67c9470`; combined seven-probe regression passes (PID `44216`).
   `3983b48`: native nil-Back policy probe and actual Profile/Edit/Back smoke pass (PID `20378`);
@@ -1529,7 +1578,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261002-231025-79060-7092.log`,
+  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261002-232705-14634-13985.log`,
+  `build-Debug-20261002-232350-7050-2496.log`, `build-Debug-20261002-231025-79060-7092.log`,
   `build-Debug-20261002-230359-64579-5399.log`, `build-Debug-20261002-225546-56715-10303.log`,
   `build-Debug-20261002-224502-40819-31807.log` and
   `build-Debug-20261002-223928-27434-8714.log`.
@@ -1541,23 +1591,25 @@ is imported. This source pass does not prove every content's real rendering/acti
   Static-image origin/shared-demand `73bcb04` is integrated as `7426478`, with reviewed fixture correction `b3aa790` and runtime proof.
   A23g pending membership is integrated as `1cd9ecf` with actual-helper proof. A34 accepted-update projection/refresh retirement
   is integrated as `4185849`/`3290ba4`; A30e folder-flow authority is integrated as `850ccf8`/`b923f19` with native/runtime proof.
-  This worker is independently reviewing the profile-editor repair.
+  This worker is implementing bounded A36 selector presentation after the aggregate runtime diagnosis.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
   still ignores the configured flag in runtime proof. Ineffective generated Back is removed by `3983b48` after independent
   source review; A23g/A34 independent review found no further introduced blocker. A35 is integrated as `67c9470`.
   A21d secret-note recording/mirroring admission is integrated as `fd98d02`/`f45869b`; photo and immediate/view-once remain denied.
-  This worker is implementing the bounded profile-editor repair after confirming the parent truncates its unsaved child.
+  Profile-editor repair is integrated as `1e072ca`. This worker is implementing bounded A30f2 quiescent profile recovery,
+  preserving accepted tab/page/cursor/viewport state and rebinding callbacks to the exact restored preceding Chat.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: A30f1 same-account profile-editor retention and fresh per-save authority, followed by primary foreground proof.
-  Parent account wakeup currently removes its unsaved child editor after client replacement; full profile/gallery restoration is separate.
-  Retain folder-selector empty-title classification and A32 Done contrast/search proof gaps documented in A30e.
+- Exact next slice: A30f2 quiescent profile recovery; integrate/review/probe before actual same-PID foreground proof.
+  A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate. In parallel, finish bounded
+  A36 selector-only presentation and scoped candidate updates; verify all 11 actual deleted rows have visible truthful titles.
+  Then diagnose A37 public bar/safe-area/prompt geometry without a speculative global navigation rewrite.
   Retain A32 native Back/search and extended runtime matrix;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image live transport/account-switch proof limits and Chat's untested nonempty composer/import/keyboard cases.
