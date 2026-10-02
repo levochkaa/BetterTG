@@ -122,7 +122,16 @@ import UIKit
         throw Failure(description: "timeout: \(reason)")
     }
 
-    private static func drain() async throws { try await Task.sleep(for: .milliseconds(40)) }
+    private static func settle(_ task: Task<Void, Never>?, _ reason: String) async throws {
+        guard let task else { return }
+        var finished = false
+        let waiter = Task {
+            await task.value
+            finished = true
+        }
+        defer { waiter.cancel() }
+        try await until("driver completion: \(reason)") { finished }
+    }
 
     private static func verifyReads() async throws {
         let f = Fixture(ids: [1, 2, 3, 4, 5, 6])
@@ -149,7 +158,7 @@ import UIKit
             .content { try require(photo.hasSpoiler, "old spoiler flag won") }
         else { throw Failure(description: "fresh photo missing") }
         f.refresh.retry()
-        try await drain()
+        try await settle(f.refresh.debugRefreshTask, "tombstone retry")
         try require(!f.gate.calls.dropFirst(4).contains(6) && f.gate.maximum == 4, "tombstone reread or bound exceeded")
 
         for error in [
@@ -159,24 +168,27 @@ import UIKit
             .init(code: 500, message: "offline"),
         ] {
             let e = Fixture()
+            defer { e.close() }
             e.values[1] = message(1)
             e.refresh.start()
             try await until("error read") { e.gate.pending[1] != nil }
             e.gate.finish(1, .failure(error))
-            try await drain()
             if error.code == 404, error.message == "Not Found" {
+                try await until("exact not-found delivery") { e.values[1] == nil }
+                try await settle(e.refresh.debugRefreshTask, "exact not-found")
                 try require(e.values[1] == nil && !e.refresh.allows(1), "exact not-found kept stale seed")
             } else {
+                try await until("retry delivery \(error.code) \(error.message)") { e.refresh.state(for: 1) == .retry }
+                try await settle(e.refresh.debugRefreshTask, "retry \(error.code) \(error.message)")
                 try require(
                     e.values[1] != nil && e.refresh.state(for: 1) == .retry && e.gate.calls.count == 1,
-                    "error disappeared or auto-spun",
+                    "error \(error.code) \(error.message) disappeared or auto-spun",
                 )
                 e.refresh.retry()
                 try await until("explicit retry") { e.gate.pending[1] != nil }
                 e.gate.finish(1, .success(message(1)))
                 try await until("retry admission") { e.refresh.allows(1) }
             }
-            e.close()
         }
         let filtered = Fixture()
         defer { filtered.close() }
@@ -236,6 +248,7 @@ import UIKit
 
         for boundary in 0..<5 {
             let e = Fixture()
+            defer { e.close() }
             e.refresh.start()
             try await until("scope read") { e.gate.pending[1] != nil }
             switch boundary {
@@ -246,16 +259,17 @@ import UIKit
             default: e.actor = 78
             }
             e.gate.finish(1, .success(message(1)))
-            try await drain()
+            try await settle(e.refresh.debugRefreshTask, "scope \(boundary)")
             try require(e.values.isEmpty && !e.refresh.allows(1), "scope \(boundary) admitted late result")
-            e.close()
         }
         let canceled = Fixture()
+        defer { canceled.close() }
         canceled.refresh.start()
+        let canceledTask = canceled.refresh.debugRefreshTask
+        try require(canceledTask != nil, "predispatch fixture lacked a driver")
         canceled.refresh.stop()
-        try await drain()
+        try await settle(canceledTask, "predispatch cancellation")
         try require(canceled.gate.calls.isEmpty, "predispatch stop issued a read")
-        canceled.close()
         let topic = Fixture(topic: .messageTopicForum(.init(forumTopicId: 12)))
         defer { topic.close() }
         topic.values[1] = message(1)
@@ -326,7 +340,7 @@ import UIKit
             "detached navigation fixture lacks residual pixels",
         )
         refresh.resume(needsPage: true, hasError: false, loadPage: load)
-        try await drain()
+        try await settle(refresh.debugRefreshTask, "detached bootstrap")
         try require(
             pages == 1 && !refresh.canRead && unexpectedReads == 0,
             "detached navigation issued page or seed read",

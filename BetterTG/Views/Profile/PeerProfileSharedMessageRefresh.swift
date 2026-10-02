@@ -47,6 +47,9 @@ import UIKit
         deliver: { [weak self] in self?.receive($0) },
     )
 
+    #if DEBUG
+        var debugRefreshTask: Task<Void, Never>? { task }
+    #endif
     var canRead: Bool { !stopped && accepts() }
 
     private var isCurrent: Bool { canRead }
