@@ -143,12 +143,15 @@
                     try verify()
                     try await verifyExplicitNavigation()
                     try await verifyLayoutRelease()
+                    try await ChatMessageNavigationScrollProbe.verify()
                     result = "Viewport authority probe passed: production-ticket=true; latest-layout-only=true; "
                         + "gesture/navigation/revoked-context-retire=true; active-scroll/replay-rejected=true; "
                         + "fresh-restoration-after-gesture=true; "
                         + "A39-current-snapshot-marker/actual-UICollectionView-diffable=true; "
                         + "A39-loaded/unloaded/delayed-snapshot/appearance/layout/initial-position/quote-metadata/gesture/client/failure=true; "
                         + "A39-rotation-release=production-helper/value-only-consumer; nested-release/no-recursion=true; "
+                        + "A39-settlement=production-driver/native-animation/estimated-compositional-cells; "
+                        + "A39-flight-anchor/latest/inset-gates/resize/album-remap/quote/supersession/cancel/deferred/deadline=true; "
                         + "navigation-consumer=value-only; ChatView-wiring=source-reviewed; "
                         + "real-ChatVM/TDLib/foreground/rotation=unverified; server/account-stores=0"
                 } catch { result = "Viewport authority probe failed: \(error)" }
