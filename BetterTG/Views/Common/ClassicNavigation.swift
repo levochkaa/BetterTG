@@ -37,9 +37,6 @@ final class ClassicNavigationBar: UINavigationBar {
         didSet { applyPolicy(to: items ?? []) }
     }
 
-    private let generatedBackItems = NSMapTable<UINavigationItem, UIBarButtonItem>(
-        keyOptions: .weakMemory, valueOptions: .strongMemory,
-    )
     private var applyingPolicy = false
 
     override init(frame: CGRect) {
@@ -77,31 +74,8 @@ final class ClassicNavigationBar: UINavigationBar {
             for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
                 hideSharedBackground(button)
             }
-            let back: UIBarButtonItem
-            if let existing = item.backBarButtonItem {
-                back = existing
-                if generatedBackItems.object(forKey: item) === existing {
-                    let title = backTitle(for: item)
-                    if existing.title != title { existing.title = title }
-                } else {
-                    generatedBackItems.removeObject(forKey: item)
-                }
-            } else {
-                // The previous item's native back item styles the next screen's
-                // back control. A left item with a custom pop action would not.
-                back = UIBarButtonItem(title: backTitle(for: item), style: .plain, target: nil, action: nil)
-                generatedBackItems.setObject(back, forKey: item)
-                item.backBarButtonItem = back
-            }
-            hideSharedBackground(back)
-        }
-    }
-
-    private func backTitle(for item: UINavigationItem) -> String? {
-        switch item.backButtonDisplayMode {
-        case .default: item.backButtonTitle ?? item.title
-        case .generic, .minimal: nil
-        @unknown default: nil
+            // Leave an implicit Back and its adaptive title entirely to UIKit.
+            if let back = item.backBarButtonItem { hideSharedBackground(back) }
         }
     }
 

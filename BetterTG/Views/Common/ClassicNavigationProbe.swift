@@ -21,7 +21,7 @@
                 try verifyPolicy()
                 result = "Classic navigation probe passed: actual-owned-UINavigationBar/controller=true; "
                     + "initial/late/replaced-items/idempotence=true; native-push/pop/set-stack=true; "
-                    + "previous-item-back/generated-title/explicit-back/display-mode=true; "
+                    + "nil-back/native-title-policy/explicit-back/display-mode-preserved=true; "
                     + "target/action/menu/customView/enabled/delegate-preserved=true; "
                     + "standard/scroll/compact/compact-scroll-blur=true; "
                     + "visible-pixels/back-tap/history/interactive-pop/RTL/safe-area/search=unverified; server-writes=0"
@@ -62,14 +62,12 @@
                         && initial.target === receiver && initial.action == action,
                 "initial policy changed action or disabled state",
             )
-            guard let generatedBack = root.navigationItem.backBarButtonItem else {
-                throw Failure(description: "missing native previous-item back")
-            }
             try require(
-                generatedBack.hidesSharedBackground && generatedBack.title == "Root"
-                        && generatedBack.target == nil && generatedBack.action == nil
+                root.navigationItem.backBarButtonItem == nil && root.navigationItem.title == "Root"
+                        && root.navigationItem.backButtonTitle == nil
+                        && root.navigationItem.backButtonDisplayMode == .default
                         && root.navigationItem.leftBarButtonItem == nil,
-                "back was replaced with custom pop action",
+                "implicit back or native title policy was replaced",
             )
             let child = UIViewController()
             child.title = "Child"
@@ -77,7 +75,9 @@
             layout(bar)
             try require(
                 navigation.topViewController === child && bar.backItem === root.navigationItem
-                        && navigation.delegate === delegate,
+                        && navigation.delegate === delegate
+                        && root.navigationItem.backBarButtonItem == nil
+                        && child.navigationItem.backBarButtonItem == nil,
                 "push/delegate/native back source changed",
             )
             let customView = UIButton(type: .system)
@@ -103,22 +103,27 @@
             layout(bar)
             _ = UIApplication.shared.sendAction(action, to: initial.target, from: initial, for: nil)
             try require(initial.isEnabled && receiver.count == 1, "action routing or enabled state changed")
+            root.title = "Renamed root"
             root.navigationItem.backButtonTitle = "Origin"
             layout(bar)
             try require(
-                root.navigationItem.backBarButtonItem === generatedBack && generatedBack.title == "Origin",
-                "generated back title did not track source",
+                root.navigationItem.backBarButtonItem == nil && root.navigationItem.title == "Renamed root"
+                        && root.navigationItem.backButtonTitle == "Origin"
+                        && root.navigationItem.backButtonDisplayMode == .default,
+                "title change installed an explicit back override",
             )
             root.navigationItem.backButtonDisplayMode = .generic
             layout(bar)
             try require(
-                generatedBack.title == nil && root.navigationItem.backButtonDisplayMode == .generic,
-                "generated title overrode native generic mode",
+                root.navigationItem.backBarButtonItem == nil && root.navigationItem.backButtonTitle == "Origin"
+                        && root.navigationItem.backButtonDisplayMode == .generic,
+                "native generic title policy changed",
             )
             root.navigationItem.backButtonDisplayMode = .minimal
             layout(bar)
             try require(
-                generatedBack.title == nil && root.navigationItem.backButtonDisplayMode == .minimal,
+                root.navigationItem.backBarButtonItem == nil && root.navigationItem.backButtonTitle == "Origin"
+                        && root.navigationItem.backButtonDisplayMode == .minimal,
                 "minimal display mode changed",
             )
             let explicitBack = UIBarButtonItem(title: "Custom", style: .plain, target: receiver, action: action)
@@ -145,9 +150,22 @@
                         && root.navigationItem.backBarButtonItem === explicitBack,
                 "replacement or repeated layout changed item ownership",
             )
+            root.navigationItem.backBarButtonItem = nil
+            root.navigationItem.backButtonDisplayMode = .default
+            layout(bar)
+            try require(
+                root.navigationItem.backBarButtonItem == nil && root.navigationItem.backButtonTitle == "Origin"
+                        && root.navigationItem.title == "Changed root"
+                        && root.navigationItem.backButtonDisplayMode == .default,
+                "cleared explicit back was synthesized again",
+            )
             let popped = navigation.popViewController(animated: false)
             layout(bar)
-            try require(popped === child && navigation.topViewController === root, "native pop failed")
+            try require(
+                popped === child && navigation.topViewController === root
+                        && root.navigationItem.backBarButtonItem == nil,
+                "native pop or implicit back changed",
+            )
             let final = UIViewController()
             final.title = "Replacement"
             final.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done)
@@ -156,7 +174,9 @@
             try require(
                 navigation.topViewController === final && bar.backItem === root.navigationItem
                         && final.navigationItem.rightBarButtonItem?.hidesSharedBackground == true
-                        && navigation.delegate === delegate,
+                        && navigation.delegate === delegate
+                        && root.navigationItem.backBarButtonItem == nil
+                        && final.navigationItem.backBarButtonItem == nil,
                 "set-stack replacement bypassed policy",
             )
             try require(
