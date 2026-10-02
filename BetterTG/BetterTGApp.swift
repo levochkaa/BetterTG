@@ -18,6 +18,7 @@ import UIKit
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
             ChatComposerEditProbe.runDebugProbeIfRequested()
             ChatComposerRestorationProbe.runDebugProbeIfRequested()
+            ChatClientRestorationProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
             PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()

@@ -806,6 +806,16 @@ import UIKit
         }
     }
 
+    /// Display-only seed. The replacement must reconcile it with its current
+    /// client's latest history and source-message reads before claiming freshness.
+    func historyRestorationState() -> ChatHistoryRestorationState? {
+        guard composerCanTransfer, reactionMutationTasks.isEmpty, pinMutationTasks.isEmpty else { return nil }
+        return ChatHistoryRestorationState(
+            location: location, messages: messages.map(ChatHistoryMessageValue.init),
+            oldestHistoryMessageID: oldestHistoryMessageID, hasMoreMessages: hasMoreMessages,
+        )
+    }
+
     func resolveSendContext(
         for kind: ChatSendContentKind,
         replyingTo reply: CustomMessage?,
