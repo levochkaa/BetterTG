@@ -30,6 +30,7 @@ enum Route {
     @Published var scopeNotificationSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
     var cancellables = Set<AnyCancellable>()
     let listAuthority = RootListAuthority()
+    let chatInsertions = RootChatInsertion()
     var folderLoadID: UUID?
     var chatRefreshIDs = [Int64: UUID]()
 

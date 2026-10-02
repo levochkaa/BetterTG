@@ -10,11 +10,13 @@ extension RootVM {
             .activeClientChanges
             .sink { [weak self] _ in
                 self?.listAuthority.invalidate()
+                self?.chatInsertions.invalidate()
             }
             .store(in: &cancellables)
         nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
             guard let self else { return }
             listAuthority.invalidate()
+            chatInsertions.invalidate()
             folderLoadID = nil
             chatRefreshIDs.removeAll()
             activeAccountID = TDLib.shared.activeAccountID
@@ -150,59 +152,49 @@ extension RootVM {
 
     func updateNewChat(_ update: UpdateNewChat) {
         for position in update.chat.positions where position.order != 0 {
-            addChatIfNeeded(id: update.chat.id, position: position)
+            applyChatPosition(id: update.chat.id, position: position)
         }
     }
 
     func updateChatPosition(_ update: UpdateChatPosition) {
         defer { refreshChat(id: update.chatId) }
-        guard let folder = allFolders.first(where: { $0.chatList == update.position.list }) else { return }
-        guard update.position.order != 0 else {
-            folder.chats.removeAll(where: { $0.id == update.chatId })
-            return
-        }
-        if let chat = folder.chats.first(where: { $0.id == update.chatId }) {
-            chat.position = update.position
-        } else {
-            addChatIfNeeded(id: update.chatId, position: update.position)
-        }
+        applyChatPosition(id: update.chatId, position: update.position)
     }
 
     func updateChatDraftMessage(_ update: UpdateChatDraftMessage) {
         for folder in allFolders {
-            guard let chat = folder.chats.first(where: { $0.id == update.chatId }),
-                  let position = update.positions.first(folder.chatList)
-            else { continue }
-            chat.draftMessage = update.draftMessage
-            chat.position = position
+            folder.chats.first(where: { $0.id == update.chatId })?.draftMessage = update.draftMessage
+            applyChatPosition(
+                id: update.chatId,
+                position: RootChatInsertion.position(in: update.positions, for: folder.chatList),
+            )
         }
     }
 
     func updateChatLastMessage(_ update: UpdateChatLastMessage) {
         for folder in allFolders {
-            guard let chat = folder.chats.first(where: { $0.id == update.chatId }),
-                  let position = update.positions.first(folder.chatList)
-            else { continue }
-            chat.lastMessage = update.lastMessage
-            chat.position = position
+            folder.chats.first(where: { $0.id == update.chatId })?.lastMessage = update.lastMessage
+            applyChatPosition(
+                id: update.chatId,
+                position: RootChatInsertion.position(in: update.positions, for: folder.chatList),
+            )
         }
     }
 
-    private func addChatIfNeeded(id: Int64, position: ChatPosition) {
+    private func applyChatPosition(id: Int64, position: ChatPosition) {
         guard let folder = allFolders.first(where: { $0.chatList == position.list }),
-              !folder.chats.contains(where: { $0.id == id }),
               let (ticket, client) = captureListRequest()
         else { return }
-        Task { [weak self, weak folder] in
-            guard let self, let folder,
-                  acceptsListRequest(ticket),
-                  let chat = await getCustomChat(from: id, for: position.list, client: client),
-                  acceptsListRequest(ticket),
-                  allFolders.contains(where: { $0 === folder }),
-                  !folder.chats.contains(where: { $0.id == id })
-            else { return }
-            folder.chats.append(chat)
-        }
+        chatInsertions.apply(
+            source: ticket.source, chatID: id, position: position, folder: folder,
+            accepts: { [weak self, weak folder] in
+                guard let self, let folder else { return false }
+                return acceptsListRequest(ticket) && allFolders.contains(where: { $0 === folder })
+            },
+            hydrate: { [weak self] in
+                await self?.getCustomChat(from: id, for: position.list, client: client)
+            },
+        )
     }
 
     private func refreshChat(id: Int64) {
