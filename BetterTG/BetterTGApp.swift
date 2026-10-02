@@ -43,6 +43,7 @@ import UIKit
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()
             FFmpegAnimatedVideoView.runDebugProbeIfRequested()
+            AnimatedFileDownloadProbe.runDebugProbeIfRequested()
             TDLibVODResourceLoaderSession.runDebugProbeIfRequested()
             GalleryVideoPlaybackOwner.runDebugProbeIfRequested()
         #endif

@@ -66,9 +66,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     private var loadedPath: String?
     private var playbackVisible = false
     private var onTap: (() -> Void)?
-    private var downloadTask: Task<Void, Never>?
+    private var fileRequest: AnimatedFileDownload?
     private var decodeTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
 
     private var playbackEnabled: Bool {
         UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
@@ -110,6 +109,10 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        decodeTask?.cancel()
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         updatePlayback()
@@ -122,38 +125,30 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         onTap: (() -> Void)?,
     ) {
         prepareForReuse()
+        let client = td
+        guard let request = AnimatedFileDownload(fileID: file.id, client: client) else { return }
+        fileRequest = request
         representedFileID = file.id
         self.onTap = onTap
         isUserInteractionEnabled = onTap != nil
         apply(displaySize: displaySize)
 
         if let thumbnail {
-            thumbnailView.load(file: thumbnail.file)
+            thumbnailView.load(file: thumbnail.file, accountID: request.source.accountID, client: client)
         }
 
-        update(file: file)
-        fileCancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == file.id }
-            .sink { [weak self] update in self?.update(file: update.file) }
-
-        if !file.local.isDownloadingCompleted {
-            downloadTask = Task { [weak self] in
-                let downloaded = try? await td.downloadFile(
-                    fileId: file.id,
-                    limit: 0,
-                    offset: 0,
-                    priority: 2,
-                    synchronous: false,
-                )
-                guard let self, let downloaded else { return }
-                await MainActor.run { self.update(file: downloaded) }
-            }
-        }
+        request.start(file: file, onFile: { [weak self, weak request] file in
+            guard let self, let request, fileRequest === request else { return }
+            update(file: file)
+        }, onInvalidated: { [weak self, weak request] in
+            guard let self, let request, fileRequest === request else { return }
+            prepareForReuse()
+        })
     }
 
     func prepareForReuse() {
-        let fileID = representedFileID
+        fileRequest?.cancel()
+        fileRequest = nil
         representedFileID = nil
         loadedPath = nil
         onTap = nil
@@ -161,12 +156,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         isUserInteractionEnabled = false
         playbackVisible = false
 
-        downloadTask?.cancel()
-        downloadTask = nil
         decodeTask?.cancel()
         decodeTask = nil
-        fileCancellable?.cancel()
-        fileCancellable = nil
 
         animationView.stop()
         animationView.animation = nil
@@ -176,10 +167,6 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
         widthConstraint.isActive = false
         heightConstraint.isActive = false
-
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -196,7 +183,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     }
 
     private func update(file: File) {
-        guard representedFileID == file.id,
+        guard let request = fileRequest, request.isCurrent,
+              representedFileID == file.id,
               file.local.isDownloadingCompleted,
               !file.local.path.isEmpty,
               loadedPath != file.local.path
@@ -209,7 +197,10 @@ final class TGSStickerView: UIControl, AnimatedFileView {
             let animation = await TGSAnimationRepository.animation(at: file.local.path)
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, self.representedFileID == fileID else { return }
+                guard !Task.isCancelled, request.isCurrent,
+                      let self, self.fileRequest === request,
+                      self.representedFileID == fileID, self.loadedPath == file.local.path
+                else { return }
                 self.show(animation: animation)
             }
         }
@@ -235,7 +226,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     }
 
     private func updatePlayback() {
-        let shouldPlay = playbackVisible && window != nil && playbackEnabled && animationView.animation != nil
+        let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil
+            && playbackEnabled && animationView.animation != nil
         if shouldPlay {
             guard !animationView.isAnimationPlaying else { return }
             playSynchronized()
@@ -245,7 +237,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     }
 
     private func playSynchronized() {
-        guard let animation = animationView.animation,
+        guard fileRequest?.isCurrent == true, let animation = animationView.animation,
               playbackVisible,
               window != nil,
               playbackEnabled

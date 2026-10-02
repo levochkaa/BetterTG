@@ -348,13 +348,12 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     private var onTap: (() -> Void)?
     private var displayLink: CADisplayLink?
     private var requestedFrameIndex: Int?
-    private var downloadTask: Task<Void, Never>?
+    private var fileRequest: AnimatedFileDownload?
     private var assetTask: Task<Void, Never>?
     private var decodeTask: Task<Void, Never>?
     private var decoderSetupTask: Task<Void, Never>?
     private var configurationGeneration = UUID()
     private var decoderSetupGeneration = UUID()
-    private var fileCancellable: AnyCancellable?
 
     #if DEBUG
         private var decoderProbe: FFmpegAnimationWorkerProbe?
@@ -418,38 +417,30 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         onTap: (() -> Void)?,
     ) {
         prepareForReuse()
+        let client = td
+        guard let request = AnimatedFileDownload(fileID: file.id, client: client) else { return }
+        fileRequest = request
         representedFileID = file.id
         self.onTap = onTap
         isUserInteractionEnabled = onTap != nil
         apply(displaySize: displaySize)
 
         if let thumbnail {
-            thumbnailView.load(file: thumbnail.file)
+            thumbnailView.load(file: thumbnail.file, accountID: request.source.accountID, client: client)
         }
 
-        update(file: file)
-        fileCancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == file.id }
-            .sink { [weak self] update in self?.update(file: update.file) }
-
-        if !file.local.isDownloadingCompleted {
-            downloadTask = Task { [weak self] in
-                let downloaded = try? await td.downloadFile(
-                    fileId: file.id,
-                    limit: 0,
-                    offset: 0,
-                    priority: 2,
-                    synchronous: false,
-                )
-                guard let self, let downloaded else { return }
-                await MainActor.run { self.update(file: downloaded) }
-            }
-        }
+        request.start(file: file, onFile: { [weak self, weak request] file in
+            guard let self, let request, fileRequest === request else { return }
+            update(file: file)
+        }, onInvalidated: { [weak self, weak request] in
+            guard let self, let request, fileRequest === request else { return }
+            prepareForReuse()
+        })
     }
 
     func prepareForReuse() {
-        let fileID = representedFileID
+        fileRequest?.cancel()
+        fileRequest = nil
         configurationGeneration = UUID()
         decoderSetupGeneration = UUID()
         decoderSetupTask?.cancel()
@@ -464,14 +455,10 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         isUserInteractionEnabled = false
         playbackVisible = false
 
-        downloadTask?.cancel()
-        downloadTask = nil
         assetTask?.cancel()
         assetTask = nil
         decodeTask?.cancel()
         decodeTask = nil
-        fileCancellable?.cancel()
-        fileCancellable = nil
         stopDisplayLink()
 
         frameView.image = nil
@@ -480,10 +467,6 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         thumbnailView.cancel()
         widthConstraint.isActive = false
         heightConstraint.isActive = false
-
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -500,7 +483,8 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     }
 
     private func update(file: File) {
-        guard representedFileID == file.id,
+        guard let request = fileRequest, request.isCurrent,
+              representedFileID == file.id,
               file.local.isDownloadingCompleted,
               !file.local.path.isEmpty,
               loadedPath != file.local.path
@@ -515,7 +499,9 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled,
+                      request.isCurrent,
                       let self,
+                      self.fileRequest === request,
                       self.configurationGeneration == generation,
                       self.representedFileID == fileID,
                       self.loadedPath == file.local.path
@@ -551,6 +537,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         decoder = nil
         let generation = UUID()
         decoderSetupGeneration = generation
+        let request = fileRequest
         let preparedDecoder = FFmpegVideoFrameDecoder(asset: asset)
         #if DEBUG
             let probe = decoderProbe
@@ -561,7 +548,9 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
             #endif
             let ready = await preparedDecoder.prepare()
             guard !Task.isCancelled,
+                  request?.isCurrent != false,
                   let self,
+                  fileRequest === request,
                   decoderSetupGeneration == generation,
                   loadedPath == path,
                   self.asset === asset
@@ -575,7 +564,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     }
 
     private func updatePlayback() {
-        let shouldPlay = playbackVisible && window != nil && playbackEnabled
+        let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil && playbackEnabled
             && decoder != nil && (asset?.frameCount ?? 0) > 1
         if shouldPlay {
             startDisplayLink()
@@ -604,11 +593,12 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     }
 
     @objc private func displayLinkFired() {
-        guard let asset, let path = loadedPath else { return }
+        guard fileRequest?.isCurrent == true, let asset, let path = loadedPath else { return }
         requestFrame(asset.frameIndex(at: CACurrentMediaTime()), path: path)
     }
 
     private func requestFrame(_ index: Int, path: String) {
+        guard let request = fileRequest, request.isCurrent else { return }
         if let cached = FFmpegVideoRepository.frame(path: path, index: index) {
             frameView.image = cached
             frameView.isHidden = false
@@ -625,7 +615,9 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled,
+                      request.isCurrent,
                       let self,
+                      self.fileRequest === request,
                       self.configurationGeneration == generation,
                       self.loadedPath == path,
                       self.decoder === decoder
