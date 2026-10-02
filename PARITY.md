@@ -1304,6 +1304,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   pressed; agent-only draft discarded. Private proof `.build/ui-probe-evidence/astra-a30f1-primary`.
 - Settled foreground screenshots also expose A37 first-field overlap. This is bounded state/authority proof, not clean layout
   parity. Hardware keyboard/IME, live account switch, authorized server saves and full profile/gallery recovery remain unverified.
+- A37 diagnostic follow-up adds opt-in `-ui-diagnose-profile-editor-layout`: at most 32 public bar/safe-area/field-frame samples
+  on editor state/layout events, no text/IDs and no forced layout or production behavior change. Two-file format and
+  `build-Debug-20261002-234312-52588-868.log`: PASS14s, zero warnings. Runtime geometry classification pending.
 
 ### A32 folder Done contrast and A36 title classification — 2026-10-02
 

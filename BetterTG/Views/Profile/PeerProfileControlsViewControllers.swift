@@ -964,9 +964,24 @@ private enum PeerProfileMemberTagError: LocalizedError {
                     navigationItem.prompt = "This account is no longer active."
                     view.isUserInteractionEnabled = false
                 }
+                #if DEBUG
+                    recordEditorLayout(phase: "state")
+                    DispatchQueue.main.async { [weak self] in self?.recordEditorLayout(phase: "after-state") }
+                #endif
             }
             .store(in: &cancellables)
     }
+
+    #if DEBUG
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            recordEditorLayout(phase: "layout")
+        }
+
+        private func recordEditorLayout(phase: String) {
+            ClassicNavigationDiagnostics.editorLayout(self, fields: [firstField, secondField], phase: phase)
+        }
+    #endif
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)

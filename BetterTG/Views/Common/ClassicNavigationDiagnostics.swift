@@ -6,6 +6,45 @@
     /// Public UIKit values only; no titles, identifiers, peer data or subview inspection.
     @MainActor enum ClassicNavigationDiagnostics {
         private static var samples = [[String: Any]]()
+        private static var editorSamples = [[String: Any]]()
+
+        static func editorLayout(_ controller: UIViewController, fields: [UITextField], phase: String) {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-diagnose-profile-editor-layout"),
+                  let view = controller.viewIfLoaded, let window = view.window,
+                  let navigation = controller.navigationController else { return }
+            let bar = navigation.navigationBar
+            let barFrame = bar.convert(bar.bounds, to: window)
+            let safeFrame = view.convert(view.safeAreaLayoutGuide.layoutFrame, to: window)
+            let sample: [String: Any] = [
+                "phase": phase,
+                "process": ProcessInfo.processInfo.processIdentifier,
+                "isTop": navigation.topViewController === controller,
+                "topItemMatches": bar.topItem === controller.navigationItem,
+                "hasPrompt": controller.navigationItem.prompt != nil,
+                "barHidden": navigation.isNavigationBarHidden,
+                "barMinY": barFrame.minY,
+                "barMaxY": barFrame.maxY,
+                "safeMinY": safeFrame.minY,
+                "safeMaxY": safeFrame.maxY,
+                "additionalSafeTop": controller.additionalSafeAreaInsets.top,
+                "fields": fields.map { field in
+                    let frame = field.convert(field.bounds, to: window)
+                    return ["minY": frame.minY, "maxY": frame.maxY, "focused": field.isFirstResponder] as [String: Any]
+                },
+            ]
+            editorSamples.append(sample)
+            editorSamples = Array(editorSamples.suffix(32))
+            guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+                  let data = try? JSONSerialization.data(
+                      withJSONObject: editorSamples,
+                      options: [.prettyPrinted, .sortedKeys],
+                  )
+            else { return }
+            try? data.write(
+                to: directory.appendingPathComponent("profile-editor-layout-diagnostics.json"),
+                options: .atomic,
+            )
+        }
 
         static func didShow(_ navigation: UINavigationController) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-diagnose-classic-navigation") else { return }
