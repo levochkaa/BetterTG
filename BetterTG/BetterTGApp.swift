@@ -28,6 +28,7 @@ import UIKit
             RootListAuthorityProbe.runDebugProbeIfRequested()
             RootChatInsertionProbe.runDebugProbeIfRequested()
             RootScopeSettingsLoadingProbe.runDebugProbeIfRequested()
+            RootChatProjectionProbe.runDebugProbeIfRequested()
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
             PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()
             MessagePollInteractionStore.runDebugSubmissionProbeIfRequested()

@@ -12,6 +12,8 @@ extension RootVM {
                 self?.listAuthority.invalidate()
                 self?.chatInsertions.invalidate()
                 self?.scopeSettingsLoading.invalidate()
+                self?.chatProjection.invalidate()
+                self?.folderProjection = nil
             }
             .store(in: &cancellables)
         nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
@@ -19,6 +21,8 @@ extension RootVM {
             listAuthority.invalidate()
             chatInsertions.invalidate()
             scopeSettingsLoading.invalidate()
+            chatProjection.invalidate()
+            folderProjection = nil
             folderLoadID = nil
             chatRefreshIDs.removeAll()
             activeAccountID = TDLib.shared.activeAccountID
@@ -44,19 +48,27 @@ extension RootVM {
         ]) { [weak self] _ in
             self?.synchronizeAuthorization()
         }
-        observeListUpdate(.updateChatReadInbox) { owner, update in
+        observeListUpdate(.updateChatReadInbox, projecting: Update.updateChatReadInbox) { owner, update in
             for folder in owner.allFolders {
                 folder.chats.first(where: { $0.id == update.chatId })?.unreadCount = update.unreadCount
             }
         }
-        observeListUpdate(.updateNewChat) { $0.updateNewChat($1) }
-        observeListUpdate(.updateChatPosition) { $0.updateChatPosition($1) }
-        observeListUpdate(.updateChatDraftMessage) { $0.updateChatDraftMessage($1) }
-        observeListUpdate(.updateChatLastMessage) { $0.updateChatLastMessage($1) }
-        observeListUpdate(.updateChatTitle) { $0.refreshChat(id: $1.chatId) }
-        observeListUpdate(.updateChatPhoto) { $0.refreshChat(id: $1.chatId) }
-        observeListUpdate(.updateChatAccentColors) { $0.refreshChat(id: $1.chatId) }
-        observeListUpdate(.updateChatViewAsTopics) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateNewChat, projecting: Update.updateNewChat) { $0.updateNewChat($1) }
+        observeListUpdate(.updateChatPosition, projecting: Update.updateChatPosition) { $0.updateChatPosition($1) }
+        observeListUpdate(.updateChatDraftMessage, projecting: Update.updateChatDraftMessage) {
+            $0.updateChatDraftMessage($1)
+        }
+        observeListUpdate(.updateChatLastMessage, projecting: Update.updateChatLastMessage) {
+            $0.updateChatLastMessage($1)
+        }
+        observeListUpdate(.updateChatTitle, projecting: Update.updateChatTitle) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatPhoto, projecting: Update.updateChatPhoto) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatAccentColors, projecting: Update.updateChatAccentColors) {
+            $0.refreshChat(id: $1.chatId)
+        }
+        observeListUpdate(.updateChatViewAsTopics, projecting: Update.updateChatViewAsTopics) {
+            $0.refreshChat(id: $1.chatId)
+        }
         nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
             let update = event.value
             SelectedDocumentFileStore.complete(
@@ -85,15 +97,19 @@ extension RootVM {
                 )
             }
         }
-        observeListUpdate(.updateUser) { owner, update in
+        observeListUpdate(.updateUser, projecting: Update.updateUser) { owner, update in
             for folder in owner.allFolders {
                 for chat in folder.chats where chat.user?.id == update.user.id {
                     chat.updatePrivateUser(update.user)
                 }
             }
         }
-        observeListUpdate(.updateChatNotificationSettings) { $0.refreshChat(id: $1.chatId) }
-        observeListUpdate(.updateChatIsMarkedAsUnread) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatNotificationSettings, projecting: Update.updateChatNotificationSettings) {
+            $0.refreshChat(id: $1.chatId)
+        }
+        observeListUpdate(.updateChatIsMarkedAsUnread, projecting: Update.updateChatIsMarkedAsUnread) {
+            $0.refreshChat(id: $1.chatId)
+        }
         observeListUpdate(.updateScopeNotificationSettings) { owner, update in
             owner.scopeSettingsLoading.invalidate(scope: update.scope)
             var updatedSettings = owner.scopeNotificationSettings
@@ -112,10 +128,12 @@ extension RootVM {
 
     private func observeListUpdate<Value>(
         _ notification: TdNotification<Value>,
+        projecting: ((Value) -> Update)? = nil,
         perform: @escaping (RootVM, Value) -> Void,
     ) {
         nc.scopedPublisher(&cancellables, for: notification) { [weak self] event in
             guard let self, acceptsListUpdate(event.source) else { return }
+            if let projecting { chatProjection.record(projecting(event.value)) }
             perform(self, event.value)
         }
     }
@@ -130,25 +148,37 @@ extension RootVM {
         guard let (ticket, client) = captureListRequest() else { return }
         let requestID = UUID()
         folderLoadID = requestID
+        if let folderProjection { chatProjection.finish(folderProjection) }
+        let projection = chatProjection.begin()
+        folderProjection = projection
         Task { [weak self] in
             guard let self else { return }
+            defer {
+                chatProjection.finish(projection)
+                if folderProjection === projection { folderProjection = nil }
+                if folderLoadID == requestID { folderLoadID = nil }
+            }
             var newFolders = await update.chatFolders.asyncCompactMap { info -> CustomFolder? in
                 guard self.acceptsListRequest(ticket), self.folderLoadID == requestID else { return nil }
-                return await self.getCustomFolder(from: info, client: client)
+                return await self.getCustomFolder(from: info, client: client, projection: projection)
             }
             guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
-            let mainChats = await getCustomChats(for: .chatListMain, client: client) ?? []
+            let mainChats = await getCustomChats(for: .chatListMain, client: client, projection: projection) ?? []
             guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
-            let archiveChats = await getCustomChats(for: .chatListArchive, client: client) ?? []
+            let archiveChats = await getCustomChats(for: .chatListArchive, client: client, projection: projection) ?? []
             guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
             let mainFolder = CustomFolder(chats: mainChats, type: .main)
             let archiveFolder = CustomFolder(chats: archiveChats, type: .archive)
             let insertionIndex = min(max(update.mainChatListPosition, 0), newFolders.count)
             newFolders.insert(mainFolder, at: insertionIndex)
+            let insertions = projection.reconcile(newFolders + [archiveFolder])
             folders = newFolders
             archive = archiveFolder
             if currentFolder == nil || !newFolders.contains(where: { $0.id == self.currentFolder }) {
                 currentFolder = newFolders.first?.id
+            }
+            for (id, position) in insertions {
+                applyChatPosition(id: id, position: position)
             }
         }
     }
@@ -188,6 +218,7 @@ extension RootVM {
         guard let folder = allFolders.first(where: { $0.chatList == position.list }),
               let (ticket, client) = captureListRequest()
         else { return }
+        var hydration: RootChatProjection.Lease?
         chatInsertions.apply(
             source: ticket.source, chatID: id, position: position, folder: folder,
             accepts: { [weak self, weak folder] in
@@ -195,7 +226,16 @@ extension RootVM {
                 return acceptsListRequest(ticket) && allFolders.contains(where: { $0 === folder })
             },
             hydrate: { [weak self] in
-                await self?.getCustomChat(from: id, for: position.list, client: client)
+                guard let self else { return nil }
+                if let hydration { chatProjection.finish(hydration) }
+                let projection = chatProjection.begin(chatID: id)
+                hydration = projection
+                return await getCustomChat(from: id, for: position.list, client: client, projection: projection)
+            },
+            prepare: { hydration?.project($0) },
+            onFinish: { [weak self] in
+                if let hydration { self?.chatProjection.finish(hydration) }
+                hydration = nil
             },
         )
     }
@@ -206,11 +246,21 @@ extension RootVM {
         chatRefreshIDs[id] = requestID
         Task { [weak self] in
             guard let self, acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
-            defer { if chatRefreshIDs[id] == requestID { chatRefreshIDs[id] = nil } }
+            let projection = chatProjection.begin(chatID: id)
+            let revision = chatProjection.revision
+            defer {
+                chatProjection.finish(projection)
+                if chatRefreshIDs[id] == requestID { chatRefreshIDs[id] = nil }
+            }
             guard let latest = try? await client.getChat(chatId: id),
                   acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
+            let projected = projection.project(latest, after: revision)
             for folder in allFolders {
-                folder.chats.first(where: { $0.id == id })?.chat = latest
+                guard let chat = folder.chats.first(where: { $0.id == id }) else { continue }
+                chat.chat = projected
+                chat.unreadCount = projected.unreadCount
+                chat.lastMessage = projected.lastMessage
+                chat.draftMessage = projected.draftMessage
             }
         }
     }

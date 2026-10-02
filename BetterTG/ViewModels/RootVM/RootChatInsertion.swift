@@ -21,6 +21,8 @@ import TDLibKitDynamic
         var task: Task<Void, Never>?
         let accepts: () -> Bool
         let hydrate: () async -> CustomChat?
+        let prepare: (CustomChat) -> Void
+        var onFinish: (() -> Void)?
 
         init(
             key: Key,
@@ -28,12 +30,22 @@ import TDLibKitDynamic
             position: ChatPosition,
             accepts: @escaping () -> Bool,
             hydrate: @escaping () async -> CustomChat?,
+            prepare: @escaping (CustomChat) -> Void,
+            onFinish: @escaping () -> Void,
         ) {
             self.key = key
             self.folder = folder
             self.position = position
             self.accepts = accepts
             self.hydrate = hydrate
+            self.prepare = prepare
+            self.onFinish = onFinish
+        }
+
+        func finish() {
+            let completion = onFinish
+            onFinish = nil
+            completion?()
         }
     }
 
@@ -52,6 +64,7 @@ import TDLibKitDynamic
         for entry in retired {
             entry.task?.cancel()
             entry.task = nil
+            entry.finish()
         }
     }
 
@@ -62,6 +75,8 @@ import TDLibKitDynamic
         folder: CustomFolder,
         accepts: @escaping () -> Bool,
         hydrate: @escaping () async -> CustomChat?,
+        prepare: @escaping (CustomChat) -> Void = { _ in },
+        onFinish: @escaping () -> Void = {},
     ) {
         guard position.list == folder.chatList, accepts() else { return }
         let key = Key(accountID: source.accountID, clientID: source.clientID, chatID: chatID, list: position.list)
@@ -81,7 +96,15 @@ import TDLibKitDynamic
             return
         }
         retire(key)
-        let entry = Pending(key: key, folder: folder, position: position, accepts: accepts, hydrate: hydrate)
+        let entry = Pending(
+            key: key,
+            folder: folder,
+            position: position,
+            accepts: accepts,
+            hydrate: hydrate,
+            prepare: prepare,
+            onFinish: onFinish,
+        )
         pending[key] = entry
         entry.task = Task { [weak self] in await self?.load(entry) }
     }
@@ -90,6 +113,7 @@ import TDLibKitDynamic
         guard let entry = pending.removeValue(forKey: key) else { return }
         entry.task?.cancel()
         entry.task = nil
+        entry.finish()
     }
 
     private func isCurrent(_ entry: Pending) -> Bool {
@@ -102,6 +126,7 @@ import TDLibKitDynamic
             // It must never release the replacement request's ownership.
             if pending[entry.key] === entry { pending[entry.key] = nil }
             entry.task = nil
+            entry.finish()
         }
         while isCurrent(entry) {
             let revision = entry.revision
@@ -113,6 +138,9 @@ import TDLibKitDynamic
             guard let chat, chat.id == entry.key.chatID, let folder = entry.folder,
                   folder.chatList == entry.key.list,
                   !folder.chats.contains(where: { $0.id == entry.key.chatID }) else { return }
+            entry.prepare(chat)
+            guard isCurrent(entry) else { return }
+            guard entry.revision == revision else { continue }
             chat.position = entry.position
             folder.chats.append(chat)
             return
