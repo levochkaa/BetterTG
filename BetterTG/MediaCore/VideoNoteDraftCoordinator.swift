@@ -18,16 +18,16 @@ final class VideoNoteDraftCoordinator {
         nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
             let update = event.value
             guard case .messageVideoNote = update.message.content else { return }
-            let destination = ChatDraftKey(
+            let delivery = ChatDraftDeliveryKey(
                 accountID: event.source.accountID,
                 chatID: update.message.chatId,
                 topic: update.message.topicId,
             )
-            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
+            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: delivery.legacyBaseRoute)
             Task {
                 do {
                     if let resolution = try await VideoNoteFileStore.shared.handleSendSucceeded(
-                        destination: destination,
+                        delivery: delivery,
                         temporaryMessageID: update.oldMessageId,
                         migrateLegacy: migrateLegacy,
                     ) {
@@ -41,12 +41,12 @@ final class VideoNoteDraftCoordinator {
         nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { event in
             let update = event.value
             guard case .messageVideoNote = update.message.content else { return }
-            let destination = ChatDraftKey(
+            let delivery = ChatDraftDeliveryKey(
                 accountID: event.source.accountID,
                 chatID: update.message.chatId,
                 topic: update.message.topicId,
             )
-            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
+            let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: delivery.legacyBaseRoute)
             let failedSendState: VideoNoteFailedSendState? =
                 if case .messageSendingStateFailed(let state) = update.message.sendingState {
                     VideoNoteFailedSendState(
@@ -63,7 +63,7 @@ final class VideoNoteDraftCoordinator {
             Task {
                 do {
                     if let resolution = try await VideoNoteFileStore.shared.handleSendFailed(
-                        destination: destination,
+                        delivery: delivery,
                         temporaryMessageID: update.oldMessageId,
                         failedSendState: failedSendState,
                         migrateLegacy: migrateLegacy,

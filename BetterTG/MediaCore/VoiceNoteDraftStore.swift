@@ -24,7 +24,7 @@ struct VoiceNoteFailedSendState: Codable {
 
 // MARK: - VoiceNoteSendDraft
 
-struct VoiceNoteSendDraft: Codable, ChatDraftScoped {
+struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     let id: UUID
     let chatID: Int64
     let caption: FormattedText
@@ -90,8 +90,20 @@ actor VoiceNoteDraftStore {
 
     private let fileManager = FileManager.default
     private var registrationOwnedDraftIDs = Set<UUID>()
-    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("VoiceNoteDrafts", isDirectory: true)
+    private let directoryURL: URL
+    private let legacyBindingAllowed: @Sendable (ChatDraftKey) -> Bool
+
+    init(
+        directoryURL: URL? = nil,
+        legacyBindingAllowed: @escaping @Sendable (ChatDraftKey) -> Bool = {
+            ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: $0)
+        },
+    ) {
+        self.directoryURL = directoryURL ?? FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VoiceNoteDrafts", isDirectory: true)
+        self.legacyBindingAllowed = legacyBindingAllowed
+    }
 
     func adopt(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
         try ensureDirectory()
@@ -154,6 +166,9 @@ actor VoiceNoteDraftStore {
         var updatedDraft = draft
         updatedDraft.enqueueStartedAt = nil
         updatedDraft.temporaryMessageID = temporaryMessageID
+        // Persist the actual TDLib ID before consuming candidate evidence, including
+        // a crash between registration and success/failure cleanup.
+        try save(updatedDraft)
         let outcomeRecord = loadOutcome(
             draftID: draft.id,
             temporaryMessageID: temporaryMessageID,
@@ -168,8 +183,6 @@ actor VoiceNoteDraftStore {
             case .succeeded:
                 remove(updatedDraft)
             }
-        } else {
-            try save(updatedDraft)
         }
         removeOutcomes(draftID: draft.id)
         return VoiceNoteEnqueueRegistration(draft: updatedDraft, outcome: outcomeRecord?.outcome)
@@ -177,7 +190,9 @@ actor VoiceNoteDraftStore {
 
     func beginEnqueue(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
         guard try !loadAllDrafts().contains(where: {
-            $0.belongs(to: draft.resolvedDestination) && $0.enqueueStartedAt != nil
+            $0.enqueueStartedAt != nil && (
+                $0.belongs(to: draft.resolvedDestination) || $0.deliveryKey == draft.deliveryKey
+            )
         }) else {
             throw VoiceNoteDraftStoreError.enqueueAlreadyActive
         }
@@ -222,7 +237,7 @@ actor VoiceNoteDraftStore {
         do {
             try ensureDirectory()
             let shouldMigrateLegacy = migrateLegacy
-                && ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
+                && legacyBindingAllowed(destination)
             var allDrafts = try reconcileInterruptedDrafts(loadAllDrafts())
             for index in allDrafts.indices where allDrafts[index].belongs(
                 to: destination,
@@ -250,64 +265,60 @@ actor VoiceNoteDraftStore {
     }
 
     func handleSendSucceeded(
-        destination: ChatDraftKey,
+        delivery: ChatDraftDeliveryKey,
         temporaryMessageID: Int64,
         migrateLegacy: Bool = false,
     ) throws -> VoiceNoteDraftResolution? {
         if migrateLegacy {
-            try bindLegacyDrafts(to: destination)
+            try bindLegacyDrafts(to: delivery.legacyBaseRoute)
         }
-        if let draft = draft(destination: destination, temporaryMessageID: temporaryMessageID) {
+        guard let draft = try delivery.candidate(
+            in: loadAllDrafts(),
+            temporaryMessageID: temporaryMessageID,
+        ) else { return nil }
+        if draft.temporaryMessageID == temporaryMessageID {
             remove(draft)
             removeOutcomes(draftID: draft.id)
             return VoiceNoteDraftResolution(
-                chatID: destination.chatID,
+                chatID: draft.chatID,
                 draft: draft,
                 outcome: .succeeded,
                 temporaryMessageID: temporaryMessageID,
             )
         }
-        if let activeDraft = try loadAllDrafts().first(where: {
-            $0.belongs(to: destination) && $0.enqueueStartedAt != nil
-        }) {
-            try saveOutcome(
-                .succeeded,
-                draftID: activeDraft.id,
-                temporaryMessageID: temporaryMessageID,
-            )
-        }
+        try saveOutcome(.succeeded, draftID: draft.id, temporaryMessageID: temporaryMessageID)
         return nil
     }
 
     func handleSendFailed(
-        destination: ChatDraftKey,
+        delivery: ChatDraftDeliveryKey,
         temporaryMessageID: Int64,
         failedSendState: VoiceNoteFailedSendState?,
         migrateLegacy: Bool = false,
     ) throws -> VoiceNoteDraftResolution? {
         if migrateLegacy {
-            try bindLegacyDrafts(to: destination)
+            try bindLegacyDrafts(to: delivery.legacyBaseRoute)
         }
-        if let draft = draft(destination: destination, temporaryMessageID: temporaryMessageID) {
+        guard let draft = try delivery.candidate(
+            in: loadAllDrafts(),
+            temporaryMessageID: temporaryMessageID,
+        ) else { return nil }
+        if draft.temporaryMessageID == temporaryMessageID {
             let pendingDraft = try markPending(draft, failedSendState: failedSendState)
             removeOutcomes(draftID: draft.id)
             return VoiceNoteDraftResolution(
-                chatID: destination.chatID,
+                chatID: draft.chatID,
                 draft: pendingDraft,
                 outcome: .failed,
                 temporaryMessageID: temporaryMessageID,
             )
         }
-        if let activeDraft = try loadAllDrafts().first(where: {
-            $0.belongs(to: destination) && $0.enqueueStartedAt != nil
-        }) {
-            try saveOutcome(
-                .failed,
-                draftID: activeDraft.id,
-                failedSendState: failedSendState,
-                temporaryMessageID: temporaryMessageID,
-            )
-        }
+        try saveOutcome(
+            .failed,
+            draftID: draft.id,
+            failedSendState: failedSendState,
+            temporaryMessageID: temporaryMessageID,
+        )
         return nil
     }
 
@@ -344,62 +355,6 @@ actor VoiceNoteDraftStore {
             outcome: .failed,
             temporaryMessageID: temporaryMessageID,
         )
-    }
-
-    func handleSendSucceeded(
-        chatID: Int64,
-        temporaryMessageID: Int64,
-    ) throws -> VoiceNoteDraftResolution? {
-        if let draft = draft(chatID: chatID, temporaryMessageID: temporaryMessageID) {
-            remove(draft)
-            removeOutcomes(draftID: draft.id)
-            return VoiceNoteDraftResolution(
-                chatID: chatID,
-                draft: draft,
-                outcome: .succeeded,
-                temporaryMessageID: temporaryMessageID,
-            )
-        }
-        if let activeDraft = try loadAllDrafts().first(where: {
-            $0.chatID == chatID && $0.enqueueStartedAt != nil
-        }) {
-            try saveOutcome(
-                .succeeded,
-                draftID: activeDraft.id,
-                temporaryMessageID: temporaryMessageID,
-            )
-            return nil
-        }
-        return nil
-    }
-
-    func handleSendFailed(
-        chatID: Int64,
-        temporaryMessageID: Int64,
-        failedSendState: VoiceNoteFailedSendState?,
-    ) throws -> VoiceNoteDraftResolution? {
-        if let draft = draft(chatID: chatID, temporaryMessageID: temporaryMessageID) {
-            let pendingDraft = try markPending(draft, failedSendState: failedSendState)
-            removeOutcomes(draftID: draft.id)
-            return VoiceNoteDraftResolution(
-                chatID: chatID,
-                draft: pendingDraft,
-                outcome: .failed,
-                temporaryMessageID: temporaryMessageID,
-            )
-        }
-        if let activeDraft = try loadAllDrafts().first(where: {
-            $0.chatID == chatID && $0.enqueueStartedAt != nil
-        }) {
-            try saveOutcome(
-                .failed,
-                draftID: activeDraft.id,
-                failedSendState: failedSendState,
-                temporaryMessageID: temporaryMessageID,
-            )
-            return nil
-        }
-        return nil
     }
 
     func handleMessageDeleted(
@@ -460,7 +415,7 @@ actor VoiceNoteDraftStore {
     }
 
     private func bindLegacyDrafts(to destination: ChatDraftKey) throws {
-        guard ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination) else { return }
+        guard legacyBindingAllowed(destination) else { return }
         var drafts = try loadAllDrafts()
         for index in drafts.indices where drafts[index].destination == nil
             && drafts[index].chatID == destination.chatID
@@ -512,9 +467,7 @@ actor VoiceNoteDraftStore {
         {
             return record
         }
-        return outcomeRecords(draftID: draftID).first(where: {
-            $0.draftID == draftID
-        })
+        return nil
     }
 
     private func removeOutcomes(draftID: UUID) {
@@ -539,12 +492,11 @@ actor VoiceNoteDraftStore {
                 reconciledDrafts.append(draft)
                 continue
             }
-            guard draft.enqueueStartedAt != nil else {
-                reconciledDrafts.append(draft)
-                continue
-            }
-            let records = outcomeRecords(draftID: draft.id)
-            guard records.count == 1, let record = records.first else {
+            // An unregistered enqueue has no proven TDLib ID. A lone early outcome
+            // may belong to another send; retain the draft until exact registration.
+            guard let temporaryMessageID = draft.temporaryMessageID,
+                  let record = loadOutcome(draftID: draft.id, temporaryMessageID: temporaryMessageID)
+            else {
                 reconciledDrafts.append(draft)
                 continue
             }
@@ -564,23 +516,6 @@ actor VoiceNoteDraftStore {
             }
         }
         return reconciledDrafts
-    }
-
-    private func outcomeRecords(draftID: UUID) -> [VoiceNoteOutcomeRecord] {
-        guard let files = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles],
-        ) else { return [] }
-        return files.compactMap { file in
-            guard file.lastPathComponent.hasPrefix("outcome_"),
-                  file.pathExtension == "json",
-                  let data = try? Data(contentsOf: file),
-                  let record = try? JSONDecoder().decode(VoiceNoteOutcomeRecord.self, from: data),
-                  record.draftID == draftID
-            else { return nil }
-            return record
-        }
     }
 
     private func save(_ draft: VoiceNoteSendDraft) throws {

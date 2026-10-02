@@ -179,7 +179,7 @@ enum VoiceNoteCodec {
                         retryAvailableAt: Foundation.Date(),
                     )
                     let earlyResolution = try await VoiceNoteDraftStore.shared.handleSendFailed(
-                        destination: sendDestination,
+                        delivery: storedDraft.deliveryKey,
                         temporaryMessageID: probeMessageID,
                         failedSendState: probeFailedState,
                     )
