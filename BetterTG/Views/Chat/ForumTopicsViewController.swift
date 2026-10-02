@@ -32,9 +32,6 @@ import UIKit
     var probeCurrent: Bool { contextIsCurrent }
     var probeRetired: Bool { retired }
     var probePrepared: Bool { preparedClient != nil }
-    private(set) var probeSearchDismissals = 0
-    var probePreparationTask: Task<Void, Never>? { preparationTask }
-    var probeActor: Int64? { actorID }
     var probePages: ForumTopicsRestorationState { restorationState().pages }
     func probeRetryEvent() { retryClientRestoration() }
     #endif
@@ -43,7 +40,7 @@ import UIKit
     private var bindingID = UUID()
     private var boundSource: TdUpdateSource?
     private let environment: ForumTopicsClientEnvironment
-    private var actorID: Int64?
+    private let actorID: Int64?
     private var readySource: TdUpdateSource?
     private var identityRevoked = false
     private let targetMessageID: Int64?
@@ -80,7 +77,7 @@ import UIKit
 
     private var contextIsCurrent: Bool {
         guard let source = navigationClientSource else { return false }
-        return routeIsRetained && !identityRevoked && (actorID == nil || actorID == environment.currentActor())
+        return routeIsRetained && !identityRevoked && actorID != nil && actorID == environment.currentActor()
             && source == environment.currentSource() && source == readySource
             && environment.currentAccount() == viewModel.location.accountID
     }
@@ -171,11 +168,7 @@ import UIKit
     }
 
     func didPresentSearchController(_: UISearchController) { retryClientRestoration() }
-    func didDismissSearchController(_: UISearchController) {
-        #if DEBUG
-        probeSearchDismissals += 1
-        #endif
-        resolveTargetIfNeeded()
+    func didDismissSearchController(_: UISearchController) { resolveTargetIfNeeded()
         retryClientRestoration()
     }
 
@@ -210,14 +203,9 @@ import UIKit
                 )
                 retired = true
                 snapshotState.retire()
-                targetIntent.cancel()
-                targetResolutionTask?.cancel()
-                preparationTask?.cancel()
-                cancellables.removeAll()
-                viewModel.retire()
-                #if DEBUG
-                log("ForumTopics client restoration: replacement accepted")
-                #endif
+                retireModel()
+                cancelPreparation()
+                ownershipCancellables.removeAll()
                 return replacement
             },
         )
@@ -234,7 +222,7 @@ import UIKit
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
+        if contextIsCurrent, snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
             viewModel.loadMore()
         }
     }
@@ -259,7 +247,7 @@ import UIKit
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
         canRenewIdentity(source)
             && presentedViewController == nil && transitionCoordinator == nil && !searchController.isActive
-            && !tableView.isDragging && !tableView.isDecelerating
+            && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
             && !snapshotState.isApplying && !snapshotState.hasPending
             && searchController.searchBar.searchTextField.markedTextRange == nil
     }
@@ -328,9 +316,6 @@ import UIKit
         applySnapshot(model.topics, client: model.client)
         observeState()
         model.start()
-        #if DEBUG
-        log("ForumTopics client restoration: search binding accepted")
-        #endif
     }
 
     private func prepareClientMetadata(_ source: TdUpdateSource) {
@@ -397,7 +382,6 @@ import UIKit
             .sink { [weak self] source in
                 guard let self else { return }
                 readySource = source
-                observeIdentity(environment.currentSource())
                 if source == nil { cancelPreparation(clearFailure: false) }
                 if contextIsCurrent, isViewLoaded {
                     viewModel.search(searchController.searchBar.text ?? "")
@@ -409,7 +393,10 @@ import UIKit
     }
 
     private func receiveOwnership(_ source: TdUpdateSource?) {
-        observeIdentity(source)
+        let actor = environment.currentActor()
+        if source?.accountID != viewModel.location.accountID
+            || environment.currentAccount() != viewModel.location.accountID
+            || actor != nil && actor != actorID { identityRevoked = true }
         cancelPreparation(clearFailure: source != preparationFailure?.source)
         if !contextIsCurrent {
             targetIntent.cancel()
@@ -418,21 +405,6 @@ import UIKit
             refreshControl.endRefreshing()
         }
         retryClientRestoration()
-    }
-
-    private func observeIdentity(_ source: TdUpdateSource?) {
-        let actor = environment.currentActor()
-        if source?.accountID != viewModel.location.accountID
-            || environment.currentAccount() != viewModel.location.accountID
-            || actorID != nil && actor != nil && actor != actorID
-            || actorID == nil && source != boundSource { identityRevoked = true }
-        // Before identity is known the binding cannot renew, so boundSource is
-        // still the original epoch. Never learn an actor from its replacement.
-        if !identityRevoked, actorID == nil, source == boundSource,
-           source == readySource, source == environment.currentSource()
-        {
-            actorID = actor
-        }
     }
 
     private func retryClientRestoration() {
@@ -498,7 +470,7 @@ import UIKit
         ) { [weak self] tableView, indexPath, topicID in
             ForumTopicCell.dequeue(
                 from: tableView, at: indexPath,
-                topic: self?.snapshotState.topic(id: topicID), client: self?.viewModel.client,
+                topic: self?.snapshotState.topic(id: topicID), client: self?.snapshotState.client(id: topicID),
             )
         }
     }
@@ -534,7 +506,7 @@ import UIKit
 
     private func applySnapshot(_ topics: [ForumTopic], client: TDLibClient) {
         guard !retired else { return }
-        snapshotState.enqueue(topics)
+        snapshotState.enqueue(topics, client: client)
         drainSnapshot()
     }
 
@@ -552,21 +524,15 @@ import UIKit
         let model = viewModel
         let binding = bindingID
         dataSource.apply(snapshot, animatingDifferences: viewportRestoration.pending == nil) { [weak self] in
-            guard let self, !retired, snapshotState.complete(batch.token) else { return }
-            viewportRestoration.completeApply(token)
-            if snapshotState.hasPending {
-                drainSnapshot()
-            } else {
-                restoreViewportIfNeeded()
-                if view.window != nil, navigationController?.topViewController === self,
-                   tableView.indexPathsForVisibleRows?.contains(where: {
-                       $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
-                   }) == true
-                {
-                    viewModel.loadMore()
-                }
-                retryClientRestoration()
+            let finish: () -> Void = { [weak self] in
+                self?.completeSnapshot(batch.token, viewportToken: token, model: model, binding: binding)
             }
+            #if DEBUG
+            if let hold = self?.probeSnapshotCompletion { hold(finish)
+            return
+            }
+            #endif
+            finish()
         }
         updateBackgroundView()
     }

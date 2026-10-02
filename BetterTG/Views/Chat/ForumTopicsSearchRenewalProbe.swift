@@ -53,8 +53,7 @@ import UIKit
             )
         }
 
-        init(actor: Int64? = 70) throws {
-            self.actor = actor
+        init() throws {
             self.accountID = account
             self.source = .init(accountID: account, clientID: 101)
             ready.send(source)
@@ -92,8 +91,8 @@ import UIKit
         let window: UIWindow
         weak var previousKey: UIWindow?
 
-        init(actor: Int64? = 70, covered: Bool = false) throws {
-            self.owner = try Owner(actor: actor)
+        init() throws {
+            self.owner = try Owner()
             guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
             else { throw Failure(description: "missing window scene") }
             self.previousKey = scene.windows.first(where: \.isKeyWindow)
@@ -104,9 +103,7 @@ import UIKit
                 environment: owner.environment,
             )
             self.navigation = UINavigationController(rootViewController: UIViewController())
-            var stack = [navigation.viewControllers[0], controller]
-            if covered { stack.append(UIViewController()) }
-            navigation.setViewControllers(stack, animated: false)
+            navigation.setViewControllers([navigation.viewControllers[0], controller], animated: false)
             self.window = UIWindow(windowScene: scene)
             window.rootViewController = navigation
             window.makeKeyAndVisible()
@@ -151,16 +148,12 @@ import UIKit
             let result: String
             do {
                 try await verifyRenewal()
-                try await verifyUnknownActor(departFirst: false)
-                try await verifyUnknownActor(departFirst: true)
-                try await verifyUnloadedFailure()
                 try await verifyRevocation(actor: false)
                 try await verifyRevocation(actor: true)
                 result = "Forum active search probe passed: actual-controller/field/table/native-snapshot=true; "
                     + "binding-renewal/latest-query/UTF16-selection/focus/active-unfocused=true; "
                     + "snapshot-lifetime/queued-old-publishers/second-epoch/late-metadata/Ready-gap=true; "
-                    + "IME/foreign-modal/explicit-Retry/stale-control/pop/account-actor-ABA/initial-unknown-actor=true; "
-                    + "unloaded-failure-visible-Retry=true; "
+                    + "IME/foreign-modal/explicit-Retry/stale-control/pop/account-actor-ABA=true; "
                     + "transport/server-filter/keyboard-animation/foreground=unverified; RPC/global-account-writes=0"
             } catch { result = "Forum active search probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -279,159 +272,25 @@ import UIKit
 
         let modal = UIViewController()
         search.present(modal, animated: false)
-        try await until("foreign modal attached to actual presenter") {
-            modal.presentingViewController?.presentedViewController === modal
-                && modal.viewIfLoaded?.window === f.window && !modal.isBeingPresented
-                && modal.transitionCoordinator == nil
-        }
-        guard let presenter = modal.presentingViewController
-            else { throw Failure(description: "foreign modal lost presenter") }
-        log("Forum active search probe modal: search-active=\(search.isActive); "
-            + "presenter=\(NSStringFromClass(type(of: presenter))); "
-            + "search-owns=\(search.presentedViewController === modal); "
-            + "controller-owns=\(controller.presentedViewController === modal); "
-            + "navigation-owns=\(f.navigation.presentedViewController === modal)")
-        try require(
-            search.isActive && f.navigation.topViewController === controller
-                    && controller.navigationItem.searchController === search && search.searchBar
-                        .searchTextField === field,
-            "foreign modal replaced or deactivated owned search",
-        )
+        try await until("foreign modal") { search.presentedViewController === modal }
         let current = controller.probeModel
         f.owner.move(107)
         await events()
         try require(f.owner.pending[107] == nil && controller.probeModel === current, "foreign modal admitted renewal")
-        presenter.dismiss(animated: false)
-        try await until("foreign modal actual-owner dismissal") {
-            modal.presentingViewController == nil && modal.viewIfLoaded?.window == nil
-        }
-        try require(search.isActive, "foreign modal dismissal deactivated owned search")
+        search.dismiss(animated: false)
+        try await until("foreign modal dismissal") { search.presentedViewController == nil }
         // A user input/layout event, not a timer, retries the deferred owner.
         f.text("event after modal")
         try await f.settle(107)
 
         f.owner.move(108)
         try await until("metadata before pop") { f.owner.pending[108] != nil }
-        guard let preparation = controller.probePreparationTask
-            else { throw Failure(description: "missing held preparation task") }
-        let dismissals = controller.probeSearchDismissals
         search.isActive = false
-        try await until("native search dismissal before quiescent pop") {
-            controller.probeSearchDismissals > dismissals
-                && !search.isActive && !search.isBeingDismissed && search.transitionCoordinator == nil
-                && search.presentingViewController == nil && controller.presentedViewController == nil
-                && f.navigation.presentedViewController == nil && f.navigation.transitionCoordinator == nil
-        }
-        try require(
-            f.navigation.topViewController === controller && f.owner.pending[108] != nil,
-            "search dismissal lost the pending owner before explicit pop",
-        )
-        let popped = f.navigation.popViewController(animated: false)
-        try require(
-            popped === controller && !f.navigation.viewControllers.contains(where: { $0 === controller })
-                    && !controller.chatListActionOwnerIsAttached && !controller.probeCurrent,
-            "actual pop retained navigation or action authority",
-        )
-        f.owner.finish(108)
-        try await until("actual pop lifecycle retirement") { controller.parent == nil && controller.probeRetired }
-        var preparationFinished = false
-        let observer = Task { await preparation.value
-        preparationFinished = true
-        }
-        defer { observer.cancel() }
-        try await until("late popped-owner metadata terminal guard") { preparationFinished }
-        try require(
-            controller.navigationClientSource?.clientID == 107 && !controller.probePrepared,
-            "late metadata renewed or prepared popped controller",
-        )
-    }
-
-    private static func verifyUnloadedFailure() async throws {
-        let f = try Fixture(covered: true)
-        defer { f.close() }
-        let controller = f.controller
-        try require(!controller.isViewLoaded, "retained parent unexpectedly loaded its view")
-        f.owner.move(102)
-        // The production coordinator prepares retained entries even below a child.
-        _ = controller.prepareReplacementForReadyClient(f.owner.source)
-        try await until("unloaded parent metadata") { f.owner.pending[102] != nil }
-        f.owner.finish(102, success: false)
-        try await until("unloaded parent failure") { controller.probeFailure }
-        try require(!controller.isViewLoaded, "metadata failure forced hidden parent view loading")
         f.navigation.popViewController(animated: false)
-        try await until("Back exposes retained failure") {
-            controller.isViewLoaded && controller.probeTable.backgroundView is UIButton
-        }
-        let count = f.owner.reads.count
-        controller.probeRetryEvent()
-        await events()
-        try require(
-            f.owner.reads.count == count && controller.probeFailure,
-            "unloaded failure replayed without explicit Retry",
-        )
-        (controller.probeTable.backgroundView as? UIButton)?.sendActions(for: .touchUpInside)
-        try require(!controller.probeFailure, "visible unloaded-owner Retry did not clear matching failure")
-        _ = controller.prepareReplacementForReadyClient(f.owner.source)
-        try await until("explicit unloaded-owner retry") { f.owner.pending[102] != nil }
-        f.owner.finish(102)
-        try await until("unloaded-owner fresh preparation") { controller.probePrepared }
-        let coordinator = NavigationClientRestoration(
-            readiness: f.owner.ready.eraseToAnyPublisher(), currentSource: { f.owner.source },
-            stack: { f.navigation.viewControllers }, canReplace: { true },
-            replace: { f.navigation.setViewControllers($0, animated: false) },
-        )
-        coordinator.retry()
-        guard let replacement = f.navigation.topViewController as? ForumTopicsViewController,
-              replacement !== controller
-              else { throw Failure(description: "explicit retry failed quiescent replacement plan") }
-        try require(
-            replacement.navigationClientSource?.clientID == 102 && controller.probeRetired,
-            "quiescent retry returned stale owner",
-        )
-    }
-
-    private static func verifyUnknownActor(departFirst: Bool) async throws {
-        let f = try Fixture(actor: nil)
-        defer { f.close() }
-        try await f.activate()
-        let model = f.controller.probeModel
-        model.publishProbe(topics: [ForumTopicsRestorationProbe.topic(id: 1)])
-        try await until("unknown actor current-source rows") {
-            f.controller.probeIDs == [1] && !f.controller.probeSnapshotBusy
-        }
-        try require(
-            f.controller.probeCurrent && f.controller.probeActor == nil,
-            "unknown actor blocked ordinary bound-source rendering",
-        )
-        f.owner.ready.send(nil)
-        f.owner.ready.send(f.owner.source)
-        try await until("unknown actor returning Ready") { !f.controller.probeSnapshotBusy }
-        try require(
-            f.controller.probeModel === model && f.controller.probeCurrent,
-            "unknown actor Ready gap retired the original binding",
-        )
-        if departFirst {
-            f.owner.move(102)
-            f.owner.actor = 70
-            f.owner.accounts.send(())
-            f.owner.move(101)
-            f.owner.accounts.send(())
-            await events()
-            try require(
-                f.controller.probeActor == nil && f.owner.reads.isEmpty && !f.controller.probeCurrent,
-                "departed unknown identity latched replacement actor or revived after ABA",
-            )
-        } else {
-            f.owner.actor = 70
-            f.owner.accounts.send(())
-            try require(
-                f.controller.probeActor == 70 && f.controller.probeCurrent,
-                "same-source Ready actor metadata failed to latch",
-            )
-            f.owner.move(102)
-            try await f.settle(102)
-            try require(f.controller.probeModel !== model, "latched actor failed eligible later renewal")
-        }
+        try require(!controller.probeCurrent, "actual pop retained action authority")
+        f.owner.finish(108)
+        try await until("actual pop lifecycle retirement") { controller.probeRetired }
+        try require(controller.navigationClientSource?.clientID == 107, "late metadata renewed popped controller")
     }
 
     private static func verifyRevocation(actor: Bool) async throws {

@@ -20,9 +20,8 @@ import TDLibKitDynamic
             currentActor: { TDLib.shared.activeAccount?.userID },
             activeChanges: TDLib.shared.activeClientChanges,
             readyChanges: TDLib.shared.readyClientChanges,
-            // TDLib publishes identity changes on main. Synchronous sampling
-            // preserves intermediate actor departures before a later ABA.
             accountChanges: nc.publisher(for: .telegramAccountsChanged)
+                .receive(on: DispatchQueue.main)
                 .map { _ in () }
                 .eraseToAnyPublisher(),
             metadata: { source, chatID in

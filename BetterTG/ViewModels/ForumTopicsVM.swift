@@ -27,7 +27,6 @@ import TDLibKitDynamic
 
     private let chatOpenLease: ChatOpenLease?
     private let usesTransport: Bool
-    private let reads: ForumTopicsReadEnvironment
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
     // Canceling a Swift task doesn't end TDLib's continuation. Old generations
@@ -56,7 +55,8 @@ import TDLibKitDynamic
     private var retired = false
 
     private var contextIsCurrent: Bool {
-        usesTransport && !retired && reads.currentSource()?.matches(location) == true
+        usesTransport && !retired && TDLib.shared.activeAccountID == location.accountID
+            && TDLib.shared.activeClient.id == location.clientID
             && client.id == location.clientID
     }
 
@@ -77,7 +77,7 @@ import TDLibKitDynamic
 
     deinit {
         loadTask?.cancel()
-        topicRequests.values.forEach { $0.cancel() }
+        topicRefreshTasks.values.forEach { $0.cancel() }
         chatOpenLease?.invalidate()
     }
 
@@ -87,13 +87,11 @@ import TDLibKitDynamic
         client: TDLibClient,
         restoration: ForumTopicsRestorationState?,
         usesTransport: Bool,
-        reads: ForumTopicsReadEnvironment? = nil,
     ) {
         self.customChat = customChat
         self.location = location
         self.client = client
         self.usesTransport = usesTransport
-        self.reads = reads ?? .live(client: client)
         if let restoration, restoration.accepts(location) {
             self.topics = restoration.topics
             self.pinnedOrder = ForumTopicPinnedOrder(ids: restoration.pinnedTopicIDs)
@@ -110,7 +108,7 @@ import TDLibKitDynamic
                 ForumTopicPageRequest(cursor: restoration.cursor, resets: $0)
             }
         }
-        self.chatOpenLease = usesTransport && self.reads.opensChat
+        self.chatOpenLease = usesTransport
             ? ChatOpenLeaseCoordinator.shared.acquire(
                 location: location,
                 client: client,
@@ -120,30 +118,6 @@ import TDLibKitDynamic
     }
 
     #if DEBUG
-    static func controlled(
-        customChat: CustomChat, location: ChatLocation, client: TDLibClient,
-        reads: ForumTopicsReadEnvironment,
-        restoration: ForumTopicsRestorationState? = nil,
-    ) -> ForumTopicsVM {
-        ForumTopicsVM(
-            customChat: customChat,
-            location: location,
-            client: client,
-            restoration: restoration,
-            usesTransport: true,
-            reads: reads,
-        )
-    }
-
-    var probeReadTasks: [Task<Void, Never>] {
-        topicRequestIDs.values.compactMap { topicRequests[$0] } + [loadTask].compactMap(\.self)
-    }
-
-    var probeOutstandingTopicTasks: [Task<Void, Never>] { Array(topicRequests.values) }
-    var probeOutstandingTopicReadCount: Int { topicRequests.count }
-    func probeTopicTask(id: Int) -> Task<Void, Never>? { topicRequestIDs[id].flatMap { topicRequests[$0] } }
-    var probePageTask: Task<Void, Never>? { loadTask }
-
     static func isolated(
         customChat: CustomChat,
         location: ChatLocation,
