@@ -99,7 +99,7 @@ final class ChatListCell: UITableViewCell {
         }
     }
 
-    func configure(chat: CustomChat, isMuted: Bool) {
+    func configure(chat: CustomChat, isMuted: Bool, client: TDLibClient) {
         pinned = chat.position.isPinned
         titleLabel.text = chat.displayTitle
         messageLabel.attributedText = ChatSummary.attributedText(for: chat)
@@ -119,6 +119,7 @@ final class ChatListCell: UITableViewCell {
             file: chat.chat.photo?.big,
             minithumbnail: chat.chat.photo?.minithumbnail,
             placeholder: chat.telegramAvatarPlaceholder,
+            client: client,
         )
         accessibilityLabel = [
             chat.displayTitle,

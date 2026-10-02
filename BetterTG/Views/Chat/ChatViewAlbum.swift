@@ -7323,7 +7323,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 client: client,
             )
         } else {
-            preview.loadPlaceholder(data: minithumbnail?.data)
+            preview.loadPlaceholder(
+                data: minithumbnail?.data,
+                origin: previewContext?.isCurrent == true
+                    ? previewContext?.client.flatMap { .captured(client: $0) }
+                    : nil,
+            )
         }
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()

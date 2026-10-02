@@ -145,6 +145,7 @@ final class PinnedMessageBannerView: UIView {
 
     func configure(
         message: Message,
+        client: TDLibClient?,
         onOpen: @escaping () -> Void,
         onHide: @escaping () -> Void,
     ) {
@@ -160,6 +161,7 @@ final class PinnedMessageBannerView: UIView {
                 file: thumbnail.file,
                 placeholderData: thumbnail.minithumbnailData,
                 maximumPixelSize: 160,
+                origin: client.flatMap { .captured(client: $0) },
             )
         } else {
             thumbnailWidthConstraint.constant = 0

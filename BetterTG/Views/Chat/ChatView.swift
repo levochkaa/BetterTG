@@ -1552,6 +1552,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             file: chat.photo?.big,
             minithumbnail: chat.photo?.minithumbnail,
             placeholder: chatVM.customChat.telegramAvatarPlaceholder,
+            client: chatVM.client,
         )
     }
 
@@ -1612,6 +1613,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 displayedPinnedMessage = message
                 pinnedMessageBanner.configure(
                     message: message,
+                    client: chatVM.client,
                     onOpen: { [weak self] in
                         self?.scrollToMessage(id: message.id)
                     },

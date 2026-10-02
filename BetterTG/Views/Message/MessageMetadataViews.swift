@@ -59,12 +59,13 @@ final class ForwardHeaderView: UIControl {
 
     func configure(
         presentation: MessageForwardPresentation,
+        client: TDLibClient?,
         onTap: (() -> Void)?,
     ) {
         prepareForReuse()
         headlineLabel.text = presentation.headline
         sourceLabel.text = presentation.sourceTitle
-        avatarView.configure(presentation.avatar)
+        avatarView.configure(presentation.avatar, client: client)
         avatarView.isHidden = presentation.avatar == nil
         self.onTap = onTap
         isUserInteractionEnabled = onTap != nil
@@ -211,6 +212,7 @@ final class ReplySnippetView: UIControl {
     func configure(
         presentation: MessageReplyPresentation,
         expanded: Bool,
+        client: TDLibClient?,
         onTap: @escaping (Bool) -> Void,
     ) {
         prepareForReuse()
@@ -230,6 +232,7 @@ final class ReplySnippetView: UIControl {
                 file: thumbnail.file,
                 placeholderData: thumbnail.minithumbnailData,
                 maximumPixelSize: 160,
+                origin: client.flatMap { .captured(client: $0) },
             )
         } else {
             thumbnailWidthConstraint.constant = 0
@@ -354,14 +357,19 @@ private final class MessageMetadataAvatarView: UIView {
         layer.cornerRadius = bounds.width / 2
     }
 
-    func configure(_ avatar: MessageMetadataAvatar?) {
+    func configure(_ avatar: MessageMetadataAvatar?, client: TDLibClient?) {
         prepareForReuse()
         guard let avatar else { return }
         initialsLabel.text = avatar.initials
         if let file = avatar.file {
-            imageView.load(file: file, placeholderData: avatar.minithumbnailData, maximumPixelSize: 80)
+            imageView.load(
+                file: file,
+                placeholderData: avatar.minithumbnailData,
+                maximumPixelSize: 80,
+                origin: client.flatMap { .captured(client: $0) },
+            )
         } else {
-            imageView.image = avatar.minithumbnailData.flatMap(UIImage.init(data:))
+            imageView.loadPlaceholder(data: avatar.minithumbnailData, origin: client.flatMap { .captured(client: $0) })
         }
     }
 

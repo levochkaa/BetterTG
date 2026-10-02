@@ -582,7 +582,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                   ) as? ChatListCell,
                   let chat = chat(for: id)
             else { return UITableViewCell() }
-            cell.configure(chat: chat, isMuted: rootVM.isMuted(chat))
+            cell.configure(chat: chat, isMuted: rootVM.isMuted(chat), client: actionAuthority.client)
             return cell
         }
     }

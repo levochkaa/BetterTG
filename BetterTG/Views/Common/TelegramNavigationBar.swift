@@ -263,8 +263,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         file: File?,
         minithumbnail: Minithumbnail?,
         placeholder: TelegramAvatarPlaceholder,
+        client: TDLibClient,
     ) {
-        avatarView.configure(file: file, minithumbnail: minithumbnail, placeholder: placeholder)
+        avatarView.configure(file: file, minithumbnail: minithumbnail, placeholder: placeholder, client: client)
     }
 
     func setSearchResultFound(_ found: Bool?) {

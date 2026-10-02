@@ -220,7 +220,7 @@ UISearchBarDelegate {
                     for: indexPath,
                 ) as? ComposerAnimationCell
                 if let animation = animations[id] {
-                    cell?.configure(animation: animation)
+                    cell?.configure(animation: animation, client: client)
                 }
                 return cell ?? UICollectionViewCell()
             }
@@ -383,6 +383,7 @@ private final class ComposerAnimationCell: UICollectionViewCell {
     static let reuseIdentifier = "ComposerAnimationCell"
 
     private let imageView = TDImageLoadingView()
+    private var imageOrigin: TDImageOrigin?
     private let badge = UILabel()
     private var animation: Animation?
     private var loadingCancelled = false
@@ -423,10 +424,12 @@ private final class ComposerAnimationCell: UICollectionViewCell {
         imageView.cancel()
         imageView.image = nil
         animation = nil
+        imageOrigin = nil
         loadingCancelled = false
     }
 
-    func configure(animation: Animation) {
+    func configure(animation: Animation, client: TDLibClient) {
+        imageOrigin = .captured(client: client)
         self.animation = animation
         loadingCancelled = false
         loadAnimation(animation)
@@ -452,9 +455,10 @@ private final class ComposerAnimationCell: UICollectionViewCell {
                 file: thumbnail.file,
                 placeholderData: animation.minithumbnail?.data,
                 maximumPixelSize: 320,
+                origin: imageOrigin,
             )
         } else {
-            imageView.loadPlaceholder(data: animation.minithumbnail?.data)
+            imageView.loadPlaceholder(data: animation.minithumbnail?.data, origin: imageOrigin)
         }
     }
 }

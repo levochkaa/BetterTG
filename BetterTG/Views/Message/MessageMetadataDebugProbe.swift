@@ -47,7 +47,7 @@
             ) {
                 loadViewIfNeeded()
                 replyPresentation = reply
-                forwardView.configure(presentation: forward) { [weak self] in
+                forwardView.configure(presentation: forward, client: nil) { [weak self] in
                     self?.navigationCount += 1
                 }
                 configureReply(expanded: false)
@@ -72,7 +72,12 @@
 
             private func configureReply(expanded: Bool) {
                 guard let replyPresentation else { return }
-                replyView.configure(presentation: replyPresentation, expanded: expanded) { [weak self] shouldExpand in
+                replyView
+                    .configure(
+                        presentation: replyPresentation,
+                        expanded: expanded,
+                        client: nil,
+                    ) { [weak self] shouldExpand in
                     guard let self else { return }
                     if shouldExpand {
                         expansionCount += 1
@@ -192,7 +197,7 @@
 
             var forwardNavigated = false
             let testForwardView = ForwardHeaderView()
-            testForwardView.configure(presentation: forwardPresentation) { forwardNavigated = true }
+            testForwardView.configure(presentation: forwardPresentation, client: nil) { forwardNavigated = true }
             testForwardView.simulateTapForProbe()
 
             let originalExternal = InputMessageReplyTo.inputMessageReplyToExternalMessage(.init(

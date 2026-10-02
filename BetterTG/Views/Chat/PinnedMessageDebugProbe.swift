@@ -41,6 +41,7 @@
                 banner.translatesAutoresizingMaskIntoConstraints = false
                 banner.configure(
                     message: message,
+                    client: nil,
                     onOpen: { [weak self] in
                         guard let self else { return }
                         statusLabel.text = "Opened pinned message \(message.id)"

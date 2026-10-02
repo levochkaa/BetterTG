@@ -266,7 +266,7 @@
                 quote: quote, referencedChatID: nil, referencedUserID: nil, targetChatID: 10, targetMessageID: 1,
                 thumbnail: nil, title: "Sender",
             )
-            reply.configure(presentation: presentation, expanded: false) { _ in replyTaps += 1 }
+            reply.configure(presentation: presentation, expanded: false, client: nil) { _ in replyTaps += 1 }
             try require(reply.accessibilityLabel?.contains("HIDDEN") == false, "reply AX leaked")
             reply.sendActions(for: .touchUpInside)
             try require(replyTaps == 1, "reply navigation consumed by reveal")

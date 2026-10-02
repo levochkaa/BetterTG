@@ -87,12 +87,17 @@ import UIKit
         host.isHidden = true
         window.addSubview(host)
         defer { host.removeFromSuperview() }
+        let imageOrigin = TDImageOrigin(
+            source: f.identity.source, backend: .init(download: { _ in nil }, cancel: { _ in }),
+            demand: AnimatedFileDemand(center: NotificationCenter()), currentSource: { f.identity.source },
+            changes: f.identity.changes.eraseToAnyPublisher(),
+        )
         var loads = [Int64]()
         let cells = messages.enumerated().map { index, message in
             let cell = SharedMediaGridCell(frame: CGRect(x: index * 120, y: 0, width: 110, height: 110))
             cell.debugThumbnailLoader = { loaded, imageView in
                 loads.append(loaded.id)
-                imageView.loadPlaceholder(data: png)
+                imageView.loadPlaceholder(data: png, origin: imageOrigin)
             }
             host.addSubview(cell)
             cell.configure(message: message, context: f.context, permit: f.session.permit(for: message))

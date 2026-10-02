@@ -463,6 +463,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             forwardView.isHidden = false
             forwardView.configure(
                 presentation: forward,
+                client: client,
                 onTap: forward.navigationTarget.map { target in
                     { onMetadataNavigate(target) }
                 },
@@ -476,6 +477,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             replyView.configure(
                 presentation: reply,
                 expanded: message.isReplyQuoteExpanded,
+                client: client,
             ) { shouldExpand in
                 if shouldExpand {
                     onReplyQuoteExpand()
@@ -555,6 +557,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 file: sender.profilePhoto?.big,
                 minithumbnail: sender.profilePhoto?.minithumbnail,
                 placeholder: sender.telegramAvatarPlaceholder,
+                client: client,
             )
         } else {
             avatarView.isHidden = true

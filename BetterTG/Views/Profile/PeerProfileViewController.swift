@@ -1881,7 +1881,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
                     client: client,
                 )
             } else {
-                imageView.loadPlaceholder(data: photo.photo.minithumbnail?.data)
+                imageView.loadPlaceholder(data: photo.photo.minithumbnail?.data, client: client)
             }
             videoBadge.isHidden = true
         case .messageVideo(let video):
@@ -1894,11 +1894,11 @@ final class SharedMediaGridCell: UICollectionViewCell {
                     client: client,
                 )
             } else {
-                imageView.loadPlaceholder(data: video.video.minithumbnail?.data)
+                imageView.loadPlaceholder(data: video.video.minithumbnail?.data, client: client)
             }
             videoBadge.isHidden = false
         default:
-            imageView.loadPlaceholder(data: nil)
+            imageView.loadPlaceholder(data: nil, origin: nil)
             videoBadge.isHidden = true
         }
     }

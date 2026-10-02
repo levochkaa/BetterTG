@@ -799,7 +799,7 @@ private final class ForwardDestinationCell: UITableViewCell {
         subtitle: String,
         selected: Bool,
         enabled: Bool,
-        client _: TDLibClient,
+        client: TDLibClient,
     ) {
         titleLabel.text = chat.title
         subtitleLabel.text = subtitle
@@ -835,6 +835,7 @@ private final class ForwardDestinationCell: UITableViewCell {
                 letters: firstLetter.map { [$0] } ?? [],
                 isDeleted: false,
             ),
+            client: client,
         )
     }
 

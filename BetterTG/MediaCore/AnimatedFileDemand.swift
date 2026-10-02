@@ -4,7 +4,7 @@ import Combine
 import Foundation
 import TDLibKitDynamic
 
-/// Whole animated-file demand only. VOD ranges have a separate owner and must not
+/// Shared whole-image/animated-file demand. VOD ranges have a separate owner and must not
 /// enter this pool: changing downloadFile's offset/limit supersedes their request.
 @MainActor final class AnimatedFileDemand {
     struct Key: Hashable {

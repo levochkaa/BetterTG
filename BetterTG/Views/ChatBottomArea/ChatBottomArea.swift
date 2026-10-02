@@ -401,10 +401,15 @@ final class ChatComposerView: UIView {
         } else if videoNoteState.isActive, let videoNoteReplyFallback {
             showsReplyPreview = true
             closeReplyButton.isHidden = true
-            replySnippet.configure(presentation: videoNoteReplyFallback, expanded: false) { [weak self] _ in
-                guard let self, let target = videoNoteReplyFallback.navigationTarget else { return }
-                onNavigateToMessage?(target)
-            }
+            replySnippet
+                .configure(
+                    presentation: videoNoteReplyFallback,
+                    expanded: false,
+                    client: chatVM.client,
+                ) { [weak self] _ in
+                    guard let self, let target = videoNoteReplyFallback.navigationTarget else { return }
+                    onNavigateToMessage?(target)
+                }
         } else if targetText.characters.isEmpty,
                   let pendingReplyID = chatVM.pendingVideoReplyMessageID,
                   chatVM.hasPendingVideoNote
@@ -469,7 +474,7 @@ final class ChatComposerView: UIView {
         } else if let fallback = chatVM.replyFallbackPresentation {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
-            replySnippet.configure(presentation: fallback, expanded: false) { [weak self] _ in
+            replySnippet.configure(presentation: fallback, expanded: false, client: chatVM.client) { [weak self] _ in
                 guard let self, let target = fallback.navigationTarget else { return }
                 onNavigateToMessage?(target)
             }

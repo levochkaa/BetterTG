@@ -15,9 +15,8 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     private var sourceFile: File?
     private var sourceMinithumbnailData: Data?
     private var sourceUsesPeerPhotoForSavedMessages = false
-    private var sourceAccountID: UUID?
+    private var sourceOrigin: TDImageOrigin?
     private var sourceAccountUserID: Int64?
-    private var sourceClient: TDLibClient?
     private var placeholder: TelegramAvatarPlaceholder?
     private var representedAccountID: UUID?
     private var representedClientID: Int32?
@@ -60,6 +59,13 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
             self?.updatePlaceholder()
             self?.updateImageIfNeeded()
         }
+        TDLib.shared
+            .activeClientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateImageIfNeeded()
+            }
+            .store(in: &cancellables)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -81,14 +87,15 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         usesPeerPhotoForSavedMessages: Bool = false,
         accountID: UUID? = nil,
         accountUserID: Int64? = nil,
-        client: TDLibClient? = nil,
+        client: TDLibClient,
     ) {
         sourceFile = file
         sourceMinithumbnailData = minithumbnail?.data
         sourceUsesPeerPhotoForSavedMessages = usesPeerPhotoForSavedMessages
-        sourceAccountID = accountID
-        sourceAccountUserID = accountUserID
-        sourceClient = client
+        sourceOrigin = .captured(client: client, accountID: accountID)
+        sourceAccountUserID = accountUserID ?? (sourceOrigin?.isCurrent == true
+            ? TDLib.shared.activeAccount?.userID
+            : nil)
         self.placeholder = placeholder
         updatePlaceholder()
         updateImageIfNeeded()
@@ -99,9 +106,8 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         sourceFile = nil
         sourceMinithumbnailData = nil
         sourceUsesPeerPhotoForSavedMessages = false
-        sourceAccountID = nil
+        sourceOrigin = nil
         sourceAccountUserID = nil
-        sourceClient = nil
         placeholder = nil
         representedAccountID = nil
         representedClientID = nil
@@ -127,10 +133,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
 
     private func updateImageIfNeeded() {
         guard let placeholder else { return }
-        if let sourceAccountID, let sourceClient,
-           TDLib.shared.activeAccountID != sourceAccountID
-           || TDLib.shared.activeClient.id != sourceClient.id
-        {
+        guard let sourceOrigin, sourceOrigin.isCurrent else {
             imageView.cancel()
             imageView.image = nil
             representedAccountID = nil
@@ -144,8 +147,8 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         let icon = displayedIcon(for: placeholder)
         let file = icon == .none ? sourceFile : nil
         let minithumbnailData = icon == .none ? sourceMinithumbnailData : nil
-        let accountID = sourceAccountID ?? TDLib.shared.activeAccountID
-        let clientID = sourceClient?.id ?? td.id
+        let accountID = sourceOrigin.source.accountID
+        let clientID = sourceOrigin.source.clientID
         guard representedAccountID != accountID
             || representedClientID != clientID
             || representedPeerID != placeholder.peerID
@@ -163,24 +166,19 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         representedMinithumbnailData = minithumbnailData
         representedIcon = icon
         if let file {
-            if let sourceAccountID, let sourceClient {
-                imageView.load(
-                    file: file,
-                    placeholderData: minithumbnailData,
-                    maximumPixelSize: 160,
-                    accountID: sourceAccountID,
-                    client: sourceClient,
-                )
-            } else {
-                imageView.load(file: file, placeholderData: minithumbnailData, maximumPixelSize: 160)
-            }
+            imageView.load(
+                file: file,
+                placeholderData: minithumbnailData,
+                maximumPixelSize: 160,
+                origin: sourceOrigin,
+            )
         } else {
-            imageView.image = minithumbnailData.flatMap(UIImage.init(data:))
+            imageView.loadPlaceholder(data: minithumbnailData, origin: sourceOrigin)
         }
     }
 
     private func displayedIcon(for placeholder: TelegramAvatarPlaceholder) -> TelegramAvatarIcon {
-        let icon = placeholder.icon(accountUserID: sourceAccountUserID ?? TDLib.shared.activeAccount?.userID)
+        let icon = placeholder.icon(accountUserID: sourceAccountUserID)
         if sourceUsesPeerPhotoForSavedMessages,
            sourceFile != nil,
            icon == .savedMessages
