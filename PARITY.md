@@ -176,6 +176,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
+| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | needs-fix — bounded delivery presentation plus source/route-scoped chat/topic watermarks and targeted bubble reconfiguration. Preserve pending/failed precedence, album IDs/anchor and explicit self/broadcast semantics; source-audited, no runtime fix claim |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1703,6 +1704,35 @@ is imported. This source pass does not prove every content's real rendering/acti
   retains a lease while switching its fake source to test field ordering; production source changes still invalidate leases,
   covered by the existing retirement regression. No live peer-read, full list receipt smoke or server mutation claim.
 
+### A44 timeline delivery-state audit — 2026-10-03
+
+- Source baseline `596e895`, independently confirmed: `MessageView.swift`514–551 builds text, standalone and media-overlay
+  timestamps with only `sendFailed`; AX576 reuses that value. `CustomMessage` has no derived read state. A43 updates list
+  rows only: bubbles do not consume that watermark. `ChatVM+Publishers.swift`13–16 observes inbox but no outbox;122–129
+  refreshes only the explicit route topic and discards direct scalar topic receipt updates in all-messages mode.
+- Narrow repair must preserve raw sending-state precedence before comparing a temporary message ID to read watermarks;
+  accepted final/failure replacement cannot keep a stale temporary state. Use current-client chat watermark for ordinary
+  messages and exact per-message forum-topic watermark in both explicit-topic and all-messages routes. Missing topic state
+  cannot fall back to another topic or the global chat. Late getChat/getForumTopic must not overwrite intervening accepted
+  receipt updates. Do not carry old-client receipt authority through restoration seeds.
+- Existing `ChatView.messagesDidChange` updates structural snapshots but reconfigures only headers (1769–1781), and its
+  VM object observer updates chrome/composer. A watermark field alone will not refresh settled bubbles. Use targeted stable
+  `DisplayedMessageID` reconfiguration through the existing anchor-preserving path, with no new scroll intent. BetterTG's
+  album representative is newest-first (`ChatVM.swift`3578–3605), whereas Telegram's message/read status comes from its
+  canonical first item; select that status source explicitly and recompute after replacement/deletion/promotion.
+- References: current `6ad963e5b62d354da79040f388ae2b9132fb17b8` / pre-Liquid
+  `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, `TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/`
+  `ChatMessageTextBubbleContentNode.swift`337–346 /360–369 uses Failed → Sending → Sent(read).
+  Current `ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift`32–44,607–683 supplies outgoing clock/
+  single/double check variants; `ChatMessageItemImpl/Sources/ChatMessageItemImpl.swift`255–269 /235–249 selects grouped status.
+  `TelegramCore/Sources/Utils/MessageUtils.swift`348–378 /351–380 defines effective direction, including self and broadcast.
+- TDLib `022d6020`, `MessagesManager.cpp`32931–32934 gives broadcast channels a maximal outbox watermark, not a personal
+  read receipt.11567–11576 marks ordinary self messages non-outgoing. Do not mechanically show Read on broadcast posts or
+  hide pending/failure in Saved Messages. Final self-check styling requires an explicit reference mapping; do not invent it.
+  `updateForumTopic` carries its own watermark. Optional `updateMessageSendAcknowledged` (`td_api.tl`10300–10304) only means
+  quick acknowledgement, may precede failure and is not final success/read. Fullscreen gallery controls are outside this
+  status repair; bubble media overlays are in scope. Source audit only; no new production code or live message send/read proof.
+
 ### A30d ForumTopics client recovery — 2026-10-02
 
 - `958bc82` (worker `45c93ef`) adds prepared same-account replacement of only the stale topic-list navigation slot. Metadata
@@ -2016,6 +2046,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   deferral. Baseline same-PID failure is confirmed. Integrate only reviewed warning-free code, run actual-controller native
   regressions and repeat foreground→clear/new query without Cancel, including a second epoch and keyboard-hidden state.
   A30g bounded recovery is verified; larger member lists, server permission changes and tag-editor/Save restoration stay open.
+  A43 list receipt feed is fixed in `596e895`; A44 timeline delivery status is the next confirmed source-audited candidate,
+  with separate topic, album, self and broadcast contracts above. Do not claim A43 repaired bubble delivery.
   A39 mid-flight takeover and estimated-height convergence now pass bounded cold/loaded/foreground target checks at `72d74b0`;
   live quote/album/rotation/user-interruption coverage and sequential metadata waits remain separate limits.
   A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
