@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A30 ForumTopics recovery, remaining A23 static-image authority and bounded A33 profile-header sizing. A21 timed
+Active queue: A30 ForumTopics recovery and remaining A23 static-image authority. A33 profile-header sizing has actual-profile
+geometry/screenshot proof at `b97fa9b`. A21 timed
 video-note hold authority has integrated native/UIKit proof; other secret media and view-once playback remain open. A20 profile-grid concealment
 has bounded integrated proof at `bdd19cd`; real spoiler gestures and transport remain unverified.
 Auth A23e and bounded composer A25 semantic/marked-input/undo probes pass; live authentication/keyboard remain unverified.
@@ -148,7 +149,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7` now replaces authority and hydrates the current folder while retaining query/focus/viewport. Same-PID Saved and Archive search foreground smoke pass. ForumTopics, already-open editors and active capture remain deferred; full account/notification lifecycle unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | needs-fix — audit secondary navigation controls against pinned pre-Liquid chrome; preserve full-width blur/safe-area and accessibility. A zero forbidden-marker scan does not prove UIKit's default runtime appearance |
-| A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | needs-fix — inspect header constraints against pinned peer-info layout; retain role semantics and Dynamic Type. Separate from A20b concealment; no introduced-regression claim |
+| A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1214,6 +1215,22 @@ is imported. This source pass does not prove every content's real rendering/acti
   cancellation and offscreen continuity retained. Active system PiP unsupported. Proofs and initial failure:
   `.build/ui-probe-evidence/astra-a21c-primary`. Worker build/ref notes remain in its `.build/video-note-hold-proof`.
 
+### A33 definite profile-header text width — 2026-10-02
+
+- `b97fa9b` changes the four centered header labels from `width <= stack.width` to definite available width. Multiline fitting
+  no longer resolves the own title to a narrow 90pt region. Text alignment, fonts, line limits, self-role wording and the 96pt
+  avatar remain unchanged. No full header rewrite. Independent source review found no blocker.
+- Reference: pinned current/pre `TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift`
+  1361–1372 / 1390–1398 measures text against explicit header width; 1206–1218 / 1245–1257 preserves Saved Messages for this role.
+  No TDLib API or storage changes.
+- Two Swift files formatted together; `build-Debug-20261002-212624-17872-14020.log`: PASS9s, zero warnings. Audit Simulator
+  PID `20471`, source `3218502` plus the committed delta: actual Saved Messages → Profile displays the full one-line title.
+  Read-only DEBUG geometry records header402pt/title362pt, all three visible labels centered at available width, avatar96pt,
+  content size category L. It does not replace content or log title/bio/phone. Profile media concealment regression also passes.
+- Private before/after screenshots and readback: `.build/ui-probe-evidence/astra-a20b-primary/own-profile.png` and
+  `.build/ui-probe-evidence/astra-a33-primary`. No editor/media item/server action opened. Other widths, dynamic category changes,
+  long/RTL titles and scrolled-offset resizing remain unverified. Circular Back remains separate A32 work.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -1259,7 +1276,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `4c3fc5e`: timed video-note native hold probe passes (PID `12358`, production `437d7c7` plus that probe fix);
+- Latest verified code: `b97fa9b`: actual own-profile header widths/full title/avatar and media concealment regression pass (PID `20471`).
+  `4c3fc5e`: timed video-note native hold probe passes (PID `12358`, production `437d7c7` plus that probe fix);
   profile/media/text/navigation regressions pass (PID `13038`), native animation and gallery-owner pass separately (`15898`/`16179`).
   `bdd19cd`: profile/media concealment, text-spoiler and navigation probes pass (PID `473`);
   own-profile navigation and populated grid load pass without opening media. `bb36bc7`: Archive same-PID search/foreground
@@ -1277,13 +1295,13 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free integration/follow-up build: `.build/logs/xcodebuild/build-Debug-20261002-211911-11904-22812.log`.
+  Warning-free integration/follow-up build: `.build/logs/xcodebuild/build-Debug-20261002-212624-17872-14020.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
   A30b2 controller/history, A23b Chat fences, A10/A25, A23e auth and A21c timed video-note authority are integrated.
-  It is reviewing remaining static-image origin/shared-demand ownership without implementation.
+  It is implementing bounded static-image origin/shared-demand ownership from `3218502` after its source audit.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment is integrated. Its current bounded assignment is A30 ForumTopics recovery from `437d7c7`.
@@ -1293,7 +1311,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: A30 ForumTopics recovery, A23 static-image origin/shared-demand and A33 constrained profile-header width;
+- Exact next slices: A30 ForumTopics recovery and A23 static-image origin/shared-demand, then remaining secondary chrome A32;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image origin/shared-demand gaps and Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
