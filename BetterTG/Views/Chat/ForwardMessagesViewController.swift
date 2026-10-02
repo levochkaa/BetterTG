@@ -491,7 +491,7 @@ import UIKit
               !selectedDestinations.isEmpty,
               contextIsCurrent
         else { return }
-        let attributedComment = AttributedString(commentTextView.attributedText)
+        let attributedComment = ComposerText.value(commentTextView.attributedText)
         let comment: FormattedText? = attributedComment.string
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty

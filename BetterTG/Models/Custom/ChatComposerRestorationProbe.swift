@@ -236,7 +236,7 @@
                 .init(length: 6, offset: 5, type: .textEntityTypeSpoiler),
             ], text: "bold secret")
             return ChatComposerRestorationState(
-                location: location, revision: 7, text: getAttributedString(from: formatted),
+                location: location, revision: 7, text: ComposerText.attributed(formatted),
                 edit: .init(target: .init(message), text: ""),
                 replyMessage: .init(message),
                 replyTo: .inputMessageReplyToExternalMessage(.init(

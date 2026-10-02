@@ -1,5 +1,6 @@
 // CustomTextField.swift
 
+import TDLibKitDynamic
 import UIKit
 import UniformTypeIdentifiers
 
@@ -26,11 +27,12 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     private var placeholder: String
     private let placeholderLabel = UILabel()
     private var lastWidth = CGFloat.zero
-    private var isPastingText = false
     private var isApplyingValue = false
+    private var isApplyingUserText = false
 
     var permitsClientRestoration: Bool {
-        markedTextRange == nil && !isPresentingEditMenu && !isTracking && !isDragging && !isDecelerating
+        markedTextRange == nil && !isApplyingUserText && !isPresentingEditMenu && !isTracking && !isDragging &&
+            !isDecelerating
             && !(gestureRecognizers ?? []).contains { $0.state == .began || $0.state == .changed }
     }
 
@@ -46,7 +48,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         isScrollEnabled = false
         textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
         textContainer.lineFragmentPadding = 0
-        typingAttributes = defaultAttributes()
+        typingAttributes = ComposerText.typingAttributes(in: NSAttributedString(), at: 0)
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.text = placeholder
         placeholderLabel.textColor = .placeholderText
@@ -84,13 +86,13 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
             return UIMenu(children: suggestedActions)
         }
         let format = UIMenu(title: "Format", children: [
-            formattingAction(title: "Bold", key: .font, value: UIFont.bold),
-            formattingAction(title: "Italic", key: .font, value: UIFont.italic),
-            formattingAction(title: "Monospace", key: .font, value: UIFont.monospaced),
+            formattingAction(title: "Bold", type: .textEntityTypeBold),
+            formattingAction(title: "Italic", type: .textEntityTypeItalic),
+            formattingAction(title: "Monospace", type: .textEntityTypeCode),
             UIAction(title: "Link") { [weak self] _ in self?.showLinkAlert() },
-            formattingAction(title: "Strikethrough", key: .strikethroughStyle, value: 1),
-            formattingAction(title: "Underline", key: .underlineStyle, value: 1),
-            formattingAction(title: "Spoiler", key: .backgroundColor, value: UIColor.systemGray),
+            formattingAction(title: "Strikethrough", type: .textEntityTypeStrikethrough),
+            formattingAction(title: "Underline", type: .textEntityTypeUnderline),
+            formattingAction(title: "Spoiler", type: .textEntityTypeSpoiler),
         ])
         var actions = suggestedActions
         actions.insert(format, at: min(1, actions.count))
@@ -104,25 +106,33 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         return super.canPerformAction(action, withSender: sender)
     }
 
-    override func paste(_ sender: Any?) {
+    override func paste(_: Any?) {
         if let images = UIPasteboard.general.images, !images.isEmpty {
             receivePastedImages(images)
             return
         }
-        isPastingText = true
-        super.paste(sender)
+        let item = UIPasteboard.general.items.first
+        let rawRTF = item?[UTType.rtf.identifier]
+        if let data = (rawRTF as? String)?.data(using: .utf8) ?? rawRTF as? Data,
+           let pasted = try? NSAttributedString(data: data, documentAttributes: nil)
+        {
+            receivePastedText(pasted)
+        } else if let text = UIPasteboard.general.string ?? UIPasteboard.general.url?.absoluteString {
+            receivePastedText(NSAttributedString(string: text))
+        }
     }
 
     func receivePastedImages(_ images: [UIImage]) { onPasteImages?(Array(images.prefix(10))) }
 
     func setAttributedText(_ value: AttributedString) {
-        let value = NSAttributedString(value)
+        let value = ComposerText.uiKit(value)
         guard attributedText != value else { return }
         isApplyingValue = true
         attributedText = value.length == 0
             ? NSAttributedString(string: "", attributes: defaultAttributes())
             : value
         isApplyingValue = false
+        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
         updatePlaceholder()
         invalidateIntrinsicContentSize()
     }
@@ -134,12 +144,13 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     func textViewDidChange(_: UITextView) {
+        if markedTextRange == nil { ComposerText.refresh(textStorage) }
         updatePlaceholder()
         invalidateIntrinsicContentSize()
         isScrollEnabled = intrinsicContentSize.height >= 240
         guard !isApplyingValue else { return }
         onUserInteraction?()
-        onTextChange?(AttributedString(attributedText))
+        onTextChange?(ComposerText.value(attributedText))
         onInteractionSettled?()
     }
 
@@ -157,46 +168,75 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     func textView(
-        _ textView: UITextView,
+        _: UITextView,
         shouldChangeTextIn range: NSRange,
         replacementText _: String,
     ) -> Bool {
-        typingAttributes = defaultAttributes()
-        guard isPastingText else { return true }
-        defer { isPastingText = false }
-        guard let item = UIPasteboard.general.items.first,
-              let rawRTF = item[UTType.rtf.identifier],
-              let data = (rawRTF as? String)?.data(using: .utf8)
-              ?? rawRTF as? Data,
-              let pasted = try? NSAttributedString(data: data, documentAttributes: nil)
-        else { return true }
-
-        let updated = NSMutableAttributedString(attributedString: textView.attributedText)
-        updated.replaceCharacters(in: range, with: pasted)
-        textView.attributedText = updated
-        textViewDidChange(textView)
-        return false
+        guard ComposerText.isValid(range, in: text as NSString) else { return false }
+        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: range.location)
+        return true
     }
 
-    private func formattingAction(title: String, key: NSAttributedString.Key, value: Any) -> UIAction {
+    func receivePastedText(_ text: NSAttributedString) {
+        let wasApplyingUserText = isApplyingUserText
+        isApplyingUserText = true
+        defer {
+            isApplyingUserText = wasApplyingUserText
+            onInteractionSettled?()
+        }
+        if markedTextRange != nil { unmarkText() }
+        guard ComposerText.isValid(selectedRange, in: self.text as NSString) else { return }
+        let pasted = ComposerText.importing(text)
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        updated.replaceCharacters(in: selectedRange, with: pasted)
+        applyUserText(updated, selection: NSRange(location: selectedRange.location + pasted.length, length: 0))
+    }
+
+    func toggleFormatting(_ type: TextEntityType) {
+        guard markedTextRange == nil else { return }
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        ComposerText.toggle(type, in: updated, range: selectedRange)
+        applyUserText(updated, selection: selectedRange)
+    }
+
+    private func applyUserText(_ value: NSAttributedString, selection: NSRange) {
+        guard !attributedText.isEqual(to: value) else { return }
+        let wasApplyingUserText = isApplyingUserText
+        isApplyingUserText = true
+        defer {
+            isApplyingUserText = wasApplyingUserText
+            onInteractionSettled?()
+        }
+        let previous = NSAttributedString(attributedString: attributedText!)
+        let previousSelection = selectedRange
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.applyUserText(previous, selection: previousSelection)
+        }
+        textStorage.setAttributedString(value)
+        selectedRange = selection
+        textViewDidChange(self)
+    }
+
+    private func formattingAction(title: String, type: TextEntityType) -> UIAction {
         UIAction(title: title) { [weak self] _ in
-            guard let self else { return }
-            textStorage.addAttribute(key, value: value, range: selectedRange)
-            textViewDidChange(self)
+            self?.toggleFormatting(type)
         }
     }
 
     private func showLinkAlert() {
+        let original = NSAttributedString(attributedString: attributedText!)
+        let range = selectedRange
         let alert = UIAlertController(title: "Enter URL", message: nil, preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "https://example.com/" }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self, weak alert] _ in
             guard let self,
-                  let text = alert?.textFields?.first?.text,
-                  let url = URL(string: text)
+                  attributedText.isEqual(to: original),
+                  let text = alert?.textFields?.first?.text
             else { return }
-            textStorage.addAttribute(.link, value: url, range: selectedRange)
-            textViewDidChange(self)
+            let updated = NSMutableAttributedString(attributedString: original)
+            ComposerText.setLink(text, in: updated, range: range)
+            applyUserText(updated, selection: range)
         })
         nearestViewController?.present(alert, animated: true)
     }

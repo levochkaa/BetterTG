@@ -3237,19 +3237,19 @@ import UIKit
     private func setEditMessageText(from message: Message?) {
         switch message?.content {
         case .messageText(let messageText):
-            editMessageText = getAttributedString(from: messageText.text)
+            editMessageText = ComposerText.attributed(messageText.text)
         case .messagePhoto(let messagePhoto):
-            editMessageText = getAttributedString(from: messagePhoto.caption)
+            editMessageText = ComposerText.attributed(messagePhoto.caption)
         case .messageVoiceNote(let messageVoiceNote):
-            editMessageText = getAttributedString(from: messageVoiceNote.caption)
+            editMessageText = ComposerText.attributed(messageVoiceNote.caption)
         case .messageAnimation(let messageAnimation):
-            editMessageText = getAttributedString(from: messageAnimation.caption)
+            editMessageText = ComposerText.attributed(messageAnimation.caption)
         case .messageAudio(let messageAudio):
-            editMessageText = getAttributedString(from: messageAudio.caption)
+            editMessageText = ComposerText.attributed(messageAudio.caption)
         case .messageDocument(let messageDocument):
-            editMessageText = getAttributedString(from: messageDocument.caption)
+            editMessageText = ComposerText.attributed(messageDocument.caption)
         case .messageVideo(let messageVideo):
-            editMessageText = getAttributedString(from: messageVideo.caption)
+            editMessageText = ComposerText.attributed(messageVideo.caption)
         default:
             break
         }
@@ -3639,7 +3639,7 @@ import UIKit
         text =
             if let draft,
             case .draftMessageContentText(let content) = draft.content {
-                getAttributedString(from: content.text)
+                ComposerText.attributed(content.text)
             } else {
                 ""
             }
