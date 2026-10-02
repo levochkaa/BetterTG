@@ -50,6 +50,14 @@ double BetterTGFFmpegVideoDecoderFrameRate(const BetterTGFFmpegVideoDecoder *dec
 double BetterTGFFmpegVideoDecoderDuration(const BetterTGFFmpegVideoDecoder *decoder);
 int BetterTGFFmpegVideoDecoderReset(BetterTGFFmpegVideoDecoder *decoder);
 
+// Consumes a decoded frame without pixel conversion. Missing PTS is NAN.
+// Returns 1 for a frame, 0 only at native EOF, and -1 on failure.
+int BetterTGFFmpegVideoDecoderReadTiming(
+    BetterTGFFmpegVideoDecoder *decoder,
+    double *presentationTime,
+    double *frameDuration
+);
+
 // Returns 1 for a decoded frame, 0 at end of stream, and -1 on failure.
 int BetterTGFFmpegVideoDecoderReadFrame(
     BetterTGFFmpegVideoDecoder *decoder,

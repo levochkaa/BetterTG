@@ -1,6 +1,7 @@
 #include "FFmpegBridge.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -271,6 +272,9 @@ static int BetterTGFFmpegVideoDecoderReceive(BetterTGFFmpegVideoDecoder *decoder
         for (;;) {
             result = av_read_frame(decoder->formatContext, decoder->packet);
             if (result < 0) {
+                if (result != AVERROR_EOF) {
+                    return -1;
+                }
                 decoder->inputEnded = 1;
                 break;
             }
@@ -292,6 +296,32 @@ static int BetterTGFFmpegVideoDecoderReceive(BetterTGFFmpegVideoDecoder *decoder
     }
 }
 
+int BetterTGFFmpegVideoDecoderReadTiming(
+    BetterTGFFmpegVideoDecoder *decoder,
+    double *presentationTime,
+    double *frameDuration
+) {
+    if (decoder == NULL) {
+        return -1;
+    }
+    av_frame_unref(decoder->frame);
+    const int result = BetterTGFFmpegVideoDecoderReceive(decoder);
+    if (result != 1) {
+        return result;
+    }
+    const int64_t timestamp = decoder->frame->best_effort_timestamp;
+    if (presentationTime != NULL) {
+        *presentationTime = timestamp != AV_NOPTS_VALUE
+            ? (double)timestamp * av_q2d(decoder->timeBase) : NAN;
+    }
+    if (frameDuration != NULL) {
+        *frameDuration = decoder->frame->duration > 0
+            ? (double)decoder->frame->duration * av_q2d(decoder->timeBase)
+            : (decoder->frameRate > 0.0 ? 1.0 / decoder->frameRate : 1.0 / 30.0);
+    }
+    return 1;
+}
+
 int BetterTGFFmpegVideoDecoderReadFrame(
     BetterTGFFmpegVideoDecoder *decoder,
     uint8_t *destination,
@@ -307,10 +337,12 @@ int BetterTGFFmpegVideoDecoderReadFrame(
         return -1;
     }
 
-    av_frame_unref(decoder->frame);
-    int result = BetterTGFFmpegVideoDecoderReceive(decoder);
+    int result = BetterTGFFmpegVideoDecoderReadTiming(decoder, presentationTime, frameDuration);
     if (result <= 0) {
         return result;
+    }
+    if (presentationTime != NULL && !isfinite(*presentationTime)) {
+        *presentationTime = 0.0;
     }
 
     enum AVPixelFormat sourceFormat = (enum AVPixelFormat)decoder->frame->format;
@@ -413,16 +445,6 @@ int BetterTGFFmpegVideoDecoderReadFrame(
         }
     }
 
-    int64_t timestamp = decoder->frame->best_effort_timestamp;
-    if (presentationTime != NULL) {
-        *presentationTime = timestamp != AV_NOPTS_VALUE ? (double)timestamp * av_q2d(decoder->timeBase) : 0.0;
-    }
-    if (frameDuration != NULL) {
-        double duration = decoder->frame->duration > 0
-            ? (double)decoder->frame->duration * av_q2d(decoder->timeBase)
-            : (decoder->frameRate > 0.0 ? 1.0 / decoder->frameRate : 1.0 / 30.0);
-        *frameDuration = duration;
-    }
     if (hasAlpha != NULL) {
         *hasAlpha = frameHasAlpha;
     }

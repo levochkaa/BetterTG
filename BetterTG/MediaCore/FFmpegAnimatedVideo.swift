@@ -15,56 +15,55 @@ final class FFmpegVideoAsset {
 
     let path: String
     let size: CGSize
-    let frameRate: Double
-    let duration: TimeInterval
     let firstFrame: UIImage?
     let hasAlpha: Bool
 
     // MARK: Private
 
-    private let frameCountLock = NSLock()
-    private var observedFrameCount: Int
+    private let timingLock = NSLock()
+    private let timingLoader: FFmpegVideoTimingLoader
+    private var timeline: FFmpegVideoTimeline?
 
     var frameCount: Int {
-        frameCountLock.lock()
-        defer { frameCountLock.unlock() }
-        return observedFrameCount
+        timingLock.lock()
+        defer { timingLock.unlock() }
+        return timeline?.starts.count ?? 1
     }
 
     var estimatedMemoryCost: Int {
-        max(1, Int(size.width * size.height * 4))
+        // Reserve the bounded timing index even before its lazy scan completes.
+        max(1, Int(size.width * size.height * 4)) + FFmpegVideoTimeline.maximumFrames * MemoryLayout<Double>.stride
     }
 
     init(
         path: String,
         size: CGSize,
-        frameRate: Double,
-        duration: TimeInterval,
-        frameCount: Int,
         firstFrame: UIImage?,
         hasAlpha: Bool,
     ) {
         self.path = path
         self.size = size
-        self.frameRate = frameRate
-        self.duration = duration
-        self.observedFrameCount = frameCount
+        self.timingLoader = FFmpegVideoTimingLoader.shared(path: path)
         self.firstFrame = firstFrame
         self.hasAlpha = hasAlpha
     }
 
     func frameIndex(at timestamp: TimeInterval) -> Int {
-        let count = frameCount
-        guard count > 1 else { return 0 }
-        let frame = Int(floor(timestamp * frameRate))
-        return max(0, frame % count)
+        timingLock.lock()
+        defer { timingLock.unlock() }
+        return timeline?.frameIndex(at: timestamp) ?? 0
     }
 
-    func update(frameCount: Int) {
-        guard frameCount > 0 else { return }
-        frameCountLock.lock()
-        observedFrameCount = frameCount
-        frameCountLock.unlock()
+    func prepareTiming() async -> Bool {
+        guard let timeline = await timingLoader.value(), !Task.isCancelled else { return false }
+        install(timeline)
+        return true
+    }
+
+    private func install(_ timeline: FFmpegVideoTimeline) {
+        timingLock.lock()
+        self.timeline = timeline
+        timingLock.unlock()
     }
 }
 
@@ -85,7 +84,6 @@ enum FFmpegVideoRepository {
     // MARK: Private
 
     private static let maximumInputSize = 64 * 1024 * 1024
-    private static let maximumFrameCount = 600
     private static let maximumDimension = 2048
     private static let maximumPixelCount = 4 * 1024 * 1024
 
@@ -129,18 +127,6 @@ enum FFmpegVideoRepository {
                   width * height <= maximumPixelCount
             else { return nil }
 
-            let sourceFrameRate = BetterTGFFmpegVideoDecoderFrameRate(decoder)
-            let frameRate = min(
-                30,
-                max(1, sourceFrameRate.isFinite && sourceFrameRate > 0 ? sourceFrameRate : 30),
-            )
-            let sourceDuration = BetterTGFFmpegVideoDecoderDuration(decoder)
-            let duration = sourceDuration.isFinite ? max(0, sourceDuration) : 0
-            let estimatedFrameCount = min(
-                maximumFrameCount,
-                max(1, Int(ceil((duration > 0 ? duration : 10) * frameRate))),
-            )
-
             var frameData = Data(count: width * height * 4)
             var presentationTime = TimeInterval.zero
             var frameDuration = TimeInterval.zero
@@ -164,9 +150,6 @@ enum FFmpegVideoRepository {
             let asset = FFmpegVideoAsset(
                 path: path,
                 size: CGSize(width: width, height: height),
-                frameRate: frameRate,
-                duration: duration,
-                frameCount: estimatedFrameCount,
                 firstFrame: firstFrame,
                 hasAlpha: hasAlpha != 0,
             )
@@ -207,6 +190,7 @@ actor FFmpegVideoFrameDecoder {
 
     private nonisolated let worker = DispatchSerialQueue(label: "BetterTG.animation-decoder", qos: .userInitiated)
     private let path: String
+    private let asset: FFmpegVideoAsset
     private let width: Int
     private let height: Int
     private var decoder: OpaquePointer?
@@ -224,6 +208,7 @@ actor FFmpegVideoFrameDecoder {
     }
 
     init(asset: FFmpegVideoAsset) {
+        self.asset = asset
         self.path = asset.path
         self.width = Int(asset.size.width)
         self.height = Int(asset.size.height)
@@ -239,12 +224,14 @@ actor FFmpegVideoFrameDecoder {
         }
     }
 
-    func prepare() -> Bool {
+    func prepare() async -> Bool {
+        guard await asset.prepareTiming() else { return false }
         dispatchPrecondition(condition: .onQueue(worker))
         guard !Task.isCancelled else { return false }
         if decoder != nil { return true }
         guard let decoder = createFFmpegVideoDecoder(path: path) else { return false }
         self.decoder = decoder
+        observedFrameCount = asset.frameCount
         #if DEBUG
             probe?.record("create")
             probe?.holdSetupIfRequested()
@@ -624,9 +611,6 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
                       self.decoder === decoder
                 else { return }
                 if let frame {
-                    if let frameCount = frame.observedFrameCount {
-                        self.asset?.update(frameCount: frameCount)
-                    }
                     FFmpegVideoRepository.setFrame(frame.image, path: path, index: frame.index)
                     if self.requestedFrameIndex == index {
                         self.frameView.image = frame.image
@@ -744,6 +728,7 @@ func telegramVideoUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
 
     extension FFmpegAnimatedVideoView {
         @MainActor static func runDebugProbeIfRequested() {
+            FFmpegAnimationTimingProbe.runDebugProbeIfRequested()
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-animation-worker") else { return }
             Task { await runAnimationWorkerProbe() }
         }
