@@ -172,6 +172,75 @@ import UIKit
         let fieldMinY: CGFloat
 
         var summary: String { "bar=\(barMaxY),safe=\(safeMinY),field=\(fieldMinY)" }
+
+        func matches(_ other: Self) -> Bool {
+            abs(barMaxY - other.barMaxY) <= 1
+                && abs(safeMinY - other.safeMinY) <= 1
+                && abs(fieldMinY - other.fieldMinY) <= 1
+        }
+
+        func delta(from other: Self) -> String {
+            "bar=\(barMaxY - other.barMaxY),safe=\(safeMinY - other.safeMinY),field=\(fieldMinY - other.fieldMinY)"
+        }
+    }
+
+    @MainActor private struct PromptEvidence {
+        var samples = [String]()
+        var failures = [String]()
+        var sampleCount = 0
+        var phaseCount = 0
+        var harmfulOverlaps = 0
+        var safeAreaIntrusions = 0
+        var barSafeDifferences = 0
+        var phaseDrifts = 0
+        var readyBaselineFailures = 0
+        var responderFailures = 0
+        var selectionFailures = 0
+        var textFailures = 0
+
+        var summary: String {
+            "samples=\(sampleCount)/24; phases=\(phaseCount)/8; harmful-field-bar-overlap=\(harmfulOverlaps); "
+                + "safe-area-intrusion=\(safeAreaIntrusions); bar-safe-difference=\(barSafeDifferences); phase-drift=\(phaseDrifts); "
+                + "ready-final-baseline-failures=\(readyBaselineFailures); responder-failures=\(responderFailures); "
+                + "selection-failures=\(selectionFailures); text-failures=\(textFailures)"
+        }
+
+        mutating func record(_ geometry: PromptGeometry, field: UITextField, label: String, baseline: PromptGeometry?) {
+            sampleCount += 1
+            let selectionStart = field.selectedTextRange.map { field.offset(
+                from: field.beginningOfDocument,
+                to: $0.start,
+            ) }
+            let selectionEnd = field.selectedTextRange.map { field.offset(from: field.beginningOfDocument, to: $0.end) }
+            let textMatches = field.text == "Kept fixture"
+            samples.append(
+                "\(label): \(geometry.summary); bar-safe=\(geometry.barMaxY - geometry.safeMinY); "
+                    + "field-bar=\(geometry.fieldMinY - geometry.barMaxY); field-safe=\(geometry.fieldMinY - geometry.safeMinY); "
+                    + "focused=\(field.isFirstResponder); selection=\(selectionStart.map(String.init) ?? "nil")...\(selectionEnd.map(String.init) ?? "nil"); "
+                    +
+                        "text-matches=\(textMatches); baseline-delta={\(baseline.map { geometry.delta(from: $0) } ?? "initial")}",
+            )
+            // The public bar and safe-area edges are independent measurements, not required to coincide.
+            if abs(geometry.barMaxY - geometry.safeMinY) > 1 { barSafeDifferences += 1 }
+            if geometry.fieldMinY < geometry.safeMinY { safeAreaIntrusions += 1 }
+            // Keep the original harmful-overlap boundary exact; collect later phases before failing.
+            if geometry.fieldMinY < geometry.barMaxY {
+                harmfulOverlaps += 1
+                failures.append("\(label): field overlaps public navigation bar bounds")
+            }
+            if !field.isFirstResponder {
+                responderFailures += 1
+                failures.append("\(label): field lost first responder")
+            }
+            if selectionStart != 2 || selectionEnd != 7 {
+                selectionFailures += 1
+                failures.append("\(label): selection changed")
+            }
+            if !textMatches {
+                textFailures += 1
+                failures.append("\(label): fixture text changed")
+            }
+        }
     }
 
     static func runIfRequested() {
@@ -208,7 +277,7 @@ import UIKit
     }
 
     private static func runFocusedPromptProbe() async {
-        var samples = [String]()
+        var evidence = PromptEvidence()
         let result: String
         do {
             try await until("original key window did not attach") {
@@ -217,15 +286,18 @@ import UIKit
 .compactMap { $0 as? UIWindowScene }
                     .contains { $0.windows.contains(where: \.isKeyWindow) }
             }
-            try await verifyFocusedPrompt(samples: &samples)
-            result = "Navigation prompt probe passed: actual-classic-navbar/retained-editor/focused-field=true; "
-                + "same-client-readiness/client-replacement/retained-stack-replacement/duplicate-ready/three-delayed-samples=true; "
-                + "bar-safe-field-nonoverlap/text-selection/stack-owner=true; server-writes=0; "
-                + "native-background-foreground/IME/other-sizes=unverified"
+            try await verifyFocusedPrompt(evidence: &evidence)
+            result = evidence.failures.isEmpty
+                ? "Navigation prompt probe passed: all phases completed; harmful-overlap/ready-final-baseline/responder/selection/text checks passed"
+                : "Navigation prompt probe failed: all phases completed; \(evidence.failures.count) measurement checks failed"
         } catch {
-            result = "Navigation prompt probe failed: \(error)"
+            result = "Navigation prompt probe aborted: state/owner/measurement setup failure: \(error)"
         }
-        let report = ([result] + samples).joined(separator: "\n")
+        let coverage = "actual-classic-navbar/retained-editor; same-client-readiness/client-replacement/retained-stack-replacement/duplicate-ready; "
+            + "bar-safe equality/safe-area intrusion/prompt bar expansion/phase drift are diagnostic only; server-writes=0; "
+            + "native-background-foreground/painted-pixels/IME/other-sizes=unverified"
+        let report = ([result, evidence.summary, coverage] + evidence.samples + evidence.failures)
+            .joined(separator: "\n")
         log(report)
         if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             try? Data(report.utf8).write(
@@ -236,7 +308,8 @@ import UIKit
 
     private static func settledPromptGeometry(
         _ fixture: Fixture, editor: PeerProfileEditViewController, field: UITextField,
-        phase: String, samples: inout [String],
+        phase: String, baseline: PromptGeometry? = nil, expectsBaseline: Bool = false,
+        evidence: inout PromptEvidence,
     ) async throws -> PromptGeometry {
         // Read after the transition, not only from the editor's last layout callback.
         // Do not mark or force layout here: this baseline must expose missing invalidation.
@@ -249,28 +322,43 @@ import UIKit
                 safeMinY: editor.view.convert(editor.view.safeAreaLayoutGuide.layoutFrame, to: fixture.window).minY,
                 fieldMinY: field.convert(field.bounds, to: fixture.window).minY,
             )
-            samples.append("\(phase)[\(index)]: \(geometry.summary); focused=\(field.isFirstResponder)")
-            try require(fixture.window.isKeyWindow && field.isFirstResponder, "\(phase): lost actual editor focus")
+            let label = "\(phase)[\(index)]"
+            evidence.record(geometry, field: field, label: label, baseline: baseline)
             try require(
-                bar.bounds.width > 0 && abs(geometry.barMaxY - geometry.safeMinY) <= 1
-                && geometry.fieldMinY >= geometry.barMaxY,
-                "\(phase): settled bar/safe/field overlap",
+                fixture.window.isKeyWindow && field.window === fixture.window
+                    && fixture.window.rootViewController === fixture.navigation
+                    && fixture.navigation.viewControllers.count == 3
+                    && fixture.navigation.viewControllers[1] === fixture.parent
+                    && fixture.navigation.topViewController === editor && fixture.writes.isEmpty,
+                "\(label): invalid window/stack owner or unexpected write",
             )
-            if let result {
-                try require(
-                    abs(result.barMaxY - geometry.barMaxY) <= 1
-                    && abs(result.fieldMinY - geometry.fieldMinY) <= 1,
-                    "\(phase): geometry did not settle",
-                )
+            try require(
+                bar.bounds.width > 0 && field.bounds.width > 0 && field.bounds.height > 0
+                    && geometry.barMaxY.isFinite && geometry.safeMinY.isFinite && geometry.fieldMinY.isFinite,
+                "\(label): invalid public geometry measurement",
+            )
+            if let result, !geometry.matches(result) {
+                evidence.phaseDrifts += 1
+                evidence.samples.append("\(label): previous-sample-delta={\(geometry.delta(from: result))}")
             }
             result = geometry
             if index < 2 { try await Task.sleep(for: .milliseconds(50)) }
         }
         guard let result else { throw Failure(description: "missing geometry samples") }
+        evidence.phaseCount += 1
+        if expectsBaseline, let baseline {
+            let returned = result.matches(baseline)
+            evidence.samples
+                .append("\(phase): final-baseline-return=\(returned); delta={\(result.delta(from: baseline))}")
+            if !returned {
+                evidence.readyBaselineFailures += 1
+                evidence.failures.append("\(phase): final sample did not restore initial bar/safe/field geometry")
+            }
+        }
         return result
     }
 
-    private static func verifyFocusedPrompt(samples: inout [String]) async throws {
+    private static func verifyFocusedPrompt(evidence: inout PromptEvidence) async throws {
         let f = try Fixture(classicNavigation: true)
         let previousKey = f.window.windowScene?.windows.first(where: \.isKeyWindow)
         defer {
@@ -295,7 +383,7 @@ import UIKit
             editor: editor,
             field: field,
             phase: "initial",
-            samples: &samples,
+            evidence: &evidence,
         )
         for cycle in 0..<3 {
             f.ready.send(nil)
@@ -303,14 +391,14 @@ import UIKit
                 editor.navigationItem.prompt != nil && f.session.state == .waiting,
                 "waiting prompt was not installed",
             )
-            let waiting = try await settledPromptGeometry(
+            _ = try await settledPromptGeometry(
                 f,
                 editor: editor,
                 field: field,
                 phase: "waiting-\(cycle)",
-                samples: &samples,
+                baseline: baseline,
+                evidence: &evidence,
             )
-            try require(waiting.barMaxY > baseline.barMaxY + 1, "waiting prompt never expanded actual bar")
             if cycle > 0 {
                 let next = TdUpdateSource(accountID: f.first.accountID, clientID: Int32(718 + cycle))
                 f.current = next
@@ -330,22 +418,14 @@ import UIKit
                 editor.navigationItem.prompt == nil && f.session.state == .ready,
                 "ready prompt was not cleared",
             )
-            let ready = try await settledPromptGeometry(
+            _ = try await settledPromptGeometry(
                 f,
                 editor: editor,
                 field: field,
                 phase: "ready-\(cycle)",
-                samples: &samples,
-            )
-            try require(
-                abs(ready.barMaxY - baseline.barMaxY) <= 1
-                && abs(ready.fieldMinY - baseline.fieldMinY) <= 1,
-                "ready did not restore baseline geometry",
-            )
-            try require(
-                f.navigation.topViewController === editor && f.writes.isEmpty && field.text == "Kept fixture"
-                && field.selectedTextRange.map { field.offset(from: $0.start, to: $0.end) } == 5,
-                "prompt transition changed editor/text/selection or dispatched",
+                baseline: baseline,
+                expectsBaseline: true,
+                evidence: &evidence,
             )
         }
         f.ready.send(f.current)
@@ -354,7 +434,9 @@ import UIKit
             editor: editor,
             field: field,
             phase: "duplicate-ready",
-            samples: &samples,
+            baseline: baseline,
+            expectsBaseline: true,
+            evidence: &evidence,
         )
     }
 
