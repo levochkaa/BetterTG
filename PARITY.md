@@ -62,7 +62,7 @@ current code before scheduling duplicate work. This section and the current chec
 | P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | needs-fix — classification/media dispatch source pass at `176eab9`, structured actions at `cf885b1`; A10/A20/A21 concealment and A31 poll lifetime; live content/action matrix unverified |
 | P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | needs-fix — timeline A22; composer/edit/forward/transition source pass at `bb01b8f` finds A24/A25; live pagination/keyboard/flight proof pending |
 | P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | needs-fix — A12/A13/A14/A18/A19 bounded repairs; animation A05/A06 and remaining subscribers A23 open; cross-flow audit incomplete |
-| P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | needs-fix — source pass at `d8ed16e`; group member info-edit permission A27 and pagination completion A28; hardware/server/gesture proof incomplete |
+| P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | needs-fix — source pass at `d8ed16e`; A27 effective group info-edit policy repaired/probed, A28 pagination completion open; hardware/server/gesture proof incomplete |
 | P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | needs-fix — event/RPC A23, mutation A29, foreground client replacement A30. Registry/auth/list/chrome initial source pass done; live multi-account/logout and full secondary-surface proof pending |
 
 Read-only audit subagents return findings and need no commit or duplicate build. At most two subagents may run concurrently.
@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A30 same-account foreground client-epoch recovery; A27 fresh group info-edit authority.
+Active queue: A30 same-account foreground client-epoch recovery; A17 video automatic/manual stop ownership.
 A26 relocation and A29 frozen list mutations have integrated bounded proofs below; A29 cold-launch folder navigation also passes.
 A12/A13/A18 delivery correlation and accepted-update transport are repaired with bounded proofs below;
 callbacks rejected before publication and recovery without a registered temporary ID remain separate gaps.
@@ -134,7 +134,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | needs-fix — semantic attributed-string round trip with UTF-16 ranges, independent formatting and entity payloads; separate from spoiler concealment A10 |
 | A26 | P1 | Real own-draft reinstall at `d8ed16e` relocates the app data container: `VoiceNoteDraftStore.loadAllDrafts` rejects persisted absolute URLs and deletes the manifest although its Ogg remains. `VideoNoteFileStore.loadAllManifests` has the same absolute-path filter for MP4/thumbnail | fixed in `8519b33` (worker `2e28fad`) — relative managed filenames, strict legacy container rebasing, retained malformed/missing manifests and migration-write fallback. Isolated voice/video relocation/outcome probes and own voice recovery→reinstall→Discard pass; DEBUG fixture correction `5a87726` keeps production validation strict |
-| A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | needs-fix — shared effective capability using chat kind/permissions/status, live updates and fresh `getChat`/`getChatMember` before writes; channels remain admin-only |
+| A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | fixed in `b0db39f` (worker `1a78906`) — shared effective capability, fresh appearance hydration and scoped rights updates; captured actor/account/client plus fresh `getChat`/`getChatMember` before each title/description write. Integrated 25-case policy and delayed-request probe passes; live profile permission/save behavior remains unverified |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | needs-fix — registration identity on all completion/error paths. Success checks cancellation; wrong-tab content mixing is not established |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
 | A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | needs-fix — restore account-scoped routes/drafts against the new client epoch without relaxing identity checks. Source-confirmed and voice-gesture control reproduces stale versus reopened chat; full send/profile/notification lifecycle proof remains open |
@@ -537,6 +537,31 @@ is imported. This source pass does not prove every content's real rendering/acti
   server mutation was attempted. Cold-launch attachment works; live account/dismissal mutation races still need real proof.
   Production/dependency prohibited-marker scan is empty, but these screenshots expose secondary chrome gap A32.
 
+### Effective group profile permission proof — 2026-10-02
+
+- A27 worker `1a78906` integrated as `b0db39f`; primary reviewed both production controllers, shared policy/authorization and
+  complete probe. Basic-group admins keep all applicable rights; ordinary members use default `canChangeInfo`; restricted
+  supergroup members require membership and both effective/default rights. Supergroup admins retain allowed member rights;
+  broadcast channels still require creator/admin authority. Self-profile editing is unchanged; owned-bot editing is not added.
+- Fresh `getChat` + `getChatMember` on appearance closes a real entry gap: ChatVM's live permission cache does not update
+  `CustomChat.chat.permissions`. Capability state owns its own source/revision, consumes only scoped permission/group updates,
+  and rejects an older refresh after a rights event. Unrelated title/photo metadata no longer owns capability state. Each title
+  and description write independently rereads permission and verifies source/actor/returned IDs; a revoked second write is
+  blocked while existing partial-success handling is preserved. Server authorization remains authoritative; these reads are not
+  an atomic permission transaction.
+- References: pinned current/pre-Liquid `PeerInfoData.swift` 2395–2427/2158–2191 and
+  `TelegramCore/Sources/ApiUtils/TelegramChannel.swift` 209–226/207–224. TDLib `022d6020` `Chat.permissions`,
+  `ChatMemberStatus`, `ChatPermissions`, `setChatTitle` and `setChatDescription` contracts were checked directly.
+- All five Swift files formatted together; warning-free primary wrapper build
+  `.build/logs/xcodebuild/build-Debug-20261002-164302-10912-6908.log` (10s). Worker proof README is copied to
+  `.build/ui-probe-evidence/astra-a27-worker/README.md`, build log with `worker-A27-` prefix.
+- Audit Simulator, PID `11755`: `-ui-probe-profile-info-permissions` passes 25 policy cases, fresh appearance capability,
+  scoped live changes/stale refresh, per-write revocation, wrong account/client/actor/chat, cancellation and delayed completion.
+  Result: `.build/ui-probe-evidence/astra-a27-primary/profile-info-permissions-probe.txt`. Production helpers run against
+  suspended injected reads/writes; no real profile controller permission change or server save is claimed.
+  A29/A12/A26/A14/A24 regressions all pass in `astra-a27-list`, `astra-a27-drafts`, `astra-a27-relocation`, `astra-a27-voice`,
+  `astra-a27-edit`. No real profile/account/message mutation. Marker scan remains empty; A32 visual chrome remains open.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -569,17 +594,19 @@ is imported. This source pass does not prove every content's real rendering/acti
   A18 `76f9998` have combined isolated store/stream proofs. A14 `bb01b8f` and A19 `d8ed16e` have integrated bounded probes.
   A24 `b18da97` has integrated edit-policy proof; A26 `8519b33`/`5a87726` has store and own voice reinstall/discard proof.
   A29 `15f146f` has isolated mutation-authority proof and read-only cold-launch folder/editor navigation smoke.
+  A27 `b0db39f` has integrated effective-permission/authorization proof.
   Voice/video A15–A17, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest integrated slice: A29 `15f146f`, including A26/A24/A19/A14; combined action-authority/relocation/outcome/finalization/edit
-  probes pass (PID `99924`). Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-162551-79894-26406.log`.
+- Latest integrated slice: A27 `b0db39f`, including A29/A26/A24/A19/A14; combined permission/action-authority/relocation/
+  outcome/finalization/edit probes pass (PID `11755`). Warning-free build:
+  `.build/logs/xcodebuild/build-Debug-20261002-164302-10912-6908.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26; A30 repair is next.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
-  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29; A27 fresh group edit authority is next.
+  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27; A17 stop-ownership repair is next.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
@@ -587,7 +614,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
 - Exact next slices: A30a source-ready Main/Folder restoration preserving tab/search/scroll, then A30b immutable-epoch Chat/
-  ForumTopics replacement preserving composer/attachments/anchor; A27 fresh group edit authority. The full A30 transaction
+  ForumTopics replacement preserving composer/attachments/anchor; A17 automatic/manual video finish race. The full A30 transaction
   spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15–A17 and A20–A23/A25/A28/A31/A32.
   Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
   A12 crash before registration retains unresolved ownership; do not guess an outcome. Retain A04's cold partial-range/lookahead proof gap.
