@@ -53,7 +53,8 @@ import UIKit
             )
         }
 
-        init() throws {
+        init(actor: Int64? = 70) throws {
+            self.actor = actor
             self.accountID = account
             self.source = .init(accountID: account, clientID: 101)
             ready.send(source)
@@ -91,8 +92,8 @@ import UIKit
         let window: UIWindow
         weak var previousKey: UIWindow?
 
-        init() throws {
-            self.owner = try Owner()
+        init(actor: Int64? = 70) throws {
+            self.owner = try Owner(actor: actor)
             guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
             else { throw Failure(description: "missing window scene") }
             self.previousKey = scene.windows.first(where: \.isKeyWindow)
@@ -148,12 +149,14 @@ import UIKit
             let result: String
             do {
                 try await verifyRenewal()
+                try await verifyUnknownActor(departFirst: false)
+                try await verifyUnknownActor(departFirst: true)
                 try await verifyRevocation(actor: false)
                 try await verifyRevocation(actor: true)
                 result = "Forum active search probe passed: actual-controller/field/table/native-snapshot=true; "
                     + "binding-renewal/latest-query/UTF16-selection/focus/active-unfocused=true; "
                     + "snapshot-lifetime/queued-old-publishers/second-epoch/late-metadata/Ready-gap=true; "
-                    + "IME/foreign-modal/explicit-Retry/stale-control/pop/account-actor-ABA=true; "
+                    + "IME/foreign-modal/explicit-Retry/stale-control/pop/account-actor-ABA/initial-unknown-actor=true; "
                     + "transport/server-filter/keyboard-animation/foreground=unverified; RPC/global-account-writes=0"
             } catch { result = "Forum active search probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -291,6 +294,50 @@ import UIKit
         f.owner.finish(108)
         try await until("actual pop lifecycle retirement") { controller.probeRetired }
         try require(controller.navigationClientSource?.clientID == 107, "late metadata renewed popped controller")
+    }
+
+    private static func verifyUnknownActor(departFirst: Bool) async throws {
+        let f = try Fixture(actor: nil)
+        defer { f.close() }
+        try await f.activate()
+        let model = f.controller.probeModel
+        model.publishProbe(topics: [ForumTopicsRestorationProbe.topic(id: 1)])
+        try await until("unknown actor current-source rows") {
+            f.controller.probeIDs == [1] && !f.controller.probeSnapshotBusy
+        }
+        try require(
+            f.controller.probeCurrent && f.controller.probeActor == nil,
+            "unknown actor blocked ordinary bound-source rendering",
+        )
+        f.owner.ready.send(nil)
+        f.owner.ready.send(f.owner.source)
+        try await until("unknown actor returning Ready") { !f.controller.probeSnapshotBusy }
+        try require(
+            f.controller.probeModel === model && f.controller.probeCurrent,
+            "unknown actor Ready gap retired the original binding",
+        )
+        if departFirst {
+            f.owner.move(102)
+            f.owner.actor = 70
+            f.owner.accounts.send(())
+            f.owner.move(101)
+            f.owner.accounts.send(())
+            await events()
+            try require(
+                f.controller.probeActor == nil && f.owner.reads.isEmpty && !f.controller.probeCurrent,
+                "departed unknown identity latched replacement actor or revived after ABA",
+            )
+        } else {
+            f.owner.actor = 70
+            f.owner.accounts.send(())
+            try require(
+                f.controller.probeActor == 70 && f.controller.probeCurrent,
+                "same-source Ready actor metadata failed to latch",
+            )
+            f.owner.move(102)
+            try await f.settle(102)
+            try require(f.controller.probeModel !== model, "latched actor failed eligible later renewal")
+        }
     }
 
     private static func verifyRevocation(actor: Bool) async throws {
