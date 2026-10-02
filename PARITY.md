@@ -1399,6 +1399,13 @@ is imported. This source pass does not prove every content's real rendering/acti
   assertion, but does not show field overlap. Public prompt/safe-area APIs do not guarantee that equality. This failed probe
   is not proof of the original clipping cause. Correct the fixture to collect all phases and separately test harmful overlap,
   baseline return and focus/selection without forced layout. Private report `.build/ui-probe-evidence/astra-a37-primary`.
+- `04c904a` (worker `4e704d5`) corrects only that measurement contract: public bar/safe difference is diagnostic;
+  harmful field/bar overlap, exact selection, focus/text and final ready-baseline remain failures. All 24 samples/8 phases
+  are collected before verdict. One-file format; `build-Debug-20261003-001518-2098-7636.log`: PASS9s, zero warnings.
+  PID `4253` passes all phases including fresh client and exact retained-stack replacement: no harmful overlap, focus/text/
+  selection loss or final-baseline failure; nine waiting samples have bar116/safe150/field170. No forced layout or production
+  invalidation added. Private proof `.build/ui-probe-evidence/astra-a37-complete-primary`. Original actual clipping remains
+  open/intermittent; this isolated baseline does not establish its cause or prove real foreground/painted-pixel behavior.
 
 ### A33 definite profile-header text width — 2026-10-02
 
@@ -1622,7 +1629,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `d34d012` focused prompt baseline builds warning-free; its runtime equality assertion needs correction.
+- Latest verified code: `04c904a` corrected focused prompt baseline passes24 samples (PID `4253`), without a production fix.
+  `0608d15` modal presentation fixture correction passes combined probes (PID `97142`).
   `f70cd58` child membership has native proof (PID `88865`); combined-probe modal timing is separately tracked. `c68c1c2` profile route/tab/Search smoke passes
   (PID `68772`), but introduced A38 stale-media admission is a P1 handoff blocker. A36 presentation native/actual proof passes.
   `c9254f3` A36 presentation has a warning-free integration build. `9c0816b` A30f2
@@ -1681,7 +1689,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A21d secret-note recording/mirroring admission is integrated as `fd98d02`/`f45869b`; photo and immediate/view-once remain denied.
   Profile-editor repair is integrated as `1e072ca`. A30f2 prerequisite is integrated as `9c0816b`; activation `35adb4d`
   is integrated as `c68c1c2` with bounded route proof and introduced A38 finding. Child membership is integrated as `f70cd58`.
-  This worker is correcting the DEBUG focused-prompt measurement contract, with no production navigation change.
+  Focused-prompt measurement correction is integrated as `04c904a` with native proof. This worker independently reviews A38.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
