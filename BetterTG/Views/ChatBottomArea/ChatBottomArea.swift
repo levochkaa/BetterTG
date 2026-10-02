@@ -208,11 +208,14 @@ final class ChatComposerView: UIView {
         }
     }
 
-    func cancelActiveRecordingGesture() {
+    func cancelActiveRecordingGesture(preservingVoiceDraft: Bool = false) {
         voiceGestureGeneration &+= 1
         voiceGestureArmTask?.cancel()
         voiceGestureArmTask = nil
-        if chatVM.recordingVoiceNote {
+        if preservingVoiceDraft {
+            chatVM.suspendVoiceRecording()
+        }
+        if chatVM.recordingVoiceNote, !preservingVoiceDraft {
             chatVM.cancelVoiceRecording()
         } else if activeMediaRecordingMode == .video, videoNoteState.isActive {
             onCancelVideoNoteRecording?()

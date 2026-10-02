@@ -127,6 +127,7 @@ import UIKit
     private var voiceRecordingDraftTask: Task<Void, Never>?
     private var voiceRecordingDraftGeneration = 0
     private var voiceRecordingDraftID: UUID?
+    private var voiceRecordingLifecycle = VoiceRecordingLifecycle()
     private var activeVoiceRecordingDraft: VoiceRecordingDraft?
     private var activeVoiceRecordingContext: ResolvedSendContext?
     private let voiceRecordingPreviewPlayer = LocalMediaPlayer()
@@ -408,6 +409,26 @@ import UIKit
             && (activeVoiceRecordingDraft != nil || timerCount - voiceRecordingTimerBaseline >= 0.5)
     }
 
+    var canContinueVoiceRecording: Bool {
+        if let draft = activeVoiceRecordingDraft {
+            return (try? resolveFrozenMediaSendContext(
+                for: .voiceNote,
+                destination: draft.destination,
+                sendTopic: draft.sendTopic,
+                replyTo: draft.replyTo,
+            )) != nil
+        }
+        if let context = activeVoiceRecordingContext {
+            return (try? resolveFrozenMediaSendContext(
+                for: .voiceNote,
+                destination: context.draftKey,
+                sendTopic: context.destinationTopic,
+                replyTo: context.replyTo,
+            )) != nil
+        }
+        return canRecordVoiceNote
+    }
+
     var voiceRecordingPreviewPath: String? {
         guard voiceRecordingInteractionState == .preview else { return nil }
         return activeVoiceRecordingDraft?.fileURL.path()
@@ -578,6 +599,11 @@ import UIKit
                 return
             }
             let draftKey = self.location.draftKey
+            await VoiceRecordingDraftPreservation.wait(for: draftKey)
+            guard !Task.isCancelled, locationContextIsCurrent else {
+                self.loadingVoiceDraft = false
+                return
+            }
             let migrateLegacy = ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: draftKey)
             async let sendDrafts = VoiceNoteDraftStore.shared.drafts(
                 for: draftKey,
@@ -2470,7 +2496,8 @@ import UIKit
 
     @MainActor func mediaStartRecordingVoice() async -> Bool {
         let replySnapshot = replyMessage
-        guard canRecordVoiceNote,
+        guard !voiceRecordingLifecycle.isSuspended,
+              canRecordVoiceNote,
               locationContextIsCurrent,
               let initialContext = try? resolveSendContext(
                   for: .voiceNote,
@@ -2485,6 +2512,7 @@ import UIKit
               pendingVoiceNote == nil
         else { return false }
         startingVoiceNote = true
+        let interactionGeneration = voiceRecordingLifecycle.generation
         defer { startingVoiceNote = false }
         wave.removeAll(keepingCapacity: true)
         timerCount = 0
@@ -2500,7 +2528,9 @@ import UIKit
             await promoteNextPendingVoiceDraft()
             return false
         }
-        guard pendingVoiceNote == nil, !recordingVoiceNote, !finalizingVoiceNote else {
+        guard !Task.isCancelled, voiceRecordingLifecycle.permitsContinuation(interactionGeneration),
+              pendingVoiceNote == nil, !recordingVoiceNote, !finalizingVoiceNote
+        else {
             await promoteNextPendingVoiceDraft()
             return false
         }
@@ -2568,8 +2598,50 @@ import UIKit
         closeVoiceRecordingSegment(sendAfterPreparation: false)
     }
 
+    func resumeVoiceRecordingInteraction() {
+        voiceRecordingLifecycle.resumeInteraction()
+    }
+
+    /// Lifecycle teardown preserves a recording; only explicit Delete/cancel discards it.
+    func suspendVoiceRecording() {
+        guard voiceRecordingLifecycle.suspend() else { return }
+        stopVoiceRecordingPreviewPlayback()
+        guard recordingVoiceNote else { return }
+
+        switch voiceRecordingInteractionState {
+        case .holding, .locked:
+            updateVoiceRecordingDuration()
+            voiceRecordingInteractionState = .locked
+            if canPauseVoiceRecording {
+                closeVoiceRecordingSegment(sendAfterPreparation: false)
+            } else {
+                finishVoiceRecording(
+                    sendWhenReady: false,
+                    pendingMessage: "Voice recording stopped before a preview could be created.",
+                )
+            }
+        case .preview:
+            // A disappearing trim control may never deliver its final touch event.
+            // Commit the current range and let an already-running save finish.
+            if voiceRecordingTrimIsUpdating, voiceRecordingTrimTask == nil,
+               let draft = activeVoiceRecordingDraft
+            {
+                updateVoiceRecordingTrim(
+                    start: draft.effectiveRange.lowerBound,
+                    end: draft.effectiveRange.upperBound,
+                    updatedEnd: false,
+                    finished: true,
+                )
+            }
+        case .idle, .pausing, .resuming:
+            // Owned persistence work must finish. Its continuation observes suspension.
+            break
+        }
+    }
+
     func resumeVoiceRecording(confirmingTrim: Bool = false) {
-        guard recordingVoiceNote,
+        guard !voiceRecordingLifecycle.isSuspended,
+              recordingVoiceNote,
               voiceRecordingInteractionState == .preview,
               voiceRecordingDraftTask == nil,
               voiceRecordingTrimTask == nil,
@@ -2668,8 +2740,9 @@ import UIKit
         voiceRecordingTrimGeneration &+= 1
         let generation = voiceRecordingTrimGeneration
         let range = lowerBound..<upperBound
-        voiceRecordingTrimTask = Task { [weak self] in
-            guard let self else { return }
+        let interactionGeneration = voiceRecordingLifecycle.generation
+        let shouldPreviewAfterSave = !voiceRecordingLifecycle.isSuspended
+        voiceRecordingTrimTask = VoiceRecordingDraftPreservation.start(for: location.draftKey) { [self] in
             do {
                 let storedDraft = try await VoiceRecordingDraftStore.shared.updateTrim(
                     in: canonicalDraft,
@@ -2684,7 +2757,9 @@ import UIKit
                 voiceRecordingTrimIsUpdating = false
                 voiceRecordingTrimBaseDraft = nil
                 objectWillChange.send()
-                previewVoiceRecordingTrimEdge(storedDraft, updatedEnd: updatedEnd)
+                if shouldPreviewAfterSave, voiceRecordingLifecycle.permitsContinuation(interactionGeneration) {
+                    previewVoiceRecordingTrimEdge(storedDraft, updatedEnd: updatedEnd)
+                }
             } catch {
                 guard voiceRecordingTrimGeneration == generation else { return }
                 activeVoiceRecordingDraft = canonicalDraft
@@ -3526,6 +3601,7 @@ import UIKit
     }
 
     private func beginVoiceRecordingResume(_ draft: VoiceRecordingDraft) {
+        guard !voiceRecordingLifecycle.isSuspended else { return }
         guard let recordingContext = try? resolveFrozenMediaSendContext(
             for: .voiceNote,
             destination: draft.destination,
@@ -3603,9 +3679,9 @@ import UIKit
         voiceRecordingInteractionState = .pausing
         voiceRecordingDraftGeneration &+= 1
         let generation = voiceRecordingDraftGeneration
+        let interactionGeneration = voiceRecordingLifecycle.generation
         voiceRecordingDraftTask?.cancel()
-        voiceRecordingDraftTask = Task { [weak self] in
-            guard let self else { return }
+        voiceRecordingDraftTask = VoiceRecordingDraftPreservation.start(for: location.draftKey) { [self] in
             let mergedURL = FileManager.default
                 .temporaryDirectory
                 .appendingPathComponent("\(UUID().uuidString)-merged.wav")
@@ -3665,7 +3741,7 @@ import UIKit
                         )
                     }
                 #endif
-                if sendAfterPreparation {
+                if sendAfterPreparation, voiceRecordingLifecycle.permitsContinuation(interactionGeneration) {
                     sendVoiceRecordingPreview()
                 }
             } catch is CancellationError {
@@ -3685,7 +3761,7 @@ import UIKit
                     voiceRecordingInteractionState = .preview
                     voiceNoteErrorMessage = "Couldn’t append the latest recording segment. The previous preview is safe."
                     loadVoiceRecordingPreview(existingDraft)
-                    if sendAfterPreparation {
+                    if sendAfterPreparation, voiceRecordingLifecycle.permitsContinuation(interactionGeneration) {
                         sendVoiceRecordingPreview()
                     }
                 } else {
@@ -3760,8 +3836,8 @@ import UIKit
         let outputURL = FileManager.default
             .temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString)-trimmed.wav")
-        voiceRecordingDraftTask = Task { [weak self] in
-            guard let self else { return }
+        let interactionGeneration = voiceRecordingLifecycle.generation
+        voiceRecordingDraftTask = VoiceRecordingDraftPreservation.start(for: location.draftKey) { [self] in
             do {
                 let inspection = try await VoiceNotePCMEditor.trim(
                     draft.fileURL,
@@ -3793,11 +3869,13 @@ import UIKit
                         )
                     }
                 #endif
-                switch continuation {
-                case .resume:
-                    beginVoiceRecordingResume(materializedDraft)
-                case .send:
-                    sendVoiceRecordingPreview()
+                if voiceRecordingLifecycle.permitsContinuation(interactionGeneration) {
+                    switch continuation {
+                    case .resume:
+                        beginVoiceRecordingResume(materializedDraft)
+                    case .send:
+                        sendVoiceRecordingPreview()
+                    }
                 }
             } catch is CancellationError {
                 try? FileManager.default.removeItem(at: outputURL)
@@ -3814,7 +3892,8 @@ import UIKit
     }
 
     private func sendVoiceRecordingPreview() {
-        guard voiceRecordingInteractionState == .preview,
+        guard !voiceRecordingLifecycle.isSuspended,
+              voiceRecordingInteractionState == .preview,
               voiceRecordingDraftTask == nil,
               voiceRecordingTrimTask == nil,
               !voiceRecordingTrimIsUpdating,
@@ -3848,8 +3927,7 @@ import UIKit
             waveform: draft.waveform,
             destination: draft.destination,
         )
-        voiceRecordingDraftTask = Task { [weak self] in
-            guard let self else { return }
+        voiceRecordingDraftTask = VoiceRecordingDraftPreservation.start(for: location.draftKey) { [self] in
             var adoptedSendDraft: VoiceNoteSendDraft?
             do {
                 let adoptedDraft = try await VoiceNoteDraftStore.shared.adopt(sendDraft)

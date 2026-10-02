@@ -15,6 +15,7 @@ import UIKit
         FFmpegCapabilities.assertRequiredCodecsAvailable()
         #if DEBUG
             VoiceNoteCodec.runDebugProbeIfRequested()
+            VoiceRecordingDraftPreservation.runDebugProbeIfRequested()
             VideoNoteAssetWriter.runDebugProbeIfRequested()
             VideoNoteFileStore.runDebugProbeIfRequested()
             VideoNoteSegmentComposer.runDebugProbeIfRequested()

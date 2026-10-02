@@ -16,8 +16,8 @@ The user requested a fresh `gpt-6-astra` review of the accumulated implementatio
 The initial documentation handoff was `6b417da`; the goal subsequently started on 2026-10-02 from that clean HEAD, whose last
 production commit was `7b0699d789329535786cc6170c98287c45d52ebb`. There is no `GOAL.md` in this checkout. The reusable revised
 objective is [PARITY_PROMPT.md](PARITY_PROMPT.md); the previously started goal points to the user-supplied attachment.
-Editing these documents does not start or resume a goal. The current request is a bounded handoff: close already-started safe
-slices, retain the audit backlog and stop until an explicit resume. This does not mean Telegram parity is complete.
+Editing these documents does not start or resume a goal. The user explicitly resumed continuous work after the `8268947`
+handoff; the goal is active. The earlier pause no longer applies. This does not mean Telegram parity is complete.
 Re-read HEAD and dirty state on resume.
 
 All existing implementation and CLEAN/build/probe/smoke claims in the old ledger remain historical evidence. Their new audit status
@@ -57,7 +57,7 @@ current code before scheduling duplicate work. This section and the current chec
 | Priority | Area to revalidate | Required checks | New audit state |
 | --- | --- | --- | --- |
 | P0 | MediaCore and animated media | No VLC dependency/consumer; production TGS/WebP/WebM-alpha and custom/animated emoji routes; decode ownership, alpha/timing/sync, bounded caches, offscreen pause, prefetch/cancel/fallback | needs-fix — first source pass; A07 fixed/probed, A05/A06/A08/A09 remain; authenticated animation smoke pending |
-| P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | needs-fix — voice source pass A11–A14; video audit pending |
+| P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | needs-fix — voice/video source passes; A11 repaired with bounded Simulator proof, A12–A17 open |
 | P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | needs-fix — range/decoder/renderer source pass; A01–A04 below; owner/PiP audit incomplete |
 | P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | needs-fix — text spoiler A10 confirmed in source; full area audit pending |
 | P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | pending |
@@ -85,7 +85,7 @@ integration and verification. Each implementation slice must end with proof, a f
 | Area | Production entry points and shared dependencies located | Coverage at this checkpoint |
 | --- | --- | --- |
 | Animated media | `MessageContentView`, `MessageTextView`, reactions, composer picker and gallery → `AnimatedFileView`, TGS/WebP/FFmpeg views, `CustomEmojiStickerRepository` | Source pass through these consumers; A07 worker lifecycle/reuse probe passed, other runtime coverage and fixes outstanding |
-| Voice/video notes | `ChatBottomArea`, `VideoNoteRecorderViewController`, `ChatVM` → capture/writer/codec, recording/send stores and coordinators, message playback | Voice source pass at `37c8b44`: recording/trim/PCM/codec, preview, send/retry/relaunch/outcomes and destination ownership; A11–A14. Video remains inventory only |
+| Voice/video notes | `ChatBottomArea`, `VideoNoteRecorderViewController`, `ChatVM` → capture/writer/codec, recording/send stores and coordinators, message playback | Voice source pass at `37c8b44`: recording/trim/PCM/codec, preview, send/retry/relaunch/outcomes and destination ownership; A11–A14. Independent video source pass at `8268947` confirms shared A12/A13 plus A15–A17; camera/interruption/server behavior remains unproved |
 | VOD | `ChatView`/`ChatViewAlbum` → `GalleryVideoPlaybackOwner`, `LocalMediaPlayer` or FFmpeg sample player → range coordinator/resource loader/decoder/renderer/C AVIO | Source pass over range/loader and C/Swift decoder/render session; complete owner/PiP review pending |
 | Content/actions | `MessageContentPresentation`, `MessageMetadataPresentation`, structured/text/reaction views → `ChatVM`, `MessageForwardingService`, topic/forward controllers | Inventory plus confirmed source-only spoiler finding A10; complete rendering/action audit pending |
 | Composer/timeline | `ChatBottomArea`, `ChatView`, `ChatVM`, `ChatDraftKey`, `MessageSendTransition`, date/topic header models | Inventory only; not re-reviewed |
@@ -94,6 +94,10 @@ integration and verification. Each implementation slice must end with proof, a f
 | Lists/shell | `MainView`, `RootVM`, `FolderView`, `ChatFolderManagementViewController`, navigation/context-menu views | Inventory only; not re-reviewed |
 
 ### Astra findings and repair queue
+
+Active queue: finish A04 main-video end/fallback-duration verification, then shared A12/A13 send-outcome route/provenance.
+A11 preserves voice recording route/reply/caption, PCM, waveform, trim and revision contracts across lifecycle teardown;
+its bounded proof and remaining runtime limits are recorded below. A12–A14 send ownership remains unchanged.
 
 Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix is recorded; voice A11–A14 were reviewed at
 `37c8b44`. Source findings are not runtime proof. A repaired finding does not mark its entire area fixed.
@@ -110,10 +114,13 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | needs-fix: PTS/duration scheduling and decoder EOF, separately bounded cache |
 | A09 | P1 | Apple-container `messageAnimation` routes to static `FileMediaPreviewView`; only fullscreen owns playback | needs-fix: account-scoped inline AVFoundation animation loop with visibility/reuse/cancel contracts |
 | A10 | P1 | `Utils/Text.swift` spoiler formatting only adds background color; `MessageTextView.configure` retains visible text/custom emoji and exposes unredacted text through accessibility | needs-fix — primary source check confirmed; add hidden/revealed text and overlay/AX contracts, distinct from the already implemented gallery-caption spoiler path |
-| A11 | P1 | `ChatView.viewDidDisappear` → `ChatBottomArea.cancelActiveRecordingGesture` → `ChatVM.cancelVoiceRecording` deletes the saved preview/WAV on Back because preview keeps `recordingVoiceNote == true`; permission loss uses the same teardown | needs-fix — separate navigation/gesture teardown from explicit discard; verify preview/trim/reply survive Back/reopen/relaunch and permission loss |
-| A12 | P1 | Voice coordinator derives outcome destination from the delivered message topic, but an all-messages draft owns `destination.topic == nil` with separate `sendTopic`; store lookups require exact route equality before and after enqueue registration | needs-fix — match captured account/chat/temporary ID plus frozen delivery topic, preserve original draft route; probe early/late success/failure for All Messages and explicit topics |
-| A13 | P1 | Voice coordinator reads current active account after `NotificationCenter.publisher` defers delivery to main; an account switch between posting and delivery can attribute A's outcome/delete to B with colliding IDs | needs-fix — capture event provenance at the TDLib boundary, carry it across delivery; probe post-A → switch-B → deliver-A without mutating B |
+| A11 | P1 | `ChatView.viewDidDisappear` → `ChatBottomArea.cancelActiveRecordingGesture` → `ChatVM.cancelVoiceRecording` deletes the saved preview/WAV on Back because preview keeps `recordingVoiceNote == true`; permission loss uses the same teardown | fixed in this slice — preserve on teardown, wait for route-owned persistence and invalidate old UI intents; Simulator preview/trim Back→reopen→relaunch, active-recording Back and explicit Delete passed; live rights mutation/reply fixture remain unverified |
+| A12 | P1 | Voice and video coordinators derive outcome destination from the delivered message topic, but an all-messages draft owns `destination.topic == nil` with separate `sendTopic`; store lookups require exact route equality before and after enqueue registration | needs-fix — match captured account/chat/temporary ID plus frozen delivery topic, preserve original draft route; probe early/late success/failure for All Messages and explicit topics, including simultaneous routes to the same delivery topic |
+| A13 | P1 | Voice and video coordinators read current active account after `NotificationCenter.publisher` defers delivery to main; an account switch between posting and delivery can attribute A's outcome/delete to B with colliding IDs | needs-fix — capture event provenance at the TDLib boundary and update generator, carry it across delivery; probe post-A → switch-B → deliver-A without mutating B; include shared document cleanup subscribers |
 | A14 | P1 | `ChatVM.startVoiceFinalization` persists an adopted draft before encoding, but sets enqueue ownership only later; a reopened ChatVM restores it as retryable while the previous owner still encodes/sends; store has no finalization/file reservation | needs-fix — atomic per-draft runtime lease before adoption/encoding, canonical state validation and recoverable durable state; probe concurrent reopen/retry/discard and process-death recovery |
+| A15 | P1 | Video navigation/background/interruption sets preservation intent, then `VideoNoteCaptureSession.cancel` → writer cancellation deletes the current MP4 before adoption; Record More loses the unadopted new segment | needs-fix — finalize and adopt/append current valid capture before releasing ownership; preserve existing draft on failure, keep explicit Cancel destructive; camera/runtime proof pending |
+| A16 | P1 | A retained consumed-origin video preview still owns its managed send asset; retry from composer acquires enqueue ownership, but preview Cancel calls `discardVideoNoteAsset` without the retry guard and can remove that in-flight file | needs-fix — canonical ownership across recorder/retry; detach consumed preview or reject destructive cancellation while enqueue owns the asset; store tombstone semantics must remain intact |
+| A17 | P1 | Video automatic limit reserves `stopRequested` before async finish/UI publication; manual release in this gap still calls finish, gets `recordingUnavailable`, then failure cleanup cancels/deletes the valid near-limit clip | needs-fix — idempotent/shared finish result; deterministic automatic-stop-reserved → manual-release race before hardware boundary proof |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -125,6 +132,12 @@ Voice references: current `ChatControllerMediaRecording.swift` preserves preview
 (305–329, 640–663); pre-Liquid `ChatInterfaceState.swift` persists peer/thread-scoped media drafts (726–730, 899–918),
 and `ManagedAudioRecorder.swift` materializes pause/resume/trim before append (486–538). Voice findings are source-only;
 the existing codec probe's all-messages outcome uses the original route and therefore does not exercise A12's coordinator mismatch.
+Video source pass at `8268947`: `VideoNoteRecorderViewController`, `VideoNoteCaptureSession`, `VideoNoteAssetWriter`,
+`VideoNoteFileStore`, `VideoNoteDraftCoordinator`, `ChatVM` and composer retry/discard callers. References at the pinned current /
+pre-Liquid SHAs: `ChatControllerMediaRecording.swift` stop-to-preview (404–475 / 414–482), `ChatController.swift` navigation
+(6856–6865 / 5963–5971), `VideoMessageCameraScreen.swift` limit handling (437–479 / 426–468), and
+`Camera/Sources/VideoRecorder.swift` (354–373 at both). Positive checks: serial A/V drain, capture-generation/camera retiming,
+atomic recording revisions, composition snapshot lifetime and atomic send adoption/removal tombstones. These do not close A15–A17.
 
 Positive source checks: bounded cancellable TGS inflate, copied premultiplied WebP/FFmpeg frames, bounded frame caches, first-frame
 fallback; checked C AVIO arithmetic/packet ownership, serialized close/cancel and retained Swift callback contexts. These checks do not
@@ -201,7 +214,34 @@ close runtime gaps. P2 follow-ups include TGS parsed-cache byte bounds, custom-e
 - Integrated screenshot/hierarchy `astra-integrated-animation-login{.png,-hierarchy.json}` show the live production 2FA screen,
   not a chat/sticker flow. The user subsequently reported logging into the open Simulator; no credentials were entered by the agent.
   On resume, inspect current authorization/reachable chats before selecting authenticated smoke. This user update does not close
-  B01 for the original database, prove sticker playback, or authorize another implementation slice now.
+  B01 for the original database or prove sticker playback. The later explicit continuous-work request authorizes further slices.
+
+### Voice lifecycle preservation proof — 2026-10-02
+
+- A11 scope: navigation/permission teardown stops capture and preview without calling explicit discard. Main-actor registration
+  retains canonical PCM/trim/adoption work and makes a reopened account/chat/topic route await it. A lifecycle generation rejects
+  pre-suspension permission/resume/send/trim-audio continuations even after UI re-enablement. A forced teardown trim save never
+  starts preview audio. Recording and send storage formats, route/reply/caption/waveform/revision contracts remain unchanged.
+- Independent delta review identified the reopen barrier, stale intent revival and forced-trim autoplay gaps; all three were
+  repaired. A12–A14, video lifecycle A15 and system interruption handling are not claimed fixed by this slice.
+- One SwiftFormat invocation covered the five changed Swift files. Final warning-free `./build.sh build` log:
+  `.build/logs/xcodebuild/build-Debug-20261002-150301-32416-21283.log`; no warnings/errors in the full output.
+- `./build.sh run --skip-build --simulator-id 59EB535C-3610-41A2-AB68-53A9467DC24B --
+  -media-probe-voice-preservation -ui-smoke-voice-gestures`, iPhone 17 Pro / iOS 26.5, PID `36834`.
+  The user-authorized Simulator reaches real Saved Messages. The deterministic barrier/epoch probe reports restore-waits,
+  canonical-revision, account-isolation, barrier-cleanup, suspend-invalidates-intent, reenable-keeps-old-intent-invalid and
+  new-intent-allowed. Output: `.build/ui-probe-evidence/astra-voice-preservation-final-probe/voice-preservation-probe.txt`.
+  This tests production coordination primitives, not an injected full ChatVM PCM-save race or live rights mutation.
+- Production idb flow: hold→lock→pause, trim `0…21.0189435044s`, Back→reopen and wrapper relaunch all retain the same local
+  draft `A4895271-1B10-484A-BD3D-8A7D74D60BB9`, media filename and edit revision 1. Sorted canonical manifest SHA-256 after
+  Back and relaunch: `63d4ca98ab895c0f2013986a48f564e5c4b03edb45ed7f6a6e128b3c3ab9abd2`.
+  Evidence: `.build/ui-probe-evidence/astra-voice-after-{back,relaunch}/`, `astra-voice-after-relaunch.png` and filtered hierarchy.
+  The final build again restored trim `0:00.0…0:21.0` with Play, not active playback. Reply was nil; reply preservation is source-only.
+- A second real hold→lock followed by Back during capture produced paused `27.6s` preview after reopen, not a continuing recorder.
+  Manifest/WAV `5753F35D-1BE7-43F6-8713-C20DE301B67B` were present; proof is in
+  `.build/ui-probe-evidence/astra-voice-active-back/` and `astra-voice-active-back.png` (visually inspected).
+  Explicit Cancel/Delete removed each agent-created draft and WAV; the recording-draft directory was empty after both deletions.
+  No messages were sent, no chat rights changed, no user drafts removed, no database reset and no Simulator shutdown occurred.
 
 ## Implementation ledger
 
@@ -229,25 +269,26 @@ close runtime gaps. P2 follow-ups include TGS parsed-cache byte bounds, custom-e
 
 ## Checkpoint
 
-- Current handoff: the started repairs are committed (`37c8b44`, `3005369`, `3917128`); the reusable prompt and checkpoint are
-  updated. Stop until explicit resume; do not claim the broad parity goal is achieved. A01/A02/A03/A07 passed warning-free
-  builds and isolated deterministic Simulator probes. Voice A11–A14 and text A10 are source-confirmed, not runtime-proved.
-  B01 still blocks the original Simulator database; the user reports login on the open Simulator for subsequent smoke.
-- Latest integrated production SHA: `3917128`. Final warning-free build:
-  `.build/logs/xcodebuild/build-Debug-20261002-144312-3881-1967.log`. Production/dependency scan over `project.yml`, `BetterTG`,
+- Active continuous work resumed explicitly after `8268947`; no further resume is required. A01/A02/A03/A07 have bounded
+  warning-free build/probe proof; this slice repairs A11 with production Simulator navigation/relaunch/Delete proof above.
+  Video source audit now covers A12/A13/A15–A17; these and voice A14/text A10 remain open. Broad parity is not complete.
+  B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
+- Latest verified slice: A11 on parent `8268947`. Warning-free build:
+  `.build/logs/xcodebuild/build-Debug-20261002-150301-32416-21283.log`. Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
-- The auxiliary `astra-animation-worker/BetterTG` worktree is clean and its commit is integrated; proof files were preserved
-  in the primary checkout. App-managed archival was refused because the worktree is protected by a pinned task/workspace.
-  It was left intact; no forced cleanup was attempted. The owned idb session was disconnected; Simulators remain booted.
+- The protected auxiliary `astra-animation-worker/BetterTG` worktree is reused for A04 after integrating A07; do not force-delete it.
+  Worker `23b1e49` repairs explicit main-video duration; independent review requested mixed-metadata proof and exposed a separate
+  fallback-duration clamp defect. Worker follow-up and primary integration/probes are pending. Parent owns the idb session;
+  Simulators remain booted. A07 worker proofs were already preserved in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice after an explicit resume: A11, preserve voice preview/trim/reply on Back and permission loss without changing
-  explicit Delete semantics; verify Back/reopen/relaunch and keep input files owned. Then A12/A13 outcome route/provenance and
-  A14 finalization reservation, followed by the remaining A04–A10 findings. B01 needs a data-preserving TDLib investigation.
-  Continue video-note, owner/PiP, complete MessageContent/actions, composer/timeline, profile/gallery and account/list/shell audit
+- Exact next slice: review/integrate A04 including explicit-main versus fallback duration, then Simulator main-track/controller probes.
+  Then shared voice/video A12/A13 outcome route/provenance, A14 finalization reservation and remaining A05–A10/A15–A17 findings.
+  B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
+  profile/gallery and account/list/shell audit
   coverage. Retain completed range/renderer checks; do not restart source review unless code/dependencies change.
   New feature breadth remains behind the audit gate.
 - Last pre-audit feature slice: `7b0699d` member/admin user rows open a standalone UIKit member-tag flow with fresh

@@ -255,7 +255,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         endMessageSelection()
         isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
-        composerView.cancelActiveRecordingGesture()
+        composerView.cancelActiveRecordingGesture(preservingVoiceDraft: true)
         if chatVM.canWriteBasicMessages {
             Task { [chatVM] in await chatVM.updateDraft() }
         }
@@ -265,6 +265,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         super.viewWillAppear(animated)
         isTerminatingNavigation = false
         if presentationMode == .full {
+            chatVM.resumeVoiceRecordingInteraction()
             navigationController?.setNavigationBarHidden(true, animated: animated)
         }
     }
@@ -1102,8 +1103,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     guard let self else { return }
                     updateStatus()
                     if showsComposer {
-                        if !chatVM.canWriteAnyMessage {
-                            composerView.cancelActiveRecordingGesture()
+                        let voiceDestinationUnavailable = (chatVM.recordingVoiceNote || chatVM.startingVoiceNote)
+                            && !chatVM.canContinueVoiceRecording
+                        if isTerminatingNavigation || !chatVM.canWriteAnyMessage || voiceDestinationUnavailable {
+                            composerView.cancelActiveRecordingGesture(preservingVoiceDraft: true)
+                        } else {
+                            chatVM.resumeVoiceRecordingInteraction()
                         }
                         composerView.update(from: chatVM)
                     }
