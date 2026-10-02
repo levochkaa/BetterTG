@@ -655,6 +655,24 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a28-primary`. The controller's success/catch/reset wiring is source-reviewed; the probe does not
   construct a real profile, delay a TDLib RPC or exercise tab gestures. No real account/profile/message changes.
 
+### Terminal navigation-plan acceptance — 2026-10-02
+
+- A30b2 prerequisite worker `1584f4d` integrated as `1f47005`. Preparation owns no transferred files; the coordinator rechecks
+  ready/source generation, controller preflight, exact stack and transition/modal barriers before a one-shot synchronous commit.
+  An accepted replacement is installed without a later rejection that could strand transferred composer files. Production commit
+  constructors must not navigate or replace the client. Main is still the only opted-in production entry; Chat activation remains open.
+- A bounded identity-snapshot pass visits each original eligible entry once, skips a deferred entry and preserves other routes.
+  Changed readiness during a commit schedules one weak coalesced retry. Source/readiness/account changes before acceptance do not
+  transfer ownership. This reworks the existing A30a transaction, with the same pinned ChatList/ChatInterfaceState references.
+- Three Swift files formatted together; primary warning-free build
+  `.build/logs/xcodebuild/build-Debug-20261002-172957-13872-9541.log` (8s); worker log copied with `worker-A30b2-plan-` prefix.
+  Audit Simulator PID `14747`: expanded `-ui-probe-client-restoration` passes real coordinator/prepared-plan and isolated lifetime/file
+  checks, two entries in one Ready, deferred-first skip, preflight changes, refused commit, terminal install and duplicate/reentrant
+  readiness. A30b1/A28/A27/A16/A17 regressions pass beside it in `.build/ui-probe-evidence/astra-a30b2-plan-primary`.
+- Actual Main regression: own query `111222` on groups → HOME → app icon, same PID and query; `7` typed without tap produces
+  `1112227`. Visually inspected `search-restored-typing.png` records focus/cursor and selected folder; keyboard stayed hidden.
+  Own query cleared with Close. No folder/message/account writes. This validates Main after the transaction change, not Chat recovery.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -694,23 +712,26 @@ is imported. This source pass does not prove every content's real rendering/acti
   Voice/video A15, Chat/secondary-route A30b2, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: A28 `9cdc6b0`, including A16/A30b1/A17/A30a/A27/A29/A26/A24/A19/A14; pagination registration plus five
-  permission/handoff/finish/transfer/readiness probes pass (PID `10397`). Warning-free build:
-  `.build/logs/xcodebuild/build-Debug-20261002-172655-9917-30165.log`.
+- Latest verified code: A30b2 terminal-plan prerequisite `1f47005`, including A28/A16/A30b1/A17/A30a/A27/A29/A26/A24/A19/A14;
+  prepared navigation plus five transfer/profile/video regressions pass (PID `14747`), with same-PID Main search/focus smoke.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-172957-13872-9541.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
-- The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1; A30b2 design is next.
+- The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
+  A30b2 history/freshness helpers are underway before Chat activation.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
-  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16; A15 capture-preservation design is next.
+  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16; A15a navigation capture preservation is underway.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: A30b2 quiescent Chat route replacement with atomic navigation acceptance, same-ready Main+Chat drain,
-  anchor/focus and controller import/modal guards; A15 unadopted capture finalize→adopt/append preservation. The full A30 transaction
+- Exact next slices: A30b2 detached history plus bounded current-client freshness, then quiescent Chat activation with
+  anchor/focus and controller import/modal/paste guards; A15a navigation finalize→adopt/append preservation, then background/interruption.
+  Classic Telegram background handling discards capture; durable background preservation is BetterTG policy, not identical pre-Liquid behavior.
+  The full A30 transaction
   spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15 and A20–A23/A25/A31/A32.
   Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
   A12 crash before registration retains unresolved ownership; do not guess an outcome. Retain A04's cold partial-range/lookahead proof gap.
