@@ -983,55 +983,65 @@ enum TDMediaPrefetcher {
         case ffmpegVideo
     }
 
-    static func prefetch(message: Message, client: TDLibClient) async {
-        let files: [(id: Int, decodeKind: DecodeKind)] =
+    @MainActor static func prefetch(message: Message, client: TDLibClient) async {
+        guard let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else { return }
+        let files: [(file: File, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
+                photo.photo.sizes.getSize(.yBox).map { [($0.photo, .none)] } ?? []
             case .messageAudio(let audio):
-                [audio.audio.albumCoverThumbnail?.file.id]
+                [audio.audio.albumCoverThumbnail?.file]
                     .compactMap(\.self)
                     .map { ($0, .none) }
             case .messageDocument(let document):
-                [document.document.thumbnail?.file.id]
+                [document.document.thumbnail?.file]
                     .compactMap(\.self)
                     .map { ($0, .none) }
             case .messageVoiceNote(let voice):
-                [(voice.voiceNote.voice.id, .none)]
+                [(voice.voiceNote.voice, .none)]
             case .messageVideoNote(let video):
-                [video.videoNote.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
-                    + [(video.videoNote.video.id, .none)]
+                [video.videoNote.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
+                    + [(video.videoNote.video, .none)]
             case .messageAnimation(let animation):
                 if telegramAnimationUsesFFmpeg(animation.animation) {
-                    [animation.animation.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
-                        + [(animation.animation.animation.id, .ffmpegVideo)]
+                    [animation.animation.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
+                        + [(animation.animation.animation, .ffmpegVideo)]
                 } else {
-                    [(animation.animation.thumbnail?.file.id ?? animation.animation.animation.id, .none)]
+                    [(animation.animation.thumbnail?.file ?? animation.animation.animation, .none)]
                 }
             case .messageSticker(let sticker):
-                [sticker.sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
-                    + [(sticker.sticker.sticker.id, decodeKind(for: sticker.sticker.format))]
+                [sticker.sticker.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
+                    + [(sticker.sticker.sticker, decodeKind(for: sticker.sticker.format))]
             case .messageAnimatedEmoji(let emoji):
                 stickerFiles(emoji.animatedEmoji.sticker)
             case .messageDice(let dice):
                 dice.value == 0 ? stickerFiles(regularSticker(dice.initialState)) : []
             case .messageVideo(let video):
-                [video.video.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+                [video.video.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
             default:
                 []
             }
-        for file in files where !Task.isCancelled {
-            let downloaded = await withTaskCancellationHandler {
-                try? await client.downloadFile(
-                    fileId: file.id,
-                    limit: 0,
-                    offset: 0,
-                    priority: 1,
-                    synchronous: true,
-                )
-            } onCancel: {
-                Task { try? await client.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
+        for file in files {
+            guard !Task.isCancelled, TDLib.shared.activeUpdateSource == source else { return }
+            let downloaded: File?
+            switch file.decodeKind {
+            case .ffmpegVideo, .tgs, .webP:
+                guard let request = AnimatedFileDownload(fileID: file.file.id, client: client) else { return }
+                downloaded = await request.completedFile(file: file.file)
+            case .none:
+                downloaded = await withTaskCancellationHandler {
+                    try? await client.downloadFile(
+                        fileId: file.file.id,
+                        limit: 0,
+                        offset: 0,
+                        priority: 1,
+                        synchronous: true,
+                    )
+                } onCancel: {
+                    Task { try? await client.cancelDownloadFile(fileId: file.file.id, onlyIfPending: true) }
+                }
             }
+            guard !Task.isCancelled, TDLib.shared.activeUpdateSource == source else { return }
             guard let downloaded,
                   downloaded.local.isDownloadingCompleted,
                   !downloaded.local.path.isEmpty
@@ -1060,10 +1070,10 @@ enum TDMediaPrefetcher {
         }
     }
 
-    private static func stickerFiles(_ sticker: Sticker?) -> [(id: Int, decodeKind: DecodeKind)] {
+    private static func stickerFiles(_ sticker: Sticker?) -> [(file: File, decodeKind: DecodeKind)] {
         guard let sticker else { return [] }
-        return [sticker.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
-            + [(sticker.sticker.id, decodeKind(for: sticker.format))]
+        return [sticker.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
+            + [(sticker.sticker, decodeKind(for: sticker.format))]
     }
 
     private static func regularSticker(_ dice: DiceStickers?) -> Sticker? {

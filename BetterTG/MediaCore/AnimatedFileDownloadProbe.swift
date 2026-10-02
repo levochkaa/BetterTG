@@ -18,6 +18,7 @@
         }
 
         static func runDebugProbeIfRequested() {
+            AnimatedFileDemandProbe.runDebugProbeIfRequested()
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-animation-authority") else { return }
             Task {
                 let result: String
@@ -42,6 +43,7 @@
         private static func verify() async throws {
             let state = State()
             let center = NotificationCenter()
+            let demand = AnimatedFileDemand(center: center)
             let changes = PassthroughSubject<TdUpdateSource, Never>()
             let a = TdUpdateSource(accountID: UUID(), clientID: 11)
             let b = TdUpdateSource(accountID: UUID(), clientID: 22)
@@ -55,7 +57,7 @@
                         state.downloads.append("\(name):\(id)")
                         return await withCheckedContinuation { state.pending[name] = $0 }
                     }, cancel: { id in state.cancellations.append("\(name):\(id)") }),
-                    center: center,
+                    demand: demand,
                     currentSource: { state.source },
                     sourceChanges: changes.eraseToAnyPublisher(),
                 )
@@ -88,7 +90,7 @@
             // The queued accepted A event must not become B's file after main delivery.
             state.source = b
             changes.send(b)
-            try await wait { state.invalidations == 1 && state.cancellations == ["A1:7"] }
+            try await wait { state.invalidations == 1 }
             state.pending.removeValue(forKey: "A1")?.resume(returning: file(path: "late-A"))
             try await flush()
             try require(state.paths.isEmpty && !first.isCurrent, "old account escaped delivery")
@@ -112,26 +114,29 @@
             try await wait { state.pending["A2-old"] != nil }
             old.cancel()
             old.cancel()
+            state.pending.removeValue(forKey: "A2-old")?.resume(returning: file(path: ""))
+            try await wait { state.cancellations == ["A2-old:7"] }
             let replacement = request("A2-new", source: a2)
             start(replacement)
             try await wait { state.pending["A2-new"] != nil }
             post("old-client", source: a)
             post("new-client", source: a2)
-            state.pending.removeValue(forKey: "A2-old")?.resume(returning: file(path: "obsolete-reuse"))
+            try await wait { state.paths.contains("new-client") }
             state.pending.removeValue(forKey: "A2-new")?.resume(returning: file(path: "new-rpc"))
-            try await wait { state.paths.contains("new-rpc") }
-            try require(state.paths == ["B-own", "new-client", "new-rpc"], "wrong source or reused result installed")
+            try await flush()
+            try require(state.paths == ["B-own", "new-client"], "wrong source or stale initial RPC state installed")
             replacement.cancel()
             try await flush()
-            try require(state.cancellations == ["A1:7", "A2-old:7"], "cancel did not stay with its originating request")
+            try require(state.cancellations == ["A2-old:7"], "completed or still-owned demand was cancelled")
 
             var released: AnimatedFileDownload? = request("released", source: a2)
             weak let weakReleased = released
             start(released!)
             try await wait { state.pending["released"] != nil }
             released = nil
-            try await wait { weakReleased == nil && state.cancellations.last == "released:7" }
-            state.pending.removeValue(forKey: "released")?.resume(returning: file(path: "after-deinit"))
+            try await wait { weakReleased == nil }
+            state.pending.removeValue(forKey: "released")?.resume(returning: file(path: ""))
+            try await wait { state.cancellations.last == "released:7" }
             let neverStarted = request("never-started", source: a2)
             start(neverStarted)
             neverStarted.cancel()

@@ -16,12 +16,12 @@ import TDLibKitDynamic
     let fileID: Int
 
     private let backend: Backend
-    private let center: NotificationCenter
+    private let demand: AnimatedFileDemand
     private let currentSource: () -> TdUpdateSource?
     private let sourceChanges: AnyPublisher<TdUpdateSource, Never>
     private var subscriptions = Set<AnyCancellable>()
-    private var downloadTask: Task<Void, Never>?
-    private var didStartDownload = false
+    private var demandToken: AnimatedFileDemand.Token?
+    private var completion: CheckedContinuation<File?, Never>?
     private var isCancelled = false
     private var didStart = false
     private var onFile: ((File) -> Void)?
@@ -40,7 +40,7 @@ import TDLibKitDynamic
                 },
                 cancel: { id in _ = try? await client.cancelDownloadFile(fileId: id, onlyIfPending: true) },
             ),
-            center: nc,
+            demand: .shared,
             currentSource: { TDLib.shared.activeUpdateSource },
             sourceChanges: TDLib.shared.activeClientChanges,
         )
@@ -50,25 +50,24 @@ import TDLibKitDynamic
         fileID: Int,
         source: TdUpdateSource,
         backend: Backend,
-        center: NotificationCenter,
+        demand: AnimatedFileDemand,
         currentSource: @escaping () -> TdUpdateSource?,
         sourceChanges: AnyPublisher<TdUpdateSource, Never>,
     ) {
         self.fileID = fileID
         self.source = source
         self.backend = backend
-        self.center = center
+        self.demand = demand
         self.currentSource = currentSource
         self.sourceChanges = sourceChanges
     }
 
     deinit {
-        downloadTask?.cancel()
-        if didStartDownload {
-            let cancel = backend.cancel
-            let id = fileID
-            Task { await cancel(id) }
+        if let token = demandToken {
+            let demand = demand
+            Task { @MainActor in demand.release(token) }
         }
+        completion?.resume(returning: nil)
     }
 
     func start(file: File, onFile: @escaping (File) -> Void, onInvalidated: @escaping () -> Void) {
@@ -76,10 +75,6 @@ import TDLibKitDynamic
         didStart = true
         self.onFile = onFile
         self.onInvalidated = onInvalidated
-        center.scopedPublisher(&subscriptions, for: .updateFile) { [weak self] event in
-            guard let self, event.source == source else { return }
-            deliver(event.value.file)
-        }
         sourceChanges.receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, !isCurrent else { return }
@@ -90,14 +85,25 @@ import TDLibKitDynamic
             .store(in: &subscriptions)
         deliver(file)
         guard isCurrent, !file.local.isDownloadingCompleted else { return }
-        let download = backend.download
-        let id = fileID
-        downloadTask = Task { [weak self] in
-            guard self?.isCurrent == true, !Task.isCancelled else { return }
-            self?.didStartDownload = true
-            if let file = await download(id), !Task.isCancelled {
-                self?.deliver(file)
+        demandToken = demand.acquire(file: file, source: source, backend: backend) { [weak self] file in
+            guard let self, isCurrent else { return }
+            if let file { deliver(file) } else { finishPrefetch(nil) }
+        }
+    }
+
+    /// Prefetch owns the same demand as a visible view, including cancellation.
+    /// A cancelled waiter releases only its lease and always resumes exactly once.
+    func completedFile(file: File) async -> File? {
+        await withTaskCancellationHandler {
+            guard !Task.isCancelled, !didStart, isCurrent else { return nil }
+            return await withCheckedContinuation { continuation in
+                completion = continuation
+                start(file: file, onFile: { [weak self] value in
+                    if value.local.isDownloadingCompleted { self?.finishPrefetch(value) }
+                }, onInvalidated: {})
             }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel() }
         }
     }
 
@@ -107,19 +113,23 @@ import TDLibKitDynamic
         onFile = nil
         onInvalidated = nil
         subscriptions.removeAll()
-        downloadTask?.cancel()
-        downloadTask = nil
-        if didStartDownload {
-            didStartDownload = false
-            let cancel = backend.cancel
-            let id = fileID
-            Task { await cancel(id) }
+        if let token = demandToken {
+            demandToken = nil
+            demand.release(token)
         }
+        completion?.resume(returning: nil)
+        completion = nil
     }
 
     private func deliver(_ file: File) {
         guard isCurrent, file.id == fileID else { return }
-        if file.local.isDownloadingCompleted { didStartDownload = false }
         onFile?(file)
+    }
+
+    private func finishPrefetch(_ file: File?) {
+        guard let continuation = completion else { return }
+        completion = nil
+        cancel()
+        continuation.resume(returning: file)
     }
 }
