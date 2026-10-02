@@ -757,8 +757,11 @@
             let modalChild = UIViewController()
             let modal = UINavigationController(rootViewController: modalChild)
             modal.modalPresentationStyle = .overFullScreen
-            standalone.present(modal, animated: false)
-            try await until({ modal.viewIfLoaded?.window === fixture.window }, "modal did not attach")
+            var presentationFinished = false
+            standalone.present(modal, animated: false) { presentationFinished = true }
+            try await until({
+                presentationFinished && modal.viewIfLoaded?.window === fixture.window
+            }, "modal presentation did not settle")
             try require(
                 modalChild.chatListActionOwnerIsAttached && standalone.chatListActionOwnerIsAttached,
                 "presented navigation/root ownership denied",

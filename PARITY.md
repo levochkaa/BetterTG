@@ -1381,7 +1381,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   using real child publishers without manual wakeups. RootVM/TDLib transport is not injected. Private proof
   `.build/ui-probe-evidence/astra-folder-membership-primary`. An earlier combined launch, PID `84460`, reached the old
   modal test and failed `dismissing modal kept authority`; the isolated unchanged probe passes. Presentation-settlement
-  timing in that fixture still needs correction; no production ownership assertion has been weakened.
+  timing in that fixture was then corrected: wait for public presentation completion, not merely window attachment, before
+  initiating dismissal. The immediate dismiss-authority and detached-pixels assertions are unchanged. One-file format;
+  `build-Debug-20261003-001241-93570-24717.log`: PASS16s, zero warnings. Combined folder/profile probes pass at PID `97142`
+  with this DEBUG-only correction; profile navigation entries remain value-only and do not cover A38 admission.
   References: current/pre `ChatListFilterPresetController.swift`791–798/787–794 and
   `ContactMultiselectionControllerNode.swift`191–215/192–216 keep explicit selection separate from live rows;
   pinned TDLib `td_api.tl`10406,11471–11476 supplies position removal/live loading semantics.
@@ -1688,7 +1691,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Exact next slice: close A38 stale-media admission before further restoration breadth. Integrate/review the bounded profile
   quarantine/revalidation repair, run negative race probes and repeat actual profile foreground. A30f2 route proof alone is insufficient.
   A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate. In parallel, finish bounded
-  A36 child-publisher and actual deleted-title proofs pass; correct modal fixture settlement. Diagnose A37 with complete settled phase samples
+  A36 child-publisher and actual deleted-title proofs pass; modal fixture settlement correction passes combined probes. Diagnose A37 with complete settled phase samples
   and focused retained-stack baseline before any production navigation rewrite.
   Retain A32 native Back/search and extended runtime matrix;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
