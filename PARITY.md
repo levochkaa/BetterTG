@@ -140,7 +140,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | fixed in `9cdc6b0` — invalidate request identity before tab cancellation; success/error/cancellation may clear busy state or publish only after consuming their exact registration. Token regression passes A→B→A, obsolete cancellation, retry and duplicate delivery; actual suspended controller/RPC race remains unverified |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
 | A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — A30a `0820359`/`c5d3f8b` replaces only Main against accepted ready source + matching RootVM, retaining selected folder/search/viewport and other stack entries. Probe and same-PID background→foreground list/search/editor-entry smoke pass. Chat, ForumTopics, Archive and already-open editors still require safe replacement; full notification/account lifecycle unverified |
-| A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | needs-fix — per-submission identity across timeout/RPC failure and authoritative updates; source-only delayed-response finding |
+| A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | needs-fix — audit secondary navigation controls against pinned pre-Liquid chrome; preserve full-width blur/safe-area and accessibility. A zero forbidden-marker scan does not prove UIKit's default runtime appearance |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
@@ -673,6 +673,22 @@ is imported. This source pass does not prove every content's real rendering/acti
   `1112227`. Visually inspected `search-restored-typing.png` records focus/cursor and selected folder; keyboard stayed hidden.
   Own query cleared with Close. No folder/message/account writes. This validates Main after the transaction change, not Chat recovery.
 
+### Poll submission attempt ownership — 2026-10-02
+
+- A31 `b7de6ee` gives each accepted vote attempt an immutable token. The queued RPC checks that token and current route before
+  sending; failure and deadline callbacks may clear only their own attempt. A stale callback neither cancels the replacement
+  deadline nor publishes a misleading idle state. Authoritative selection changes invalidate old attempts; retry keeps local choices.
+- Reference: pinned pre-Liquid `submodules/TelegramUI/Sources/ChatController.swift:3422–3430` owns per-message poll requests;
+  `ChatMessagePollBubbleContentNode` reflects current in-progress selections. TDLib `022d6020` `SetPollAnswer` uses message/chat
+  identity and zero-based option IDs. No Telegram infrastructure copied or network cancellation guarantee assumed.
+- Three Swift files formatted together; warning-free primary build
+  `.build/logs/xcodebuild/build-Debug-20261002-174113-33012-16805.log` (10s). The preceding sandboxed attempt could not connect to
+  CoreSimulator; the same wrapper succeeded with host access, without changing or resetting a Simulator.
+- Audit Simulator PID `36667`, `-ui-probe-poll-submission`: actual store, registered deadline and already-running deadline callback
+  tests pass for timeout/retry/late failure, A→B→A authoritative reset, exact replacement timer ownership, no stale notifications,
+  pending-choice preservation and duplicate completion. A28/A30b1/terminal-navigation regression probes also pass in
+  `.build/ui-probe-evidence/astra-a31-primary`. ChatVM wiring is source-reviewed; no real vote or delayed server RPC was performed.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -709,12 +725,13 @@ is imported. This source pass does not prove every content's real rendering/acti
   A30a `0820359`/`c5d3f8b` has production same-PID root-list/search restoration proof; A17 `e8a0eb1` has native finish-owner proof.
   A30b1 `ef558ec` has isolated one-shot transfer proof; A16 `a72d93b` has actual recorder/store handoff proof.
   A28 `9cdc6b0` has pagination registration proof; real delayed profile RPC remains unverified.
+  A31 `b7de6ee` has poll-attempt/deadline ownership proof; no server votes or delayed live RPC proof.
   Voice/video A15, Chat/secondary-route A30b2, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: A30b2 terminal-plan prerequisite `1f47005`, including A28/A16/A30b1/A17/A30a/A27/A29/A26/A24/A19/A14;
-  prepared navigation plus five transfer/profile/video regressions pass (PID `14747`), with same-PID Main search/focus smoke.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-172957-13872-9541.log`.
+- Latest verified code: A31 `b7de6ee`, including terminal plans/A28/A16/A30b1/A17/A30a/A27/A29/A26/A24/A19/A14;
+  poll attempt plus three transfer/profile/navigation regressions pass (PID `36667`). Main search/focus smoke belongs to `1f47005`.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-174113-33012-16805.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
@@ -732,7 +749,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   anchor/focus and controller import/modal/paste guards; A15a navigation finalize→adopt/append preservation, then background/interruption.
   Classic Telegram background handling discards capture; durable background preservation is BetterTG policy, not identical pre-Liquid behavior.
   The full A30 transaction
-  spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15 and A20–A23/A25/A31/A32.
+  spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15 and A20–A23/A25/A32.
   Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
   A12 crash before registration retains unresolved ownership; do not guess an outcome. Retain A04's cold partial-range/lookahead proof gap.
   B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
