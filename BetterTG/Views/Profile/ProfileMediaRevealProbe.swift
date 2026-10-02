@@ -111,8 +111,12 @@ import UIKit
             }, "cover intercepts first tap or duplicates AX")
         }
         try require(loads.isEmpty, "concealed cell loaded thumbnail/minithumbnail")
+        host.layoutIfNeeded()
         let coveredSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
-        try require(coveredSnapshot?.snapshotView is MediaConcealmentView, "raw covered transition")
+        guard coveredSnapshot?.validatedSourceView is MediaConcealmentView,
+              let coveredImage = (coveredSnapshot?.snapshotView as? UIImageView)?.image
+        else { throw Failure(description: "covered source or rasterized snapshot absent") }
+        try require(loads.isEmpty && !isFixtureRed(coveredImage), "source pixels entered covered transition")
 
         // Use the actual gallery initializer/selection, never a synthetic reveal policy.
         let gallery = MediaGalleryViewController(
@@ -129,7 +133,10 @@ import UIKit
         )
         try require(coveredSnapshot?.snapshotView == nil, "old cover snapshot survived render replacement")
         let rawSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
-        try require((rawSnapshot?.snapshotView as? UIImageView)?.image != nil, "revealed image snapshot absent")
+        guard rawSnapshot?.validatedSourceView is TDImageLoadingView,
+              let revealedImage = (rawSnapshot?.snapshotView as? UIImageView)?.image
+        else { throw Failure(description: "revealed source or rasterized snapshot absent") }
+        try require(isFixtureRed(revealedImage), "revealed transition lost private fixture pixels")
         try require(
             cells[1].accessibilityLabel?.contains("hidden-caption") == false,
             "text spoiler caption leaked after media reveal",
@@ -271,6 +278,24 @@ import UIKit
 
     private static func require(_ condition: Bool, _ message: String) throws {
         guard condition else { throw Failure(description: message) }
+    }
+
+    /// The private source is solid red; a gray spoiler cover must not rasterize that source.
+    private static func isFixtureRed(_ image: UIImage) throws -> Bool {
+        guard let source = image.cgImage else { throw Failure(description: "snapshot has no CGImage") }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let sampled = pixel.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(
+                data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue,
+            ) else { return false }
+            context.draw(source, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        try require(sampled, "snapshot pixel sampling failed")
+        let red = Int(pixel[0])
+        return red > 150 && red - Int(pixel[1]) > 60 && red - Int(pixel[2]) > 60
     }
 
     private static func wait(_ condition: () -> Bool) async throws {
