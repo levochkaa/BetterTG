@@ -243,7 +243,10 @@
                     .textEntityTypeStrikethrough,
                     .textEntityTypeSpoiler,
                 ] {
-                    try require(!covered(type, in: value).contains(offset), "caret copied non-typing attribute \(type)")
+                    try require(
+                        !covered(type, in: value).contains(offset),
+                        "caret copied non-typing attribute \(type), offset \(offset)",
+                    )
                 }
                 field.selectedRange = NSRange(location: offset, length: 1)
                 field.deleteBackward()

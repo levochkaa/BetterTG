@@ -144,7 +144,10 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     func textViewDidChange(_: UITextView) {
-        if markedTextRange == nil { ComposerText.refresh(textStorage) }
+        if markedTextRange == nil {
+            ComposerText.refresh(textStorage)
+            typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
+        }
         updatePlaceholder()
         invalidateIntrinsicContentSize()
         isScrollEnabled = intrinsicContentSize.height >= 240
@@ -154,7 +157,12 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         onInteractionSettled?()
     }
 
-    func textViewDidChangeSelection(_: UITextView) { onInteractionSettled?() }
+    func textViewDidChangeSelection(_: UITextView) {
+        if markedTextRange == nil {
+            typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
+        }
+        onInteractionSettled?()
+    }
 
     func textView(_: UITextView, willPresentEditMenuWith _: any UIEditMenuInteractionAnimating) {
         isPresentingEditMenu = true
