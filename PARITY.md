@@ -63,7 +63,7 @@ current code before scheduling duplicate work. This section and the current chec
 | P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | needs-fix — initial timeline source pass at `3b566dd` finds A22; composer/send transitions and live pagination audit pending |
 | P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | needs-fix — A12/A13/A18 bounded repairs; animation A05/A06, voice A14 and PiP A19 remain; cross-flow audit incomplete |
 | P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | pending |
-| P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | pending |
+| P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | needs-fix — RootVM update/RPC source pass at `19a6f94` finds A23; full account/list/shell lifecycle remains pending |
 
 Read-only audit subagents return findings and need no commit or duplicate build. At most two subagents may run concurrently.
 Implementation subagents use isolated worktrees, format changed Swift in one invocation, build without warnings and commit;
@@ -128,6 +128,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | needs-fix — per-message/account reveal state, concealed snapshots/preview/AX and playback gating across single/album/reuse/fullscreen transitions; distinct from caption/text spoiler A10 |
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | needs-fix — secret photo/video/animation blur and hold-only presentation, captured-context open/expiry acknowledgment, release/cancel/background teardown and export/transition protection. Existing inline video/PiP/export rejection does not prove secret-media viewing semantics |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | needs-fix — preserve structural layout deltas without rewinding user scroll; invalidate obsolete automatic restoration by interaction/layout generation, distinguish explicit navigation, and verify prepend/edit/media resize/keyboard while dragging and overlapping snapshots. Self-sizing's separate fresh-scroll guard does not cover these paths |
+| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | needs-fix — extend accepted provenance and frozen RPC/client-generation boundaries through root/list and remaining chat/topic subscribers; verify delayed updates/responses and A→B→A/replacement-client collisions. A13's outcome/delete migration does not cover these events |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -180,6 +181,14 @@ A22 qualifies older claims that every snapshot avoids fighting active dragging: 
 remain exposed. Reference: pinned pre-Liquid `ChatHistoryListNode.swift` stationary-item transaction (4229–4238), and
 `Display/Source/ListView.swift` tracking/deceleration state (297–304), deferred transaction state (2124–2194) and tracking-aware
 inset repair (3180). Only behavior is referenced; do not port Display. No live pagination/drag proof is claimed by this source pass.
+
+Initial account/list event pass — 2026-10-02 at `19a6f94`: `RootVM+Publishers.swift` resets folders on account notification
+(8–17), but non-outcome subscriptions (18–61, 94–119) retain raw payloads. Chat/draft/last-message mutations (142–177) and
+`refreshChat` (195–201) need accepted-event/RPC identity. `ChatVM+Publishers.swift` still has raw reaction/permission/topic/new-message
+subscriptions: checking the current route alone cannot authenticate a queued event's source. `NotificationCenter.swift` raw helpers
+defer delivery without carrying `TdUpdateSource`; A13's scoped helper already supplies the required captured transport seam.
+Reference: pinned account-owned `AccountStateManager` streams and `PendingMessageManager` contexts cited for A13/A18 above.
+This source audit confirms missing fences, not a live account-switch reproduction; existing account databases were not changed.
 
 ### Range-waiter repair proof — 2026-10-02
 
