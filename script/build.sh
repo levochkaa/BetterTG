@@ -444,10 +444,7 @@ filter_command_output() {
     return
   fi
 
-  sed \
-    -e '/warning: Metadata extraction disabled by --disable/d' \
-    -e '/warning: Metadata extraction skipped\. No AppIntents\.framework dependency found\./d' |
-    grep -En "error:|warning:" || true
+  grep -Ein "error:|warning:" || true
 }
 
 run_with_filtered_output() {

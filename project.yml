@@ -139,6 +139,8 @@ targets:
     settings:
       base:
         APPLICATION_EXTENSION_API_ONLY: YES
+        # This notification service uses legacy Intents, not AppIntent declarations.
+        LM_SKIP_METADATA_EXTRACTION: YES
         CODE_SIGN_ENTITLEMENTS: BetterTGNotificationService/BetterTGNotificationService.entitlements
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES

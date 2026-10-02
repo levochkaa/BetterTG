@@ -14,23 +14,11 @@ awk -v log_path="$LOG_PATH" '
   BEGIN {
     progress = 0
     suppressed = 0
-    swiftformat_warnings = 0
     other = 0
     max_other = 20
   }
 
   /^$/ {
-    next
-  }
-
-  /warning: \([[:alnum:]_]+\)/ {
-    swiftformat_warnings += 1
-    suppressed += 1
-    next
-  }
-
-  /warning: Metadata extraction (disabled|skipped)/ {
-    suppressed += 1
     next
   }
 
@@ -69,9 +57,6 @@ awk -v log_path="$LOG_PATH" '
   }
 
   END {
-    if (swiftformat_warnings > 0) {
-      print "[SwiftFormat] " swiftformat_warnings " lint warnings; full details: " log_path
-    }
     if (suppressed > 0) {
       print "[xcodebuild] suppressed " suppressed " verbose lines; full log: " log_path
     }
