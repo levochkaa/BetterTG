@@ -2562,8 +2562,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 title: "Edit",
                 image: UIImage(systemName: "square.and.pencil"),
             ) { [weak self] in
-                self?.chatVM.editCustomMessage = message
-                self?.chatVM.setEditMessageText(from: message.message)
+                self?.chatVM.beginMessageEditing(message)
             })
         }
         if message.properties.canBeCopied,

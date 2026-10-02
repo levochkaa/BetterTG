@@ -979,6 +979,7 @@ final class ChatComposerView: UIView {
             forImageIn: .normal,
         )
         actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo && !isSendingComposer
+            && (chatVM.editCustomMessage == nil || chatVM.canEditMessage)
         actionButton.alpha = actionButton.isEnabled ? 1 : 0.55
         let canBeginRecordingGesture = !chatVM.startingVoiceNote
             && !chatVM.loadingVoiceDraft
@@ -1231,9 +1232,11 @@ final class ChatComposerView: UIView {
     }
 
     @objc private func cancelReplyOrEdit() {
-        chatVM.cancelReply()
-        chatVM.editCustomMessage = nil
-        chatVM.editMessageText = ""
+        if chatVM.editCustomMessage != nil {
+            chatVM.cancelMessageEditing()
+        } else {
+            chatVM.cancelReply()
+        }
     }
 
     @objc private func actionTapped(_ sender: UIButton) {

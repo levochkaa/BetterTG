@@ -61,7 +61,7 @@ import UIKit
     let pollInteractionStore = MessagePollInteractionStore()
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
-    @Published var editCustomMessage: CustomMessage?
+    @Published private(set) var editCustomMessage: CustomMessage?
     @Published var replyMessage: CustomMessage?
     @Published private(set) var replyQuote: InputTextQuote?
     @Published private(set) var replyInputOverride: InputMessageReplyTo?
@@ -71,7 +71,12 @@ import UIKit
     @Published var displayedDocuments = [SelectedDocument]()
     @Published var timerCount = 0.0
     @Published var text: AttributedString = ""
-    @Published var editMessageText: AttributedString = ""
+    @Published var editMessageText: AttributedString = "" {
+        didSet {
+            if editMessageText != oldValue { composerEditState.changeText() }
+        }
+    }
+
     @Published var recordingVoiceNote = false
     @Published private(set) var voiceRecordingInteractionState = VoiceRecordingInteractionState.idle
     @Published private(set) var startingVoiceNote = false
@@ -171,6 +176,7 @@ import UIKit
     private var desiredChatAction: ChatAction?
     private var desiredChatActionContext: ResolvedSendContext?
     private var composerRevision = UInt64.zero
+    private let composerEditState = ChatComposerEditState()
     private var composerMediaDraftTask: Task<Void, Never>?
     private var composerIsDirty = false
     private var awaitingAuthoritativeDraftClear = false
@@ -373,14 +379,7 @@ import UIKit
 
     var canEditMessage: Bool {
         guard let editCustomMessage else { return false }
-        switch editCustomMessage.message.content {
-        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
-            return true
-        case .messageText:
-            return !editMessageText.characters.isEmpty
-        default:
-            return false
-        }
+        return ChatComposerEditState.allowsSubmission(message: editCustomMessage.message, text: editMessageText)
     }
 
     var formattedTimerCount: String {
@@ -1502,17 +1501,24 @@ import UIKit
             sendingComposerMessage = false
             sendMessageTask = nil
         }
-        if canEditMessage {
-            let sentEditID = editCustomMessage?.id
-            do {
-                _ = try await editMessage()
-                guard locationContextIsCurrent else { return }
-                if editCustomMessage?.id == sentEditID {
-                    editMessageText = ""
-                    editCustomMessage = nil
-                }
+        switch composerEditState.prepare(message: editCustomMessage?.message, text: editMessageText) {
+        case .ordinary:
+            break
+        case .invalidEdit:
+            // An invalid edit is never an intent to send the preserved compose draft.
+            return
+        case .edit(let attempt):
+            let completion = await composerEditState.perform(attempt) { [self] attempt in
+                try await editMessage(attempt)
+            }
+            guard locationContextIsCurrent, composerEditState.isCurrent(attempt), !Task.isCancelled else { return }
+            switch completion {
+            case .obsolete:
+                break
+            case .succeeded:
+                cancelMessageEditing()
                 sendErrorMessage = nil
-            } catch {
+            case .failed(let error):
                 sendErrorMessage = error.localizedDescription
             }
             return
@@ -2327,45 +2333,16 @@ import UIKit
         }
     }
 
-    func editMessage() async throws -> ResolvedSendContext {
-        guard let message = editCustomMessage?.message else {
-            throw ChatSendContextError.unexpectedDestination
-        }
-        let context = try resolveEditContext(for: message)
-        
-        switch message.content {
-        case .messageText:
-            _ = try await client.editMessageText(
-                chatId: customChat.chat.id,
-                inputMessageContent:
-                .inputMessageText(
-                    .init(
-                        clearDraft: false,
-                        linkPreviewOptions: nil,
-                        text: FormattedText(
-                            entities: getEntities(from: editMessageText),
-                            text: editMessageText.string,
-                        ),
-                    ),
-                ),
-                messageId: message.id,
-                replyMarkup: nil,
-            )
-        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
-            _ = try await client.editMessageCaption(
-                caption: FormattedText(
-                    entities: getEntities(from: editMessageText),
-                    text: editMessageText.string,
-                ),
-                chatId: customChat.chat.id,
-                messageId: message.id,
-                replyMarkup: nil,
-                showCaptionAboveMedia: false,
-            )
-        default:
-            throw ChatSendContextError.chatPermissionDenied
-        }
-        return context
+    func beginMessageEditing(_ message: CustomMessage) {
+        composerEditState.changeSession()
+        editCustomMessage = message
+        setEditMessageText(from: message.message)
+    }
+
+    func cancelMessageEditing() {
+        composerEditState.changeSession()
+        editCustomMessage = nil
+        editMessageText = ""
     }
 
     func updateDraft() async {
@@ -2381,27 +2358,6 @@ import UIKit
             if !(error is CancellationError) {
                 log("Chat draft update failed: \(error)")
             }
-        }
-    }
-
-    func setEditMessageText(from message: Message?) {
-        switch message?.content {
-        case .messageText(let messageText):
-            editMessageText = getAttributedString(from: messageText.text)
-        case .messagePhoto(let messagePhoto):
-            editMessageText = getAttributedString(from: messagePhoto.caption)
-        case .messageVoiceNote(let messageVoiceNote):
-            editMessageText = getAttributedString(from: messageVoiceNote.caption)
-        case .messageAnimation(let messageAnimation):
-            editMessageText = getAttributedString(from: messageAnimation.caption)
-        case .messageAudio(let messageAudio):
-            editMessageText = getAttributedString(from: messageAudio.caption)
-        case .messageDocument(let messageDocument):
-            editMessageText = getAttributedString(from: messageDocument.caption)
-        case .messageVideo(let messageVideo):
-            editMessageText = getAttributedString(from: messageVideo.caption)
-        default:
-            break
         }
     }
 
@@ -2910,6 +2866,59 @@ import UIKit
     func bufferPotentialVoiceMessageDeletions(_ messageIDs: [Int64]) {
         guard finalizingVoiceNote || !registeringVoiceMessageIDs.isEmpty else { return }
         bufferedDeletedMessageIDs.formUnion(messageIDs)
+    }
+
+    private func editMessage(_ attempt: ChatComposerEditState.Attempt) async throws {
+        let message = attempt.message
+        let context = try resolveEditContext(for: message)
+        try Task.checkCancellation()
+        switch message.content {
+        case .messageText:
+            _ = try await client.editMessageText(
+                chatId: context.chatID,
+                inputMessageContent:
+                .inputMessageText(
+                    .init(
+                        clearDraft: false,
+                        linkPreviewOptions: nil,
+                        text: attempt.text,
+                    ),
+                ),
+                messageId: message.id,
+                replyMarkup: nil,
+            )
+        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
+            _ = try await client.editMessageCaption(
+                caption: attempt.text,
+                chatId: context.chatID,
+                messageId: message.id,
+                replyMarkup: nil,
+                showCaptionAboveMedia: false,
+            )
+        default:
+            throw ChatSendContextError.chatPermissionDenied
+        }
+    }
+
+    private func setEditMessageText(from message: Message?) {
+        switch message?.content {
+        case .messageText(let messageText):
+            editMessageText = getAttributedString(from: messageText.text)
+        case .messagePhoto(let messagePhoto):
+            editMessageText = getAttributedString(from: messagePhoto.caption)
+        case .messageVoiceNote(let messageVoiceNote):
+            editMessageText = getAttributedString(from: messageVoiceNote.caption)
+        case .messageAnimation(let messageAnimation):
+            editMessageText = getAttributedString(from: messageAnimation.caption)
+        case .messageAudio(let messageAudio):
+            editMessageText = getAttributedString(from: messageAudio.caption)
+        case .messageDocument(let messageDocument):
+            editMessageText = getAttributedString(from: messageDocument.caption)
+        case .messageVideo(let messageVideo):
+            editMessageText = getAttributedString(from: messageVideo.caption)
+        default:
+            break
+        }
     }
 
     private func updateDraft(

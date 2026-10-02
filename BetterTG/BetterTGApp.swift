@@ -16,6 +16,7 @@ import UIKit
         #if DEBUG
             TdUpdateSourceProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
+            ChatComposerEditProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             TDLibMediaUpdateStreamsProbe.runDebugProbeIfRequested()
             GalleryPictureInPictureCoordinator.runDebugProbeIfRequested()
