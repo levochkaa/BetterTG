@@ -15,8 +15,13 @@ import TDLibKitDynamic
     @Published private(set) var hasMore = true
     @Published private(set) var errorMessage: String?
 
-    private let chatOpenLease: ChatOpenLease
+    #if DEBUG
+    private(set) var probeQueries = [String]()
+    private(set) var probeStarts = 0
+    #endif
 
+    private let chatOpenLease: ChatOpenLease?
+    private let usesTransport: Bool
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
     private var topicRefreshTasks = [Int: Task<Void, Never>]()
@@ -33,20 +38,43 @@ import TDLibKitDynamic
     private var retired = false
 
     private var contextIsCurrent: Bool {
-        !retired && TDLib.shared.activeAccountID == location.accountID
+        usesTransport && !retired && TDLib.shared.activeAccountID == location.accountID
             && TDLib.shared.activeClient.id == location.clientID
             && client.id == location.clientID
     }
 
-    init(
+    convenience init(
         customChat: CustomChat,
         location: ChatLocation,
         client: TDLibClient,
         restoration: ForumTopicsRestorationState? = nil,
     ) {
+        self.init(
+            customChat: customChat,
+            location: location,
+            client: client,
+            restoration: restoration,
+            usesTransport: true,
+        )
+    }
+
+    deinit {
+        loadTask?.cancel()
+        topicRefreshTasks.values.forEach { $0.cancel() }
+        chatOpenLease?.invalidate()
+    }
+
+    private init(
+        customChat: CustomChat,
+        location: ChatLocation,
+        client: TDLibClient,
+        restoration: ForumTopicsRestorationState?,
+        usesTransport: Bool,
+    ) {
         self.customChat = customChat
         self.location = location
         self.client = client
+        self.usesTransport = usesTransport
         if let restoration, restoration.accepts(location) {
             self.topics = restoration.topics
             self.query = restoration.query
@@ -62,24 +90,47 @@ import TDLibKitDynamic
                 ForumTopicPageRequest(cursor: restoration.cursor, resets: $0)
             }
         }
-        self.chatOpenLease = ChatOpenLeaseCoordinator.shared.acquire(
-            location: location,
-            client: client,
-        )
-        observeUpdates()
+        self.chatOpenLease = usesTransport
+            ? ChatOpenLeaseCoordinator.shared.acquire(
+                location: location,
+                client: client,
+            )
+            : nil
+        if usesTransport { observeUpdates() }
     }
 
-    deinit {
-        loadTask?.cancel()
-        topicRefreshTasks.values.forEach { $0.cancel() }
-        chatOpenLease.invalidate()
+    #if DEBUG
+    static func isolated(
+        customChat: CustomChat,
+        location: ChatLocation,
+        client: TDLibClient,
+        restoration: ForumTopicsRestorationState?,
+    ) -> ForumTopicsVM {
+        ForumTopicsVM(
+            customChat: customChat,
+            location: location,
+            client: client,
+            restoration: restoration,
+            usesTransport: false,
+        )
     }
+
+    func publishProbe(topics: [ForumTopic], loading: Bool = false, error: String? = nil) {
+        guard !usesTransport else { return }
+        self.topics = topics
+        self.loading = loading
+        errorMessage = error
+    }
+    #endif
 
     func loadInitial() {
         load(reset: true, query: query)
     }
 
     func start() {
+        #if DEBUG
+        if !usesTransport { probeStarts += 1 }
+        #endif
         guard restoringPages else { loadInitial()
             return
         }
@@ -109,10 +160,13 @@ import TDLibKitDynamic
         topicRefreshTasks.values.forEach { $0.cancel() }
         topicRefreshTasks.removeAll()
         cancellables.removeAll()
-        chatOpenLease.invalidate()
+        chatOpenLease?.invalidate()
     }
 
     func search(_ query: String) {
+        #if DEBUG
+        if !usesTransport { probeQueries.append(query) }
+        #endif
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized != self.query else { return }
         load(reset: true, query: normalized)

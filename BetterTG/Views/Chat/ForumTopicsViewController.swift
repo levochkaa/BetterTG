@@ -21,7 +21,28 @@ import UIKit
         case topics
     }
 
-    private let viewModel: ForumTopicsVM
+    #if DEBUG
+    var probeSnapshotCompletion: ((@escaping () -> Void) -> Void)?
+    var probeModel: ForumTopicsVM { viewModel }
+    var probeSearch: UISearchController { searchController }
+    var probeTable: UITableView { tableView }
+    var probeSnapshotBusy: Bool { snapshotState.isApplying || snapshotState.hasPending }
+    var probeIDs: [Int] { snapshotState.displayedIDs }
+    var probeFailure: Bool { preparationFailure != nil }
+    var probeCurrent: Bool { contextIsCurrent }
+    var probeRetired: Bool { retired }
+    var probePrepared: Bool { preparedClient != nil }
+    var probePages: ForumTopicsRestorationState { restorationState().pages }
+    func probeRetryEvent() { retryClientRestoration() }
+    #endif
+
+    private var viewModel: ForumTopicsVM
+    private var bindingID = UUID()
+    private var boundSource: TdUpdateSource?
+    private let environment: ForumTopicsClientEnvironment
+    private let actorID: Int64?
+    private var readySource: TdUpdateSource?
+    private var identityRevoked = false
     private let targetMessageID: Int64?
     private let targetQuote: MessageQuoteHighlight?
     private let tableView = UITableView(frame: .zero, style: .plain)
@@ -30,6 +51,7 @@ import UIKit
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
     private var snapshotState = ForumTopicsSnapshotState()
     private var cancellables = Set<AnyCancellable>()
+    private var ownershipCancellables = Set<AnyCancellable>()
     private var targetResolutionTask: Task<Void, Never>?
     private var targetIntent: ForumTopicTargetIntent
     private let initialQuery: String
@@ -39,21 +61,25 @@ import UIKit
     private var retired = false
     private var preparationTask: Task<Void, Never>?
     private var preparationSource: TdUpdateSource?
-    private var preparedClient: (source: TdUpdateSource, client: TDLibClient, chat: CustomChat)?
+    private var preparationID: UUID?
+    private var preparedClient: ForumTopicsClientEnvironment.Metadata?
+    private var preparationFailure: (id: UUID, source: TdUpdateSource, binding: UUID)?
     private var retryScheduled = false
 
     var navigationClientSource: TdUpdateSource? {
-        viewModel.location.accountID.map { TdUpdateSource(accountID: $0, clientID: viewModel.client.id) }
+        boundSource
     }
 
     private var routeIsRetained: Bool {
-        !retired && navigationController?.viewControllers.contains(where: { $0 === self }) == true
+        !retired && chatListActionOwnerIsAttached
+            && navigationController?.viewControllers.contains(where: { $0 === self }) == true
     }
 
     private var contextIsCurrent: Bool {
         guard let source = navigationClientSource else { return false }
-        return routeIsRetained && source == TDLib.shared.activeUpdateSource
-            && RootVM.shared.activeAccountID == viewModel.location.accountID
+        return routeIsRetained && !identityRevoked && actorID != nil && actorID == environment.currentActor()
+            && source == environment.currentSource() && source == readySource
+            && environment.currentAccount() == viewModel.location.accountID
     }
 
     init(
@@ -63,13 +89,13 @@ import UIKit
         targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil,
         restoration: ClientRestorationState? = nil,
+        environment: ForumTopicsClientEnvironment? = nil,
     ) {
-        self.viewModel = ForumTopicsVM(
-            customChat: customChat,
-            location: location,
-            client: client,
-            restoration: restoration?.pages,
-        )
+        let environment = environment ?? .live
+        self.environment = environment
+        self.actorID = environment.currentActor()
+        self.boundSource = location.accountID.map { .init(accountID: $0, clientID: location.clientID) }
+        self.viewModel = environment.model(customChat, location, client, restoration?.pages)
         self.targetMessageID = targetMessageID
         self.targetQuote = targetQuote
         self.targetIntent = ForumTopicTargetIntent(consumed: restoration?.targetConsumed ?? false)
@@ -77,6 +103,7 @@ import UIKit
         self.previousSearchQuery = initialQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         self.viewportRestoration = ChatListViewportRestoration(restoration?.viewport)
         super.init(nibName: nil, bundle: nil)
+        observeOwnership()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -111,9 +138,20 @@ import UIKit
         retryClientRestoration()
     }
 
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        guard parent == nil else { return }
+        retired = true
+        retireModel()
+        cancelPreparation()
+        ownershipCancellables.removeAll()
+        if !snapshotState.isApplying { snapshotState.retire() }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        restoreViewportIfNeeded()
+        if contextIsCurrent { restoreViewportIfNeeded() }
+        retryClientRestoration()
     }
 
     func updateSearchResults(for searchController: UISearchController) {
@@ -124,11 +162,16 @@ import UIKit
             viewportRestoration.cancel()
             previousSearchQuery = normalized
         }
-        viewModel.search(query)
+        if contextIsCurrent { viewModel.search(query) }
         retryClientRestoration()
     }
 
-    func didDismissSearchController(_: UISearchController) { retryClientRestoration() }
+    func didPresentSearchController(_: UISearchController) { retryClientRestoration() }
+    func didDismissSearchController(_: UISearchController) { resolveTargetIfNeeded()
+        retryClientRestoration()
+    }
+
+    func searchBar(_: UISearchBar, textDidChange _: String) { retryClientRestoration() }
     func searchBarTextDidEndEditing(_: UISearchBar) { retryClientRestoration() }
     func scrollViewWillBeginDragging(_: UIScrollView) { viewportRestoration.cancel() }
     func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
@@ -143,44 +186,25 @@ import UIKit
             prepareClientMetadata(source)
             return nil
         }
-        let query = isViewLoaded ? searchController.searchBar.text ?? "" : initialQuery
-        let pages = viewModel.restorationState(rawQuery: query)
-        let viewport = viewportRestoration.pending ?? (isViewLoaded
-            ? ChatListViewportSnapshot.capture(
-                tableView: tableView, chatID: { dataSource.itemIdentifier(for: $0).map(Int64.init) },
-            )
-            : .init(chatID: nil, rowMinYRelativeToViewport: 0, offsetFromTop: 0))
-        let state = ClientRestorationState(
-            pages: pages, rawQuery: query,
-            targetConsumed: targetIntent.consumed,
-            viewport: pages.topics.isEmpty
-                ? .init(chatID: nil, rowMinYRelativeToViewport: 0, offsetFromTop: 0)
-                : viewport,
-        )
+        let state = restorationState()
+        let model = viewModel
+        let binding = bindingID
         return PreparedClientNavigationReplacement(
-            preflight: { [weak self] in self?.canRestoreClient(source) == true },
+            preflight: { [weak self] in
+                self?.owns(model, binding: binding, current: false) == true && self?.canRestoreClient(source) == true
+            },
             commit: { [self] in
-                guard canRestoreClient(source) else { return nil }
-                let location = ChatLocation(
-                    accountID: source.accountID,
-                    chatID: viewModel.location.chatID,
-                    clientID: source.clientID,
-                    topic: viewModel.location.topic,
-                )
+                guard owns(model, binding: binding, current: false), canRestoreClient(source) else { return nil }
                 let replacement = ForumTopicsViewController(
-                    customChat: preparedClient.chat, location: location, client: preparedClient.client,
+                    customChat: preparedClient.chat, location: renewedLocation(source), client: preparedClient.client,
                     targetMessageID: targetMessageID, targetQuote: targetQuote, restoration: state,
+                    environment: environment,
                 )
                 retired = true
                 snapshotState.retire()
-                targetIntent.cancel()
-                targetResolutionTask?.cancel()
-                preparationTask?.cancel()
-                cancellables.removeAll()
-                viewModel.retire()
-                #if DEBUG
-                    log("ForumTopics client restoration: replacement accepted")
-                #endif
+                retireModel()
+                cancelPreparation()
+                ownershipCancellables.removeAll()
                 return replacement
             },
         )
@@ -193,59 +217,209 @@ import UIKit
               snapshotState.topic(id: topicID) != nil,
               let topic = viewModel.topicForOpening(id: topicID, rawQuery: searchController.searchBar.text ?? "")
         else { return }
-        open(topic: topic, targetMessageID: nil, quote: nil)
+        open(topic: topic, targetMessageID: nil, quote: nil, model: viewModel, binding: bindingID)
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
+        if contextIsCurrent, snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
             viewModel.loadMore()
         }
     }
 
+    private func restorationState() -> ClientRestorationState {
+        let query = isViewLoaded ? searchController.searchBar.text ?? "" : initialQuery
+        let pages = viewModel.restorationState(rawQuery: query)
+        let viewport = viewportRestoration.pending ?? (isViewLoaded
+            ? ChatListViewportSnapshot.capture(
+                tableView: tableView, chatID: { dataSource.itemIdentifier(for: $0).map(Int64.init) },
+            )
+            : .init(chatID: nil, rowMinYRelativeToViewport: 0, offsetFromTop: 0))
+        return ClientRestorationState(
+            pages: pages, rawQuery: query,
+            targetConsumed: targetIntent.consumed,
+            viewport: pages.topics.isEmpty
+                ? .init(chatID: nil, rowMinYRelativeToViewport: 0, offsetFromTop: 0)
+                : viewport,
+        )
+    }
+
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
-        routeIsRetained && source == TDLib.shared.activeUpdateSource
-            && source.accountID == viewModel.location.accountID && source.clientID != viewModel.client.id
-            && RootVM.shared.activeAccountID == source.accountID && !isBeingDismissed && !isMovingFromParent
+        canRenewIdentity(source)
             && presentedViewController == nil && transitionCoordinator == nil && !searchController.isActive
-            && !tableView.isDragging && !tableView.isDecelerating
+            && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
             && !snapshotState.isApplying && !snapshotState.hasPending
             && searchController.searchBar.searchTextField.markedTextRange == nil
     }
 
+    private func canRenewIdentity(_ source: TdUpdateSource) -> Bool {
+        routeIsRetained && !identityRevoked && actorID != nil && actorID == environment.currentActor()
+            && source == environment.currentSource() && source == readySource
+            && source.accountID == viewModel.location.accountID && source != boundSource
+            && environment.currentAccount() == source.accountID && !isBeingDismissed && !isMovingFromParent
+    }
+
+    private func canRenewSearch(_ source: TdUpdateSource, requiresIdleSnapshot: Bool = true) -> Bool {
+        guard canRenewIdentity(source), isViewLoaded, view.window != nil,
+              navigationController?.topViewController === self, searchController.isActive,
+              navigationItem.searchController === searchController, transitionCoordinator == nil,
+              !searchController.isBeingPresented, !searchController.isBeingDismissed,
+              searchController.transitionCoordinator == nil, searchController.presentedViewController == nil,
+              !tableView.isTracking, !tableView.isDragging, !tableView.isDecelerating,
+              searchController.searchBar.searchTextField.markedTextRange == nil,
+              !requiresIdleSnapshot || !snapshotState.isApplying && !snapshotState.hasPending else { return false }
+        var owner: UIViewController? = self
+        while let candidate = owner {
+            if let presented = candidate.presentedViewController, presented !== searchController { return false }
+            owner = candidate.parent
+        }
+        return true
+    }
+
+    private func renewedLocation(_ source: TdUpdateSource) -> ChatLocation {
+        ChatLocation(
+            accountID: source.accountID,
+            chatID: viewModel.location.chatID,
+            clientID: source.clientID,
+            topic: viewModel.location.topic,
+        )
+    }
+
+    private func owns(_ model: ForumTopicsVM, binding: UUID, current: Bool = true) -> Bool {
+        !retired && bindingID == binding && viewModel === model && (!current || contextIsCurrent)
+    }
+
+    private func retireModel() {
+        targetIntent.cancel()
+        targetResolutionTask?.cancel()
+        targetResolutionTask = nil
+        cancellables.removeAll()
+        viewModel.retire()
+    }
+
+    private func renewSearch(_ source: TdUpdateSource) {
+        guard canRenewSearch(source) else { return }
+        guard let preparedClient, preparedClient.source == source else { prepareClientMetadata(source)
+            return
+        }
+        let state = restorationState()
+        let model = environment.model(preparedClient.chat, renewedLocation(source), preparedClient.client, state.pages)
+        retireModel()
+        viewModel = model
+        boundSource = source
+        bindingID = UUID()
+        cancelPreparation()
+        viewportRestoration = ChatListViewportRestoration(state.viewport)
+        previousSearchQuery = state.rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        title = preparedClient.chat.displayTitle
+        refreshControl.endRefreshing()
+        applySnapshot(model.topics, client: model.client)
+        observeState()
+        model.start()
+    }
+
     private func prepareClientMetadata(_ source: TdUpdateSource) {
-        guard preparationSource != source else { return }
-        preparationTask?.cancel()
-        let client = TDLib.shared.activeClient
-        guard client.id == source.clientID else { return }
+        guard preparationSource != source, preparationFailure == nil,
+              canRestoreClient(source) || canRenewSearch(source) else { return }
+        cancelPreparation()
         let chatID = viewModel.location.chatID
+        let model = viewModel
+        let binding = bindingID
+        let requestID = UUID()
+        let readMetadata = environment.metadata
         preparationSource = source
+        preparationID = requestID
         preparationTask = Task { [weak self] in
             defer {
-                if let self, preparationSource == source {
+                if let self, preparationID == requestID {
                     preparationTask = nil
                     preparationSource = nil
+                    preparationID = nil
                 }
             }
-            guard !Task.isCancelled, self?.routeIsRetained == true,
-                  self?.preparationSource == source, TDLib.shared.activeUpdateSource == source else { return }
-            let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
-            guard let self, !Task.isCancelled, routeIsRetained, preparationSource == source,
-                  TDLib.shared.activeUpdateSource == source, RootVM.shared.activeAccountID == source.accountID,
-                  let chat, chat.chat.id == chatID, chat.chat.viewAsTopics else { return }
-            preparedClient = (source, client, chat)
+            guard !Task.isCancelled, self?.owns(model, binding: binding, current: false) == true,
+                  self?.preparationID == requestID, self?.canRenewIdentity(source) == true else { return }
+            let metadata = await readMetadata(source, chatID)
+            guard let self, !Task.isCancelled, owns(model, binding: binding, current: false),
+                  preparationID == requestID, canRenewIdentity(source) else { return }
+            guard let metadata, metadata.source == source, metadata.chat.chat.id == chatID,
+                  metadata.chat.chat.viewAsTopics
+            else {
+                preparationFailure = (requestID, source, binding)
+                if isViewLoaded {
+                    if viewportRestoration.pending == nil {
+                        viewportRestoration = ChatListViewportRestoration(restorationState().viewport)
+                    }
+                    applySnapshot([], client: model.client)
+                }
+                return
+            }
+            preparedClient = metadata
             retryClientRestoration()
         }
     }
 
+    private func cancelPreparation(clearFailure: Bool = true) {
+        preparationTask?.cancel()
+        preparationTask = nil
+        preparationSource = nil
+        preparationID = nil
+        preparedClient = nil
+        if clearFailure { preparationFailure = nil }
+    }
+
+    private func observeOwnership() {
+        environment.activeChanges
+            .sink { [weak self] source in self?.receiveOwnership(source) }
+            .store(in: &ownershipCancellables)
+        environment.accountChanges
+            .sink { [weak self] in
+                guard let self else { return }
+                receiveOwnership(environment.currentSource())
+            }
+            .store(in: &ownershipCancellables)
+        environment.readyChanges
+            .sink { [weak self] source in
+                guard let self else { return }
+                readySource = source
+                if source == nil { cancelPreparation(clearFailure: false) }
+                if contextIsCurrent, isViewLoaded {
+                    viewModel.search(searchController.searchBar.text ?? "")
+                    applySnapshot(viewModel.topics, client: viewModel.client)
+                }
+                retryClientRestoration()
+            }
+            .store(in: &ownershipCancellables)
+    }
+
+    private func receiveOwnership(_ source: TdUpdateSource?) {
+        let actor = environment.currentActor()
+        if source?.accountID != viewModel.location.accountID
+            || environment.currentAccount() != viewModel.location.accountID
+            || actor != nil && actor != actorID { identityRevoked = true }
+        cancelPreparation(clearFailure: source != preparationFailure?.source)
+        if !contextIsCurrent {
+            targetIntent.cancel()
+            targetResolutionTask?.cancel()
+            targetResolutionTask = nil
+            refreshControl.endRefreshing()
+        }
+        retryClientRestoration()
+    }
+
     private func retryClientRestoration() {
-        guard !retired, !retryScheduled, TDLib.shared.activeAccountID == viewModel.location.accountID,
-              TDLib.shared.activeClient.id != viewModel.client.id else { return }
+        guard !retired, !identityRevoked, !retryScheduled,
+              let source = readySource, source == environment.currentSource(), source != boundSource,
+              source.accountID == viewModel.location.accountID else { return }
         retryScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             retryScheduled = false
-            guard routeIsRetained else { return }
-            NavigationStorage.shared.retryClientRestoration()
+            // Coalesced ownership events re-read the latest epoch; an older
+            // queued retry must not swallow a newer Ready notification.
+            guard routeIsRetained, !identityRevoked, let source = readySource,
+                  source == environment.currentSource(), source != boundSource else { return }
+            if searchController.isActive { renewSearch(source) }
+            else { environment.retryNavigation() }
         }
     }
 
@@ -295,40 +469,43 @@ import UIKit
         ) { [weak self] tableView, indexPath, topicID in
             ForumTopicCell.dequeue(
                 from: tableView, at: indexPath,
-                topic: self?.snapshotState.topic(id: topicID), client: self?.viewModel.client,
+                topic: self?.snapshotState.topic(id: topicID), client: self?.snapshotState.client(id: topicID),
             )
         }
     }
 
     private func observeState() {
-        viewModel.$topics
+        let model = viewModel
+        let binding = bindingID
+        model.$topics
             .receive(on: DispatchQueue.main)
             .sink { [weak self] topics in
-                self?.applySnapshot(topics)
+                guard let self, owns(model, binding: binding) else { return }
+                applySnapshot(topics, client: model.client)
             }
             .store(in: &cancellables)
-        viewModel.$loading
+        model.$loading
             .receive(on: DispatchQueue.main)
             .sink { [weak self] loading in
-                guard let self, !retired else { return }
+                guard let self, owns(model, binding: binding) else { return }
                 if !loading {
                     refreshControl.endRefreshing()
                 }
                 updateBackgroundView()
             }
             .store(in: &cancellables)
-        viewModel.$errorMessage
+        model.$errorMessage
             .compactMap(\.self)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] message in
-                self?.presentLoadError(message)
+                self?.presentLoadError(message, model: model, binding: binding)
             }
             .store(in: &cancellables)
     }
 
-    private func applySnapshot(_ topics: [ForumTopic]) {
+    private func applySnapshot(_ topics: [ForumTopic], client: TDLibClient) {
         guard !retired else { return }
-        snapshotState.enqueue(topics)
+        snapshotState.enqueue(topics, client: client)
         drainSnapshot()
     }
 
@@ -343,27 +520,59 @@ import UIKit
             snapshot.reconfigureItems(retainedIDs)
         }
         let token = viewportRestoration.beginApply()
+        let model = viewModel
+        let binding = bindingID
         dataSource.apply(snapshot, animatingDifferences: viewportRestoration.pending == nil) { [weak self] in
-            guard let self, !retired, snapshotState.complete(batch.token) else { return }
-            viewportRestoration.completeApply(token)
-            if snapshotState.hasPending {
-                drainSnapshot()
-            } else {
-                restoreViewportIfNeeded()
-                if view.window != nil, navigationController?.topViewController === self,
-                   tableView.indexPathsForVisibleRows?.contains(where: {
-                       $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
-                   }) == true
-                {
-                    viewModel.loadMore()
-                }
-                retryClientRestoration()
+            let finish: () -> Void = { [weak self] in
+                self?.completeSnapshot(batch.token, viewportToken: token, model: model, binding: binding)
             }
+            #if DEBUG
+            if let hold = self?.probeSnapshotCompletion { hold(finish)
+            return
+            }
+            #endif
+            finish()
         }
         updateBackgroundView()
     }
 
+    private func completeSnapshot(_ token: UUID, viewportToken: UUID, model: ForumTopicsVM, binding: UUID) {
+        // Native UIKit ownership must close even when this binding has departed.
+        guard snapshotState.complete(token) else { return }
+        viewportRestoration.completeApply(viewportToken)
+        guard !retired else { snapshotState.retire()
+            return
+        }
+        if snapshotState.hasPending { drainSnapshot()
+            return
+        }
+        if owns(model, binding: binding) {
+            restoreViewportIfNeeded()
+            if view.window != nil, navigationController?.topViewController === self,
+               tableView.indexPathsForVisibleRows?.contains(where: {
+                   $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
+               }) == true { model.loadMore() }
+        }
+        retryClientRestoration()
+    }
+
     private func updateBackgroundView() {
+        if let failure = preparationFailure {
+            let button = UIButton(type: .system)
+            button.setTitle("Couldn't reconnect topics.\nTap to retry", for: .normal)
+            button.titleLabel?.numberOfLines = 0
+            button.titleLabel?.textAlignment = .center
+            button.addAction(UIAction { [weak self] _ in
+                guard let self, preparationFailure?.id == failure.id, bindingID == failure.binding,
+                      canRenewSearch(failure.source, requiresIdleSnapshot: false) || canRestoreClient(failure.source)
+                else { return }
+                preparationFailure = nil
+                updateBackgroundView()
+                retryClientRestoration()
+            }, for: .touchUpInside)
+            tableView.backgroundView = button
+            return
+        }
         guard viewModel.topics.isEmpty else {
             tableView.backgroundView = nil
             return
@@ -385,40 +594,49 @@ import UIKit
 
     private func resolveTargetIfNeeded() {
         guard contextIsCurrent, let targetMessageID, targetResolutionTask == nil,
+              !searchController.isActive,
               navigationController?.topViewController === self, let attempt = targetIntent.begin()
         else { return }
-        let client = viewModel.client
-        let location = viewModel.location
+        let model = viewModel
+        let binding = bindingID
+        let client = model.client
+        let location = model.location
         targetResolutionTask = Task { [weak self] in
             defer {
-                if let self, targetIntent.owns(attempt) {
+                if let self, owns(model, binding: binding, current: false), targetIntent.owns(attempt) {
                     targetIntent.finish(attempt)
                     targetResolutionTask = nil
                 }
             }
-            guard self?.contextIsCurrent == true, self?.targetIntent.owns(attempt) == true,
+            guard self?.owns(model, binding: binding) == true, self?.targetIntent.owns(attempt) == true,
                   !Task.isCancelled else { return }
             let message = try? await client.getMessage(
                 chatId: location.chatID,
                 messageId: targetMessageID,
             )
-            guard !Task.isCancelled, self?.contextIsCurrent == true,
+            guard !Task.isCancelled, self?.owns(model, binding: binding) == true,
                   self?.targetIntent.owns(attempt) == true else { return }
             guard let message, message.chatId == location.chatID, message.id == targetMessageID,
                   case .messageTopicForum(let forumTopic) = message.topicId
             else {
-                self?.presentLoadError("The message topic couldn't be opened.")
+                self?.presentLoadError("The message topic couldn't be opened.", model: model, binding: binding)
                 return
             }
             let topic = try? await client.getForumTopic(chatId: location.chatID, forumTopicId: forumTopic.forumTopicId)
-            guard let self, !Task.isCancelled, contextIsCurrent, targetIntent.owns(attempt) else { return }
+            guard let self, !Task.isCancelled, owns(model, binding: binding), targetIntent.owns(attempt) else { return }
             guard let topic, topic.info.chatId == location.chatID,
                   topic.info.forumTopicId == forumTopic.forumTopicId
             else {
-                presentLoadError("The message topic couldn't be opened.")
+                presentLoadError("The message topic couldn't be opened.", model: model, binding: binding)
                 return
             }
-            let opened = open(topic: topic, targetMessageID: targetMessageID, quote: targetQuote)
+            let opened = open(
+                topic: topic,
+                targetMessageID: targetMessageID,
+                quote: targetQuote,
+                model: model,
+                binding: binding,
+            )
             targetIntent.finish(attempt, opened: opened)
             targetResolutionTask = nil
         }
@@ -428,11 +646,14 @@ import UIKit
         topic: ForumTopic,
         targetMessageID: Int64?,
         quote: MessageQuoteHighlight?,
+        model: ForumTopicsVM,
+        binding: UUID,
     ) -> Bool {
-        guard contextIsCurrent, navigationController?.topViewController === self else { return false }
-        let location = viewModel.location.withForumTopic(id: topic.info.forumTopicId)
+        guard owns(model, binding: binding), targetMessageID == nil || !searchController.isActive,
+              navigationController?.topViewController === self else { return false }
+        let location = model.location.withForumTopic(id: topic.info.forumTopicId)
         NavigationStorage.shared.push(.customChat(
-            viewModel.customChat,
+            model.customChat,
             location: location,
             forumTopic: topic,
             targetMessageID: targetMessageID,
@@ -441,26 +662,32 @@ import UIKit
         return true
     }
 
-    private func presentLoadError(_ message: String) {
-        guard contextIsCurrent, navigationController?.topViewController === self,
+    private func presentLoadError(_ message: String, model: ForumTopicsVM, binding: UUID) {
+        guard owns(model, binding: binding), navigationController?.topViewController === self,
               !didPresentLoadError, presentedViewController == nil else { return }
         didPresentLoadError = true
         let alert = UIAlertController(title: "Topics", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-            self?.didPresentLoadError = false
-            self?.viewModel.loadInitial()
-            self?.resolveTargetIfNeeded()
-            self?.dismiss(animated: true) { self?.retryClientRestoration() }
+        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self, weak alert] _ in
+            guard let self, let alert, owns(model, binding: binding, current: false),
+                  presentedViewController === alert else { return }
+            didPresentLoadError = false
+            if owns(model, binding: binding) { model.loadInitial()
+                resolveTargetIfNeeded()
+            }
+            dismiss(animated: true) { [weak self] in self?.retryClientRestoration() }
         })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-            self?.didPresentLoadError = false
-            self?.dismiss(animated: true) { self?.retryClientRestoration() }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self, weak alert] _ in
+            guard let self, let alert, owns(model, binding: binding, current: false),
+                  presentedViewController === alert else { return }
+            didPresentLoadError = false
+            dismiss(animated: true) { [weak self] in self?.retryClientRestoration() }
         })
         present(alert, animated: true)
     }
 
     @objc private func refreshPulled() {
-        viewModel.loadInitial()
+        if contextIsCurrent { viewModel.loadInitial() }
+        else { refreshControl.endRefreshing() }
         retryClientRestoration()
     }
 }
