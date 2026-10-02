@@ -14,6 +14,238 @@ enum VideoNoteCaptureError: Swift.Error {
     case recordingUnavailable
 }
 
+#if DEBUG
+    extension VideoNoteCaptureSession {
+        @MainActor static func verifyDebugFinishOwnership(directory: URL) async throws {
+            let session = VideoNoteCaptureSession()
+            let generation = UUID()
+            let output = directory.appendingPathComponent("automatic.mp4")
+            let adopted = directory.appendingPathComponent("adopted.mp4")
+            let context = try await session.installDebugRecording(output: output, generation: generation)
+            let finishGate = VideoNoteFinishProbe.Gate()
+            let deliveryGate = VideoNoteFinishProbe.Gate()
+            session.probeBeforeFinish = { await finishGate.wait() }
+            session.probeBeforeAutomaticDelivery = { await deliveryGate.wait() }
+            var callbackCount = 0
+            var callbackError: Error?
+            session.onAutomaticStop = { deliveredGeneration, result in
+                callbackCount += 1
+                do {
+                    try VideoNoteFinishProbe.require(deliveredGeneration == generation, "wrong capture generation")
+                    let asset = try result.get()
+                    try FileManager.default.moveItem(at: asset.url, to: adopted)
+                } catch { callbackError = error }
+            }
+            guard let automatic = session.requestAutomaticStop(context) else {
+                throw VideoNoteFinishProbe.Failure(description: "automatic reservation failed")
+            }
+            defer {
+                session.cancelRecording()
+                Task { await finishGate.open()
+                await deliveryGate.open()
+                }
+            }
+            await finishGate.waitUntilEntered()
+            try await VideoNoteFinishProbe.require(
+                session.stopRecording(generation: generation) == nil,
+                "manual release took automatic reservation",
+            )
+            try VideoNoteFinishProbe.require(session.requestAutomaticStop(context) == nil, "duplicate auto owner")
+            await finishGate.open()
+            await deliveryGate.waitUntilEntered()
+            try VideoNoteFinishProbe.require(
+                FileManager.default.fileExists(atPath: output.path),
+                "writer output missing",
+            )
+            try VideoNoteFinishProbe.require(callbackCount == 0, "callback bypassed delivery gate")
+            for _ in 0..<2 {
+                try await VideoNoteFinishProbe.require(
+                    session.stopRecording(generation: generation) == nil,
+                    "writer-done manual release took automatic output",
+                )
+            }
+            await deliveryGate.open()
+            await automatic.value
+            if let callbackError { throw callbackError }
+            try VideoNoteFinishProbe.require(callbackCount == 1, "automatic output not delivered exactly once")
+            _ = try await VideoNoteAssetWriter.validate(url: adopted, expectedLength: 400)
+            session.cancelRecording()
+            try VideoNoteFinishProbe.require(session.requestAutomaticStop(context) == nil, "delivered context revived")
+            try VideoNoteFinishProbe.require(
+                FileManager.default.fileExists(atPath: adopted.path),
+                "adopted asset removed",
+            )
+
+            // Cancel while the automatic owner has reserved, before native finish starts.
+            let cancelledOutput = directory.appendingPathComponent("cancelled-before-finish.mp4")
+            let cancelled = try await session.installDebugRecording(output: cancelledOutput, generation: UUID())
+            let cancellationGate = VideoNoteFinishProbe.Gate()
+            session.probeBeforeFinish = { await cancellationGate.wait() }
+            session.probeBeforeAutomaticDelivery = nil
+            guard let cancelledTask = session.requestAutomaticStop(cancelled) else {
+                throw VideoNoteFinishProbe.Failure(description: "cancel fixture reservation failed")
+            }
+            await cancellationGate.waitUntilEntered()
+            session.cancelRecording()
+            await cancellationGate.open()
+            await cancelledTask.value
+            try VideoNoteFinishProbe.require(callbackCount == 1, "cancelled finish called receiver")
+            try VideoNoteFinishProbe.require(
+                !FileManager.default.fileExists(atPath: cancelledOutput.path), "cancelled writer output retained",
+            )
+
+            // Cancel after writer completion but before delivery, then start another capture.
+            let obsoleteOutput = directory.appendingPathComponent("obsolete.mp4")
+            let obsoleteGeneration = UUID()
+            let obsolete = try await session.installDebugRecording(
+                output: obsoleteOutput,
+                generation: obsoleteGeneration,
+            )
+            let obsoleteDelivery = VideoNoteFinishProbe.Gate()
+            session.probeBeforeFinish = nil
+            session.probeBeforeAutomaticDelivery = { await obsoleteDelivery.wait() }
+            guard let obsoleteTask = session.requestAutomaticStop(obsolete) else {
+                throw VideoNoteFinishProbe.Failure(description: "obsolete fixture reservation failed")
+            }
+            await obsoleteDelivery.waitUntilEntered()
+            session.cancelRecording()
+            let replacementGeneration = UUID()
+            let replacementOutput = directory.appendingPathComponent("replacement.mp4")
+            let replacement = try await session.installDebugRecording(
+                output: replacementOutput, generation: replacementGeneration,
+            )
+            do {
+                _ = try await session.stopRecording(generation: obsoleteGeneration)
+                throw VideoNoteFinishProbe.Failure(description: "stale manual stop reserved new capture")
+            } catch is CancellationError {}
+            await obsoleteDelivery.open()
+            await obsoleteTask.value
+            try VideoNoteFinishProbe.require(callbackCount == 1, "obsolete result delivered to replacement")
+            try VideoNoteFinishProbe.require(
+                !FileManager.default.fileExists(atPath: obsoleteOutput.path),
+                "obsolete output retained",
+            )
+            try VideoNoteFinishProbe.require(
+                session.contextLock.withLock { session.recordingContext === replacement },
+                "replacement context cleared",
+            )
+            let manualGate = VideoNoteFinishProbe.Gate()
+            session.probeBeforeFinish = { await manualGate.wait() }
+            let manual = Task { try await session.stopRecording(generation: replacementGeneration) }
+            await manualGate.waitUntilEntered()
+            try await VideoNoteFinishProbe.require(
+                session.stopRecording(generation: replacementGeneration) == nil, "duplicate manual owner",
+            )
+            try VideoNoteFinishProbe.require(
+                session.requestAutomaticStop(replacement) == nil,
+                "auto replaced manual owner",
+            )
+            await manualGate.open()
+            guard let manualAsset = try await manual.value else {
+                throw VideoNoteFinishProbe.Failure(description: "manual owner lost asset")
+            }
+            _ = try await VideoNoteAssetWriter.validate(url: manualAsset.url, expectedLength: 400)
+            session.cancelRecording()
+            try VideoNoteFinishProbe.require(
+                FileManager.default.fileExists(atPath: manualAsset.url.path),
+                "manual-owned asset removed",
+            )
+
+            let orphanOutput = directory.appendingPathComponent("no-callback.mp4")
+            let orphan = try await session.installDebugRecording(output: orphanOutput, generation: UUID())
+            session.probeBeforeFinish = nil
+            session.probeBeforeAutomaticDelivery = nil
+            session.onAutomaticStop = nil
+            await session.requestAutomaticStop(orphan)?.value
+            try VideoNoteFinishProbe.require(
+                !FileManager.default.fileExists(atPath: orphanOutput.path),
+                "orphan output retained",
+            )
+            try VideoNoteFinishProbe.require(
+                FileManager.default.fileExists(atPath: adopted.path),
+                "later cleanup removed adopted output",
+            )
+
+            let taskCancelledOutput = directory.appendingPathComponent("caller-cancelled.mp4")
+            let taskCancelledGeneration = UUID()
+            _ = try await session.installDebugRecording(
+                output: taskCancelledOutput,
+                generation: taskCancelledGeneration,
+            )
+            let taskCancellationGate = VideoNoteFinishProbe.Gate()
+            session.probeBeforeFinish = { await taskCancellationGate.wait() }
+            let cancelledManual = Task { try await session.stopRecording(generation: taskCancelledGeneration) }
+            await taskCancellationGate.waitUntilEntered()
+            cancelledManual.cancel()
+            await taskCancellationGate.open()
+            do {
+                _ = try await cancelledManual.value
+                throw VideoNoteFinishProbe.Failure(description: "cancelled caller received an asset")
+            } catch is CancellationError {
+            } catch VideoNoteAssetWriterError.cancelled {}
+            try VideoNoteFinishProbe.require(
+                session.contextLock.withLock { session.recordingContext == nil }, "cancelled caller retained context",
+            )
+            try VideoNoteFinishProbe.require(
+                !FileManager.default.fileExists(atPath: taskCancelledOutput.path), "caller-cancelled output retained",
+            )
+
+            let failedOutput = directory.appendingPathComponent("writer-failed.mp4")
+            let failedGeneration = UUID()
+            let failed = try await session.installDebugRecording(
+                output: failedOutput, generation: failedGeneration, appendSamples: false,
+            )
+            let failureGate = VideoNoteFinishProbe.Gate()
+            session.probeBeforeFinish = nil
+            session.probeBeforeAutomaticDelivery = { await failureGate.wait() }
+            var failureCount = 0
+            session.onAutomaticStop = { deliveredGeneration, result in
+                if deliveredGeneration == failedGeneration,
+                   case .failure(VideoNoteAssetWriterError.invalidAsset) = result
+                { failureCount += 1 }
+            }
+            guard let failedTask = session.requestAutomaticStop(failed) else {
+                throw VideoNoteFinishProbe.Failure(description: "failure fixture reservation failed")
+            }
+            await failureGate.waitUntilEntered()
+            try await VideoNoteFinishProbe.require(
+                session.stopRecording(generation: failedGeneration) == nil, "manual stop replaced queued failure owner",
+            )
+            await failureGate.open()
+            await failedTask.value
+            try VideoNoteFinishProbe.require(failureCount == 1, "native writer failure not delivered exactly once")
+            try VideoNoteFinishProbe.require(
+                session.contextLock.withLock { session.recordingContext == nil }, "failed writer retained context",
+            )
+            try VideoNoteFinishProbe.require(
+                !FileManager.default.fileExists(atPath: failedOutput.path), "failed writer output retained",
+            )
+        }
+
+        private func installDebugRecording(
+            output: URL, generation: UUID, appendSamples: Bool = true,
+        ) async throws -> RecordingContext {
+            let writer: VideoNoteAssetWriter =
+ if appendSamples {
+                try await VideoNoteAssetWriter.makeDebugRecording(
+                    outputURL: output, duration: 0.6, frameSeed: 9,
+                )
+            } else {
+                try VideoNoteAssetWriter(outputURL: output)
+            }
+            let context = RecordingContext(
+                writer: writer, position: .front, orientation: .portrait, minimumPresentationTime: .zero,
+                automaticStopDuration: 0.5, startRequestID: UUID(), captureGeneration: generation,
+            )
+            contextLock.withLock {
+                activeCaptureGeneration = generation
+                recordingContext = context
+            }
+            return context
+        }
+    }
+#endif
+
 // MARK: - VideoNoteCaptureSession
 
 final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
@@ -39,7 +271,13 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     }
 
     private final class RecordingContext: @unchecked Sendable {
+        enum FinishOwner {
+            case automatic
+            case manual
+        }
+
         let generation = UUID()
+        let captureGeneration: UUID
         let writer: VideoNoteAssetWriter
         var position: Position
         let orientation: UIInterfaceOrientation
@@ -48,8 +286,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         var minimumAudioPresentationTime: CMTime
         let automaticStopDuration: Double
         let startRequestID: UUID
-        var stopRequested = false
-        var didRequestAutomaticStop = false
+        var finishOwner: FinishOwner?
         var videoClosed = false
         var audioClosed = false
         var audioFramesEnabled = true
@@ -60,6 +297,8 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         var presentationTimeOffset = CMTime.zero
         var lastPublishedDuration = Double.zero
 
+        var stopRequested: Bool { finishOwner != nil }
+
         init(
             writer: VideoNoteAssetWriter,
             position: Position,
@@ -67,6 +306,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             minimumPresentationTime: CMTime,
             automaticStopDuration: Double,
             startRequestID: UUID,
+            captureGeneration: UUID,
         ) {
             self.writer = writer
             self.position = position
@@ -76,11 +316,12 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             self.minimumAudioPresentationTime = minimumPresentationTime
             self.automaticStopDuration = automaticStopDuration
             self.startRequestID = startRequestID
+            self.captureGeneration = captureGeneration
         }
     }
 
     let captureSession = AVCaptureSession()
-    var onAutomaticStop: ((Result<VideoNoteAsset, Error>) -> Void)?
+    @MainActor var onAutomaticStop: ((UUID, Result<VideoNoteAsset, Error>) -> Void)?
 
     private let configurationQueue = DispatchQueue(label: "bettertg.video-note.capture.configuration")
     private let videoOutputQueue = DispatchQueue(label: "bettertg.video-note.capture.video", qos: .userInitiated)
@@ -100,6 +341,10 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     private let audioOutput = AVCaptureAudioDataOutput()
     private var notificationTokens = [NSObjectProtocol]()
     private var ownsAudioSession = false
+    #if DEBUG
+        private var probeBeforeFinish: (@Sendable () async -> Void)?
+        private var probeBeforeAutomaticDelivery: (@Sendable () async -> Void)?
+    #endif
 
     var statePublisher: AnyPublisher<State, Never> {
         stateSubject.removeDuplicates().eraseToAnyPublisher()
@@ -227,6 +472,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                                 guard self.pendingRecordingStart == requestID,
                                       self.captureEnabled,
                                       self.recordingContext == nil,
+                                      let captureGeneration = self.activeCaptureGeneration,
                                       self.captureSession.isRunning
                                 else { return nil }
                                 self.pendingRecordingStart = nil
@@ -237,6 +483,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                                     minimumPresentationTime: CMClockGetTime(CMClockGetHostTimeClock()),
                                     automaticStopDuration: normalizedAutomaticStopDuration,
                                     startRequestID: requestID,
+                                    captureGeneration: captureGeneration,
                                 )
                                 self.recordingContext = context
                                 self.enqueueStateLocked(.recording(0))
@@ -263,14 +510,18 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         }
     }
 
-    func stopRecording() async throws -> VideoNoteAsset {
-        guard let context = contextLock.withLock({ () -> RecordingContext? in
-            guard let currentContext = recordingContext,
-                  !currentContext.stopRequested
-            else { return nil }
-            currentContext.stopRequested = true
+    func stopRecording(generation: UUID) async throws -> VideoNoteAsset? {
+        try Task.checkCancellation()
+        let context = try contextLock.withLock { () throws -> RecordingContext? in
+            guard let currentContext = recordingContext else {
+                throw VideoNoteCaptureError.recordingUnavailable
+            }
+            guard currentContext.captureGeneration == generation else { throw CancellationError() }
+            guard currentContext.finishOwner == nil else { return nil }
+            currentContext.finishOwner = .manual
             return currentContext
-        }) else { throw VideoNoteCaptureError.recordingUnavailable }
+        }
+        guard let context else { return nil }
         return try await finishRecording(context)
     }
 
@@ -443,6 +694,10 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         }
         guard ownsRecording else { throw VideoNoteCaptureError.recordingUnavailable }
 
+        #if DEBUG
+            await probeBeforeFinish?()
+        #endif
+
         videoOutputQueue.async { [weak self, writer = context.writer] in
             self?.contextLock.withLock {
                 context.videoClosed = true
@@ -466,7 +721,15 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 clearRecordingContextIfOwned(context)
                 throw CancellationError()
             }
-            guard clearRecordingContextIfOwned(context) else {
+            let ownsResult = contextLock.withLock {
+                guard recordingContext === context else { return false }
+                if context.finishOwner == .manual {
+                    recordingContext = nil
+                    if captureEnabled { enqueueStateLocked(.ready(position)) }
+                }
+                return true
+            }
+            guard ownsResult else {
                 try? FileManager.default.removeItem(at: asset.url)
                 throw CancellationError()
             }
@@ -476,7 +739,9 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             }
             return asset
         } catch {
-            clearRecordingContextIfOwned(context)
+            if context.finishOwner == .manual {
+                clearRecordingContextIfOwned(context)
+            }
             throw error
         }
     }
@@ -935,39 +1200,50 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
         contextLock.unlock()
     }
 
-    private func requestAutomaticStop(_ context: RecordingContext) {
+    @discardableResult private func requestAutomaticStop(_ context: RecordingContext) -> Task<Void, Never>? {
         contextLock.lock()
         guard recordingContext === context,
-              !context.didRequestAutomaticStop,
-              !context.stopRequested
+              context.finishOwner == nil
         else {
             contextLock.unlock()
-            return
+            return nil
         }
-        context.didRequestAutomaticStop = true
-        context.stopRequested = true
+        context.finishOwner = .automatic
         contextLock.unlock()
-        Task { [weak self] in
+        return Task { [weak self] in
             guard let self else {
                 context.writer.cancel()
                 return
             }
+            let result: Result<VideoNoteAsset, Error>
             do {
                 let asset = try await finishRecording(context)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else {
-                        try? FileManager.default.removeItem(at: asset.url)
-                        return
-                    }
-                    onAutomaticStop?(.success(asset))
-                }
+                result = .success(asset)
             } catch {
                 if isExpectedAutomaticStopCancellation(error) {
                     return
                 }
-                DispatchQueue.main.async { [weak self] in self?.onAutomaticStop?(.failure(error)) }
+                result = .failure(error)
             }
+            #if DEBUG
+                await probeBeforeAutomaticDelivery?()
+            #endif
+            await deliverAutomaticStop(result, context: context)
         }
+    }
+
+    @MainActor private func deliverAutomaticStop(
+        _ result: Result<VideoNoteAsset, Error>,
+        context: RecordingContext,
+    ) {
+        // Claim and callback share one MainActor turn; the callback takes sole asset ownership.
+        guard clearRecordingContextIfOwned(context), let onAutomaticStop else {
+            if case .success(let asset) = result {
+                try? FileManager.default.removeItem(at: asset.url)
+            }
+            return
+        }
+        onAutomaticStop(context.captureGeneration, result)
     }
 
     private func isExpectedAutomaticStopCancellation(_ error: Error) -> Bool {

@@ -210,6 +210,22 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
             duration: Double,
             frameSeed: Int,
         ) async throws -> VideoNoteAsset {
+            let writer = try await makeDebugRecording(
+                outputURL: outputURL, duration: duration, frameSeed: frameSeed,
+            )
+            do {
+                return try await writer.finish()
+            } catch {
+                writer.cancel()
+                throw error
+            }
+        }
+
+        static func makeDebugRecording(
+            outputURL: URL,
+            duration: Double,
+            frameSeed: Int,
+        ) async throws -> VideoNoteAssetWriter {
             let frameCount = max(2, Int((duration * 30).rounded()))
             let exactDuration = Double(frameCount) / 30
             let writer = try VideoNoteAssetWriter(
@@ -252,7 +268,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                 }
                 writer.markVideoFinished()
                 writer.markAudioFinished()
-                return try await writer.finish()
+                return writer
             } catch {
                 writer.cancel()
                 throw error

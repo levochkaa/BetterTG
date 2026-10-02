@@ -89,7 +89,9 @@ enum VideoNoteSubmissionResult {
     private let progressLayer = CAShapeLayer()
     private var cancellables = Set<AnyCancellable>()
     private var operationTask: Task<Void, Never>?
+    private var operationID: UUID?
     private var operationGeneration = UUID()
+    private var finishingCaptureGeneration: UUID?
     private var preferredPosition = VideoNoteCaptureSession.Position.front
     private var lastFlipTimestamp: TimeInterval?
     private var lastRecordMoreTimestamp: TimeInterval?
@@ -137,16 +139,14 @@ enum VideoNoteSubmissionResult {
         self.replyTo = replyTo
         self.sendTopic = sendTopic
         super.init(nibName: nil, bundle: nil)
-        captureSession.onAutomaticStop = { [weak self] result in
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    if case .success(let asset) = result {
-                        try? FileManager.default.removeItem(at: asset.url)
-                    }
-                    return
+        captureSession.onAutomaticStop = { [weak self] generation, result in
+            guard let self else {
+                if case .success(let asset) = result {
+                    try? FileManager.default.removeItem(at: asset.url)
                 }
-                handleAutomaticStop(result)
+                return
             }
+            handleAutomaticStop(result, generation: generation)
         }
         observeCaptureSession()
         observePreviewPlayer()
@@ -225,10 +225,9 @@ enum VideoNoteSubmissionResult {
         playbackPreview.isHidden = true
         cameraPreview.isHidden = false
         state = .preparing
-        operationTask = Task { [weak self] in
+        startOperation { [weak self] _ in
             guard let self else { return }
             _ = await beginCapture(lockedInitially: true)
-            operationTask = nil
         }
     }
 
@@ -247,9 +246,8 @@ enum VideoNoteSubmissionResult {
         cameraPreview.isHidden = true
         playbackPreview.isHidden = false
         state = .stopping
-        operationTask = Task { [weak self] in
+        startOperation { [weak self] _ in
             guard let self else { return }
-            defer { operationTask = nil }
             do {
                 try await preparePreview(draft: draft, generation: generation)
             } catch is CancellationError {
@@ -278,8 +276,7 @@ enum VideoNoteSubmissionResult {
         }
         exitDisposition = .discard
         operationGeneration = UUID()
-        operationTask?.cancel()
-        operationTask = nil
+        cancelOperation()
         thumbnailTask?.cancel()
         thumbnailTask = nil
         captureSession.cancelRecording()
@@ -382,9 +379,8 @@ enum VideoNoteSubmissionResult {
         )
         guard finished else { return }
         let generation = operationGeneration
-        operationTask = Task { [weak self] in
+        startOperation { [weak self] _ in
             guard let self else { return }
-            defer { operationTask = nil }
             do {
                 let storedDraft = try await VideoNoteRecordingDraftStore.shared.updateTrim(
                     in: canonicalDraft,
@@ -430,8 +426,7 @@ enum VideoNoteSubmissionResult {
     func teardownForNavigation() {
         exitDisposition = .preserve
         operationGeneration = UUID()
-        operationTask?.cancel()
-        operationTask = nil
+        cancelOperation()
         thumbnailTask?.cancel()
         thumbnailTask = nil
         captureSession.cancelRecording()
@@ -474,10 +469,7 @@ enum VideoNoteSubmissionResult {
                 automaticStopDuration: remainingAutomaticDuration,
             )
             try Task.checkCancellation()
-            guard operationGeneration == generation else { throw CancellationError() }
-            state = locked
-                ? .locked(recordingDurationBaseline)
-                : .holding(recordingDurationBaseline)
+            guard publishCaptureStarted(generation: generation) else { throw CancellationError() }
             UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
             return true
         } catch is CancellationError {
@@ -653,10 +645,9 @@ enum VideoNoteSubmissionResult {
                     {
                         let generation = operationGeneration
                         state = .stopping
-                        operationTask = Task { [weak self] in
+                        startOperation { [weak self] _ in
                             guard let self else { return }
                             await recoverRecordMorePreview(message: message, generation: generation)
-                            operationTask = nil
                         }
                     } else if recordingDurationBaseline == 0 || recordingDraft == nil {
                         fail(message)
@@ -667,11 +658,9 @@ enum VideoNoteSubmissionResult {
                     preferredPosition = position
                     cameraPreview.updateConnection(position: position, orientation: currentInterfaceOrientation)
                 case .recording(let duration):
-                    let aggregateDuration = recordingDurationBaseline + duration
-                    progressLayer.strokeEnd = min(1, max(0, aggregateDuration / 60))
-                    state = locked ? .locked(aggregateDuration) : .holding(aggregateDuration)
+                    publishRecordingDuration(duration)
                 case .stopping:
-                    state = .stopping
+                    publishCaptureStopping()
                 }
             }
             .store(in: &cancellables)
@@ -744,6 +733,27 @@ enum VideoNoteSubmissionResult {
             .store(in: &cancellables)
     }
 
+    private func startOperation(_ operation: @escaping @MainActor (UUID) async -> Void) {
+        let id = UUID()
+        operationID = id
+        operationTask = Task { [weak self] in
+            await operation(id)
+            self?.completeOperation(id)
+        }
+    }
+
+    private func completeOperation(_ id: UUID) {
+        guard operationID == id else { return }
+        operationID = nil
+        operationTask = nil
+    }
+
+    private func cancelOperation() {
+        operationID = nil
+        operationTask?.cancel()
+        operationTask = nil
+    }
+
     private func finishRecording(submitAfterCapture: Bool) {
         guard operationTask == nil else { return }
         switch state {
@@ -762,12 +772,13 @@ enum VideoNoteSubmissionResult {
             return
         }
         let generation = operationGeneration
+        finishingCaptureGeneration = generation
         state = .stopping
-        operationTask = Task { [weak self] in
+        startOperation { [weak self] operationID in
             guard let self else { return }
             var capturedAsset: VideoNoteAsset?
             do {
-                let asset = try await captureSession.stopRecording()
+                guard let asset = try await captureSession.stopRecording(generation: generation) else { return }
                 capturedAsset = asset
                 try Task.checkCancellation()
                 guard operationGeneration == generation else {
@@ -775,7 +786,11 @@ enum VideoNoteSubmissionResult {
                     return
                 }
                 try await processCapturedAsset(asset, generation: generation)
-                operationTask = nil
+                guard !Task.isCancelled,
+                      operationGeneration == generation,
+                      self.operationID == operationID
+                else { return }
+                completeOperation(operationID)
                 if submitAfterCapture {
                     submitPreview()
                 }
@@ -783,13 +798,11 @@ enum VideoNoteSubmissionResult {
                 if let capturedAsset {
                     try? FileManager.default.removeItem(at: capturedAsset.url)
                 }
-                operationTask = nil
                 return
             } catch {
                 if let capturedAsset {
                     try? FileManager.default.removeItem(at: capturedAsset.url)
                 }
-                operationTask = nil
                 guard !Task.isCancelled,
                       operationGeneration == generation,
                       exitDisposition == .none
@@ -966,9 +979,8 @@ enum VideoNoteSubmissionResult {
         }
         guard draft != nil || currentAsset != nil else { return }
         state = .sending
-        operationTask = Task { [weak self] in
+        startOperation { [weak self] _ in
             guard let self else { return }
-            defer { operationTask = nil }
             let asset: VideoNoteAsset
             var thumbnail: VideoNoteInputThumbnailAsset?
             let originRecordingDraftID: UUID?
@@ -1140,29 +1152,59 @@ enum VideoNoteSubmissionResult {
         }
     }
 
-    private func handleAutomaticStop(_ result: Result<VideoNoteAsset, Swift.Error>) {
+    private func publishCaptureStarted(generation: UUID) -> Bool {
+        guard operationGeneration == generation, exitDisposition == .none else { return false }
+        guard finishingCaptureGeneration != generation else { return true }
+        state = locked ? .locked(recordingDurationBaseline) : .holding(recordingDurationBaseline)
+        return true
+    }
+
+    private func publishRecordingDuration(_ duration: Double) {
+        guard finishingCaptureGeneration != operationGeneration else { return }
+        let aggregateDuration = recordingDurationBaseline + duration
+        progressLayer.strokeEnd = min(1, max(0, aggregateDuration / 60))
+        state = locked ? .locked(aggregateDuration) : .holding(aggregateDuration)
+    }
+
+    private func publishCaptureStopping() {
+        guard finishingCaptureGeneration != operationGeneration else { return }
+        state = .stopping
+    }
+
+    private func acceptAutomaticFinish(generation: UUID) -> Bool {
         let acceptsResult: Bool =
             switch state {
-            case .holding, .locked, .stopping:
-                !didRequestDismiss && exitDisposition == .none
-            case .failed, .idle, .preparing, .preview, .sending:
+            case .holding, .locked, .preparing, .stopping:
+                generation == operationGeneration && !didRequestDismiss && exitDisposition == .none
+            case .failed, .idle, .preview, .sending:
                 false
             }
-        guard acceptsResult else {
+        guard acceptsResult else { return false }
+        finishingCaptureGeneration = generation
+        return true
+    }
+
+    private func handleAutomaticStop(_ result: Result<VideoNoteAsset, Swift.Error>, generation: UUID) {
+        guard acceptAutomaticFinish(generation: generation) else {
             if case .success(let asset) = result {
                 try? FileManager.default.removeItem(at: asset.url)
             }
             return
         }
-        operationTask?.cancel()
-        let generation = operationGeneration
+        cancelOperation()
         switch result {
         case .success(let asset):
             state = .stopping
-            operationTask = Task { [weak self] in
-                guard let self else { return }
-                defer { operationTask = nil }
+            startOperation { [weak self] _ in
+                guard let self else {
+                    try? FileManager.default.removeItem(at: asset.url)
+                    return
+                }
                 do {
+                    try Task.checkCancellation()
+                    guard operationGeneration == generation, exitDisposition == .none else {
+                        throw CancellationError()
+                    }
                     try await processCapturedAsset(asset, generation: generation)
                 } catch is CancellationError {
                     try? FileManager.default.removeItem(at: asset.url)
@@ -1185,10 +1227,9 @@ enum VideoNoteSubmissionResult {
         case .failure(let error):
             if recordingDurationBaseline > 0, recordingDraft != nil {
                 state = .stopping
-                operationTask = Task { [weak self] in
+                startOperation { [weak self] _ in
                     guard let self else { return }
                     await recoverRecordMorePreview(message: message(for: error), generation: generation)
-                    operationTask = nil
                 }
             } else {
                 fail(message(for: error))
@@ -1391,8 +1432,7 @@ enum VideoNoteSubmissionResult {
 
     private func fail(_ message: String) {
         operationGeneration = UUID()
-        operationTask?.cancel()
-        operationTask = nil
+        cancelOperation()
         captureSession.cancelRecording()
         captureSession.stopCapture()
         releasePreviewAudioSession()
@@ -1522,6 +1562,78 @@ enum VideoNoteSubmissionResult {
         }
     }
 }
+
+// MARK: - VideoNotePreviewContainerView
+
+#if DEBUG
+    extension VideoNoteRecorderViewController {
+        static func verifyDebugOperationOwnership() async throws {
+            let recorder = VideoNoteRecorderViewController(
+                chatID: 1, draftKey: .init(accountID: UUID(), chatID: 1, topic: nil),
+                replyMessageID: nil, replyTo: nil, sendTopic: nil,
+            )
+            let losingGate = VideoNoteFinishProbe.Gate()
+            let winningGate = VideoNoteFinishProbe.Gate()
+            recorder.startOperation { _ in await losingGate.wait() }
+            let losingTask = recorder.operationTask
+            let losingID = recorder.operationID
+            await losingGate.waitUntilEntered()
+            recorder.cancelOperation()
+            recorder.startOperation { _ in await winningGate.wait() }
+            let winningTask = recorder.operationTask
+            let winningID = recorder.operationID
+            await winningGate.waitUntilEntered()
+            await losingGate.open()
+            await losingTask?.value
+            try VideoNoteFinishProbe.require(
+                winningID != losingID && recorder.operationID == winningID && recorder.operationTask != nil,
+                "losing completion cleared replacement task",
+            )
+            await winningGate.open()
+            await winningTask?.value
+            try VideoNoteFinishProbe.require(
+                recorder.operationID == nil && recorder.operationTask == nil, "winning completion failed to clear",
+            )
+            let generation = recorder.operationGeneration
+            recorder.state = .preparing
+            try VideoNoteFinishProbe.require(
+                !recorder.acceptAutomaticFinish(generation: UUID()), "wrong-generation automatic result accepted",
+            )
+            try VideoNoteFinishProbe.require(
+                recorder.acceptAutomaticFinish(generation: generation), "automatic result while preparing rejected",
+            )
+            recorder.state = .stopping
+            try VideoNoteFinishProbe.require(
+                recorder.publishCaptureStarted(generation: generation),
+                "late start rejected current capture",
+            )
+            recorder.publishRecordingDuration(0.7)
+            try VideoNoteFinishProbe.require(
+                recorder.state == .stopping,
+                "late start/duration revived finishing capture",
+            )
+            let preview = VideoNoteComposerState.preview(duration: 0.6, isPlaying: false, canRecordMore: true)
+            recorder.state = preview
+            recorder.publishCaptureStopping()
+            recorder.publishRecordingDuration(0.8)
+            try VideoNoteFinishProbe.require(recorder.state == preview, "queued capture event overwrote preview")
+            try VideoNoteFinishProbe.require(
+                !recorder.acceptAutomaticFinish(generation: generation), "preview accepted duplicate automatic result",
+            )
+            recorder.operationGeneration = UUID()
+            recorder.state = .preparing
+            try VideoNoteFinishProbe.require(
+                !recorder.publishCaptureStarted(generation: generation), "obsolete start completed new capture",
+            )
+            recorder.publishRecordingDuration(0.2)
+            try VideoNoteFinishProbe.require(
+                recorder.state == .holding(0.2),
+                "finishing gate blocked successor capture",
+            )
+            try VideoNoteFinishProbe.require(!recorder.isViewLoaded, "operation proof loaded UI")
+        }
+    }
+#endif
 
 // MARK: - VideoNotePreviewContainerView
 
