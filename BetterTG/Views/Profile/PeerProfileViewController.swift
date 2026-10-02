@@ -6,7 +6,8 @@ import UIKit
 
 // MARK: - PeerProfileViewController
 
-@MainActor final class PeerProfileViewController: UIViewController, UICollectionViewDelegate {
+@MainActor final class PeerProfileViewController: UIViewController, UICollectionViewDelegate,
+ClientRestorableNavigationEntry {
     enum SharedTab: Int, CaseIterable {
         case media
         case files
@@ -64,6 +65,10 @@ import UIKit
     private let restoration: PeerProfileRestorationState?
     private var restoredViewport: PeerProfileViewport?
     private var restoredSnapshotApplied = false
+    private var restorationIdentity: PeerProfileRestorationIdentity
+    private let metadataPreparation = PeerProfileMetadataPreparation()
+    private var preparedMetadata: (TdUpdateSource, CustomChat)?
+    private var clientOwnerRetired = false
     private let editorRetention = PeerProfileEditorRetention()
     private var infoPermission: PeerProfileInfoPermissionState
     private var currentChatTitle: String
@@ -155,6 +160,8 @@ import UIKit
     )
     private lazy var mediaRevealSession = mediaPlaybackContext.map(MediaRevealSession.init)
 
+    var navigationClientSource: TdUpdateSource? { restorationIdentity.origin }
+
     private var currentSharedTab: SharedTab {
         SharedTab(rawValue: segmentedControl.selectedSegmentIndex) ?? .media
     }
@@ -211,13 +218,22 @@ import UIKit
     }
 
     private var contextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
+        !clientOwnerRetired && !restorationIdentity.revoked
+            && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
     }
 
     private var sortedSharedMessages: [Message] {
         messagesByID.values.sorted {
             $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date
         }
+    }
+
+    private var canWaitForClientRestoration: Bool {
+        !clientOwnerRetired && !restorationIdentity.revoked && accountUserID != nil
+            && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeAccount?.userID == accountUserID
+            && chatListActionOwnerIsAttached && navigationController?.topViewController === self
+            && presentedViewController == nil && activeMediaGallery == nil && activeAvatarGallery == nil
+            && avatarGalleryTask == nil && !isPresentingTelegramContextMenu
     }
 
     init(
@@ -235,6 +251,9 @@ import UIKit
         )
         let accountUserID = TDLib.shared.activeAccountID == accountID ? TDLib.shared.activeAccount?.userID : nil
         self.accountUserID = accountUserID
+        self.restorationIdentity = PeerProfileRestorationIdentity(
+            origin: TdUpdateSource(accountID: accountID, clientID: client.id), actorID: accountUserID,
+        )
         let restoration = restoration.flatMap {
             $0.matches(accountID: accountID, actorID: accountUserID, chatID: customChat.id, topic: topic) ? $0 : nil
         }
@@ -316,6 +335,7 @@ import UIKit
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        metadataPreparation.cancel()
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
         avatarReconciliationTask?.cancel()
@@ -353,7 +373,59 @@ import UIKit
         }
     }
 
-    func scrollViewWillBeginDragging(_: UIScrollView) { restoredViewport = nil }
+    func scrollViewWillBeginDragging(_: UIScrollView) {
+        let hadPendingViewport = restoredViewport != nil
+        restoredViewport = nil
+        if hadPendingViewport, restoration?.shouldResumePage == true { loadMore() }
+    }
+
+    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { retryClientRestoration() }
+    }
+
+    func scrollViewDidEndDecelerating(_: UIScrollView) { retryClientRestoration() }
+
+    func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
+        guard canRestoreClient(source), let state = restorationState(),
+              let host = restorationHost(state: state, source: source) else { return nil }
+        guard let preparedMetadata, preparedMetadata.0 == source else {
+            prepareClientMetadata(source)
+            return nil
+        }
+        return PreparedClientNavigationReplacement(
+            preflight: { [weak self, weak host] in
+                guard let self else { return false }
+                return canRestoreClient(source) && restorationHost(state: state, source: source) === host
+            },
+            commit: { [self, weak host] in
+                guard canRestoreClient(source), let host,
+                      restorationHost(state: state, source: source) === host,
+                      let replacement = host.makeProfile(customChat: preparedMetadata.1, restoration: state)
+                else { return nil }
+                clientOwnerRetired = true
+                metadataPreparation.cancel()
+                historyRequest.invalidate()
+                historyTask?.cancel()
+                infoTask?.cancel()
+                permissionTask?.cancel()
+                chatMetadataTask?.cancel()
+                avatarGalleryTask?.cancel()
+                avatarHistoryTask?.cancel()
+                avatarReconciliationTask?.cancel()
+                avatarGalleryRequestID = nil
+                avatarHistoryRequestID = nil
+                avatarReconciliationRequestID = nil
+                messageRefreshTasks.values.forEach { $0.cancel() }
+                cancellables.removeAll()
+                avatarView.prepareForReuse()
+                collectionView.visibleCells.compactMap { $0 as? SharedMediaGridCell }.forEach { $0.pauseLoading() }
+                #if DEBUG
+                log("Profile client restoration: replacement accepted")
+                #endif
+                return replacement
+            },
+        )
+    }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let id = dataSource.itemIdentifier(for: indexPath),
@@ -368,7 +440,7 @@ import UIKit
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? SharedMediaGridCell)?.resumeLoading()
-        guard indexPath.item >= max(0, messagesByID.count - 6) else { return }
+        guard historyError == nil, indexPath.item >= max(0, messagesByID.count - 6) else { return }
         loadMore()
     }
 
@@ -394,7 +466,69 @@ import UIKit
         guard restoredSnapshotApplied, profileHeaderView.bounds.height > 0, let viewport = restoredViewport,
               viewport.restore(collectionView, indexPath: { dataSource.indexPath(for: $0) }) else { return }
         restoredViewport = nil
-        if restoration?.resumePage == true { loadMore() }
+        if restoration?.shouldResumePage == true { loadMore() }
+    }
+
+    private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
+        canWaitForClientRestoration && restorationIdentity.accepts(
+            source, current: TDLib.shared.activeUpdateSource, actorID: TDLib.shared.activeAccount?.userID,
+        ) && RootVM.shared.activeAccountID == accountID && transitionCoordinator == nil
+            && !collectionView.isDragging && !collectionView.isDecelerating
+    }
+
+    private func restorationState() -> PeerProfileRestorationState? {
+        guard let accountUserID, isViewLoaded else { return nil }
+        return PeerProfileRestorationState(
+            source: restorationIdentity.origin, actorID: accountUserID, chatID: customChat.id, topic: topic,
+            tab: currentSharedTab, messages: sortedSharedMessages, cursor: oldestMessageID,
+            hasMore: hasMore, total: sharedTotalMessageCount, error: historyError,
+            resumePage: historyRequest.needsResume || restoredViewport != nil && restoration?.shouldResumePage == true,
+            bio: currentBioText, details: currentDetailTexts,
+            viewport: restoredViewport ?? .capture(collectionView, messageID: { dataSource.itemIdentifier(for: $0) }),
+        )
+    }
+
+    private func restorationHost(state: PeerProfileRestorationState, source: TdUpdateSource) -> ChatViewController? {
+        guard let stack = navigationController?.viewControllers,
+              let index = stack.firstIndex(where: { $0 === self }), index > 0,
+              let chat = stack[index - 1] as? ChatViewController,
+              chat.canRestoreProfile(state, source: source) else { return nil }
+        return chat
+    }
+
+    private func prepareClientMetadata(_ source: TdUpdateSource) {
+        let client = TDLib.shared.activeClient
+        guard client.id == source.clientID else { return }
+        let chatID = customChat.id
+        metadataPreparation.request(source: source, fetch: {
+            await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+        }, accepts: { [weak self] in
+            self?.restorationIdentity.accepts(
+                source,
+                current: TDLib.shared.activeUpdateSource,
+                actorID: TDLib.shared.activeAccount?.userID,
+            ) == true
+                && self?.canWaitForClientRestoration == true
+        }, completion: { [weak self] chat in
+            guard let self else { return }
+            guard let chat, chat.id == chatID else {
+                navigationItem.prompt = "Couldn't reload profile."
+                navigationItem.rightBarButtonItem = UIBarButtonItem(
+                    title: "Retry",
+                    style: .plain,
+                    target: self,
+                    action: #selector(retryClientRestoration),
+                )
+                return
+            }
+            preparedMetadata = (source, chat)
+            retryClientRestoration()
+        })
+    }
+
+    @objc private func retryClientRestoration() {
+        guard !clientOwnerRetired, canWaitForClientRestoration, !contextIsCurrent else { return }
+        NavigationStorage.shared.retryClientRestoration()
     }
 
     private func configureHeader() {
@@ -697,7 +831,30 @@ import UIKit
     }
 
     private func observeAccount() {
+        TDLib.shared
+            .activeClientChanges
+            .sink { [weak self] source in
+                guard let self else { return }
+                restorationIdentity.observe(source: source, actorID: TDLib.shared.activeAccount?.userID)
+                if preparedMetadata?.0 != source { preparedMetadata = nil }
+                metadataPreparation.cancel()
+                handleAccountChange()
+            }
+            .store(in: &cancellables)
+        TDLib.shared
+            .readyClientChanges
+            .sink { [weak self] source in
+                guard let self else { return }
+                restorationIdentity.readySource = source
+                if source == nil { metadataPreparation.cancel() }
+                retryClientRestoration()
+            }
+            .store(in: &cancellables)
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
+            self?.restorationIdentity.observe(
+                source: TDLib.shared.activeUpdateSource,
+                actorID: TDLib.shared.activeAccount?.userID,
+            )
             self?.handleAccountChange()
         }
         nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
@@ -772,6 +929,11 @@ import UIKit
         guard !editorRetention.shouldRetain(
             parent: self, accountID: accountID, currentAccountID: TDLib.shared.activeAccountID,
         ) else { return }
+        if canWaitForClientRestoration {
+            navigationItem.prompt = "Reconnecting…"
+            retryClientRestoration()
+            return
+        }
         let leaveProfile: () -> Void = { [weak self] in
             guard let self,
                   let navigationController,
@@ -1110,6 +1272,7 @@ import UIKit
     }
 
     private func renderMetadata() {
+        guard !clientOwnerRetired else { return }
         titleLabel.text = profileTitle()
         statusLabel.text = currentStatusText
         statusLabel.textColor = currentStatusText == "online" ? .systemGreen : .secondaryLabel
@@ -1283,7 +1446,7 @@ import UIKit
                     if historyRequest.finish(requestID) { historyTask = nil }
                     return
                 }
-                guard historyRequest.finish(requestID) else { return }
+                guard historyRequest.finish(requestID, settled: true) else { return }
                 let messages = result.messages
                 let nextCursor = messages.last?.id
                 for message in messages {
@@ -1301,7 +1464,11 @@ import UIKit
                 guard contextIsCurrent, currentSharedTab == requestedTab else { return }
                 applySnapshot()
             } catch {
-                guard historyRequest.finish(requestID) else { return }
+                guard historyRequest.finish(
+                    requestID,
+                    settled: !Task.isCancelled && contextIsCurrent && currentSharedTab == requestedTab,
+                )
+                else { return }
                 historyTask = nil
                 guard !Task.isCancelled, contextIsCurrent, currentSharedTab == requestedTab else { return }
                 historyError = "Couldn't load shared \(requestedTab.title.lowercased())."

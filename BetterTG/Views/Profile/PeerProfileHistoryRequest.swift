@@ -7,20 +7,24 @@ import Foundation
 /// A repeated tab selection is a new request, even when its filter is identical.
 struct PeerProfileHistoryRequest {
     private(set) var currentID: UUID?
+    private(set) var needsResume = false
 
     mutating func begin() -> UUID {
         let id = UUID()
         currentID = id
+        needsResume = true
         return id
     }
 
     mutating func invalidate() {
         currentID = nil
+        needsResume = false
     }
 
-    mutating func finish(_ id: UUID) -> Bool {
+    mutating func finish(_ id: UUID, settled: Bool = false) -> Bool {
         guard currentID == id else { return false }
         currentID = nil
+        if settled { needsResume = false }
         return true
     }
 }

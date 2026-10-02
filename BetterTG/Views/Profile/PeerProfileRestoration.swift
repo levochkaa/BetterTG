@@ -22,6 +22,8 @@ struct PeerProfileRestorationState {
     let details: [String]
     let viewport: PeerProfileViewport
 
+    var shouldResumePage: Bool { resumePage || messages.isEmpty && hasMore && error == nil }
+
     func matches(accountID: UUID, actorID: Int64?, chatID: Int64, topic: MessageTopic?) -> Bool {
         source.accountID == accountID && self.actorID == actorID && self.chatID == chatID && self.topic == topic
     }
@@ -69,5 +71,66 @@ struct PeerProfileViewport {
             animated: false,
         )
         return true
+    }
+}
+
+// MARK: - PeerProfileRestorationIdentity
+
+struct PeerProfileRestorationIdentity {
+    let origin: TdUpdateSource
+    let actorID: Int64?
+    var readySource: TdUpdateSource?
+    private(set) var revoked = false
+
+    mutating func observe(source: TdUpdateSource?, actorID: Int64?) {
+        if source?.accountID != origin.accountID || (actorID != nil && actorID != self.actorID) { revoked = true }
+    }
+
+    func accepts(_ source: TdUpdateSource, current: TdUpdateSource?, actorID: Int64?) -> Bool {
+        !revoked && self.actorID != nil && self.actorID == actorID && source == current && source == readySource
+            && source.accountID == origin.accountID && source.clientID != origin.clientID
+    }
+}
+
+// MARK: - PeerProfileMetadataPreparation
+
+/// Keeps an uncancellable old metadata RPC from publishing into a replacement attempt.
+@MainActor final class PeerProfileMetadataPreparation {
+    private(set) var source: TdUpdateSource?
+
+    private var token: UUID?
+    private var task: Task<Void, Never>?
+
+    deinit { task?.cancel() }
+
+    func request(
+        source: TdUpdateSource, fetch: @escaping () async -> CustomChat?,
+        accepts: @escaping () -> Bool, completion: @escaping (CustomChat?) -> Void,
+    ) {
+        guard self.source != source else { return }
+        cancel()
+        let token = UUID()
+        self.source = source
+        self.token = token
+        task = Task { [weak self] in
+            guard self?.token == token, !Task.isCancelled, accepts() else {
+                if self?.token == token { self?.cancel() }
+                return
+            }
+            let chat = await fetch()
+            guard let self, self.token == token else { return }
+            self.token = nil
+            self.source = nil
+            task = nil
+            guard !Task.isCancelled, accepts() else { return }
+            completion(chat)
+        }
+    }
+
+    func cancel() {
+        token = nil
+        source = nil
+        task?.cancel()
+        task = nil
     }
 }

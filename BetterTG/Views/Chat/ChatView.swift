@@ -676,6 +676,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return profile
     }
 
+    func canRestoreProfile(_ state: PeerProfileRestorationState, source: TdUpdateSource) -> Bool {
+        navigationClientSource == source && chatVM.locationContextIsCurrent && chatListActionOwnerIsAttached
+            && state.matches(
+                accountID: source.accountID,
+                actorID: tdlib.activeAccount?.userID,
+                chatID: location.chatID,
+                topic: location.topic,
+            )
+    }
+
     private func openProfile() {
         guard presentationMode == .full,
               navigationController?.topViewController === self
