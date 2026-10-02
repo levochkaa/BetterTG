@@ -56,12 +56,12 @@ current code before scheduling duplicate work. This section and the current chec
 
 | Priority | Area to revalidate | Required checks | New audit state |
 | --- | --- | --- | --- |
-| P0 | MediaCore and animated media | No VLC dependency/consumer; production TGS/WebP/WebM-alpha and custom/animated emoji routes; decode ownership, alpha/timing/sync, bounded caches, offscreen pause, prefetch/cancel/fallback | needs-fix — first source pass; A05/A07 bounded repairs/probes; A06/A08/A09 remain; authenticated animation smoke pending |
-| P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | needs-fix — A11–A14/A16/A17/A26 bounded repairs, including own-draft relocation/reinstall/discard and native finish/handoff races; A15 capture preservation remains open |
+| P0 | MediaCore and animated media | No VLC dependency/consumer; production TGS/WebP/WebM-alpha and custom/animated emoji routes; decode ownership, alpha/timing/sync, bounded caches, offscreen pause, prefetch/cancel/fallback | needs-fix — first source pass; A05/A06/A07 bounded repairs/probes; A08/A09 remain; authenticated animation smoke pending |
+| P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | reviewed with bounded A11–A17/A26 repairs, including own-draft relocation/reinstall/discard and native lifecycle/finish/handoff probes; actual OS suspension, audio delivery, hardware and server proof remain open |
 | P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | needs-fix — range/decoder/renderer source pass A01–A04; owner/PiP account-boundary pass at `909215a` finds A18/A19; full lifecycle/device proof incomplete |
 | P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | needs-fix — classification/media dispatch source pass at `176eab9`, structured actions at `cf885b1`; A10/A20/A21 concealment and A31 poll lifetime; live content/action matrix unverified |
 | P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | needs-fix — timeline A22; composer/edit/forward/transition source pass at `bb01b8f` finds A24/A25; live pagination/keyboard/flight proof pending |
-| P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | needs-fix — A12/A13/A14/A18/A19 bounded repairs; animation A05/A06 and remaining subscribers A23 open; cross-flow audit incomplete |
+| P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | needs-fix — A05/A06/A12/A13/A14/A18/A19 bounded repairs; remaining subscribers A23 and secondary-route A30 remain; cross-flow runtime proof incomplete |
 | P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | reviewed with bounded A27/A28 repairs — source pass at `d8ed16e`; effective info-edit policy and pagination request identity probed; hardware/server/gesture proof incomplete |
 | P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | needs-fix — event/RPC A23, mutation A29, foreground client replacement A30. Registry/auth/list/chrome initial source pass done; live multi-account/logout and full secondary-surface proof pending |
 
@@ -95,9 +95,10 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A30b2 quiescent Chat foreground recovery, A15b2 voice lifecycle and A08 animated-video timing.
-A30a root lists, A30b1 composer-transfer foundation and A16/A17 video ownership have bounded integrated proofs below;
-the foundation does not enable Chat restoration or close all lifecycle gaps.
+Active queue: A08 animated-video timing and A10 text spoilers, then A09 inline animation and A20 media concealment.
+A30b2 now enables quiescent Chat foreground recovery with bounded real-chat smoke; A15b2 voice lifecycle has native isolated proof.
+A30a root lists, A30b1 composer-transfer foundation and A16/A17 video ownership retain their bounded proofs below;
+ForumTopics, Archive, already-open editors, active capture and full OS/server lifecycle coverage remain separate.
 A26 relocation and A29 frozen list mutations have integrated bounded proofs below; A29 cold-launch folder navigation also passes.
 A12/A13/A18 delivery correlation and accepted-update transport are repaired with bounded proofs below;
 callbacks rejected before publication and recovery without a registered temporary ID remain separate gaps.
@@ -114,7 +115,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in `37c8b44`: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
 | A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | fixed in `3005369`: deduplicate complete identical snapshots while preserving every pause transport command; settled feedback, seek/rate/EOF/offline/retry probes passed |
 | A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | fixed by `83103ba`, `14a01c5`, `ef8f4ba` — explicit video-main end, estimated-versus-final duration authority and verified EOF/watchdog teardown; native and integrated decoder/controller probes pass, including under/overestimated metadata. Cold large-file partial-range proof remains separate |
-| A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | fixed bounded source/transport — `128ada2` freezes requests and scopes delivery/decode; `6e5b287` requires originating clients through every animated consumer and custom-emoji fetch, clears reused thumbnails. Isolated transport/native/PiP regressions pass; real multi-account sticker playback unverified. A06 shared cancellation remains open |
+| A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | fixed bounded source/transport — `128ada2` freezes requests and scopes delivery/decode; `6e5b287` requires originating clients through every animated consumer and custom-emoji fetch, clears reused thumbnails. Isolated transport/native/PiP regressions pass; real multi-account sticker playback unverified. A06 has its separate shared-demand repair |
 | A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | fixed bounded animated demand — `09fa140` shares account/client/file leases across TGS/WebP/WebM views and animated prefetch; last-owner cancellation/reacquisition and queued terminal updates pass isolated production-pool probes. Static `.none` prefetch and VOD-range arbitration remain separate; actual TDLib/view scheduling is unverified |
 | A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | fixed in `3917128`: native-free init, worker-isolated prepare/read/reset/deinit and setup/reuse fences; actual native-operation thread/lifecycle probe passed before and after integration |
 | A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | needs-fix: PTS/duration scheduling and decoder EOF, separately bounded cache |
@@ -124,7 +125,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A12 | P1 | Voice and video coordinators derive outcome destination from the delivered message topic, but an all-messages draft owns `destination.topic == nil` with separate `sendTopic`; store lookups require exact route equality before and after enqueue registration. Both `loadOutcome` helpers also fall back to any draft outcome when the exact temporary-ID record is absent | fixed in `847b838` (worker `2ccdb9b`) — separate delivery key, unique candidate, route+delivery enqueue gates and exact temporary-ID journal consumption. Isolated real-store early/late, all-messages, wrong-ID, ambiguity and relaunch probe passed. Pre-registration crash retains unresolved ownership; automatic recovery remains open |
 | A13 | P1 | Voice and video coordinators read current active account after `NotificationCenter.publisher` defers delivery to main; an account switch between posting and delivery can attribute A's outcome/delete to B with colliding IDs | fixed in `c356513` (worker `1eb9d23`) — immutable accepted-update source through generated dispatcher; 15 outcome/delete subscribers migrated, including document cleanup; isolated production-transport probe passed. This does not fix callbacks dropped before publication, A12 correlation or A18 media streams |
 | A14 | P1 | `ChatVM.startVoiceFinalization` persists an adopted draft before encoding, but sets enqueue ownership only later; a reopened ChatVM restores it as retryable while the previous owner still encodes/sends; store has no finalization/file reservation | fixed in `bb01b8f` (worker `a8d04c2`) — canonical per-draft/token ownership through encode and actual-ID registration, unique codec outputs, cancellation/join and stale UI fences. Native-codec/store probe and A12 regression pass; production no-send promotion passes. Reinstall proof fails separately at pre-existing A26 |
-| A15 | P1 | Video navigation/background/interruption sets preservation intent, then `VideoNoteCaptureSession.cancel` → writer cancellation deletes the current MP4 before adoption; Record More loses the unadopted new segment | partial — navigation finalization/join through `d34eeb3`; video background/interruption `8b42052` passes actual recorder/writer/private-store lifecycle and send-boundary probes. Voice A15b2, real OS suspension/audio delivery and hardware UI remain open |
+| A15 | P1 | Video navigation/background/interruption sets preservation intent, then `VideoNoteCaptureSession.cancel` → writer cancellation deletes the current MP4 before adoption; Record More loses the unadopted new segment | fixed bounded lifecycle — navigation joins through `d34eeb3`, video `8b42052`, voice `15871f5`/`fe5de21`; actual codec/private-store lifecycle and send-boundary probes pass. Real OS suspension/audio delivery, hardware UI and live TDLib boundaries remain unverified |
 | A16 | P1 | A retained consumed-origin video preview still owns its managed send asset; retry from composer acquires enqueue ownership, but preview Cancel calls `discardVideoNoteAsset` without the retry guard and can remove that in-flight file | fixed bounded handoff in `a72d93b` (worker `44c2c35`) — consumed-retained preview detaches without reclaiming/discarding send-store media, including pending Cancel; unconsumed cancellation and tombstones unchanged. Actual offscreen recorder/native media/isolated store probe passes stale teardown→retry registration; live send/gesture/recording materialization remains unverified |
 | A17 | P1 | Video automatic limit reserves `stopRequested` before async finish/UI publication; manual release in this gap still calls finish, gets `recordingUnavailable`, then failure cleanup cancels/deletes the valid near-limit clip | fixed bounded ownership in `e8a0eb1` (worker `6809716`) — one generation-scoped finish owner; competing stop returns no asset, automatic delivery retains authority, recorder operation completions are token-fenced. Actual capture-session/native H.264/AAC probe passes; real camera/limit/gesture/adoption proof remains open |
 | A18 | P1 | `TDLib.activate` creates account-labelled range coordinators but passes the same lifetime-global `fileUpdates` subject; retained old-account sources accept new-account files by numeric ID. The lifetime-global delete subject similarly reaches old gallery/PiP owners without provenance | fixed in `76f9998` (worker `b2e33d2`) — immutable per-activation streams, accepted-source fence and inert bootstrap. Real range-source bytes plus retained deletion subscriptions pass A/B/replacement-client collision probe. Actual account switch/system PiP remains unverified; A19 restoration remains open |
@@ -139,7 +140,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | fixed in `b0db39f` (worker `1a78906`) — shared effective capability, fresh appearance hydration and scoped rights updates; captured actor/account/client plus fresh `getChat`/`getChatMember` before each title/description write. Integrated 25-case policy and delayed-request probe passes; live profile permission/save behavior remains unverified |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | fixed in `9cdc6b0` — invalidate request identity before tab cancellation; success/error/cancellation may clear busy state or publish only after consuming their exact registration. Token regression passes A→B→A, obsolete cancellation, retry and duplicate delivery; actual suspended controller/RPC race remains unverified |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
-| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — A30a `0820359`/`c5d3f8b` replaces only Main against accepted ready source + matching RootVM, retaining selected folder/search/viewport and other stack entries. Probe and same-PID background→foreground list/search/editor-entry smoke pass. Chat, ForumTopics, Archive and already-open editors still require safe replacement; full notification/account lifecycle unverified |
+| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a` now transfers composer/history and settles anchor/focus. Same-PID Saved Messages background→foreground and deferred emoji-picker Done smoke pass. ForumTopics, Archive, already-open editors and active capture remain deferred; full account/notification lifecycle unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | needs-fix — audit secondary navigation controls against pinned pre-Liquid chrome; preserve full-width blur/safe-area and accessibility. A zero forbidden-marker scan does not prove UIKit's default runtime appearance |
 
@@ -865,6 +866,60 @@ is imported. This source pass does not prove every content's real rendering/acti
   client replacement, pre-start cancellation, completed cache and explicit retry. No server calls or user stores. Actual three-view
   decode callbacks/TDLib scheduler, nonanimated downloads and cross-arbitration with VOD ranges are not established by these probes.
 
+### A30b2 quiescent Chat controller — 2026-10-02
+
+- `494bf56` (worker `7f98a52`) enables the existing terminal navigation replacement for ordinary Chat. Captured target-client
+  metadata, account/chat/topic and retained-route checks precede synchronous composer/history ownership transfer. Imports, marked
+  text, modal/context menus, gestures, capture/send operations and timeline transitions defer replacement. Paste/Photos/camera/files
+  register import ownership before asynchronous work; same-account results can finish on a retained old-client route.
+- Selection, focus and mic/video mode transfer separately. The retired text view resigns only its own responder; the new controller
+  restores one message ID + pixel offset after snapshot, appearance, layout and keyboard settlement, then starts history freshness.
+  User scroll/input invalidates this initial anchor. A22 general timeline epochs and active capture restoration are not repaired here.
+- Primary follow-up `9495f0a` adds the missing explicit retry after emoji-picker Done or invalid-context dismissal. UIKit's
+  interactive presentation delegate does not cover that programmatic completion. Foundation probe labels now state that those
+  probes do not exercise controller navigation. A DEBUG-only, content-free log identifies actual viewport settlement.
+- References: pinned current `ChatInterfaceState/Sources/ChatInterfaceState.swift` 232–270 and pre-Liquid 514–531, distinct
+  compose/reply/edit/history/media state and message-index-relative offset. TDLib captured-client `getChat/getForumTopic/getMessage`,
+  chat/thread history and accepted ready/update source; no new server mutation or storage schema.
+- Primary builds: `.build/logs/xcodebuild/build-Debug-20261002-190318-62891-1540.log` (12s), combined voice build
+  `build-Debug-20261002-190401-63298-26208.log` (11s), final picker fix `build-Debug-20261002-192208-71024-31859.log` (7s), all
+  zero warnings after each slice's single SwiftFormat invocation. Sandbox-only CoreSimulator access failed; authorized wrapper retry
+  succeeded without resetting data. Source review also corrected first-responder retirement before integration.
+- Audit Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone 17 Pro / iOS 26.5: source `fe5de21`, PID `64668`, actual
+  Saved Messages retained latest and settled non-latest viewport plus empty-composer caret after Home→foreground. The initial
+  non-latest screenshot preceded deceleration and is not anchor proof; the repeated settled pair is visually consistent, without an
+  automated pixel-error measurement. Software keyboard was hidden by the hardware-keyboard setup.
+- At `9495f0a`, PID `71481`, open emoji-picker survived Home→foreground; Done returned the actual chat. At 19:26:46 the same
+  process logged `Chat client restoration: viewport settled; fresh history starts`. No emoji selection, text input, attachment,
+  send or account switch. Screenshots and state probe: `.build/ui-probe-evidence/astra-a30b2-controller-primary`; worker notes are
+  separate. Chat state/composer foundation and A06 authority/demand probes pass; their isolated transports are not network proof.
+- Pending: interrupted real provider imports, nonempty edit/reply/attachment transfer, software-keyboard transitions, active voice/video,
+  ForumTopics/Archive/editors, live account switches and delayed server-history races. Full A30 remains partial.
+
+### A15b2 voice lifecycle checkpoint — 2026-10-02
+
+- `15871f5` (worker `f12e3d1`) separates interaction, background and audio-interruption suspension. Clearing one reason cannot
+  revive another or an older permission/trim/resume/preview/send intent. Background pauses preview and checkpoints the canonical
+  PCM/trim/promotion owner. One bounded UIKit time assertion is exact-once, including immediate expiration; expiration does not
+  cancel canonical persistence. Foreground does not resume capture, playback or sending automatically.
+- `fe5de21` (worker `0251285`) fixes a primary-review finding: background must not wait on upload-action/reply-validation network
+  preflight. The checkpoint marker ends when encoded canonical media is durable, before network awaits. A task captured while still
+  encoding sees its invalidated send epoch and retains the draft. Accepted RPCs still register their actual temporary ID and retain
+  their files. Fallback closed-segment promotion now keeps the route barrier through CPU/store completion. Storage formats unchanged.
+- References: pinned current/pre `TelegramUI/Sources/ChatController.swift` 6857–6872 / 5963–5978;
+  `Chat/ChatControllerMediaRecording.swift` 460–480 / 470–487 (stop into preview);
+  `ManagedAudioRecorder.swift` 448–455 and 522–560 (session deactivation and Ogg pause/resume). Durable disk policy is BetterTG's
+  adaptation; source does not establish Telegram observer ordering or identical process-death behavior. TDLib send/reply preflight
+  and returned message-ID registration retain the earlier A12/A14 contracts.
+- Four worker Swift files and combined nine-file primary set formatted before their builds. Primary combined build
+  `.build/logs/xcodebuild/build-Debug-20261002-190401-63298-26208.log`: PASS 11s, zero warnings; follow-up build above also clean.
+  On the audit Simulator, sources `fe5de21` / `9495f0a`, PIDs `64668` / `71481`, `-media-probe-voice-lifecycle` and
+  `-media-probe-voice-finalization` pass. Proof: `.build/ui-probe-evidence/astra-a15b2-primary`; worker notes/logs retained separately.
+- Native isolated proof uses real PCM16/48kHz trim/concatenate, Ogg codec and private recording/send stores: independent reasons,
+  route barrier, duplicate/expired assertion, stale intent, failed append, explicit discard, metadata and accepted-ID ownership.
+  It neither instantiates a real ChatVM nor emits OS audio notifications/server RPCs. Real microphone/interruption/process suspension,
+  ChatVM's suspended network preflight and actual accepted send remain unverified; this does not close those runtime gaps.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -904,29 +959,30 @@ is imported. This source pass does not prove every content's real rendering/acti
   A31 `b7de6ee` has poll-attempt/deadline ownership proof; no server votes or delayed live RPC proof.
   A15a navigation joins pass through `d34eeb3`; A30b2 history/import helpers `6aa7ce4` and Root A23a `e1d295e` pass bounded probes.
   A05a/b and A15b1 have bounded source/transport/native proofs; shared production history revisions pass at `da59789`.
-  A06 shared animated demand has bounded transport proof at `09fa140`. Voice background A15b2, Chat/secondary-route A30b2,
-  remaining A23, text A10/A25 and other queued findings remain open.
+  A06 shared animated demand has bounded transport proof at `09fa140`; A15b2 voice lifecycle passes at `fe5de21`.
+  Quiescent Chat A30b2 is active at `494bf56`/`9495f0a` with bounded actual-chat smoke. Secondary routes, remaining A23,
+  text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `09fa140`, adding shared animated-file demand to the `da59789` baseline. Demand/source/history probes pass
-  (PID `60930`); earlier Chat/Root/poll regression results remain at `da59789` (PID `41056`). Production Main search/focus smoke
-  belongs to `df9eb7a`. Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-185806-60504-4167.log`.
+- Latest verified code: `9495f0a`, adding quiescent Chat controller restoration and voice lifecycle to the A06 baseline. Chat state,
+  composer foundation and voice lifecycle/finalization probes pass (PID `71481`); A06 demand/source also pass on combined `fe5de21`.
+  Actual Chat modal/background/Done restoration passes; earlier Root/poll proofs remain at `da59789` and Main search/focus at `df9eb7a`.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-192208-71024-31859.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
-  A30b2 shared production history/revision wiring and A23b Chat update-delivery fences are integrated; controller activation is next.
+  A30b2 controller/history and A23b Chat update-delivery fences are integrated; its A10 text-spoiler worker result awaits integration.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
-  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1; voice A15b2 is underway.
+  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2; its A08 timing result awaits integration.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: quiescent Chat activation with anchor/focus and controller import/modal/paste guards; voice A15b2.
-  A06 bounded animated demand is integrated; A08 timing is next for MediaCore. Verify the normal production timeline
-  affected by history revisions before claiming restoration complete.
+- Exact next slices: integrate A08 native timing and A10 text spoilers, run their actual native/UIKit probes and affected regressions;
+  then A09 inline Apple-container animation and A20 media concealment. Retain Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
   process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
   The full A30 transaction
