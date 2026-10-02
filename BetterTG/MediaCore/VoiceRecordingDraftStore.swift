@@ -106,8 +106,13 @@ actor VoiceRecordingDraftStore {
 
     private let fileManager = FileManager.default
     private var cancelledDraftIDs = Set<UUID>()
-    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("VoiceRecordingDrafts", isDirectory: true)
+    private let directoryURL: URL
+
+    init(directoryURL: URL? = nil) {
+        self.directoryURL = directoryURL ?? FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VoiceRecordingDrafts", isDirectory: true)
+    }
 
     func adopt(_ draft: VoiceRecordingDraft) throws -> VoiceRecordingDraft {
         try Task.checkCancellation()

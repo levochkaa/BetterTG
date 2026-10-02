@@ -137,6 +137,8 @@ import UIKit
     private var voiceRecordingDraftGeneration = 0
     private var voiceRecordingDraftID: UUID?
     private var voiceRecordingLifecycle = VoiceRecordingLifecycle()
+    private var voiceRequestInFlight = false
+    private let voiceBackgroundCheckpoint = VoiceRecordingCheckpointProtection()
     private var activeVoiceRecordingDraft: VoiceRecordingDraft?
     private var activeVoiceRecordingContext: ResolvedSendContext?
     private let voiceRecordingPreviewPlayer = LocalMediaPlayer()
@@ -592,6 +594,7 @@ import UIKit
         timer?.invalidate()
         audioRecorder?.stop()
         MainActor.assumeIsolated {
+            voiceBackgroundCheckpoint.finish()
             messageRefresh?.cancel()
             composerRestorationLifetime.finish {
                 if audioRecorder != nil {
@@ -644,6 +647,9 @@ import UIKit
         self.canAddReactions = customChat.chat.permissions.canReactToMessages
         self.maximumChosenReactionCount =
             customChat.chat.availableReactions.maximumChosenReactionCount
+        if UIApplication.shared.applicationState == .background {
+            _ = voiceRecordingLifecycle.suspend(.background)
+        }
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
@@ -2745,6 +2751,7 @@ import UIKit
     }
     
     func mediaStopRecordingVoice() {
+        guard !voiceRecordingLifecycle.isSuspended else { return }
         switch voiceRecordingInteractionState {
         case .preview:
             sendVoiceRecordingPreview()
@@ -2773,38 +2780,7 @@ import UIKit
     /// Lifecycle teardown preserves a recording; only explicit Delete/cancel discards it.
     func suspendVoiceRecording() {
         guard voiceRecordingLifecycle.suspend() else { return }
-        stopVoiceRecordingPreviewPlayback()
-        guard recordingVoiceNote else { return }
-
-        switch voiceRecordingInteractionState {
-        case .holding, .locked:
-            updateVoiceRecordingDuration()
-            voiceRecordingInteractionState = .locked
-            if canPauseVoiceRecording {
-                closeVoiceRecordingSegment(sendAfterPreparation: false)
-            } else {
-                finishVoiceRecording(
-                    sendWhenReady: false,
-                    pendingMessage: "Voice recording stopped before a preview could be created.",
-                )
-            }
-        case .preview:
-            // A disappearing trim control may never deliver its final touch event.
-            // Commit the current range and let an already-running save finish.
-            if voiceRecordingTrimIsUpdating, voiceRecordingTrimTask == nil,
-               let draft = activeVoiceRecordingDraft
-            {
-                updateVoiceRecordingTrim(
-                    start: draft.effectiveRange.lowerBound,
-                    end: draft.effectiveRange.upperBound,
-                    updatedEnd: false,
-                    finished: true,
-                )
-            }
-        case .idle, .pausing, .resuming:
-            // Owned persistence work must finish. Its continuation observes suspension.
-            break
-        }
+        preserveVoiceRecordingCheckpoint()
     }
 
     func resumeVoiceRecording(confirmingTrim: Bool = false) {
@@ -2826,7 +2802,8 @@ import UIKit
     }
 
     func toggleVoiceRecordingPreview() {
-        guard voiceRecordingInteractionState == .preview,
+        guard !voiceRecordingLifecycle.isSuspended,
+              voiceRecordingInteractionState == .preview,
               let draft = activeVoiceRecordingDraft
         else { return }
         if voiceRecordingPreviewPlayer.isPlaybackRequested {
@@ -2988,7 +2965,7 @@ import UIKit
     }
 
     func retryPendingVoiceNote() {
-        guard !loadingVoiceDraft,
+        guard !voiceRecordingLifecycle.isSuspended, !loadingVoiceDraft,
               !finalizingVoiceNote,
               canRetryPendingVoiceNote,
               let pendingVoiceNote
@@ -3074,6 +3051,41 @@ import UIKit
     func bufferPotentialVoiceMessageDeletions(_ messageIDs: [Int64]) {
         guard finalizingVoiceNote || !registeringVoiceMessageIDs.isEmpty else { return }
         bufferedDeletedMessageIDs.formUnion(messageIDs)
+    }
+
+    private func preserveVoiceRecordingCheckpoint() {
+        stopVoiceRecordingPreviewPlayback()
+        guard recordingVoiceNote else { return }
+
+        switch voiceRecordingInteractionState {
+        case .holding, .locked:
+            updateVoiceRecordingDuration()
+            voiceRecordingInteractionState = .locked
+            if canPauseVoiceRecording {
+                closeVoiceRecordingSegment(sendAfterPreparation: false)
+            } else {
+                finishVoiceRecording(
+                    sendWhenReady: false,
+                    pendingMessage: "Voice recording stopped before a preview could be created.",
+                )
+            }
+        case .preview:
+            // A disappearing trim control may never deliver its final touch event.
+            // Commit the current range and let an already-running save finish.
+            if voiceRecordingTrimIsUpdating, voiceRecordingTrimTask == nil,
+               let draft = activeVoiceRecordingDraft
+            {
+                updateVoiceRecordingTrim(
+                    start: draft.effectiveRange.lowerBound,
+                    end: draft.effectiveRange.upperBound,
+                    updatedEnd: false,
+                    finished: true,
+                )
+            }
+        case .idle, .pausing, .resuming:
+            // Owned persistence work must finish. Its continuation observes suspension.
+            break
+        }
     }
 
     private func configureMessageRefresh(seedIDs: [Int64], visibleIDs: [Int64]) {
@@ -4165,7 +4177,7 @@ import UIKit
                         sendVoiceRecordingPreview()
                     }
                 } else {
-                    fallbackClosedVoiceSegment(
+                    await fallbackClosedVoiceSegment(
                         sourceURL: sourceURL,
                         duration: recordedDuration,
                         peakPowers: segmentPeaks,
@@ -4188,7 +4200,7 @@ import UIKit
         peakPowers: [Float],
         reply: CustomMessage?,
         context: ResolvedSendContext?,
-    ) {
+    ) async {
         recordingVoiceNote = false
         voiceRecordingInteractionState = .idle
         activeVoiceRecordingDraft = nil
@@ -4218,6 +4230,8 @@ import UIKit
             sendWhenReady: false,
             pendingMessage: "Preview preparation failed. The recording was preserved as a retry draft.",
         )
+        // Keep the route checkpoint until the fallback has a durable send-store owner.
+        await voiceFinalizeTask?.value
     }
 
     private func materializeVoiceRecordingTrim(
@@ -4310,6 +4324,7 @@ import UIKit
         voiceRecordingDraftGeneration &+= 1
         let generation = voiceRecordingDraftGeneration
         let reply = pendingVoiceReplyMessage
+        let interactionGeneration = voiceRecordingLifecycle.generation
         let sendDraft = VoiceNoteSendDraft(
             id: draft.id,
             chatID: draft.chatID,
@@ -4361,6 +4376,7 @@ import UIKit
                 startVoiceFinalization(
                     sendWhenReady: shouldSend,
                     pendingMessage: shouldSend ? nil : "Voice preview promotion smoke retained a retry draft.",
+                    intentGeneration: interactionGeneration,
                 )
             } catch {
                 if let adoptedSendDraft, Task.isCancelled || voiceRecordingDraftGeneration != generation {
@@ -4597,7 +4613,7 @@ import UIKit
     private func sendMessageVoiceNote(
         fileURL: URL,
         draft: VoiceNoteSendDraft,
-        onRequestStart: () -> Void,
+        onRequestStart: () throws -> Void,
     ) async throws -> Message {
         let context = try resolveFrozenMediaSendContext(
             for: .voiceNote,
@@ -4607,7 +4623,7 @@ import UIKit
         )
         try await validateStoredReply(draft.replyTo, in: context)
         try Task.checkCancellation()
-        onRequestStart()
+        try onRequestStart()
         let message = try await client.sendMessage(
             chatId: context.chatID,
             inputMessageContent: .inputMessageVoiceNote(
@@ -4633,11 +4649,14 @@ import UIKit
     private func startVoiceFinalization(
         sendWhenReady: Bool = true,
         pendingMessage: String? = nil,
+        intentGeneration: UInt64? = nil,
     ) {
         guard var draft = pendingVoiceNote else { return }
         voiceFinalizeTask?.cancel()
         voiceFinalizationGeneration &+= 1
         let generation = voiceFinalizationGeneration
+        let interactionGeneration = intentGeneration ?? voiceRecordingLifecycle.generation
+        voiceRequestInFlight = false
         voiceRetryAvailabilityTask?.cancel()
         finalizingVoiceNote = true
         hasPendingVoiceNote = false
@@ -4650,6 +4669,7 @@ import UIKit
             defer {
                 if let registeringMessageID { registeringVoiceMessageIDs.remove(registeringMessageID) }
                 if voiceFinalizationGeneration == generation {
+                    voiceRequestInFlight = false
                     bufferedDeletedMessageIDs.removeAll()
                     finalizingVoiceNote = false
                     voiceFinalizeTask = nil
@@ -4678,7 +4698,7 @@ import UIKit
                     guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                     pendingVoiceNote = draft
                 }
-                guard sendWhenReady else {
+                guard sendWhenReady, voiceRecordingLifecycle.permitsContinuation(interactionGeneration) else {
                     await VoiceNoteDraftStore.shared.finishFinalization(claim.lease)
                     finalization = nil
                     try Task.checkCancellation()
@@ -4705,6 +4725,7 @@ import UIKit
                 )
                 try Task.checkCancellation()
                 guard voiceFinalizationGeneration == generation else { throw CancellationError() }
+                try voiceRecordingLifecycle.requireCurrentIntent(interactionGeneration)
                 draft = try await VoiceNoteDraftStore.shared.beginEnqueue(draft, finalization: claim.lease)
                 try Task.checkCancellation()
                 guard voiceFinalizationGeneration == generation else { throw CancellationError() }
@@ -4714,7 +4735,9 @@ import UIKit
                     guard failedSendState.canRetryNow else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
+                    try voiceRecordingLifecycle.requireCurrentIntent(interactionGeneration)
                     didStartSend = true
+                    voiceRequestInFlight = true
                     let resentMessages = try await client.resendMessages(
                         chatId: chatID,
                         messageIds: [failedSendState.messageID],
@@ -4727,8 +4750,10 @@ import UIKit
                     message = resentMessage
                     draft.failedSendState = nil
                 } else {
-                    message = try await sendMessageVoiceNote(fileURL: draft.fileURL, draft: draft) {
+                    message = try await sendMessageVoiceNote(fileURL: draft.fileURL, draft: draft) { [owner = self] in
+                        try owner.voiceRecordingLifecycle.requireCurrentIntent(interactionGeneration)
                         didStartSend = true
+                        owner.voiceRequestInFlight = true
                     }
                 }
                 // UI cancellation cannot revoke a send already accepted by TDLib.
@@ -5125,57 +5150,43 @@ import UIKit
 
     private func observeVoiceRecordingInterruptions() {
         NotificationCenter.default
+            .publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in self?.suspendVoiceRecordingForSystem(.background) }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in self?.voiceRecordingLifecycle.resume(.background) }
+            .store(in: &cancellables)
+        NotificationCenter.default
             .publisher(for: AVAudioSession.interruptionNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let self,
                       let rawValue = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?
-                          .uintValue,
-                          AVAudioSession.InterruptionType(rawValue: rawValue) == .began,
-                          recordingVoiceNote
+                          .uintValue
                 else { return }
-                switch voiceRecordingInteractionState {
-                case .holding:
-                    updateVoiceRecordingDuration()
-                    if timerCount >= 0.5 {
-                        voiceRecordingInteractionState = .locked
-                        closeVoiceRecordingSegment(sendAfterPreparation: false)
-                    } else {
-                        finishVoiceRecording(
-                            sendWhenReady: false,
-                            pendingMessage: "Voice recording was interrupted before a preview could be created.",
-                        )
-                    }
-                case .locked where activeVoiceRecordingDraft == nil:
-                    updateVoiceRecordingDuration()
-                    if timerCount >= 0.5 {
-                        closeVoiceRecordingSegment(sendAfterPreparation: false)
-                    } else {
-                        finishVoiceRecording(
-                            sendWhenReady: false,
-                            pendingMessage: "Voice recording was interrupted before a preview could be created.",
-                        )
-                    }
-                case .locked where canPauseVoiceRecording:
-                    closeVoiceRecordingSegment(sendAfterPreparation: false)
-                case .locked:
-                    audioRecorder?.stop()
-                    audioRecorder = nil
-                    if let recordingVoiceNoteURL {
-                        try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
-                    }
-                    recordingVoiceNoteURL = nil
-                    pauseVoiceRecordingTimer()
-                    Media.shared.endAudioSessionRecord()
-                    if let draft = activeVoiceRecordingDraft {
-                        timerCount = draft.exactDuration
-                        voiceRecordingInteractionState = .preview
-                        loadVoiceRecordingPreview(draft)
-                    }
-                case .idle, .pausing, .preview, .resuming:
-                    break
+                if AVAudioSession.InterruptionType(rawValue: rawValue) == .began {
+                    suspendVoiceRecordingForSystem(.audioInterruption)
+                } else if AVAudioSession.InterruptionType(rawValue: rawValue) == .ended {
+                    voiceRecordingLifecycle.resume(.audioInterruption)
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func suspendVoiceRecordingForSystem(_ reason: VoiceRecordingLifecycle.Reason) {
+        guard voiceRecordingLifecycle.suspend(reason) else { return }
+        // Invalidate permission/trim/send intents even before recordingVoiceNote becomes true.
+        preserveVoiceRecordingCheckpoint()
+        if reason == .background || UIApplication.shared.applicationState == .background {
+            protectVoiceRecordingCheckpoint()
+        }
+    }
+
+    private func protectVoiceRecordingCheckpoint() {
+        let tasks = [voiceRecordingDraftTask, voiceRecordingTrimTask, voiceRequestInFlight ? nil : voiceFinalizeTask]
+            .compactMap(\.self)
+        // Expiry only ends the assertion; canonical work and accepted RPCs keep their owners.
+        voiceBackgroundCheckpoint.protect(tasks)
     }
 }

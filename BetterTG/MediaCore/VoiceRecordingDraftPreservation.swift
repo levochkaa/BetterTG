@@ -1,28 +1,128 @@
 // VoiceRecordingDraftPreservation.swift
 
 import Foundation
+import UIKit
 
 // MARK: - VoiceRecordingLifecycle
 
 /// Re-enabling the UI must not revive an intent from before navigation or permission loss.
 struct VoiceRecordingLifecycle {
-    private(set) var isSuspended = false
+    enum Reason: Hashable {
+        case interaction
+        case background
+        case audioInterruption
+    }
+
     private(set) var generation = UInt64.zero
 
-    mutating func suspend() -> Bool {
-        guard !isSuspended else { return false }
-        isSuspended = true
+    private var reasons = Set<Reason>()
+
+    var isSuspended: Bool { !reasons.isEmpty }
+
+    mutating func suspend(_ reason: Reason = .interaction) -> Bool {
+        guard reasons.insert(reason).inserted else { return false }
         generation &+= 1
         return true
     }
 
     mutating func resumeInteraction() {
-        isSuspended = false
+        resume(.interaction)
+    }
+
+    mutating func resume(_ reason: Reason) {
+        reasons.remove(reason)
     }
 
     func permitsContinuation(_ generation: UInt64) -> Bool {
         !isSuspended && self.generation == generation
     }
+
+    func requireCurrentIntent(_ generation: UInt64) throws {
+        guard permitsContinuation(generation) else { throw CancellationError() }
+    }
+}
+
+// MARK: - VoiceRecordingBackgroundLease
+
+/// Expiry releases time ownership, never canonical files or accepted submissions.
+@MainActor final class VoiceRecordingBackgroundLease {
+    @MainActor struct Backend {
+        static var application: Backend {
+            Backend(
+                begin: { expiration in UIApplication.shared.beginBackgroundTask(
+                    withName: "Voice recording checkpoint",
+                    expirationHandler: { MainActor.assumeIsolated { expiration() } },
+                ) },
+                end: { UIApplication.shared.endBackgroundTask($0) },
+            )
+        }
+
+        let begin: @MainActor (@escaping @MainActor @Sendable () -> Void) -> UIBackgroundTaskIdentifier
+        let end: @MainActor (UIBackgroundTaskIdentifier) -> Void
+    }
+
+    private let backend: Backend
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+    private var isStarting = true
+    private var expiredDuringStart = false
+
+    init(backend: Backend? = nil) {
+        self.backend = backend ?? .application
+        self.identifier = self.backend.begin { [weak self] in self?.expire() }
+        self.isStarting = false
+        if expiredDuringStart { finish() }
+    }
+
+    func finish() {
+        let previous = identifier
+        identifier = .invalid
+        if previous != .invalid { backend.end(previous) }
+    }
+
+    private func expire() {
+        if isStarting {
+            expiredDuringStart = true
+        } else {
+            finish()
+        }
+    }
+}
+
+// MARK: - VoiceRecordingCheckpointProtection
+
+@MainActor final class VoiceRecordingCheckpointProtection {
+    private let backend: VoiceRecordingBackgroundLease.Backend?
+    private var lease: VoiceRecordingBackgroundLease?
+    private var task: Task<Void, Never>?
+    private var taskID: UUID?
+
+    var hasPendingWork: Bool { task != nil }
+
+    init(backend: VoiceRecordingBackgroundLease.Backend? = nil) {
+        self.backend = backend
+    }
+
+    func protect(_ tasks: [Task<Void, Never>]) {
+        guard task == nil, !tasks.isEmpty else { return }
+        let id = UUID()
+        let lease = VoiceRecordingBackgroundLease(backend: backend)
+        self.lease = lease
+        taskID = id
+        task = Task { [weak self] in
+            for task in tasks {
+                await task.value
+            }
+            lease.finish()
+            guard let self, taskID == id else { return }
+            taskID = nil
+            self.lease = nil
+            task = nil
+        }
+    }
+
+    func finish() { lease?.finish() }
+
+    func wait() async { await task?.value }
 }
 
 // MARK: - VoiceRecordingDraftPreservation
@@ -60,6 +160,10 @@ struct VoiceRecordingLifecycle {
 #if DEBUG
     extension VoiceRecordingDraftPreservation {
         static func runDebugProbeIfRequested() {
+            if ProcessInfo.processInfo.arguments.contains("-media-probe-voice-lifecycle") {
+                VoiceRecordingLifecycleProbe.run()
+                return
+            }
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-voice-preservation") else { return }
             Task {
                 let key = ChatDraftKey(accountID: UUID(), chatID: Int64.min + 17, topic: nil)
