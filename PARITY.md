@@ -100,7 +100,8 @@ Auth A23e and bounded composer A25 semantic/marked-input/undo probes pass; live 
 A08 timing and A10 text spoilers now have integrated native/UIKit probes; A10's first runtime failure is fixed separately below.
 A30b2 now enables quiescent Chat foreground recovery with bounded real-chat smoke; A15b2 voice lifecycle has native isolated proof.
 A30a root lists, A30b1 composer-transfer foundation and A16/A17 video ownership retain their bounded proofs below;
-ForumTopics, Archive, already-open editors, active capture and full OS/server lifecycle coverage remain separate.
+Archive now has bounded query/focus recovery proof below; ForumTopics, already-open editors, active capture and full OS/server
+lifecycle coverage remain separate.
 A26 relocation and A29 frozen list mutations have integrated bounded proofs below; A29 cold-launch folder navigation also passes.
 A12/A13/A18 delivery correlation and accepted-update transport are repaired with bounded proofs below;
 callbacks rejected before publication and recovery without a registered temporary ID remain separate gaps.
@@ -133,7 +134,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A18 | P1 | `TDLib.activate` creates account-labelled range coordinators but passes the same lifetime-global `fileUpdates` subject; retained old-account sources accept new-account files by numeric ID. The lifetime-global delete subject similarly reaches old gallery/PiP owners without provenance | fixed in `76f9998` (worker `b2e33d2`) — immutable per-activation streams, accepted-source fence and inert bootstrap. Real range-source bytes plus retained deletion subscriptions pass A/B/replacement-client collision probe. Actual account switch/system PiP remains unverified; A19 restoration remains open |
 | A19 | P1 | `GalleryPictureInPictureCoordinator.presentRestoredGallery` retains messages/owner but rebuilds gallery with mutable shared `tdlib` only, omitting original `actionClient`, `sourceLocation` and `contextIsCurrent`; restore has no account/client guard, and dismissed PiP ownership survives context teardown | fixed in `d8ed16e` (worker `1ea2594`) — frozen account/client/chat/topic/ranges/delete authority, route callbacks and same-tab pagination, every-activation revocation, bounded exactly-once restoration. Isolated context and existing owner probes pass; actual system PiP and action transport remain unverified |
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | partial — `05c2b49` route-owned revision permits gate timeline/album/gallery pixels, prefetch, owners and snapshots; isolated actual-gallery/native proof passes. Profile grid still bypasses concealment and same-ID reconfiguration; A20b in progress. Distinct from caption/text spoiler A10 |
-| A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | partial containment — A20a denies ordinary secret photo/video/animation rendering and gallery admission. Hold/TTL remains unimplemented. Source follow-up finds video-note global open RPC/raw file updates, retained open grant and missing expiry/source revocation; repair in progress. No real secret content consumed |
+| A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | partial containment — A20a denies ordinary secret photo/video/animation pixels and playback admission. Hold/TTL remains unimplemented. Source follow-up finds video-note global open RPC/raw file updates, retained open grant and missing expiry/source revocation; repair in progress. No real secret content consumed |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | partial bounded repair — `6869382` one-shot geometry authority cancels obsolete automatic restoration after gestures, navigation and newer layout. Policy/Chat/composer probes and ordinary Saved scroll/latest smoke pass. Controlled overlapping diffable/rotation/keyboard/media-resize and prepend-during-drag pixel proof remain unverified |
 | A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a`, static-image `ba0e192` and auth `097b488` have bounded source/queued-delivery authority proofs. Auth actual-view probe passes through `d7e9974`. Remaining subscribers/static-image origin/shared-demand ownership, same-epoch ordering and real multi-account RPC races stay open |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
@@ -142,7 +143,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | fixed in `b0db39f` (worker `1a78906`) — shared effective capability, fresh appearance hydration and scoped rights updates; captured actor/account/client plus fresh `getChat`/`getChatMember` before each title/description write. Integrated 25-case policy and delayed-request probe passes; live profile permission/save behavior remains unverified |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | fixed in `9cdc6b0` — invalidate request identity before tab cancellation; success/error/cancellation may clear busy state or publish only after consuming their exact registration. Token regression passes A→B→A, obsolete cancellation, retry and duplicate delivery; actual suspended controller/RPC race remains unverified |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
-| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a` now transfers composer/history and settles anchor/focus. Same-PID Saved Messages background→foreground and deferred emoji-picker Done smoke pass. ForumTopics, Archive, already-open editors and active capture remain deferred; full account/notification lifecycle unverified |
+| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7` now replaces authority and hydrates the current folder while retaining query/focus/viewport. Same-PID Saved and Archive search foreground smoke pass. ForumTopics, already-open editors and active capture remain deferred; full account/notification lifecycle unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | needs-fix — audit secondary navigation controls against pinned pre-Liquid chrome; preserve full-width blur/safe-area and accessibility. A zero forbidden-marker scan does not prove UIKit's default runtime appearance |
 
@@ -1133,6 +1134,29 @@ is imported. This source pass does not prove every content's real rendering/acti
   profile grid, full accessibility and animation appearance remain unverified. Profile concealment is the next bounded repair.
   Same-epoch stale RPC ordering is not solved by revision permits. No real hidden/secret message was opened or consumed.
 
+### A30c Archive client recovery — 2026-10-02
+
+- `bb36bc7` opts Archive into the existing prepared navigation replacement. It captures query, search focus and stable
+  row/pixel viewport; commit constructs a new frozen action client without rebuilding adjacent Chat routes. The shared coordinator
+  retains its account/ready-source/modal/stack checks. Archive also replaces its child when RootVM publishes a new archive folder
+  object, so later hydration does not strand the old list. Old child subscriptions/prefetch ownership are released normally.
+- Preserve full-width UIKit chrome and current safe-area/search height. Defer replacement/hydration during dragging/deceleration
+  or marked input; matching scroll callbacks, query changes, appearance and Root state schedule retries. Independent review caught
+  a tracking-only wait with no terminal scroll callback; the final gate excludes tracking-only touches. IME unmark without a query
+  event remains a runtime proof gap, not claimed solved.
+- Reference: pinned current/pre `ChatListUI/Sources/ChatListController.swift` 98 / 91 retains immutable account context and
+  list location. BetterTG adapts this ownership to its existing TDLib `readyClientChanges`, accepted folder hydration and
+  `ChatListArchive` model; no new TDLib API, storage format or copied navigation infrastructure.
+- Three modified Swift files formatted together; final `build-Debug-20261002-205425-50452-17562.log`: PASS9s, zero warnings.
+  Audit Simulator PID `52323`, source `458365c` plus the committed delta: client-restoration, Root list and auth probes pass.
+  Actual Archive search retains a nonempty local query and active focus through two Home→foreground cycles. Existing Russian
+  hardware-keyboard layout transformed the requested ASCII fixture; the exact resulting query survived unchanged.
+- Bounded idb log confirms `Archive client restoration: replacement accepted; search-focus=true` in PID `52323` at21:00:18.
+  Screenshots/proofs/command limits: `.build/ui-probe-evidence/astra-a30c-primary`. The temporary agent-created filter was closed.
+  No archived chat, message, account, server setting or draft was modified. idb's timeout cleanup emitted an asyncio diagnostic;
+  it is not an app/build warning. Populated anchor accuracy, live hydration during dragging, late first-layout and cross-account
+  navigation remain unverified; the existing generic coordinator probe is not an actual Archive-controller test.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -1178,7 +1202,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `05c2b49`: media-reveal/text-spoiler/viewport probes pass (PID `39784`); native animation/transition,
+- Latest verified code: `bb36bc7`: Archive same-PID search/foreground replacement smoke and navigation/Root/auth regressions pass (PID `52323`).
+  `05c2b49`: media-reveal/text-spoiler/viewport probes pass (PID `39784`); native animation/transition,
   gallery-owner and PiP-context regressions pass in separate launches (PIDs `40544`/`40966`/`42082`).
   `097b488` with assertion-only `d7e9974`: auth, Root/Chat source, viewport and composer probes pass (PID `31259`);
   authenticated cold-launch root and Home→foreground smoke pass.
@@ -1191,7 +1216,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free integration build: `.build/logs/xcodebuild/build-Debug-20261002-203725-34161-16930.log`.
+  Warning-free integration build: `.build/logs/xcodebuild/build-Debug-20261002-205425-50452-17562.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
