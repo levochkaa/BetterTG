@@ -27,6 +27,13 @@ struct ChatClientRestorationViewport {
     }
 
     mutating func invalidate() { pending = false }
+
+    /// A queued snapshot must consult current intent, not its old captured flag.
+    mutating func markSnapshotApplied() -> Bool {
+        guard pending else { return false }
+        snapshotApplied = true
+        return true
+    }
 }
 
 // MARK: - ChatViewController
@@ -251,6 +258,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
     }
 
+    private var hasPendingMessageNavigation: Bool {
+        messageNavigationTask != nil || pendingScrollMessageID != nil
+    }
+
     convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -366,6 +377,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         restoredViewport?.appeared = true
+        applyPendingMessageNavigation()
         settleRestoredViewport()
         if preparedClient == nil { clientPreparationSource = nil }
         retryClientRestoration()
@@ -403,6 +415,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             updateComposerFloatingState(keyboardAttached)
         }
         updateHistoryInsets()
+        applyPendingMessageNavigation()
         settleRestoredViewport()
         retryClientRestoration()
     }
@@ -441,14 +454,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
         viewportRestorationAuthority.invalidate()
+        if hasPendingMessageNavigation { didPerformInitialScroll = true }
+        cancelMessageNavigation()
         abandonRestoredViewport()
     }
 
     func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { retryClientRestoration() }
+        if !decelerate {
+            applyPendingMessageNavigation()
+            retryClientRestoration()
+        }
     }
 
-    func scrollViewDidEndDecelerating(_: UIScrollView) { retryClientRestoration() }
+    func scrollViewDidEndDecelerating(_: UIScrollView) {
+        applyPendingMessageNavigation()
+        retryClientRestoration()
+    }
+
     func presentationControllerDidDismiss(_: UIPresentationController) { retryClientRestoration() }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -738,6 +760,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func retryClientRestoration() {
         guard !clientOwnerRetired, !clientRetryScheduled,
               tdlib.activeAccountID == location.accountID, tdlib.activeClient.id != location.clientID else { return }
+        cancelMessageNavigation()
         clientRetryScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1713,7 +1736,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 updateMessageSelectionChrome(reconfigureIDs: [])
             }
         }
-        let restoringClient = restoredViewport?.pending == true
         let restoration = captureAutomaticViewportRestoration()
         let itemIDs = ChatTimelineProjection.items(
             messages: chatVM.messages,
@@ -1737,31 +1759,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let self else { return }
             defer {
                 timelineLayoutMutationDepth -= 1
+                applyPendingMessageNavigation()
                 settleRestoredViewport()
                 retryClientRestoration()
             }
             layoutForViewportCompletion()
             guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
-            if restoringClient {
-                if restoredViewport?.pending == true { restoredViewport?.snapshotApplied = true }
-                return
-            }
-            if let pendingScrollMessageID {
-                let quote = pendingQuoteHighlight
-                let quoteTargetMessageID = pendingQuoteTargetMessageID
-                self.pendingScrollMessageID = nil
-                pendingQuoteHighlight = nil
-                pendingQuoteTargetMessageID = nil
-                scrollToLoadedMessage(
-                    id: pendingScrollMessageID,
-                    quote: quote,
-                    quoteTargetMessageID: quoteTargetMessageID,
-                )
-            } else {
+            if restoredViewport?.markSnapshotApplied() == true { return }
+            if !hasPendingMessageNavigation {
                 restoreAutomaticViewport(restoration)
+                didPerformInitialScroll = true
             }
             performPendingComposerSendTransitions()
-            didPerformInitialScroll = true
         }
         collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
     }
@@ -1966,6 +1975,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if ensuringLayout { collectionView.layoutIfNeeded() }
         let ticket = viewportRestorationAuthority.begin()
         guard !clientOwnerRetired, chatVM.locationContextIsCurrent, !userIsScrollingTimeline,
+              !hasPendingMessageNavigation,
               allowInitial || didPerformInitialScroll else { return nil }
         let keepsLatest = !didPerformInitialScroll || isNearLatest
         return AutomaticViewportRestoration(
@@ -2120,7 +2130,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         // compensation. Independent keyboard/layout changes retire older work.
         if viewportCompletionLayoutDepth == 0 { viewportRestorationAuthority.invalidate() }
         let userIsScrolling = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
-        let keepLatestVisible = !userIsScrolling && (!didPerformInitialScroll || isNearLatest)
+        let keepLatestVisible = !userIsScrolling && !hasPendingMessageNavigation
+            && (!didPerformInitialScroll || isNearLatest)
         let previousOffset = collectionView.contentOffset
         let anchor = !userIsScrolling && !keepLatestVisible ? captureSnapshotAnchor() : nil
         timelineLayoutMutationDepth += 1
@@ -2160,33 +2171,65 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToMessage(id: Int64, quote: MessageQuoteHighlight? = nil) {
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
         viewportRestorationAuthority.invalidate()
+        cancelMessageNavigation()
+        abandonRestoredViewport()
+        if let displayedID = chatVM.displayedMessageID(containing: id) {
+            recordMessageNavigationPhase("loaded")
+            scrollToLoadedMessage(id: displayedID, quote: quote, quoteTargetMessageID: id)
+            return
+        }
+        recordMessageNavigationPhase("fetching")
+        messageNavigationTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if !Task.isCancelled {
+                    messageNavigationTask = nil
+                    if !hasPendingMessageNavigation, !didPerformInitialScroll,
+                       !clientOwnerRetired, chatVM.locationContextIsCurrent { updateSnapshot(animated: false) }
+                    retryClientRestoration()
+                }
+            }
+            guard let window = await chatVM.prepareMessageWindow(around: id),
+                  !Task.isCancelled, !clientOwnerRetired, chatVM.locationContextIsCurrent
+            else {
+                if !Task.isCancelled, !clientOwnerRetired, chatVM.locationContextIsCurrent {
+                    recordMessageNavigationPhase("failed")
+                }
+                return
+            }
+            pendingQuoteHighlight = quote
+            pendingQuoteTargetMessageID = id
+            chatVM.applyMessageWindow(window)
+            pendingScrollMessageID = chatVM.displayedMessageID(containing: id)
+            if pendingScrollMessageID == nil {
+                pendingQuoteHighlight = nil
+                pendingQuoteTargetMessageID = nil
+                recordMessageNavigationPhase("target-not-admitted")
+            } else { recordMessageNavigationPhase("window-ready") }
+            messageNavigationTask = nil
+            applyPendingMessageNavigation()
+        }
+    }
+
+    private func cancelMessageNavigation() {
+        if hasPendingMessageNavigation { recordMessageNavigationPhase("superseded") }
         messageNavigationTask?.cancel()
         messageNavigationTask = nil
         pendingQuoteDestination = nil
         pendingScrollMessageID = nil
         pendingQuoteHighlight = nil
         pendingQuoteTargetMessageID = nil
-        if let displayedID = chatVM.displayedMessageID(containing: id) {
-            scrollToLoadedMessage(id: displayedID, quote: quote, quoteTargetMessageID: id)
-            return
-        }
-        messageNavigationTask = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                if !Task.isCancelled { messageNavigationTask = nil
-                    retryClientRestoration()
-                }
-            }
-            guard let window = await chatVM.prepareMessageWindow(around: id),
-                  !Task.isCancelled
-            else { return }
-            pendingScrollMessageID = window.displayedMessageID
-            pendingQuoteHighlight = quote
-            pendingQuoteTargetMessageID = id
-            chatVM.applyMessageWindow(window)
-            messageNavigationTask = nil
-        }
+    }
+
+    private func applyPendingMessageNavigation() {
+        guard let id = pendingScrollMessageID, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              timelineLayoutMutationDepth == 0, !userIsScrollingTimeline, isViewLoaded, view.window != nil,
+              collectionView.bounds.height > 0,
+              let path = dataSource.indexPath(for: .message(id)),
+              collectionView.layoutAttributesForItem(at: path) != nil else { return }
+        scrollToLoadedMessage(id: id, quote: pendingQuoteHighlight, quoteTargetMessageID: pendingQuoteTargetMessageID)
     }
 
     private func scrollToLoadedMessage(
@@ -2194,16 +2237,34 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         quote: MessageQuoteHighlight? = nil,
         quoteTargetMessageID: Int64? = nil,
     ) {
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
         viewportRestorationAuthority.invalidate()
+        pendingScrollMessageID = id
+        pendingQuoteHighlight = quote
+        pendingQuoteTargetMessageID = quoteTargetMessageID
         let itemID = ChatTimelineItemID.message(id)
         guard let indexPath = dataSource.indexPath(for: itemID) else {
-            pendingScrollMessageID = id
-            pendingQuoteHighlight = quote
-            pendingQuoteTargetMessageID = quoteTargetMessageID
+            recordMessageNavigationPhase("awaiting-snapshot")
             updateSnapshot(animated: false)
             return
         }
+        timelineLayoutMutationDepth += 1
+        defer { timelineLayoutMutationDepth -= 1 }
         collectionView.layoutIfNeeded()
+        guard view.window != nil, collectionView.bounds.height > 0, !userIsScrollingTimeline,
+              collectionView.layoutAttributesForItem(at: indexPath) != nil
+        else {
+            recordMessageNavigationPhase("awaiting-layout")
+            view.setNeedsLayout()
+            return
+        }
+        // The intent is claimed earlier; initial scrolling completes only here.
+        let animated = didPerformInitialScroll
+        didPerformInitialScroll = true
+        pendingScrollMessageID = nil
+        pendingQuoteHighlight = nil
+        pendingQuoteTargetMessageID = nil
+        recordMessageNavigationPhase("applied")
         if let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath) {
             let insets = collectionView.adjustedContentInset
             let visibleCenterOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
@@ -2218,10 +2279,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     x: collectionView.contentOffset.x,
                     y: min(max(desiredOffset, minimumOffset), maximumOffset),
                 ),
-                animated: true,
+                animated: animated,
             )
         } else {
-            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
         }
 
         messageHighlightTask?.cancel()
@@ -2244,6 +2305,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 applyPendingQuoteHighlight(to: cell, displayedMessageID: id)
             }
         }
+    }
+
+    private func recordMessageNavigationPhase(_ phase: String) {
+        #if DEBUG
+            ChatMessageNavigationDiagnostic.record(phase)
+        #endif
     }
 
     private func applyPendingQuoteHighlight(to cell: MessageCell, displayedMessageID: DisplayedMessageID) {

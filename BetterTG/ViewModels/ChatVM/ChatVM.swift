@@ -1099,28 +1099,52 @@ import UIKit
         guard locationContextIsCurrent else { return nil }
         let readToken = messageRefresh?.beginRead()
         let windowSize = 50
+        #if DEBUG
+            ChatMessageNavigationDiagnostic.record("history-read")
+        #endif
         var history = await loadHistory(
             fromMessageId: id,
             limit: windowSize,
             offset: -(windowSize / 2),
         ) ?? []
         guard !Task.isCancelled, locationContextIsCurrent else { return nil }
+        #if DEBUG
+            ChatMessageNavigationDiagnostic.record("history-ready")
+        #endif
         let rawOldestMessageID = history.last?.id
-        if !history.contains(where: { $0.id == id }),
-           let target = try? await client.getMessage(chatId: chatID, messageId: id),
-           location.matches(message: target)
-        {
-            history.append(target)
+        if !history.contains(where: { $0.id == id }) {
+            #if DEBUG
+                ChatMessageNavigationDiagnostic.record("fallback-read")
+            #endif
+            if let target = try? await client.getMessage(chatId: chatID, messageId: id),
+               location.matches(message: target) { history.append(target) }
         }
-        guard !history.isEmpty, locationContextIsCurrent else { return nil }
+        guard !history.isEmpty, locationContextIsCurrent else {
+            #if DEBUG
+                if locationContextIsCurrent { ChatMessageNavigationDiagnostic.record("target-missing") }
+            #endif
+            return nil
+        }
 
+        #if DEBUG
+            ChatMessageNavigationDiagnostic.record("hydrating")
+        #endif
         let loaded = await history.filter { location.matches(message: $0) }
             .asyncMap { await getCustomMessage(from: $0) }
         guard !Task.isCancelled, locationContextIsCurrent else { return nil }
         guard let displayedMessageID = (loaded + messages)
             .first(where: { message in
                 message.id == id || message.album.contains(where: { $0.id == id })
-            })?.displayedID else { return nil }
+            })?.displayedID
+        else {
+                #if DEBUG
+                    ChatMessageNavigationDiagnostic.record("target-missing")
+                #endif
+            return nil
+        }
+        #if DEBUG
+            ChatMessageNavigationDiagnostic.record("window-prepared")
+        #endif
         return PreparedMessageWindow(
             messages: loaded, displayedMessageID: displayedMessageID,
             rawOldestMessageID: rawOldestMessageID, readToken: readToken,
