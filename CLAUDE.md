@@ -25,6 +25,7 @@
 - Xcode builds print compact progress and save complete command output under `.build/logs/xcodebuild`; use `--full-output` only when the complete stream is needed in the terminal.
 - Use `./build.sh clean-intermediates` to remove compilation/index/module/SDK-stat intermediates while preserving app products, complete logs, and the separate Swift package cache. `./build.sh run --skip-build` reuses the compatible product for the selected Xcode, configuration, and platform without running XcodeGen, package preparation, TD generation, or xcodebuild.
 - Simulator runs wait for bounded `simctl bootstatus` readiness before install. Do not close or shut down the booted Simulator when finishing a task unless the user explicitly asks.
+- Simulator runs open the Simulator app in the background, preserving the user's current application focus. Do not activate it separately during automated smoke.
 
 ## Project Notes
 

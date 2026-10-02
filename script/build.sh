@@ -749,7 +749,7 @@ launch_on_simulator() {
   "$ROOT_DIR/script/simulator_boot_status.sh" \
     --simulator-id "$SIMULATOR_ID" \
     --timeout-seconds "$SIMULATOR_BOOT_TIMEOUT_SECONDS"
-  open -a Simulator
+  open -g -a Simulator
   xcrun simctl install "$SIMULATOR_ID" "$APP_BUNDLE"
 
   if [[ "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
