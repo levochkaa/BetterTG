@@ -541,8 +541,12 @@ import UIKit
         #if DEBUG
             debugDecoderSummaries.append(summary)
         #endif
+        if summary.isEnded, !summary.hasFinalDuration {
+            transitionToFailure(.decoding("The main track ended without a verified duration."), status: .failed)
+            return .stop
+        }
         let decodedEnd = summary.videoDecodedTo
-        let decodedDuration = summary.hasExplicitDuration
+        let decodedDuration = summary.hasExplicitDuration || summary.hasFinalDuration
             ? summary.duration
             : max(durationSubject.value, max(summary.duration, decodedEnd))
         if decodedDuration.isFinite, decodedDuration > 0 {
@@ -551,6 +555,8 @@ import UIKit
         terminalEnd = durationSubject.value > 0 ? durationSubject.value : decodedEnd
         if summary.isEnded {
             inputEnded = true
+            videoWatchdogTask?.cancel()
+            videoWatchdogTask = nil
             audioWatchdogTask?.cancel()
             audioWatchdogTask = nil
             renderer.finish(generation: rendererGeneration)
@@ -668,7 +674,7 @@ import UIKit
     private func consume(snapshot: FFmpegSampleBufferRenderer.Snapshot) {
         guard !isClosed, snapshot.generation == rendererGeneration else { return }
         latestSnapshot = snapshot
-        if metadataOperationGeneration == operationGeneration, !hasExplicitDuration,
+        if metadataOperationGeneration == operationGeneration, !hasExplicitDuration, !inputEnded,
            snapshot.hasVideoInput, snapshot.videoAcceptedUntil > durationSubject.value
         {
             durationSubject.send(snapshot.videoAcceptedUntil)
@@ -716,7 +722,7 @@ import UIKit
         else { return }
         metadataOperationGeneration = operation
         hasExplicitDuration = metadata.hasExplicitDuration
-        if metadata.duration.isFinite, metadata.duration > 0 {
+        if !inputEnded, metadata.duration.isFinite, metadata.duration > 0 {
             let resolvedDuration = hasExplicitDuration
                 ? metadata.duration
                 : max(durationSubject.value, metadata.duration)
@@ -1457,6 +1463,7 @@ import UIKit
                     initialSeekPlayer.state == .ended || initialSeekPlayer.failureSubject.value != nil
                 }
                 guard initialSeekPlayer.state == .ended, initialSeekPlayer.failureSubject.value == nil,
+                      initialSeekPlayer.videoWatchdogTask == nil,
                       abs(initialSeekPlayer.duration - 2) < 0.01,
                       abs(initialSeekPlayer.currentTime - 2) < 0.01
                 else { throw Failure.decoding("Initial unknown-duration seek did not clamp to video end") }
@@ -1467,10 +1474,20 @@ import UIKit
                     throw Failure.decoding("Main-track probe requested a full download")
                 }
                 let fallbackProof = try await verifyEstimatedMainTrackTimeline(in: window)
+                let overestimateProof = try await verifyEstimatedMainTrackTimeline(
+                    in: window,
+                    estimatedDuration: 20,
+                )
+                let beyondEOFProof = try await verifyEstimatedMainTrackTimeline(
+                    in: window,
+                    estimatedDuration: 20,
+                    initialTime: 25,
+                )
                 return "main-track=video, fixture-sha256=\(checksum), video=2s/audio=10.008s, "
                     + "natural-end=2s, video-frames=20, audio-tail-clipped=true, "
                     + "known-seek6->2=true, initial-seek6->2=true, persistent-session=true, "
-                    + "bounded-queues=true, finite-downloads=true, cleanup=true; \(fallbackProof)"
+                    + "bounded-queues=true, finite-downloads=true, cleanup=true; "
+                    + "\(fallbackProof); \(overestimateProof); \(beyondEOFProof)"
             } catch {
                 if let activePlayer {
                     await activePlayer.close()
@@ -1480,15 +1497,22 @@ import UIKit
             }
         }
 
-        @MainActor static func verifyEstimatedMainTrackTimeline(in window: UIWindow) async throws -> String {
+        @MainActor static func verifyEstimatedMainTrackTimeline(
+            in window: UIWindow,
+            estimatedDuration: TimeInterval = 8,
+            initialTime: TimeInterval = 9,
+        ) async throws -> String {
             let fixtureURL = FileManager.default
 .temporaryDirectory
                 .appendingPathComponent("bettertg-vod-estimated-duration-\(UUID().uuidString).webm")
             defer { try? FileManager.default.removeItem(at: fixtureURL) }
-            try FFmpegVODUnknownDurationProbeFixture.write(to: fixtureURL)
+            try FFmpegVODUnknownDurationProbeFixture.write(to: fixtureURL, estimatedDuration: estimatedDuration)
             let fixtureData = try Data(contentsOf: fixtureURL)
             let checksum = SHA256.hash(data: fixtureData).map { String(format: "%02x", $0) }.joined()
-            guard checksum == FFmpegVODUnknownDurationProbeFixture.sha256 else {
+            let expectedChecksum = estimatedDuration == 8
+                ? FFmpegVODUnknownDurationProbeFixture.sha256
+                : FFmpegVODUnknownDurationProbeFixture.overestimatedSHA256
+            guard checksum == expectedChecksum else {
                 throw Failure.decoding("Unknown-duration fixture checksum mismatch")
             }
             let size = Int64(fixtureData.count)
@@ -1515,19 +1539,26 @@ import UIKit
                 player.setMuted(true)
                 player.setRate(2)
                 player.setPlaybackVisible(true)
-                player.prepare(autoplay: true, initialTime: 9)
+                player.prepare(autoplay: true, initialTime: initialTime)
                 try await waitUntil { player.state == .ended || player.failureSubject.value != nil }
                 let snapshot = player.renderer.snapshot()
                 let summaries = player.debugDecoderSummaries
+                let expectsFrames = initialTime < 12
+                let receivedExpectedFrames = expectsFrames
+                    ? recorder.states.contains(.playing)
+                        && snapshot.videoFirstPresentationTime.map { $0 >= initialTime } == true
+                        && abs(snapshot.videoAcceptedUntil - 12) < 0.01
+                        && summaries.count >= 2
+                    : !snapshot.hasVideoInput && summaries.last?.videoFrameCount == 0
                 guard player.state == .ended, player.failureSubject.value == nil,
-                      recorder.states.contains(.playing), !player.hasExplicitDuration,
-                      abs(player.videoEndTime - 8) < 0.01,
+                      player.videoWatchdogTask == nil,
+                      receivedExpectedFrames, !player.hasExplicitDuration,
+                      abs(player.videoEndTime - estimatedDuration) < 0.01,
                       abs(player.duration - 12) < 0.01, abs(player.currentTime - 12) < 0.01,
-                      snapshot.videoFirstPresentationTime.map({ $0 >= 9 }) == true,
-                      abs(snapshot.videoAcceptedUntil - 12) < 0.01,
-                      summaries.count >= 2, Set(summaries.map(\.sessionID)).count == 1,
+                      Set(summaries.map(\.sessionID)).count == 1,
                       summaries.allSatisfy({ !$0.hasExplicitDuration && $0.openCount == 1 }),
                       summaries.last?.isEnded == true,
+                      summaries.last?.hasFinalDuration == true,
                       summaries.last.map({ abs($0.duration - 12) < 0.01 }) == true
                 else {
                     throw Failure.decoding("Unknown main duration: state=\(player.state), time=\(player.currentTime), "
@@ -1539,7 +1570,8 @@ import UIKit
                     throw Failure.decoding("Unknown-duration probe requested a full download")
                 }
                 return "unknown-video-duration=true, mixed-fixture-sha256=\(checksum), "
-                    + "fallback=8->12s, initial-seek9-not-clamped=true, fallback-eof=12s, cleanup=true"
+                    + "fallback=\(estimatedDuration)->12s, initial-seek=\(initialTime), "
+                    + "verified-eof=12s, expected-frames=\(expectsFrames), cleanup=true"
             } catch {
                 await player.close()
                 player.surfaceView.removeFromSuperview()

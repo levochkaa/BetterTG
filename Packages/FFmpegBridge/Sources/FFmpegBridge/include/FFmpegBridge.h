@@ -186,6 +186,8 @@ double BetterTGFFmpegPlaybackJobContinuationTime(const BetterTGFFmpegPlaybackJob
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job);
 // True only for the selected main track's own end metadata, never a container estimate.
 int BetterTGFFmpegPlaybackJobHasExplicitDuration(const BetterTGFFmpegPlaybackJob *job);
+// True at EOF when explicit metadata or observed main-track frames establish the end.
+int BetterTGFFmpegPlaybackJobHasFinalDuration(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job);
 int64_t BetterTGFFmpegPlaybackJobBytesRead(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobReadCallCount(const BetterTGFFmpegPlaybackJob *job);

@@ -53,6 +53,7 @@ actor TDLibVODFFmpegDecoder {
         let duration: TimeInterval
         let explicitSeekCount: Int
         let hasExplicitDuration: Bool
+        let hasFinalDuration: Bool
         let isEnded: Bool
         let maximumPendingPacketBytes: Int64
         let maximumPendingPacketCount: Int
@@ -318,6 +319,7 @@ actor TDLibVODFFmpegDecoder {
                         duration: BetterTGFFmpegPlaybackJobDuration(job),
                         explicitSeekCount: Int(BetterTGFFmpegPlaybackJobExplicitSeekCount(job)),
                         hasExplicitDuration: BetterTGFFmpegPlaybackJobHasExplicitDuration(job) != 0,
+                        hasFinalDuration: BetterTGFFmpegPlaybackJobHasFinalDuration(job) != 0,
                         isEnded: BetterTGFFmpegPlaybackJobIsEnded(job) != 0,
                         maximumPendingPacketBytes: BetterTGFFmpegPlaybackJobMaximumPendingPacketBytes(job),
                         maximumPendingPacketCount: Int(BetterTGFFmpegPlaybackJobMaximumPendingPacketCount(job)),

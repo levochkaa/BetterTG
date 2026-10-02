@@ -64,6 +64,8 @@ struct BetterTGFFmpegPlaybackJob {
     double audioEndTime;
     double videoDecodedTo;
     double audioDecodedTo;
+    double videoObservedEnd;
+    double audioObservedEnd;
     double videoEmittedTo;
     double audioEmittedTo;
     double nextAudioTime;
@@ -746,6 +748,7 @@ static int BetterTGFFmpegPlaybackDrainVideo(
             ? (double)job->videoFrame->duration * av_q2d(job->videoTimeBase)
             : (job->videoFrameRate > 0.0 ? 1.0 / job->videoFrameRate : 1.0 / 30.0);
         const double frameEnd = presentationTime + fmax(0.0, frameDuration);
+        job->videoObservedEnd = fmax(job->videoObservedEnd, frameEnd);
         job->videoDecodedTo = fmax(job->videoDecodedTo, frameEnd);
         const double callbackLowerBound = job->preservesWindowTail
             ? job->videoEmittedTo
@@ -939,6 +942,7 @@ static int BetterTGFFmpegPlaybackDrainAudio(
         );
         const double frameDuration = (double)outputFrames / BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE;
         const double frameEnd = presentationTime + frameDuration;
+        job->audioObservedEnd = fmax(job->audioObservedEnd, frameEnd);
         job->nextAudioTime = frameEnd;
         job->audioDecodedTo = fmax(job->audioDecodedTo, frameEnd);
         const int emitResult = BetterTGFFmpegPlaybackEmitAudio(
@@ -1028,6 +1032,7 @@ static int BetterTGFFmpegPlaybackDrainResampler(
         const double presentationTime = job->nextAudioTime;
         const double frameDuration = (double)outputFrames / BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE;
         const double frameEnd = presentationTime + frameDuration;
+        job->audioObservedEnd = fmax(job->audioObservedEnd, frameEnd);
         job->nextAudioTime = frameEnd;
         job->audioDecodedTo = fmax(job->audioDecodedTo, frameEnd);
         const int emitResult = BetterTGFFmpegPlaybackEmitAudio(
@@ -1553,10 +1558,14 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
         return 0;
     }
     if (job->ended && !BetterTGFFmpegPlaybackJobHasExplicitDuration(job)) {
-        const double mainDecodedTo = job->videoStreamIndex >= 0
-            ? job->videoDecodedTo
-            : job->audioDecodedTo;
-        job->duration = fmax(job->duration, mainDecodedTo);
+        // decodedTo starts at seekTime, even when no frame can be emitted.
+        // Only observed frame timestamps can resolve an estimated end at EOF.
+        const double observedEnd = job->videoStreamIndex >= 0
+            ? job->videoObservedEnd
+            : job->audioObservedEnd;
+        if (observedEnd > 0.0) {
+            job->duration = observedEnd;
+        }
     }
     if (isPersistent) {
         job->lastTargetTime = targetTime;
@@ -1669,6 +1678,12 @@ int BetterTGFFmpegPlaybackJobHasExplicitDuration(const BetterTGFFmpegPlaybackJob
     return job != NULL && (job->videoStreamIndex >= 0
         ? job->videoHasExplicitEnd
         : job->audioHasExplicitEnd);
+}
+
+int BetterTGFFmpegPlaybackJobHasFinalDuration(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL && job->ended &&
+        (BetterTGFFmpegPlaybackJobHasExplicitDuration(job) ||
+         (job->videoStreamIndex >= 0 ? job->videoObservedEnd : job->audioObservedEnd) > 0.0);
 }
 
 double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job) {
