@@ -1237,6 +1237,7 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
             job->videoCodecContext != NULL ? job->videoCodecContext->codec_id : 0,
             job->audioCodecContext != NULL ? job->audioCodecContext->codec_id : 0,
             job->duration,
+            BetterTGFFmpegPlaybackJobHasExplicitDuration(job),
             job->timelineOrigin,
             job->videoStartTime,
             job->videoEndTime,
@@ -1246,12 +1247,12 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
         job->errorCode = AVERROR_EXIT;
         return BetterTGFFmpegPlaybackIsCancelled(job) ? -1 : 0;
     }
-    if (job->duration > 0.0 && seekTime > job->duration) {
-        seekTime = job->duration;
-    }
     const double explicitMainEnd = job->videoStreamIndex >= 0
         ? (job->videoHasExplicitEnd ? job->videoEndTime : 0.0)
         : (job->audioHasExplicitEnd ? job->audioEndTime : 0.0);
+    if (explicitMainEnd > 0.0 && seekTime > explicitMainEnd) {
+        seekTime = explicitMainEnd;
+    }
     const double targetTime = explicitMainEnd > 0.0
         ? fmin(seekTime + decodeDuration, explicitMainEnd)
         : seekTime + decodeDuration;
@@ -1358,7 +1359,7 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
     );
     const int shouldDrainToEOF = !reachesMainEndBeforeAudio && (allStreamsHaveExplicitEnd
         ? knownExplicitEnd > 0.0 && targetTime >= knownExplicitEnd - 0.001
-        : job->duration > 0.0 && targetTime >= job->duration - 0.001);
+        : explicitMainEnd > 0.0 && targetTime >= explicitMainEnd - 0.001);
 
     if (!videoRequired && job->videoHasExplicitEnd && seekTime >= job->videoEndTime) {
         job->videoExhausted = 1;
@@ -1551,6 +1552,12 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
         job->errorCode = AVERROR(EFBIG);
         return 0;
     }
+    if (job->ended && !BetterTGFFmpegPlaybackJobHasExplicitDuration(job)) {
+        const double mainDecodedTo = job->videoStreamIndex >= 0
+            ? job->videoDecodedTo
+            : job->audioDecodedTo;
+        job->duration = fmax(job->duration, mainDecodedTo);
+    }
     if (isPersistent) {
         job->lastTargetTime = targetTime;
     }
@@ -1656,6 +1663,12 @@ double BetterTGFFmpegPlaybackJobContinuationTime(const BetterTGFFmpegPlaybackJob
 
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job) {
     return job != NULL ? job->duration : 0.0;
+}
+
+int BetterTGFFmpegPlaybackJobHasExplicitDuration(const BetterTGFFmpegPlaybackJob *job) {
+    return job != NULL && (job->videoStreamIndex >= 0
+        ? job->videoHasExplicitEnd
+        : job->audioHasExplicitEnd);
 }
 
 double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job) {

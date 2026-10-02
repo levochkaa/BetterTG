@@ -35,6 +35,7 @@ actor TDLibVODFFmpegDecoder {
         let audioStartTime: TimeInterval
         let duration: TimeInterval
         let hasAudio: Bool
+        let hasExplicitDuration: Bool
         let hasVideo: Bool
         let timelineOrigin: TimeInterval
         let videoCodecID: Int32
@@ -51,6 +52,7 @@ actor TDLibVODFFmpegDecoder {
         let continuationTime: TimeInterval
         let duration: TimeInterval
         let explicitSeekCount: Int
+        let hasExplicitDuration: Bool
         let isEnded: Bool
         let maximumPendingPacketBytes: Int64
         let maximumPendingPacketCount: Int
@@ -315,6 +317,7 @@ actor TDLibVODFFmpegDecoder {
                         continuationTime: BetterTGFFmpegPlaybackJobContinuationTime(job),
                         duration: BetterTGFFmpegPlaybackJobDuration(job),
                         explicitSeekCount: Int(BetterTGFFmpegPlaybackJobExplicitSeekCount(job)),
+                        hasExplicitDuration: BetterTGFFmpegPlaybackJobHasExplicitDuration(job) != 0,
                         isEnded: BetterTGFFmpegPlaybackJobIsEnded(job) != 0,
                         maximumPendingPacketBytes: BetterTGFFmpegPlaybackJobMaximumPendingPacketBytes(job),
                         maximumPendingPacketCount: Int(BetterTGFFmpegPlaybackJobMaximumPendingPacketCount(job)),
@@ -738,6 +741,7 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
         videoCodecID: Int32,
         audioCodecID: Int32,
         duration: TimeInterval,
+        hasExplicitDuration: Bool,
         timelineOrigin: TimeInterval,
         videoStartTime: TimeInterval,
         videoEndTime: TimeInterval,
@@ -763,6 +767,7 @@ private final class TDLibVODFFmpegDecodeBox: @unchecked Sendable {
             audioStartTime: audioStartTime,
             duration: duration,
             hasAudio: hasAudio,
+            hasExplicitDuration: hasExplicitDuration,
             hasVideo: hasVideo,
             timelineOrigin: timelineOrigin,
             videoCodecID: videoCodecID,
@@ -896,6 +901,7 @@ private func tdLibVODFFmpegDecodeMetadataCallback(
     videoCodecID: Int32,
     audioCodecID: Int32,
     duration: Double,
+    hasExplicitDuration: Int32,
     timelineOrigin: Double,
     videoStartTime: Double,
     videoEndTime: Double,
@@ -910,6 +916,7 @@ private func tdLibVODFFmpegDecodeMetadataCallback(
         videoCodecID: videoCodecID,
         audioCodecID: audioCodecID,
         duration: duration,
+        hasExplicitDuration: hasExplicitDuration != 0,
         timelineOrigin: timelineOrigin,
         videoStartTime: videoStartTime,
         videoEndTime: videoEndTime,

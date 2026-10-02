@@ -118,6 +118,7 @@ typedef int (*BetterTGFFmpegPlaybackMetadataCallback)(
     int videoCodecID,
     int audioCodecID,
     double duration,
+    int hasExplicitDuration,
     double timelineOrigin,
     double videoStartTime,
     double videoEndTime,
@@ -183,6 +184,8 @@ double BetterTGFFmpegPlaybackJobVideoDecodedTo(const BetterTGFFmpegPlaybackJob *
 double BetterTGFFmpegPlaybackJobAudioDecodedTo(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobContinuationTime(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobDuration(const BetterTGFFmpegPlaybackJob *job);
+// True only for the selected main track's own end metadata, never a container estimate.
+int BetterTGFFmpegPlaybackJobHasExplicitDuration(const BetterTGFFmpegPlaybackJob *job);
 double BetterTGFFmpegPlaybackJobTimelineOrigin(const BetterTGFFmpegPlaybackJob *job);
 int64_t BetterTGFFmpegPlaybackJobBytesRead(const BetterTGFFmpegPlaybackJob *job);
 int BetterTGFFmpegPlaybackJobReadCallCount(const BetterTGFFmpegPlaybackJob *job);

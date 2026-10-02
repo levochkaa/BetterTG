@@ -78,6 +78,7 @@ import UIKit
     private var audioEndTime = TimeInterval.zero
     private var videoStartTime = TimeInterval.zero
     private var videoEndTime = TimeInterval.zero
+    private var hasExplicitDuration = false
     private var inputEnded = false
     private var isStalledForBuffering = false
     private var hasStartedPlayback = false
@@ -322,7 +323,9 @@ import UIKit
 
     private func normalized(time: TimeInterval) -> TimeInterval {
         let nonnegative = time.isFinite ? max(0, time) : 0
-        return duration > 0 ? min(nonnegative, duration) : nonnegative
+        return duration > 0 && (hasExplicitDuration || inputEnded)
+            ? min(nonnegative, duration)
+            : nonnegative
     }
 
     private func beginOperation(
@@ -353,6 +356,7 @@ import UIKit
         audioEndTime = 0
         videoStartTime = 0
         videoEndTime = 0
+        hasExplicitDuration = false
         inputEnded = false
         isStalledForBuffering = false
         hasStartedPlayback = false
@@ -538,7 +542,9 @@ import UIKit
             debugDecoderSummaries.append(summary)
         #endif
         let decodedEnd = summary.videoDecodedTo
-        let decodedDuration = summary.duration > 0 ? summary.duration : decodedEnd
+        let decodedDuration = summary.hasExplicitDuration
+            ? summary.duration
+            : max(durationSubject.value, max(summary.duration, decodedEnd))
         if decodedDuration.isFinite, decodedDuration > 0 {
             durationSubject.send(decodedDuration)
         }
@@ -662,6 +668,12 @@ import UIKit
     private func consume(snapshot: FFmpegSampleBufferRenderer.Snapshot) {
         guard !isClosed, snapshot.generation == rendererGeneration else { return }
         latestSnapshot = snapshot
+        if metadataOperationGeneration == operationGeneration, !hasExplicitDuration,
+           snapshot.hasVideoInput, snapshot.videoAcceptedUntil > durationSubject.value
+        {
+            durationSubject.send(snapshot.videoAcceptedUntil)
+            terminalEnd = max(terminalEnd, snapshot.videoAcceptedUntil)
+        }
         if snapshot.hasVideoInput {
             sourceVideoReadableTo = max(
                 sourceVideoReadableTo ?? bufferStart,
@@ -703,9 +715,13 @@ import UIKit
               rendererGeneration == self.rendererGeneration
         else { return }
         metadataOperationGeneration = operation
+        hasExplicitDuration = metadata.hasExplicitDuration
         if metadata.duration.isFinite, metadata.duration > 0 {
-            durationSubject.send(metadata.duration)
-            terminalEnd = metadata.duration
+            let resolvedDuration = hasExplicitDuration
+                ? metadata.duration
+                : max(durationSubject.value, metadata.duration)
+            durationSubject.send(resolvedDuration)
+            terminalEnd = resolvedDuration
         }
         timelineOrigin = metadata.timelineOrigin
         audioStartTime = metadata.audioStartTime
@@ -713,7 +729,7 @@ import UIKit
         videoStartTime = metadata.videoStartTime
         videoEndTime = metadata.videoEndTime
         let effectiveDuration = durationSubject.value
-        if effectiveDuration > 0, timeSubject.value > effectiveDuration {
+        if hasExplicitDuration, effectiveDuration > 0, timeSubject.value > effectiveDuration {
             let completion = pendingSeekCompletion?.value
             beginOperation(at: effectiveDuration, completion: completion)
             return
@@ -769,7 +785,7 @@ import UIKit
             return true
         }
         let knownEnd = durationSubject.value
-        return knownEnd > 0 && sourceBufferedEnd() >= knownEnd - Self.endTolerance
+        return hasExplicitDuration && knownEnd > 0 && sourceBufferedEnd() >= knownEnd - Self.endTolerance
     }
 
     private func fulfillSeekIfReady(snapshot: FFmpegSampleBufferRenderer.Snapshot) {
@@ -788,7 +804,7 @@ import UIKit
 
     private func updateTime(_ rawTime: TimeInterval) {
         guard rawTime.isFinite else { return }
-        let time = duration > 0 ? min(max(0, rawTime), duration) : max(0, rawTime)
+        let time = normalized(time: rawTime)
         timeSubject.send(time)
     }
 
@@ -967,7 +983,7 @@ import UIKit
             && audioEndTime > audioStartTime
             && time >= audioStartTime - Self.endTolerance
             && time < audioEndTime - Self.endTolerance
-            && (duration <= 0 || time < duration - Self.endTolerance)
+            && (!hasExplicitDuration || time < duration - Self.endTolerance)
     }
 
     private func cancelBufferingTransition() {
@@ -1450,15 +1466,83 @@ import UIKit
                 guard downloads.allSatisfy({ !$0.isFullDownload }) else {
                     throw Failure.decoding("Main-track probe requested a full download")
                 }
+                let fallbackProof = try await verifyEstimatedMainTrackTimeline(in: window)
                 return "main-track=video, fixture-sha256=\(checksum), video=2s/audio=10.008s, "
                     + "natural-end=2s, video-frames=20, audio-tail-clipped=true, "
                     + "known-seek6->2=true, initial-seek6->2=true, persistent-session=true, "
-                    + "bounded-queues=true, finite-downloads=true, cleanup=true"
+                    + "bounded-queues=true, finite-downloads=true, cleanup=true; \(fallbackProof)"
             } catch {
                 if let activePlayer {
                     await activePlayer.close()
                     activePlayer.surfaceView.removeFromSuperview()
                 }
+                throw error
+            }
+        }
+
+        @MainActor static func verifyEstimatedMainTrackTimeline(in window: UIWindow) async throws -> String {
+            let fixtureURL = FileManager.default
+.temporaryDirectory
+                .appendingPathComponent("bettertg-vod-estimated-duration-\(UUID().uuidString).webm")
+            defer { try? FileManager.default.removeItem(at: fixtureURL) }
+            try FFmpegVODUnknownDurationProbeFixture.write(to: fixtureURL)
+            let fixtureData = try Data(contentsOf: fixtureURL)
+            let checksum = SHA256.hash(data: fixtureData).map { String(format: "%02x", $0) }.joined()
+            guard checksum == FFmpegVODUnknownDurationProbeFixture.sha256 else {
+                throw Failure.decoding("Unknown-duration fixture checksum mismatch")
+            }
+            let size = Int64(fixtureData.count)
+            let backend = TDLibVODProbeBackend(
+                fileURL: fixtureURL,
+                fileSize: size,
+                network: TDLibVODProbeNetwork(available: true),
+            )
+            await backend.setAutoFulfill(true)
+            let coordinator = TDLibVODRangeCoordinator(
+                accountID: "probe-vod-estimated-duration",
+                client: backend.client,
+                requestTimeout: .seconds(2),
+            )
+            let player = await TDLibVODFFmpegSampleBufferPlayer(
+                lease: coordinator.acquire(file: backend.file(expectedSize: size)),
+                decodeWindowDuration: 0.731,
+            )
+            player.surfaceView.frame = CGRect(x: 8, y: window.safeAreaInsets.top + 8, width: 192, height: 108)
+            player.surfaceView.isUserInteractionEnabled = false
+            window.addSubview(player.surfaceView)
+            do {
+                let recorder = ProbeRecorder(player: player)
+                player.setMuted(true)
+                player.setRate(2)
+                player.setPlaybackVisible(true)
+                player.prepare(autoplay: true, initialTime: 9)
+                try await waitUntil { player.state == .ended || player.failureSubject.value != nil }
+                let snapshot = player.renderer.snapshot()
+                let summaries = player.debugDecoderSummaries
+                guard player.state == .ended, player.failureSubject.value == nil,
+                      recorder.states.contains(.playing), !player.hasExplicitDuration,
+                      abs(player.videoEndTime - 8) < 0.01,
+                      abs(player.duration - 12) < 0.01, abs(player.currentTime - 12) < 0.01,
+                      snapshot.videoFirstPresentationTime.map({ $0 >= 9 }) == true,
+                      abs(snapshot.videoAcceptedUntil - 12) < 0.01,
+                      summaries.count >= 2, Set(summaries.map(\.sessionID)).count == 1,
+                      summaries.allSatisfy({ !$0.hasExplicitDuration && $0.openCount == 1 }),
+                      summaries.last?.isEnded == true,
+                      summaries.last.map({ abs($0.duration - 12) < 0.01 }) == true
+                else {
+                    throw Failure.decoding("Unknown main duration: state=\(player.state), time=\(player.currentTime), "
+                        + "duration=\(player.duration), snapshot=\(snapshot), summaries=\(summaries)")
+                }
+                await player.close()
+                player.surfaceView.removeFromSuperview()
+                guard await backend.downloadCalls.allSatisfy({ !$0.isFullDownload }) else {
+                    throw Failure.decoding("Unknown-duration probe requested a full download")
+                }
+                return "unknown-video-duration=true, mixed-fixture-sha256=\(checksum), "
+                    + "fallback=8->12s, initial-seek9-not-clamped=true, fallback-eof=12s, cleanup=true"
+            } catch {
+                await player.close()
+                player.surfaceView.removeFromSuperview()
                 throw error
             }
         }
