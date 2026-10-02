@@ -10,6 +10,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     // MARK: Private
 
     private let rootVM: RootVM
+    private let actionAuthority = ChatListActionAuthority()
     private let pageController = UIPageViewController(
         transitionStyle: .scroll,
         navigationOrientation: .horizontal,
@@ -72,7 +73,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 DispatchQueue.main.async { self?.reloadFolderUnreadStates() }
             }
             .store(in: &cancellables)
-        folderUnreadStates = FolderUnreadStore.shared.states(for: td.id)
+        folderUnreadStates = FolderUnreadStore.shared.states(for: actionAuthority.client.id)
         reloadFromState()
         configureAutomatedSmokeRoute()
     }
@@ -341,6 +342,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func reloadFromState() {
+        guard actionAuthority.isCurrent else { return }
         let currentIDs = folderControllers.map(\.folder.id)
         let newIDs = rootVM.folders.map(\.id)
         customNavigationBar.setLeftButtonHidden(rootVM.archive == nil)
@@ -356,7 +358,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
 
         folderControllers = rootVM.folders.map { folder in
-            let controller = FolderViewController(folder: folder, rootVM: rootVM, showsStandaloneSearch: false)
+            let controller = FolderViewController(
+                folder: folder, rootVM: rootVM, showsStandaloneSearch: false, actionAuthority: actionAuthority,
+            )
             controller.updateQuery(searchQuery)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
@@ -375,7 +379,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func reloadFolderUnreadStates() {
-        let states = FolderUnreadStore.shared.states(for: td.id)
+        guard actionAuthority.isCurrent else { return }
+        let states = FolderUnreadStore.shared.states(for: actionAuthority.client.id)
         guard folderUnreadStates != states else { return }
         folderUnreadStates = states
         folderPicker.configure(
@@ -424,14 +429,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func performFolderAction(_ action: FolderMenuAction, for folder: CustomFolder) {
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
         switch action {
         case .editFolders:
-            pushFolderController(ChatFoldersViewController(rootVM: rootVM))
+            pushFolderController(ChatFoldersViewController(rootVM: rootVM, actionAuthority: actionAuthority))
         case .reorderTabs:
-            pushFolderController(ChatFolderOrderViewController(rootVM: rootVM))
+            pushFolderController(ChatFolderOrderViewController(rootVM: rootVM, actionAuthority: actionAuthority))
         case .editFolder:
             guard case .folder = folder.type else { return }
-            pushFolderController(ChatFolderEditorViewController(rootVM: rootVM, folder: folder))
+            pushFolderController(ChatFolderEditorViewController(
+                rootVM: rootVM, folder: folder, actionAuthority: actionAuthority,
+            ))
         case .addChats:
             addChats(to: folder)
         case .readAll:
@@ -452,18 +460,24 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func addChats(to folder: CustomFolder) {
-        guard case .folder(let info, let definition) = folder.type else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
         let controller = ChatFolderChatSelectionViewController(
             rootVM: rootVM,
             title: "Add Chats",
             selectedChatIDs: Set(definition.includedChatIds),
+            actionAuthority: actionAuthority,
         ) { [weak self] selectedChatIDs in
-            guard let self else { return }
+            guard let self, scope.isCurrent else { return }
             let updated = definition.replacingIncludedChatIDs(selectedChatIDs)
             Task { @MainActor [weak self] in
                 do {
-                    _ = try await td.editChatFolder(chatFolderId: info.id, folder: updated)
+                    _ = try await scope.perform {
+                        try await client.editChatFolder(chatFolderId: info.id, folder: updated)
+                    }
                 } catch {
+                    guard scope.isCurrent else { return }
                     self?.presentFolderError(error)
                 }
             }
@@ -472,10 +486,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func markAllChatsAsRead(in folder: CustomFolder) {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
         Task { @MainActor [weak self] in
             do {
-                _ = try await td.readChatList(chatList: folder.chatList)
+                _ = try await scope.perform { try await client.readChatList(chatList: folder.chatList) }
             } catch {
+                guard scope.isCurrent else { return }
                 self?.presentFolderError(error)
             }
         }
@@ -483,9 +500,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func setAllChatsMuted(_ muted: Bool, in folder: CustomFolder) {
         guard case .folder(_, let definition) = folder.type else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
         Task { @MainActor [weak self] in
             do {
-                let chatCount = try await td.getChatFolderChatCount(folder: definition).count
+                let chatCount = try await scope.perform {
+                    try await client.getChatFolderChatCount(folder: definition).count
+                }
                 guard chatCount <= 200 else {
                     self?.presentFolderNotice(
                         title: "Too Many Chats",
@@ -493,32 +514,32 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                     )
                     return
                 }
-                let chatIDs = try await td.getChats(chatList: folder.chatList, limit: 200).chatIds
-                var firstError: (any Swift.Error)?
-                for chatID in chatIDs {
-                    do {
-                        let chat = try await td.getChat(chatId: chatID)
-                        _ = try await td.setChatNotificationSettings(
+                let chatIDs = try await scope.perform {
+                    try await client.getChats(chatList: folder.chatList, limit: 200).chatIds
+                }
+                try await scope.updateEach(
+                    ids: chatIDs,
+                    read: { try await client.getChat(chatId: $0) },
+                    write: { chatID, chat in
+                        _ = try await client.setChatNotificationSettings(
                             chatId: chatID,
                             notificationSettings: chat.notificationSettings.replacingMuteFor(
                                 muted ? Int(Int32.max) : 0,
                             ),
                         )
-                    } catch {
-                        firstError = firstError ?? error
-                    }
-                }
-                if let firstError {
-                    self?.presentFolderError(firstError)
-                }
+                    },
+                )
             } catch {
+                guard scope.isCurrent else { return }
                 self?.presentFolderError(error)
             }
         }
     }
 
     private func confirmFolderRemoval(_ folder: CustomFolder) {
-        guard case .folder(let info, _) = folder.type else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent, case .folder(let info, _) = folder.type else { return }
         let alert = UIAlertController(
             title: "Remove \(folder.name)?",
             message: "The folder will be removed from your account. Its chats won't be deleted or left.",
@@ -528,11 +549,15 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
             Task { @MainActor [weak self] in
                 do {
-                    _ = try await td.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
+                    _ = try await scope.perform {
+                        try await client.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
+                    }
+                    guard scope.isCurrent else { return }
                     if self?.rootVM.currentFolder == folder.id {
                         self?.rootVM.currentFolder = self?.rootVM.folders.first(where: { $0.id == 0 })?.id
                     }
                 } catch {
+                    guard scope.isCurrent else { return }
                     self?.presentFolderError(error)
                 }
             }
@@ -545,7 +570,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func presentFolderNotice(title: String, message: String) {
-        guard presentedViewController == nil else { return }
+        guard actionAuthority.scope(owner: self).isCurrent, presentedViewController == nil else { return }
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)

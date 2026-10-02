@@ -10,10 +10,12 @@ final class ChatFoldersViewController: UITableViewController {
     // MARK: Private
 
     private let rootVM: RootVM
+    private let actionAuthority: ChatListActionAuthority
+    private var folders: [CustomFolder]
     private var cancellables = Set<AnyCancellable>()
 
     private var customFolders: [CustomFolder] {
-        rootVM.folders.filter {
+        folders.filter {
             if case .folder = $0.type {
                 return true
             }
@@ -21,8 +23,10 @@ final class ChatFoldersViewController: UITableViewController {
         }
     }
 
-    init(rootVM: RootVM) {
+    init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
         self.rootVM = rootVM
+        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
+        self.folders = rootVM.folders
         super.init(style: .insetGrouped)
     }
 
@@ -44,7 +48,11 @@ final class ChatFoldersViewController: UITableViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderCell")
         rootVM.$folders
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.tableView.reloadData() }
+            .sink { [weak self] folders in
+                guard let self, actionAuthority.isCurrent else { return }
+                self.folders = folders
+                tableView.reloadData()
+            }
             .store(in: &cancellables)
     }
 
@@ -78,8 +86,11 @@ final class ChatFoldersViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
         navigationController?.pushViewController(
-            ChatFolderEditorViewController(rootVM: rootVM, folder: customFolders[indexPath.row]),
+            ChatFolderEditorViewController(
+                rootVM: rootVM, folder: customFolders[indexPath.row], actionAuthority: actionAuthority,
+            ),
             animated: true,
         )
     }
@@ -88,8 +99,14 @@ final class ChatFoldersViewController: UITableViewController {
         _: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
     ) -> UISwipeActionsConfiguration? {
+        let scope = actionAuthority.scope(owner: self)
+        guard scope.isCurrent else { return nil }
         let folder = customFolders[indexPath.row]
         let delete = UIContextualAction(style: .destructive, title: "Remove") { [weak self] _, _, complete in
+            guard scope.isCurrent else {
+                complete(false)
+                return
+            }
             self?.confirmRemoval(of: folder)
             complete(true)
         }
@@ -98,11 +115,16 @@ final class ChatFoldersViewController: UITableViewController {
     }
 
     @objc private func addFolder() {
-        navigationController?.pushViewController(ChatFolderEditorViewController(rootVM: rootVM), animated: true)
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        navigationController?.pushViewController(
+            ChatFolderEditorViewController(rootVM: rootVM, actionAuthority: actionAuthority), animated: true,
+        )
     }
 
     private func confirmRemoval(of folder: CustomFolder) {
-        guard case .folder(let info, _) = folder.type else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent, case .folder(let info, _) = folder.type else { return }
         let alert = UIAlertController(
             title: "Remove \(folder.name)?",
             message: "The folder will be removed from your account. Its chats won't be deleted or left.",
@@ -112,8 +134,11 @@ final class ChatFoldersViewController: UITableViewController {
         alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
             Task { @MainActor [weak self] in
                 do {
-                    _ = try await td.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
+                    _ = try await scope.perform {
+                        try await client.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
+                    }
                 } catch {
+                    guard scope.isCurrent else { return }
                     self?.presentFolderError(error)
                 }
             }
@@ -128,9 +153,11 @@ final class ChatFolderOrderViewController: UITableViewController {
     // MARK: Private
 
     private var folders: [CustomFolder]
+    private let actionAuthority: ChatListActionAuthority
 
-    init(rootVM: RootVM) {
+    init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
         self.folders = rootVM.folders
+        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
         super.init(style: .insetGrouped)
     }
 
@@ -188,11 +215,15 @@ final class ChatFolderOrderViewController: UITableViewController {
         moveRowAt sourceIndexPath: IndexPath,
         to destinationIndexPath: IndexPath,
     ) {
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
         let folder = folders.remove(at: sourceIndexPath.row)
         folders.insert(folder, at: destinationIndexPath.row)
     }
 
     @objc private func saveOrder() {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent else { return }
         navigationItem.rightBarButtonItem?.isEnabled = false
         let folderIDs = folders.compactMap { folder -> Int? in
             if case .folder(let info, _) = folder.type {
@@ -204,12 +235,16 @@ final class ChatFolderOrderViewController: UITableViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                _ = try await td.reorderChatFolders(
-                    chatFolderIds: folderIDs,
-                    mainChatListPosition: mainPosition,
-                )
+                _ = try await scope.perform {
+                    try await client.reorderChatFolders(
+                        chatFolderIds: folderIDs,
+                        mainChatListPosition: mainPosition,
+                    )
+                }
+                guard scope.isCurrent else { return }
                 navigationController?.popViewController(animated: true)
             } catch {
+                guard scope.isCurrent else { return }
                 navigationItem.rightBarButtonItem?.isEnabled = true
                 presentFolderError(error)
             }
@@ -223,6 +258,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     // MARK: Private
 
     private let rootVM: RootVM
+    private let actionAuthority: ChatListActionAuthority
     private let folderInfo: ChatFolderInfo?
     private let originalName: ChatFolderName?
     private var draft: ChatFolder
@@ -236,8 +272,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         return field
     }()
 
-    init(rootVM: RootVM, folder: CustomFolder? = nil) {
+    init(rootVM: RootVM, folder: CustomFolder? = nil, actionAuthority: ChatListActionAuthority? = nil) {
         self.rootVM = rootVM
+        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
         if let folder, case .folder(let info, let definition) = folder.type {
             self.folderInfo = info
             self.originalName = definition.name
@@ -318,6 +355,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
         guard let row = Section(rawValue: indexPath.section)?.rows[indexPath.row] else { return }
         switch row {
         case .name:
@@ -353,13 +391,16 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     private func selectChats(excluded: Bool) {
+        let scope = actionAuthority.scope(owner: self)
+        guard scope.isCurrent else { return }
         let selected = Set(excluded ? draft.excludedChatIds : draft.includedChatIds)
         let controller = ChatFolderChatSelectionViewController(
             rootVM: rootVM,
             title: excluded ? "Excluded Chats" : "Included Chats",
             selectedChatIDs: selected,
+            actionAuthority: actionAuthority,
         ) { [weak self] selectedChatIDs in
-            guard let self else { return }
+            guard let self, scope.isCurrent else { return }
             draft = excluded
                 ? draft.replacingExcludedChatIDs(selectedChatIDs)
                 : draft.replacingIncludedChatIDs(selectedChatIDs)
@@ -369,6 +410,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     @objc private func save() {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent else { return }
         nameField.resignFirstResponder()
         let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty else {
@@ -381,18 +425,23 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         }
 
         let updated = draft.replacingName(name, preserving: originalName)
+        let folderID = folderInfo?.id
         navigationItem.rightBarButtonItem?.isEnabled = false
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                _ =
-                    if let folderInfo {
-                        try await td.editChatFolder(chatFolderId: folderInfo.id, folder: updated)
-                    } else {
-                        try await td.createChatFolder(folder: updated)
-                    }
+                _ = try await scope.perform {
+                    _ =
+                        if let folderID {
+                            try await client.editChatFolder(chatFolderId: folderID, folder: updated)
+                        } else {
+                            try await client.createChatFolder(folder: updated)
+                        }
+                }
+                guard scope.isCurrent else { return }
                 navigationController?.popViewController(animated: true)
             } catch {
+                guard scope.isCurrent else { return }
                 navigationItem.rightBarButtonItem?.isEnabled = true
                 presentFolderError(error)
             }
@@ -406,6 +455,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     // MARK: Private
 
     private let rootVM: RootVM
+    private let actionAuthority: ChatListActionAuthority
     private let onDone: (Set<Int64>) -> Void
     private let searchController = UISearchController(searchResultsController: nil)
     private var selectedChatIDs: Set<Int64>
@@ -417,9 +467,11 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         rootVM: RootVM,
         title: String,
         selectedChatIDs: Set<Int64>,
+        actionAuthority: ChatListActionAuthority? = nil,
         onDone: @escaping (Set<Int64>) -> Void,
     ) {
         self.rootVM = rootVM
+        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
         self.selectedChatIDs = selectedChatIDs
         self.onDone = onDone
         super.init(style: .insetGrouped)
@@ -472,6 +524,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
         let chatID = visibleChats[indexPath.row].id
         if selectedChatIDs.contains(chatID) {
             selectedChatIDs.remove(chatID)
@@ -487,6 +540,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     }
 
     private func reloadCandidates() {
+        guard actionAuthority.isCurrent else { return }
         var seen = Set<Int64>()
         chats = rootVM.allFolders
             .flatMap(\.chats)
@@ -505,7 +559,10 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     }
 
     @objc private func done() {
+        let scope = actionAuthority.scope(owner: self)
+        guard scope.isCurrent else { return }
         onDone(selectedChatIDs)
+        guard scope.isCurrent else { return }
         navigationController?.popViewController(animated: true)
     }
 }

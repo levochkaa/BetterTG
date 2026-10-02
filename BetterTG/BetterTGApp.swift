@@ -17,6 +17,7 @@ import UIKit
             TdUpdateSourceProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
             ChatComposerEditProbe.runDebugProbeIfRequested()
+            ChatListActionAuthorityProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             SendDraftRelocationProbe.runDebugProbeIfRequested()
             TDLibMediaUpdateStreamsProbe.runDebugProbeIfRequested()

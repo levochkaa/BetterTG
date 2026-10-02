@@ -101,6 +101,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private let showsStandaloneSearch: Bool
     private let rootVM: RootVM
+    private let actionAuthority: ChatListActionAuthority
     private var query = ""
     private var searchActive = false
     private var didSetInitialSearchOffset = false
@@ -131,9 +132,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
     }
 
-    init(folder: CustomFolder, rootVM: RootVM, showsStandaloneSearch: Bool) {
+    init(
+        folder: CustomFolder,
+        rootVM: RootVM,
+        showsStandaloneSearch: Bool,
+        actionAuthority: ChatListActionAuthority? = nil,
+    ) {
         self.folder = folder
         self.rootVM = rootVM
+        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
         self.showsStandaloneSearch = showsStandaloneSearch
         super.init(style: .plain)
     }
@@ -226,14 +233,18 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     func tableView(_: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        let client = actionAuthority.client
+        let authority = actionAuthority
+        guard authority.isCurrent else { return }
         for indexPath in indexPaths {
             guard let id = dataSource.itemIdentifier(for: indexPath),
                   let chat = chat(for: id),
                   prefetchTasks[id] == nil
             else { continue }
             prefetchTasks[id] = Task { [weak self] in
+                guard authority.isCurrent, !Task.isCancelled else { return }
                 if chat.chat.viewAsTopics {
-                    let _: ForumTopics? = try? await td.getForumTopics(
+                    let _: ForumTopics? = try? await client.getForumTopics(
                         chatId: id,
                         limit: 30,
                         offsetDate: 0,
@@ -242,7 +253,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                         query: "",
                     )
                 } else {
-                    let _: Messages? = try? await td.getChatHistory(
+                    let _: Messages? = try? await client.getChatHistory(
                         chatId: id,
                         fromMessageId: 0,
                         limit: 30,
@@ -405,6 +416,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent else { return [] }
         let pinned = chat.position.isPinned
         let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
@@ -430,22 +444,22 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 Task {
                     if unread {
                         if let messageID = chat.lastMessage?.id {
-                            _ = try? await td.viewMessages(
-                                chatId: chat.id,
-                                forceRead: true,
-                                messageIds: [messageID],
-                                source: nil,
-                            )
+                            _ = try? await scope.perform {
+                                try await client.viewMessages(
+                                    chatId: chat.id,
+                                    forceRead: true,
+                                    messageIds: [messageID],
+                                    source: nil,
+                                )
+                            }
                         }
-                        _ = try? await td.toggleChatIsMarkedAsUnread(
-                            chatId: chat.id,
-                            isMarkedAsUnread: false,
-                        )
+                        _ = try? await scope.perform {
+                            try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
+                        }
                     } else {
-                        _ = try? await td.toggleChatIsMarkedAsUnread(
-                            chatId: chat.id,
-                            isMarkedAsUnread: true,
-                        )
+                        _ = try? await scope.perform {
+                            try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: true)
+                        }
                     }
                 }
             },
@@ -454,10 +468,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 image: UIImage(systemName: archived ? "tray.and.arrow.up" : "archivebox"),
             ) {
                 Task {
-                    try? await td.addChatToList(
-                        chatId: chat.id,
-                        chatList: archived ? .chatListMain : .chatListArchive,
-                    )
+                    _ = try? await scope.perform {
+                        try await client.addChatToList(
+                            chatId: chat.id,
+                            chatList: archived ? .chatListMain : .chatListArchive,
+                        )
+                    }
                 }
             },
             TelegramContextMenuAction(
@@ -466,11 +482,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             ) { [weak self] in
                 guard let self else { return }
                 Task {
-                    try? await td.toggleChatIsPinned(
-                        chatId: chat.id,
-                        chatList: self.folder.chatList,
-                        isPinned: !pinned,
-                    )
+                    _ = try? await scope.perform {
+                        try await client.toggleChatIsPinned(
+                            chatId: chat.id,
+                            chatList: self.folder.chatList,
+                            isPinned: !pinned,
+                        )
+                    }
                 }
             },
             TelegramContextMenuAction(
@@ -478,12 +496,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 image: UIImage(systemName: muted ? "speaker.wave.2.fill" : "speaker.slash.fill"),
             ) {
                 Task {
-                    try? await td.setChatNotificationSettings(
-                        chatId: chat.id,
-                        notificationSettings: chat.chat.notificationSettings.withMuteFor(
-                            muted ? 0 : Int(Int32.max),
-                        ),
-                    )
+                    _ = try? await scope.perform {
+                        try await client.setChatNotificationSettings(
+                            chatId: chat.id,
+                            notificationSettings: chat.chat.notificationSettings.withMuteFor(
+                                muted ? 0 : Int(Int32.max),
+                            ),
+                        )
+                    }
                 }
             },
         ]
@@ -525,9 +545,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func performFolderAction(for chat: CustomChat) {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent else { return }
         if case .folder(let info, let definition) = folder.type {
             let updated = definition.removing(chatID: chat.id)
-            Task { try? await td.editChatFolder(chatFolderId: info.id, folder: updated) }
+            Task {
+                _ = try? await scope.perform {
+                    try await client.editChatFolder(chatFolderId: info.id, folder: updated)
+                }
+            }
             return
         }
 
@@ -542,10 +569,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         for target in targets {
             picker.addAction(UIAlertAction(title: target.1, style: .default) { _ in
                 Task {
-                    try? await td.editChatFolder(
-                        chatFolderId: target.0,
-                        folder: target.2.adding(chatID: chat.id),
-                    )
+                    _ = try? await scope.perform {
+                        try await client.editChatFolder(
+                            chatFolderId: target.0,
+                            folder: target.2.adding(chatID: chat.id),
+                        )
+                    }
                 }
             })
         }
@@ -561,6 +590,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func confirmDelete(chat: CustomChat, forAll: Bool) {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent else { return }
         let alert = UIAlertController(
             title: "Delete chat?",
             message: "Are you sure you want to delete chat with \(chat.displayTitle)?",
@@ -569,11 +601,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { _ in
             Task {
-                try? await td.deleteChatHistory(
-                    chatId: chat.id,
-                    removeFromChatList: true,
-                    revoke: forAll,
-                )
+                _ = try? await scope.perform {
+                    try await client.deleteChatHistory(
+                        chatId: chat.id,
+                        removeFromChatList: true,
+                        revoke: forAll,
+                    )
+                }
             }
         })
         present(alert, animated: true)
