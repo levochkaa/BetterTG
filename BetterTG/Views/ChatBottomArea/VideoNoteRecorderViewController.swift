@@ -449,6 +449,14 @@ enum VideoNoteSubmissionResult {
         thumbnailTask = nil
         if let finalization, !finalization.isComplete {
             let hasRecording = captureSession.stopInputPreservingRecording(generation: finalization.generation)
+            #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-preservation") {
+                    VideoNotePreservationProbe.progress(
+                        "navigation stop: hasRecording=\(hasRecording); requested=\(finalization.finishRequested); "
+                            + captureSession.preservationProbeContext(),
+                    )
+                }
+            #endif
             if hasRecording {
                 finalization.requestFinish()
                 Task { [self, finalization] in
@@ -457,6 +465,11 @@ enum VideoNoteSubmissionResult {
                             finalization.accept(asset)
                         }
                     } catch {
+                        #if DEBUG
+                            if ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-preservation") {
+                                VideoNotePreservationProbe.progress("navigation stop error: \(error)")
+                            }
+                        #endif
                         finalization.fail(error)
                     }
                     _ = await finalization.value()
@@ -466,6 +479,13 @@ enum VideoNoteSubmissionResult {
                 captureSession.stopCapture()
             }
         } else {
+            #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-preservation") {
+                    VideoNotePreservationProbe.progress(
+                        "navigation stop: missing/complete finalizer; " + captureSession.preservationProbeContext(),
+                    )
+                }
+            #endif
             captureSession.stopCapture()
         }
         previewPlayer.stop()
@@ -1724,7 +1744,11 @@ enum VideoNoteSubmissionResult {
                 automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
             }
             let activeOperation = recorder.operationTask
-            VideoNotePreservationProbe.progress("\(scenario): action invoked; state=\(recorder.state)")
+            VideoNotePreservationProbe.progress(
+                "\(scenario): action invoked; state=\(recorder.state); complete=\(finalization.isComplete); "
+                    + "requested=\(finalization.finishRequested); " + recorder.captureSession
+                        .preservationProbeContext(),
+            )
             await gate.waitUntilEntered()
             VideoNotePreservationProbe.progress("\(scenario): gate entered")
             if scenario == .explicitCancel {

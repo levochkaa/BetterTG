@@ -51,6 +51,14 @@ enum VideoNoteCaptureError: Swift.Error {
             try VideoNotePreservationProbe.require(rejected && unchanged, "stale preservation stop mutated replacement")
         }
 
+        func preservationProbeContext() -> String {
+            contextLock.withLock {
+                "active=\(String(describing: activeCaptureGeneration)); "
+                    + "context=\(String(describing: recordingContext?.captureGeneration)); "
+                    + "owner=\(String(describing: recordingContext?.finishOwner))"
+            }
+        }
+
         @MainActor static func verifyDebugFinishOwnership(directory: URL) async throws {
             let session = VideoNoteCaptureSession()
             let generation = UUID()
