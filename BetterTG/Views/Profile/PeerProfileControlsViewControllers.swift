@@ -59,6 +59,7 @@ import UIKit
     private var revalidation = PeerProfileMembersRevalidation()
     private var retainedHeights = [MemberID: CGFloat]()
     private var loadError: String?
+    private var loadRetryID: UUID?
     private var checkedAvailability = false
     private var quarantinedForClientChange = false
     private var basicMembersRevision = PeerProfileMembersRevision<[ChatMember]>()
@@ -85,6 +86,7 @@ import UIKit
     private var dataSource: UITableViewDiffableDataSource<Section, MemberID>!
     #if DEBUG
     private var isRestorationProbe = false
+    private var probeReadDispatches = 0
     #endif
 
     var navigationClientSource: TdUpdateSource? { identity.origin }
@@ -454,6 +456,13 @@ import UIKit
         tableView.tableFooterView = nil
         loadTask = Task { [weak self] in
             guard let self, !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
+            #if DEBUG
+            if isRestorationProbe {
+                probeReadDispatches += 1
+                loadTask = nil
+                return
+            }
+            #endif
             do {
                 if !checkedAvailability, case .supergroup(_, let id) = source {
                     let info = try await client.getSupergroupFullInfo(supergroupId: id)
@@ -657,18 +666,45 @@ import UIKit
     }
 
     private func showRetry(_ message: String) {
+        let generation = loadGeneration
+        let retryID = UUID()
+        loadRetryID = retryID
+        let action = UIAction(title: "Retry") { [weak self] _ in
+            self?.retryLoad(id: retryID, generation: generation)
+        }
+        let item = UIBarButtonItem(primaryAction: action)
+        item.hidesSharedBackground = true
+        navigationItem.rightBarButtonItem = item
         let button = UIButton(type: .system)
         button.frame.size.height = 112
         button.setTitle("Couldn't load \(listNoun)\n\(message)\nTap to retry", for: .normal)
         button.titleLabel?.numberOfLines = 0
         button.titleLabel?.textAlignment = .center
-        button.addAction(UIAction { [weak self] _ in
-            self?.loadError = nil
-            self?.tableView.tableFooterView = nil
-            self?.loadMore()
-        }, for: .touchUpInside)
+        button.addAction(action, for: .touchUpInside)
         tableView.tableFooterView = button
         tableView.backgroundView = nil
+        renderVisiblePlaceholders()
+    }
+
+    private func retryLoad(id: UUID, generation: UInt64) {
+        guard loadRetryID == id, loadGeneration == generation, loadError != nil,
+              readOwnerIsCurrent, navigationController?.topViewController === self else { return }
+        loadError = nil
+        loadRetryID = nil
+        navigationItem.rightBarButtonItem = nil
+        tableView.tableFooterView = nil
+        renderVisiblePlaceholders()
+        loadMore()
+    }
+
+    private func renderVisiblePlaceholders() {
+        preserveAnchor()
+        for path in tableView.indexPathsForVisibleRows ?? [] {
+            guard let id = dataSource.itemIdentifier(for: path), rows[id] == nil,
+                  let cell = tableView.cellForRow(at: path) else { continue }
+            PeerProfileMemberPlaceholder.configure(cell, retrying: loadError != nil)
+        }
+        applySnapshot()
     }
 
     private func emptyLabel(_ text: String) -> UILabel {
@@ -740,6 +776,8 @@ import UIKit
         revalidation.begin(ids: orderedIDs, rawOffset: rawOffset)
         checkedAvailability = false
         loadError = nil
+        loadRetryID = nil
+        navigationItem.rightBarButtonItem = nil
         tableView.tableFooterView = nil
         tableView.backgroundView = nil
         applySnapshot()
@@ -825,11 +863,14 @@ extension PeerProfileMembersViewController {
     /// Exercises the actual table, snapshot, quarantine and removal paths without
     /// installing subscriptions or issuing TDLib requests in the isolated window.
     static func verifyRestorationRendering(scene: UIWindowScene) async throws {
-        let account = UUID()
+        guard let account = TDLib.shared.activeAccountID, let actorID = TDLib.shared.activeAccount?.userID else {
+            throw PeerProfileMembersRestorationProbe
+                .Failure(description: "member retry probe requires an active account")
+        }
         let client = TDLib.shared.activeClient
         let old = PeerProfileMembersViewController(
             accountID: account,
-            accountUserID: 77,
+            accountUserID: actorID,
             client: client,
             source: .basicGroup(chatID: 8, id: 9),
             title: "Probe",
@@ -875,7 +916,7 @@ extension PeerProfileMembersViewController {
             .until("quarantine snapshot") { !old.snapshotApplyInProgress && !old.snapshotApplyPending }
         let state = PeerProfileMembersRestorationState(
             source: old.identity.origin,
-            actorID: 77,
+            actorID: actorID,
             chatID: 8,
             administrators: false,
             ids: old.orderedIDs,
@@ -887,7 +928,7 @@ extension PeerProfileMembersViewController {
         )
         let fresh = PeerProfileMembersViewController(
             accountID: account,
-            accountUserID: 77,
+            accountUserID: actorID,
             client: client,
             source: .basicGroup(chatID: 8, id: 9),
             title: "Probe",
@@ -916,15 +957,86 @@ extension PeerProfileMembersViewController {
             && fresh.rawOffset == 60 && fresh.revalidation.quarantined.count == 55,
             "partial page restored stale authority or skipped raw cursor",
         )
+        fresh.identity.readySource = fresh.identity.origin
+        fresh.loadError = "Probe offline"
+        fresh.showRetry("Probe offline")
+        guard let retry = fresh.tableView.tableFooterView as? UIButton else {
+            throw PeerProfileMembersRestorationProbe.Failure(description: "missing retry control")
+        }
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.navigationItem.rightBarButtonItem?.title == "Retry"
+            && fresh.navigationItem.rightBarButtonItem?.style == .plain
+            && fresh.navigationItem.rightBarButtonItem?.hidesSharedBackground == true
+            && fresh.tableView.visibleCells.allSatisfy {
+                $0.accessibilityLabel == "Member unavailable — retry" && $0.accessoryType == .none && $0
+                    .accessibilityHint == nil
+            },
+            "deep failure lacked visible classic Retry or leaked stale roles",
+        )
+        try await PeerProfileMembersRestorationProbe.until("failed member snapshot") { !fresh.snapshotApplyInProgress }
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.probeReadDispatches == 0 && fresh.loadError != nil,
+            "failed page retried automatically",
+        )
+        let cover = UIViewController()
+        navigation.pushViewController(cover, animated: false)
+        retry.sendActions(for: .touchUpInside)
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.loadError != nil && fresh.loadTask == nil,
+            "covered owner retried",
+        )
+        navigation.popViewController(animated: false)
+        fresh.identity.readySource = nil
+        retry.sendActions(for: .touchUpInside)
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.loadError != nil && fresh.loadTask == nil,
+            "unready source retried",
+        )
+        fresh.identity.readySource = fresh.identity.origin
+        fresh.loadGeneration &+= 1
+        retry.sendActions(for: .touchUpInside)
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.loadError != nil && fresh.loadTask == nil,
+            "stale generation retried",
+        )
+        fresh.showRetry("Current failure")
+        guard let currentRetry = fresh.tableView.tableFooterView as? UIButton else {
+            throw PeerProfileMembersRestorationProbe.Failure(description: "missing current retry")
+        }
+        currentRetry.sendActions(for: .touchUpInside)
+        try await PeerProfileMembersRestorationProbe.until("explicit retry dispatch") { fresh.probeReadDispatches == 1 }
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.loadError == nil && fresh.navigationItem.rightBarButtonItem == nil,
+            "explicit retry retained failure UI",
+        )
+        fresh.loadError = "Second failure"
+        fresh.showRetry("Second failure")
+        currentRetry.sendActions(for: .touchUpInside)
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.loadError != nil && fresh.probeReadDispatches == 1,
+            "previous retry control consumed new failure",
+        )
+        (fresh.tableView.tableFooterView as? UIButton)?.sendActions(for: .touchUpInside)
+        guard let scheduled = fresh.loadTask else {
+            throw PeerProfileMembersRestorationProbe.Failure(description: "explicit retry did not schedule a read")
+        }
+        fresh.beginRevalidation()
+        await scheduled.value
+        try PeerProfileMembersRestorationProbe.require(
+            scheduled.isCancelled && fresh.probeReadDispatches == 1,
+            "predispatch cancellation issued an obsolete read",
+        )
         let pending = Task<Void, Never> { try? await Task.sleep(for: .seconds(5)) }
         fresh.loadTask = pending
         let generation = fresh.loadGeneration
         navigation.popViewController(animated: false)
         try PeerProfileMembersRestorationProbe.require(
-            fresh.retired && pending.isCancelled && fresh.loadTask == nil
-            && fresh.loadGeneration != generation && !fresh.parentBinding.contains(fresh, parent: parent),
-            "actual pop kept read lifetime/parent authority",
+            !fresh.readOwnerIsCurrent && !fresh.parentBinding.contains(fresh, parent: parent),
+            "actual pop kept synchronous read/parent authority",
         )
+        try await PeerProfileMembersRestorationProbe.until("popped read retirement") {
+            fresh.retired && pending.isCancelled && fresh.loadTask == nil && fresh.loadGeneration != generation
+        }
     }
 }
 #endif
