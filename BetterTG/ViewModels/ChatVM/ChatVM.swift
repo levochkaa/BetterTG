@@ -137,7 +137,7 @@ import UIKit
     private var voiceRecordingDraftGeneration = 0
     private var voiceRecordingDraftID: UUID?
     private var voiceRecordingLifecycle = VoiceRecordingLifecycle()
-    private var voiceRequestInFlight = false
+    private var voiceFinalizationNeedsCheckpoint = false
     private let voiceBackgroundCheckpoint = VoiceRecordingCheckpointProtection()
     private var activeVoiceRecordingDraft: VoiceRecordingDraft?
     private var activeVoiceRecordingContext: ResolvedSendContext?
@@ -4656,7 +4656,7 @@ import UIKit
         voiceFinalizationGeneration &+= 1
         let generation = voiceFinalizationGeneration
         let interactionGeneration = intentGeneration ?? voiceRecordingLifecycle.generation
-        voiceRequestInFlight = false
+        voiceFinalizationNeedsCheckpoint = true
         voiceRetryAvailabilityTask?.cancel()
         finalizingVoiceNote = true
         hasPendingVoiceNote = false
@@ -4669,7 +4669,7 @@ import UIKit
             defer {
                 if let registeringMessageID { registeringVoiceMessageIDs.remove(registeringMessageID) }
                 if voiceFinalizationGeneration == generation {
-                    voiceRequestInFlight = false
+                    voiceFinalizationNeedsCheckpoint = false
                     bufferedDeletedMessageIDs.removeAll()
                     finalizingVoiceNote = false
                     voiceFinalizeTask = nil
@@ -4698,6 +4698,9 @@ import UIKit
                     guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                     pendingVoiceNote = draft
                 }
+                // From here the encoded canonical file is durable. Upload actions
+                // and reply validation may wait on the network; they are not checkpoints.
+                voiceFinalizationNeedsCheckpoint = false
                 guard sendWhenReady, voiceRecordingLifecycle.permitsContinuation(interactionGeneration) else {
                     await VoiceNoteDraftStore.shared.finishFinalization(claim.lease)
                     finalization = nil
@@ -4737,7 +4740,6 @@ import UIKit
                     }
                     try voiceRecordingLifecycle.requireCurrentIntent(interactionGeneration)
                     didStartSend = true
-                    voiceRequestInFlight = true
                     let resentMessages = try await client.resendMessages(
                         chatId: chatID,
                         messageIds: [failedSendState.messageID],
@@ -4753,7 +4755,6 @@ import UIKit
                     message = try await sendMessageVoiceNote(fileURL: draft.fileURL, draft: draft) { [owner = self] in
                         try owner.voiceRecordingLifecycle.requireCurrentIntent(interactionGeneration)
                         didStartSend = true
-                        owner.voiceRequestInFlight = true
                     }
                 }
                 // UI cancellation cannot revoke a send already accepted by TDLib.
@@ -5184,7 +5185,13 @@ import UIKit
     }
 
     private func protectVoiceRecordingCheckpoint() {
-        let tasks = [voiceRecordingDraftTask, voiceRecordingTrimTask, voiceRequestInFlight ? nil : voiceFinalizeTask]
+        let tasks = [
+            voiceRecordingDraftTask,
+            voiceRecordingTrimTask,
+            voiceFinalizationNeedsCheckpoint
+                ? voiceFinalizeTask
+                : nil,
+        ]
             .compactMap(\.self)
         // Expiry only ends the assertion; canonical work and accepted RPCs keep their owners.
         voiceBackgroundCheckpoint.protect(tasks)
