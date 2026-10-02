@@ -9,6 +9,13 @@ struct ChatViewportRestorationAuthority {
 
     private var current: Ticket?
 
+    /// A pending explicit target can retry when the final geometry owner leaves.
+    static func finishLayoutMutation(depth: inout Int) -> Bool {
+        precondition(depth > 0)
+        depth -= 1
+        return depth == 0
+    }
+
     mutating func begin() -> Ticket {
         let ticket = Ticket()
         current = ticket

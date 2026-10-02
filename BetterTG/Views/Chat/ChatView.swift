@@ -431,7 +431,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.collectionView.collectionViewLayout.invalidateLayout()
         }) { [weak self] _ in
             guard let self else { return }
-            defer { timelineLayoutMutationDepth -= 1 }
+            defer { finishTimelineLayoutMutation() }
             layoutForViewportCompletion()
             restoreAutomaticViewport(restoration)
         }
@@ -1758,8 +1758,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             guard let self else { return }
             defer {
-                timelineLayoutMutationDepth -= 1
-                applyPendingMessageNavigation()
+                finishTimelineLayoutMutation()
                 settleRestoredViewport()
                 retryClientRestoration()
             }
@@ -1998,6 +1997,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    private func finishTimelineLayoutMutation(retryPendingNavigation: Bool = true) {
+        if ChatViewportRestorationAuthority.finishLayoutMutation(depth: &timelineLayoutMutationDepth),
+           retryPendingNavigation { applyPendingMessageNavigation() }
+    }
+
     private func layoutForViewportCompletion() {
         viewportCompletionLayoutDepth += 1
         defer { viewportCompletionLayoutDepth -= 1 }
@@ -2052,7 +2056,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 || collectionView.isDecelerating
             guard !userIsScrolling else { return }
             timelineLayoutMutationDepth += 1
-            defer { timelineLayoutMutationDepth -= 1 }
+            defer { finishTimelineLayoutMutation() }
             layoutForViewportCompletion()
             restoreAutomaticViewport(restoration)
         }
@@ -2071,7 +2075,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         timelineLayoutMutationDepth += 1
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
-            defer { timelineLayoutMutationDepth -= 1 }
+            defer { finishTimelineLayoutMutation() }
             layoutForViewportCompletion()
             restoreAutomaticViewport(restoration)
         }
@@ -2135,7 +2139,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let previousOffset = collectionView.contentOffset
         let anchor = !userIsScrolling && !keepLatestVisible ? captureSnapshotAnchor() : nil
         timelineLayoutMutationDepth += 1
-        defer { timelineLayoutMutationDepth -= 1 }
+        defer { finishTimelineLayoutMutation() }
         collectionView.contentInset = updatedInsets
         collectionView.verticalScrollIndicatorInsets = updatedInsets
         collectionView.layoutIfNeeded()
@@ -2152,7 +2156,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard isViewLoaded, didPerformInitialScroll else { return }
         let restoration = captureAutomaticViewportRestoration(allowInitial: false)
         timelineLayoutMutationDepth += 1
-        defer { timelineLayoutMutationDepth -= 1 }
+        defer { finishTimelineLayoutMutation() }
         collectionView.collectionViewLayout.invalidateLayout()
         layoutForViewportCompletion()
         restoreAutomaticViewport(restoration)
@@ -2248,8 +2252,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             updateSnapshot(animated: false)
             return
         }
+        guard timelineLayoutMutationDepth == 0 else {
+            recordMessageNavigationPhase("awaiting-layout")
+            return
+        }
         timelineLayoutMutationDepth += 1
-        defer { timelineLayoutMutationDepth -= 1 }
+        // An unavailable layout must wait for an external completion, not recurse.
+        defer { finishTimelineLayoutMutation(retryPendingNavigation: false) }
         collectionView.layoutIfNeeded()
         guard view.window != nil, collectionView.bounds.height > 0, !userIsScrollingTimeline,
               collectionView.layoutAttributesForItem(at: indexPath) != nil
@@ -2575,7 +2584,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         UIView.performWithoutAnimation {
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 guard let self else { return }
-                defer { timelineLayoutMutationDepth -= 1 }
+                defer { finishTimelineLayoutMutation() }
                 layoutForViewportCompletion()
                 restoreAutomaticViewport(restoration)
             }
@@ -3558,7 +3567,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         timelineLayoutMutationDepth += 1
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
-            defer { timelineLayoutMutationDepth -= 1 }
+            defer { finishTimelineLayoutMutation() }
             layoutForViewportCompletion()
             restoreAutomaticViewport(restoration)
         }
