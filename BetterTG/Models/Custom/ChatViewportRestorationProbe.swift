@@ -34,7 +34,6 @@
             var appliedAnimations = [Bool]()
             var initialScrollCompleted = false
             var scrolling = false
-            var layoutDepth = 0
 
             init(scene: UIWindowScene) {
                 self.current = source
@@ -102,7 +101,7 @@
             }
 
             func applyTarget() {
-                guard let target = pending, current == source, !scrolling, layoutDepth == 0, collection.window != nil,
+                guard let target = pending, current == source, !scrolling, collection.window != nil,
                       collection.bounds.height > 0, let path = dataSource.indexPath(for: target.id),
                       let attributes = collection.layoutAttributesForItem(at: path) else { return }
                 let animated = initialScrollCompleted
@@ -115,10 +114,6 @@
                 )
                 applied.append(target)
                 appliedAnimations.append(animated)
-            }
-
-            func finishLayout(retry: Bool = true) {
-                if ChatViewportRestorationAuthority.finishLayoutMutation(depth: &layoutDepth), retry { applyTarget() }
             }
 
             func drag() {
@@ -136,24 +131,17 @@
         }
 
         static func runDebugProbeIfRequested() {
-            ChatMessageNavigationScrollProbe.runEndOrderProbeIfRequested()
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-viewport-authority") else { return }
             Task {
                 let result: String
                 do {
                     try verify()
                     try await verifyExplicitNavigation()
-                    try await verifyLayoutRelease()
-                    try await ChatMessageNavigationScrollProbe.verify()
                     result = "Viewport authority probe passed: production-ticket=true; latest-layout-only=true; "
                         + "gesture/navigation/revoked-context-retire=true; active-scroll/replay-rejected=true; "
                         + "fresh-restoration-after-gesture=true; "
                         + "A39-current-snapshot-marker/actual-UICollectionView-diffable=true; "
                         + "A39-loaded/unloaded/delayed-snapshot/appearance/layout/initial-position/quote-metadata/gesture/client/failure=true; "
-                        + "A39-rotation-release=production-helper/value-only-consumer; nested-release/no-recursion=true; "
-                        + "A39-settlement=production-driver/native-animation/estimated-compositional-cells; "
-                        + "A39-flight-anchor/latest/inset-gates/resize/album-remap/quote/supersession/cancel/deferred/deadline=true; "
-                        + "A39-successive-self-size/injected-offset-convergence/strict-centering/stall-and-cap=true; "
                         + "navigation-consumer=value-only; ChatView-wiring=source-reviewed; "
                         + "real-ChatVM/TDLib/foreground/rotation=unverified; server/account-stores=0"
                 } catch { result = "Viewport authority probe failed: \(error)" }
@@ -308,76 +296,6 @@
             try require(
                 failed.applied.isEmpty && failed.initialScrollCompleted && failed.collection.contentOffset.y == 0,
                 "failed lookup lost safe initial fallback",
-            )
-        }
-
-        private static func verifyLayoutRelease() async throws {
-            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
-                throw Failure(description: "missing layout release scene")
-            }
-            for loaded in [true, false] {
-                let fixture = NavigationFixture(scene: scene)
-                defer { fixture.close() }
-                await fixture.install(1...(loaded ? 90 : 30))
-                let oldSnapshot = fixture.authority.begin()
-                fixture.layoutDepth += 1 // Rotation owns layout through its completion.
-                fixture.request(75)
-                if loaded { fixture.request(76) }
-                let target = loaded ? 76 : 75
-                try require(
-                    fixture.pending?.id == target && fixture.applied.isEmpty,
-                    "direct loaded target bypassed active layout owner",
-                )
-                fixture.layoutDepth += 1 // A history snapshot completes inside rotation.
-                if !loaded { await fixture.install(1...90) }
-                fixture.completeSnapshot(oldSnapshot)
-                fixture.finishLayout()
-                fixture.appear()
-                try require(
-                    fixture.layoutDepth == 1 && fixture.pending?.id == target && fixture.applied.isEmpty,
-                    "nested release consumed pending target/quote",
-                )
-                fixture.finishLayout()
-                try require(
-                    fixture.layoutDepth == 0 && fixture.pending == nil && fixture.applied.count == 1
-                    && fixture.applied.first?.id == target && fixture.applied.first?.quote == "fixture quote",
-                    "final rotation release lost target/quote wakeup",
-                )
-                try require(fixture.collection.contentOffset.y > 2000, "rotation release left target at latest")
-            }
-
-            for retired in [true, false] {
-                let fixture = NavigationFixture(scene: scene)
-                defer { fixture.close() }
-                await fixture.install(1...90)
-                fixture.layoutDepth = 1
-                fixture.request(75)
-                if retired { fixture.current = .init(accountID: fixture.source.accountID, clientID: 915) }
-                else { fixture.drag() }
-                fixture.finishLayout()
-                try require(
-                    fixture.applied.isEmpty && fixture.layoutDepth == 0,
-                    "final release bypassed source or active gesture",
-                )
-            }
-
-            let unavailable = NavigationFixture(scene: scene)
-            defer { unavailable.close() }
-            await unavailable.install(1...90)
-            unavailable.layoutDepth = 1
-            unavailable.request(75)
-            unavailable.collection.bounds.size.height = 0
-            unavailable.finishLayout(retry: false) // The explicit scroll's own layout must not recursively retry.
-            try require(
-                unavailable.layoutDepth == 0 && unavailable.pending?.id == 75 && unavailable.applied.isEmpty,
-                "own release consumed unavailable layout",
-            )
-            unavailable.collection.bounds.size.height = 400
-            unavailable.collection.layoutIfNeeded()
-            unavailable.applyTarget()
-            try require(
-                unavailable.applied.count == 1 && unavailable.pending == nil,
-                "external layout did not settle deferred target",
             )
         }
     }
