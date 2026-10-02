@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: integrate A21 existing secret video-note authority, then A30 ForumTopics recovery. A20 profile-grid concealment
+Active queue: A30 ForumTopics recovery, remaining A23 static-image authority and bounded A33 profile-header sizing. A21 timed
+video-note hold authority has integrated native/UIKit proof; other secret media and view-once playback remain open. A20 profile-grid concealment
 has bounded integrated proof at `bdd19cd`; real spoiler gestures and transport remain unverified.
 Auth A23e and bounded composer A25 semantic/marked-input/undo probes pass; live authentication/keyboard remain unverified.
 A08 timing and A10 text spoilers now have integrated native/UIKit probes; A10's first runtime failure is fixed separately below.
@@ -135,7 +136,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A18 | P1 | `TDLib.activate` creates account-labelled range coordinators but passes the same lifetime-global `fileUpdates` subject; retained old-account sources accept new-account files by numeric ID. The lifetime-global delete subject similarly reaches old gallery/PiP owners without provenance | fixed in `76f9998` (worker `b2e33d2`) — immutable per-activation streams, accepted-source fence and inert bootstrap. Real range-source bytes plus retained deletion subscriptions pass A/B/replacement-client collision probe. Actual account switch/system PiP remains unverified; A19 restoration remains open |
 | A19 | P1 | `GalleryPictureInPictureCoordinator.presentRestoredGallery` retains messages/owner but rebuilds gallery with mutable shared `tdlib` only, omitting original `actionClient`, `sourceLocation` and `contextIsCurrent`; restore has no account/client guard, and dismissed PiP ownership survives context teardown | fixed in `d8ed16e` (worker `1ea2594`) — frozen account/client/chat/topic/ranges/delete authority, route callbacks and same-tab pagination, every-activation revocation, bounded exactly-once restoration. Isolated context and existing owner probes pass; actual system PiP and action transport remain unverified |
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | fixed bounded concealment — `05c2b49` gates timeline/album/gallery; `d8f9b36`/`bdd19cd` gate profile-grid thumbnails, revision replacement and snapshots. Actual UIKit/native fixture probes and ordinary own-profile navigation pass. Real spoiler gestures, transport and visual polish remain unverified. Distinct from caption/text spoiler A10 |
-| A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | partial containment — A20a denies ordinary secret photo/video/animation pixels and playback admission. Hold/TTL remains unimplemented. Source follow-up finds video-note global open RPC/raw file updates, retained open grant and missing expiry/source revocation; repair in progress. No real secret content consumed |
+| A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | partial — A20a denies ordinary secret photo/video/animation pixels. `0e4e1e1`/`437d7c7` repair timed video-note per-hold/client/ACK/expiry authority; actual UIKit/native probe passes through `4c3fc5e`. Photo/video/animation hold and immediate/view-once playback remain open; unsupported note forms stay concealed. No real secret content consumed |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | partial bounded repair — `6869382` one-shot geometry authority cancels obsolete automatic restoration after gestures, navigation and newer layout. Policy/Chat/composer probes and ordinary Saved scroll/latest smoke pass. Controlled overlapping diffable/rotation/keyboard/media-resize and prepend-during-drag pixel proof remain unverified |
 | A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a`, static-image `ba0e192` and auth `097b488` have bounded source/queued-delivery authority proofs. Auth actual-view probe passes through `d7e9974`. Remaining subscribers/static-image origin/shared-demand ownership, same-epoch ordering and real multi-account RPC races stay open |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
@@ -1181,6 +1182,38 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a20b-primary`. Circular Back remains an A32 gap; the visibly truncated title is recorded as A33.
   Hardware/VoiceOver, populated-grid updates, actual spoiler gestures and full visual parity remain unverified.
 
+### A21c timed secret video-note hold authority — 2026-10-02
+
+- `0e4e1e1` (worker `46772f7`) replaces global open/file authority and persistent reveal with frozen account/client/message,
+  one configuration token and one token per hold. Scoped content/edit/delete/file updates and client/lifecycle changes revoke
+  playback. Release, move-out, cancellation, reuse and offscreen teardown remove the player and concealed pixels synchronously.
+- A supported incoming timed note validates fresh metadata, obtains its complete file, revalidates, awaits captured-client
+  `openMessageContent`, then requires fresh positive finite `selfDestructIn` before player admission. Monotonic expiry includes
+  metadata latency conservatively and cannot extend across holds. Late ACK/error/seek/display callbacks cannot authorize another
+  hold or configuration. Cancellation does not retract an RPC already dispatched to TDLib.
+- Immediate/view-once, missing/invalid timer and outgoing secret forms remain unavailable before this view's I/O. This is not
+  a global TDLib/prefetch no-download policy. No temporary copied-file lease, screenshot prevention, secret gallery/export/PiP
+  or photo/video/animation hold is added. Ordinary video-note play/pause remains supported.
+- Primary review found ordinary thumbnails admitted before a rejected backend. `437d7c7` (worker `1a3c9d4`) gates thumbnail
+  and minithumbnail admission and revokes off-window playback even when a detached view remains retained.
+- References: pinned TDLib `MessagesManager.cpp` 9303–9324,10199–10223,10329–10352,16968–16994,20641–20642; generated
+  `MessageVideoNote`, `Message.selfDestructIn` and `openMessageContent`. Zero remaining duration may mean not started. Immediate
+  expiry can remove files during open. Pinned current/pre `GalleryData.swift` 317–319 / 267–269 and
+  `GalleryUI/Sources/SecretMediaPreviewController.swift` 519–551,590–597 / 517–549,588–595 use a separate protected viewer
+  and pre-consumption file lease; this bounded repair does not claim that view-once architecture.
+- Five Swift files formatted together; integration build `build-Debug-20261002-211637-8286-29034.log`: PASS10s, zero warnings.
+  First actual-view probe failed its immediate deinit assumption after window removal. `4c3fc5e` waits for bounded queued UIKit
+  teardown while ACK remains suspended, with a weak condition; the view is gone before the reply. Exact transient retention cause
+  is unproven. Production is unchanged. One-file build `build-Debug-20261002-211911-11904-22812.log`: PASS8s, zero warnings.
+- Audit Simulator source `437d7c7` plus the committed probe fix, PID `12358`: actual UIKit/native-player/private-MP4/JPEG probe
+  passes nil/stale backend pixels, unsupported forms, ACK admission, late callbacks, positive TTL/elapsed metadata, repeated hold,
+  source collision, edit/delete/reuse/window/offscreen/background revocation, canceled download, deinit and ordinary play/pause.
+  Injected requests/clock produce no real opens, user-media operations or account writes. Real touch/server TTL ordering remains unverified.
+- Source `4c3fc5e`, PID `13038`: profile/media reveal, text-spoiler and navigation regressions pass with fresh file timestamps.
+  Separate native inline-animation PID `15898` and gallery-owner PID `16179` pass; same owner/item/layer, finite FFmpeg ranges,
+  cancellation and offscreen continuity retained. Active system PiP unsupported. Proofs and initial failure:
+  `.build/ui-probe-evidence/astra-a21c-primary`. Worker build/ref notes remain in its `.build/video-note-hold-proof`.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -1226,7 +1259,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `bdd19cd`: profile/media concealment, text-spoiler and navigation probes pass (PID `473`);
+- Latest verified code: `4c3fc5e`: timed video-note native hold probe passes (PID `12358`, production `437d7c7` plus that probe fix);
+  profile/media/text/navigation regressions pass (PID `13038`), native animation and gallery-owner pass separately (`15898`/`16179`).
+  `bdd19cd`: profile/media concealment, text-spoiler and navigation probes pass (PID `473`);
   own-profile navigation and populated grid load pass without opening media. `bb36bc7`: Archive same-PID search/foreground
   replacement smoke and navigation/Root/auth regressions pass (PID `52323`).
   `05c2b49`: media-reveal/text-spoiler/viewport probes pass (PID `39784`); native animation/transition,
@@ -1242,22 +1277,23 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free integration build: `.build/logs/xcodebuild/build-Debug-20261002-210753-97781-13866.log`.
+  Warning-free integration/follow-up build: `.build/logs/xcodebuild/build-Debug-20261002-211911-11904-22812.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
-  A30b2 controller/history, A23b Chat fences, A10/A25 and A23e auth are integrated; bounded secret video-note authority is in progress there.
+  A30b2 controller/history, A23b Chat fences, A10/A25, A23e auth and A21c timed video-note authority are integrated.
+  It is reviewing remaining static-image origin/shared-demand ownership without implementation.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
-  A20b profile-grid concealment is integrated. Its next bounded assignment is A30 ForumTopics recovery after the shared baseline.
+  A20b profile-grid concealment is integrated. Its current bounded assignment is A30 ForumTopics recovery from `437d7c7`.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: integrate/revalidate A21 secret video-note authority, then A30 ForumTopics recovery;
+- Exact next slices: A30 ForumTopics recovery, A23 static-image origin/shared-demand and A33 constrained profile-header width;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image origin/shared-demand gaps and Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
