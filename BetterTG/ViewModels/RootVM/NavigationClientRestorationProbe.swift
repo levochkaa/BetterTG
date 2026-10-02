@@ -14,7 +14,12 @@
             let payload: MainViewController.ClientRestorationState
             var beforeReplacement: (() -> Void)?
             var replacementAllowed = true
+            var preflightAllowed = true
+            var commitAllowed = true
             var replacementCount = 0
+            var beforePreflight: (() -> Void)?
+            var beforeCommit: (() -> Void)?
+            var resource: OwnedResource?
 
             init(source: TdUpdateSource, payload: MainViewController.ClientRestorationState) {
                 self.navigationClientSource = source
@@ -26,11 +31,39 @@
                 fatalError("init(coder:) has not been implemented")
             }
 
-            func replacementForReadyClient(_ source: TdUpdateSource) -> UIViewController? {
+            func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
                 guard replacementAllowed else { return nil }
-                replacementCount += 1
                 beforeReplacement?()
-                return Entry(source: source, payload: payload)
+                return PreparedClientNavigationReplacement(
+                    preflight: { [self] in
+                        beforePreflight?()
+                        return preflightAllowed
+                    },
+                    commit: { [self] in
+                        guard commitAllowed else { return nil }
+                        beforeCommit?()
+                        replacementCount += 1
+                        let replacement = Entry(source: source, payload: payload)
+                        if let resource {
+                            guard resource.lifetime.retire() else { return nil }
+                            replacement.resource = OwnedResource(file: resource.file)
+                        }
+                        return replacement
+                    },
+                )
+            }
+        }
+
+        @MainActor private final class OwnedResource {
+            let file: URL
+            let lifetime = ChatComposerRestorationLifetime()
+
+            init(file: URL) { self.file = file }
+
+            deinit {
+                MainActor.assumeIsolated {
+                    lifetime.finish { try? FileManager.default.removeItem(at: file) }
+                }
             }
         }
 
@@ -53,12 +86,15 @@
             let result: String
             do {
                 try verifyCoordinator()
+                try verifyPreparedCommit()
                 try verifyViewport()
                 try verifyViewportOrdering()
                 try verifySearchQuery()
                 result = "Client restoration probe passed: production-readiness/coordinator=true; "
                     + "cold/duplicate/stale-ready=true; A1-A2-A3=true; other-account-untouched=true; "
                     + "changed-stack/newer-epoch-fenced=true; deferred-entry/transition-retry=true; retained-chat-identity=true; "
+                    + "prepared-plan/file-ownership=true; bounded-multi-entry-drain=true; deferred-first-skipped=true; "
+                    + "terminal-install/reentrant-ready=true; Chat-navigation-not-enabled; "
                     + "production-UIKit-viewport-capture/restore=true; prepend/missing/clamp=true; "
                     + "delayed-diffable-gate/layout/query/drag=true; "
                     + "query-restoration=true; real-Main/foreground/keyboard-runtime=unverified; server-writes=0"
@@ -196,6 +232,135 @@
             let replay = readiness.publisher.sink { replayed = $0 }
             try require(replayed == current, "late subscriber missed Ready")
             withExtendedLifetime(replay) {}
+        }
+
+        private static func verifyPreparedCommit() throws {
+            let account = UUID()
+            let a1 = TdUpdateSource(accountID: account, clientID: 801)
+            let a2 = TdUpdateSource(accountID: account, clientID: 802)
+            let a3 = TdUpdateSource(accountID: account, clientID: 803)
+            let other = TdUpdateSource(accountID: UUID(), clientID: 802)
+            let payload = MainViewController.ClientRestorationState(
+                searchQuery: "", searchWasFocused: false, folderViewports: [:],
+            )
+            let first = Entry(source: a1, payload: payload)
+            let second = Entry(source: a1, payload: payload)
+            let untouched = UIViewController()
+            var controllers: [UIViewController] = [first, second, untouched]
+            var current = a2
+            var canReplace = true
+            var installations = 0
+            let readiness = CurrentValueSubject<TdUpdateSource?, Never>(nil)
+            let coordinator = NavigationClientRestoration(
+                readiness: readiness.eraseToAnyPublisher(), currentSource: { current },
+                stack: { controllers }, canReplace: { canReplace },
+                replace: { controllers = $0
+                installations += 1
+                },
+            )
+            first.preflightAllowed = false
+            readiness.send(a2)
+            try require(
+                controllers[0] === first && second.replacementCount == 1
+                    && (controllers[1] as? Entry)?.navigationClientSource == a2
+                    && controllers[2] === untouched && installations == 1,
+                "deferred first plan blocked the following entry",
+            )
+            first.preflightAllowed = true
+            coordinator.retry()
+            try require(first.replacementCount == 1 && installations == 2, "deferred plan did not resume")
+            current = a3
+            readiness.send(a3)
+            try require(
+                installations == 4 && controllers.prefix(2).allSatisfy {
+                    ($0 as? Entry)?.navigationClientSource == a3
+                } && controllers[2] === untouched,
+                "one Ready did not drain both opted-in entries",
+            )
+            readiness.send(a3)
+            coordinator.retry()
+            try require(installations == 4, "duplicate Ready replaced a current entry")
+
+            let temporaryDirectory = FileManager.default.temporaryDirectory
+            let directory = temporaryDirectory.appendingPathComponent("NavigationCommitProbe-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let file = directory.appendingPathComponent("owned-attachment.txt")
+            try Data("retained local attachment".utf8).write(to: file)
+            let owned = Entry(source: a1, payload: payload)
+            owned.resource = OwnedResource(file: file)
+            controllers = [owned, untouched]
+            current = a2
+            owned.preflightAllowed = false
+            readiness.send(a2)
+            try require(
+                owned.replacementCount == 0 && owned.resource?.lifetime.isRetired == false
+                    && FileManager.default.fileExists(atPath: file.path),
+                "refused preflight retired the original file owner",
+            )
+            owned.preflightAllowed = true
+            owned.commitAllowed = false
+            coordinator.retry()
+            try require(
+                owned.replacementCount == 0 && owned.resource?.lifetime.isRetired == false
+                    && FileManager.default.fileExists(atPath: file.path),
+                "refused commit retired the original file owner",
+            )
+            owned.commitAllowed = true
+            let pushed = UIViewController()
+            owned.beforePreflight = { controllers.append(pushed) }
+            coordinator.retry()
+            try require(
+                controllers.last === pushed && owned.replacementCount == 0
+                    && owned.resource?.lifetime.isRetired == false
+                    && FileManager.default.fileExists(atPath: file.path),
+                "changed stack preflight transferred ownership",
+            )
+            owned.beforePreflight = { canReplace = false }
+            coordinator.retry()
+            try require(
+                owned.replacementCount == 0 && owned.resource?.lifetime.isRetired == false
+                    && FileManager.default.fileExists(atPath: file.path),
+                "changed barrier preflight transferred ownership",
+            )
+            canReplace = true
+            owned.beforePreflight = {
+                current = other
+                readiness.send(other)
+            }
+            coordinator.retry()
+            try require(
+                controllers[0] === owned && owned.replacementCount == 0
+                    && owned.resource?.lifetime.isRetired == false
+                    && FileManager.default.fileExists(atPath: file.path),
+                "changed account preflight transferred ownership",
+            )
+            owned.beforePreflight = nil
+            // Test-only reentrancy: production constructors do not emit Ready.
+            // Once commit retires ownership, installation cannot be rejected.
+            owned.beforeCommit = {
+                readiness.send(a2)
+                coordinator.retry()
+                current = a3
+                readiness.send(a3)
+                canReplace = false
+            }
+            current = a2
+            readiness.send(a2)
+            try require(
+                owned.replacementCount == 1 && owned.resource?.lifetime.isRetired == true
+                    && (controllers[0] as? Entry)?.navigationClientSource == a2
+                    && controllers[1] === untouched && controllers[2] === pushed
+                    && FileManager.default.fileExists(atPath: file.path),
+                "post-commit guard abandoned transferred ownership",
+            )
+            canReplace = true
+            coordinator.retry()
+            try require(
+                (controllers[0] as? Entry)?.navigationClientSource == a3
+                    && FileManager.default.fileExists(atPath: file.path),
+                "reentrant latest Ready did not resume with preserved ownership",
+            )
         }
 
         private static func verifyViewport() throws {

@@ -124,12 +124,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         updateNavigationBarHeight(contentHeight: currentNavigationContentHeight)
     }
 
-    func replacementForReadyClient(_ source: TdUpdateSource) -> UIViewController? {
-        guard source == TDLib.shared.activeUpdateSource,
-              source.accountID == navigationClientSource?.accountID,
-              source.accountID == rootVM.activeAccountID,
-              interactiveFolderTransition == nil
-        else { return nil }
+    func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
+        guard canRestoreClient(source) else { return nil }
         let state = ClientRestorationState(
             searchQuery: searchQuery,
             searchWasFocused: isViewLoaded ? customNavigationBar.isSearchActive : restoresSearchFocus,
@@ -140,7 +136,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 uniquingKeysWith: { _, current in current },
             ),
         )
-        return MainViewController(rootVM: rootVM, restoration: state)
+        let rootVM = rootVM
+        return PreparedClientNavigationReplacement(
+            preflight: { [weak self] in self?.canRestoreClient(source) == true },
+            commit: { MainViewController(rootVM: rootVM, restoration: state) },
+        )
     }
 
     func pageViewController(
@@ -201,6 +201,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if let currentFolderController {
             applySearchScrollOffset(offset: currentFolderController.searchScrollOffset, animated: true)
         }
+    }
+
+    private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
+        source == TDLib.shared.activeUpdateSource
+            && source.accountID == navigationClientSource?.accountID
+            && source.accountID == rootVM.activeAccountID
+            && interactiveFolderTransition == nil
     }
 
     private func configureAutomatedSmokeRoute() {
