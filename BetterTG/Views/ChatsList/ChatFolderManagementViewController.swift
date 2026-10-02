@@ -437,11 +437,24 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 // MARK: - ChatFolderChatSelectionViewController
 
 final class ChatFolderChatSelectionViewController: UITableViewController, UISearchResultsUpdating {
+    private struct CandidatePresentation: Equatable {
+        let title: String
+        let subtitle: String?
+    }
+
+    #if DEBUG
+        private(set) var candidatePresentationReloadsForProbe = 0
+    #endif
+
     // MARK: Private
 
     private let session: FolderFlowSession
     private var sessionObservation: AnyCancellable?
     private let onDone: (ChatFolderChatSelectionViewController, Set<Int64>) -> Bool
+    private var candidateObservation: AnyCancellable?
+    private var candidateGeneration = UUID()
+    private var candidatePresentation = [Int64: CandidatePresentation]()
+    private var candidateOrder = [Int64]()
     private let searchController = UISearchController(searchResultsController: nil)
     private var selectedChatIDs: Set<Int64>
     private var chats = [CustomChat]()
@@ -495,7 +508,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
             let mismatches = cells.filter { cell in
                 guard let index = tableView.indexPath(for: cell), visibleChats.indices.contains(index.row)
                 else { return true }
-                return (cell.textLabel?.text ?? "") != visibleChats[index.row].displayTitle
+                return (cell.textLabel?.text ?? "") != visibleChats[index.row].folderPickerTitle
             }
 .count
             let result = "Folder selector diagnostic: candidates=\(chats.count); filtered=\(visibleChats.count); "
@@ -516,6 +529,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
+        reloadCandidates()
     }
 
     override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int { visibleChats.count }
@@ -528,10 +542,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         let identifier = "FolderChatCell"
         let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: identifier)
-        let chat = visibleChats[indexPath.row]
-        cell.textLabel?.text = chat.displayTitle
-        cell.detailTextLabel?.text = chat.folderPickerSubtitle
-        cell.accessoryType = selectedChatIDs.contains(chat.id) ? .checkmark : .none
+        configurePickerCell(cell, chat: visibleChats[indexPath.row])
         return cell
     }
 
@@ -545,6 +556,12 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
             selectedChatIDs.insert(chatID)
         }
         tableView.reloadRows(at: [indexPath], with: .none)
+    }
+
+    func configurePickerCell(_ cell: UITableViewCell, chat: CustomChat) {
+        cell.textLabel?.text = chat.folderPickerTitle
+        cell.detailTextLabel?.text = chat.folderPickerSubtitle
+        cell.accessoryType = selectedChatIDs.contains(chat.id) ? .checkmark : .none
     }
 
     func updateSearchResults(for searchController: UISearchController) {
@@ -568,17 +585,48 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         chats = session.allFolders
             .flatMap(\.chats)
             .filter { seen.insert($0.id).inserted }
-            .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+        let generation = UUID()
+        candidateGeneration = generation
+        let scope = session.scope(owner: self)
+        candidateObservation = Publishers.MergeMany(chats.map(\.objectWillChange))
+            .receive(on: DispatchQueue.main)
+            .throttle(for: .milliseconds(16), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] in
+                guard let self, candidateGeneration == generation, scope.isCurrent else { return }
+                sortAndFilterCandidates()
+            }
+        sortAndFilterCandidates()
+    }
+
+    private func sortAndFilterCandidates() {
+        let presentation = Dictionary(uniqueKeysWithValues: chats.map {
+            ($0.id, CandidatePresentation(title: $0.folderPickerTitle, subtitle: $0.folderPickerSubtitle))
+        })
+        guard presentation != candidatePresentation else {
+            let byID = Dictionary(uniqueKeysWithValues: chats.map { ($0.id, $0) })
+            chats = candidateOrder.compactMap { byID[$0] }
+            applyFilter(reload: false)
+            return
+        }
+        chats.sort {
+            let comparison = $0.folderPickerTitle.localizedCaseInsensitiveCompare($1.folderPickerTitle)
+            return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
+        }
+        candidatePresentation = presentation
+        candidateOrder = chats.map(\.id)
+        #if DEBUG
+            candidatePresentationReloadsForProbe += 1
+        #endif
         applyFilter()
     }
 
-    private func applyFilter() {
+    private func applyFilter(reload: Bool = true) {
         visibleChats = query.isEmpty
             ? chats
             : chats.filter {
-                $0.displayTitle.localizedCaseInsensitiveContains(query)
+                $0.folderPickerTitle.localizedCaseInsensitiveContains(query)
             }
-        tableView.reloadData()
+        if reload { tableView.reloadData() }
     }
 
     @objc private func done() {
@@ -851,9 +899,37 @@ private extension ChatFolderEditorViewController {
 }
 
 private extension CustomChat {
-    var folderPickerSubtitle: String {
+    var folderPickerTitle: String {
+        let existing = displayTitle
+        if !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return existing }
         switch type {
-        case .user: "Contact"
+        case .bot(let user), .user(let user):
+            switch user.type {
+            case .userTypeDeleted: return "Deleted Account"
+            case .userTypeUnknown: return "Unknown User"
+            default: break
+            }
+            let name = [user.firstName, user.lastName]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            if !name.isEmpty { return name }
+            if let username = user.usernames?.activeUsernames.first, !username.isEmpty { return "@" + username }
+            if !user.phoneNumber.isEmpty { return user.phoneNumber }
+            if case .bot = type { return "Bot" }
+            return "User"
+        case .group: return "Untitled Group"
+        case .supergroup(let group): return group.isChannel ? "Untitled Channel" : "Untitled Group"
+        }
+    }
+
+    var folderPickerSubtitle: String? {
+        switch type {
+        case .user(let user):
+            switch user.type {
+            case .userTypeDeleted, .userTypeUnknown: nil
+            default: user.isContact ? "Contact" : "Non-Contact"
+            }
         case .bot: "Bot"
         case .group: "Group"
         case .supergroup(let group): group.isChannel ? "Channel" : "Group"

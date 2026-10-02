@@ -104,6 +104,8 @@
                         "window scene did not attach",
                     )
                     try await verifyEditorAndSelector()
+                    try verifySelectorPresentation()
+                    try await verifySelectorPresentationUpdates()
                     try await verifyListAndOrder()
                     try await verifyMutationBoundaries()
                     try await verifyControllerMembership()
@@ -114,6 +116,8 @@
                         + "stale-ready/scope/pre-dispatch/late-success-error/duplicate-submit=fenced; "
                         + "root/navigation/page/modal-membership=true; popped-pixels/detached-subtree=denied; "
                         + "selector-order-done-text/plain-style/AX/action/disabled-readiness=true; "
+                        + "selector-deleted/unknown/contact/fallback/sort/search/reuse/selection/scoped-updates=true; "
+                        + "unread-last-position/shuffled-input=no-presentation-reload; equal-title-order=stable; "
                         + "dispatched-create-edit-reorder-delete=uncertain; account-A-B-A=revoked; "
                         + "RootVM/native-client/real-foreground/keyboard=unverified; server-calls=0"
                 } catch {
@@ -166,6 +170,230 @@
                     && item.action == NSSelectorFromString(action) && item.isEnabled == enabled,
                 "Done title/style/AX/target/action/enabled changed",
             )
+        }
+
+        private static func pickerUser(
+            id: Int64, type: UserType = .userTypeRegular, first: String = "", last: String = "",
+            contact: Bool = false, username: String? = nil, phone: String = "",
+        ) -> User {
+            User(
+                accentColorId: -1, activeStoryState: nil, addedToAttachmentMenu: false, backgroundCustomEmojiId: 0,
+                emojiStatus: nil, firstName: first, haveAccess: true, id: id, isCloseFriend: false, isContact: contact,
+                isMutualContact: false, isPremium: false, isSupport: false, languageCode: "", lastName: last,
+                paidMessageStarCount: 0, phoneNumber: phone, profileAccentColorId: -1,
+                profileBackgroundCustomEmojiId: 0,
+                profilePhoto: nil, restrictionInfo: nil, restrictsNewChats: false, status: .userStatusEmpty, type: type,
+                upgradedGiftColors: nil,
+                usernames: username.map { .init(
+                    activeUsernames: [$0],
+                    collectibleUsernames: [],
+                    disabledUsernames: [],
+                    editableUsername: $0,
+                ) },
+                verificationStatus: nil,
+            )
+        }
+
+        private static func pickerChat(id: Int64, title: String = "", user: User? = nil) -> CustomChat {
+            RootChatInsertionProbe.chat(
+                .init(isPinned: false, list: .chatListMain, order: 1, source: nil), title: title, id: id, user: user,
+            )
+        }
+
+        private static func rows(_ picker: ChatFolderChatSelectionViewController) -> [UITableViewCell] {
+            (0..<picker.tableView(picker.tableView, numberOfRowsInSection: 0)).map {
+                picker.tableView(picker.tableView, cellForRowAt: IndexPath(row: $0, section: 0))
+            }
+        }
+
+        private static func search(_ picker: ChatFolderChatSelectionViewController, _ text: String) {
+            let controller = picker.navigationItem.searchController!
+            controller.searchBar.text = text
+            picker.updateSearchResults(for: controller)
+        }
+
+        private static func verifySelectorPresentation() throws {
+            let fixture = try Fixture()
+            defer { fixture.close() }
+            let deleted = pickerChat(id: 101, user: pickerUser(id: 101, type: .userTypeDeleted))
+            let unknown = pickerChat(id: 102, user: pickerUser(id: 102, type: .userTypeUnknown))
+            let botType = UserType.userTypeBot(.init(
+                activeUserCount: 0, allowsUsersToCreateTopics: false, canBeAddedToAttachmentMenu: false,
+                canBeEdited: false, canConnectToBusiness: false, canJoinGroups: false, canManageBots: false,
+                canReadAllGroupMessages: false, hasMainWebApp: false, hasTopics: false, inlineQueryPlaceholder: "",
+                isGuard: false, isInline: false, needLocation: false, supportsGuestQueries: false,
+            ))
+            let channel = pickerChat(id: 113)
+            channel.type = .supergroup(.init(
+                activeStoryState: nil, boostLevel: 0, date: 0, hasAutomaticTranslation: false,
+                hasDirectMessagesGroup: false, hasForumTabs: false, hasLinkedChat: false, hasLocation: false,
+                id: 113, isAdministeredDirectMessagesGroup: false, isBroadcastGroup: false, isChannel: true,
+                isDirectMessagesGroup: false, isForum: false, isSlowModeEnabled: false, joinByRequest: false,
+                joinToSendMessages: false, memberCount: 0, paidMessageStarCount: 0, restrictionInfo: nil,
+                showMessageSender: false, signMessages: false,
+                status: .chatMemberStatusMember(.init(memberUntilDate: 0)),
+                usernames: nil, verificationStatus: nil,
+            ))
+            let cases: [(CustomChat, String, String?)] = [
+                (deleted, "Deleted Account", nil), (unknown, "Unknown User", nil),
+                (
+                    pickerChat(id: 103, user: pickerUser(id: 103, first: "Alpha", last: "Person")),
+                    "Alpha Person",
+                    "Non-Contact",
+                ),
+                (
+                    pickerChat(id: 104, title: "Valid Contact", user: pickerUser(id: 104, contact: true)),
+                    "Valid Contact",
+                    "Contact",
+                ),
+                (
+                    pickerChat(id: 105, title: "Valid Non-Contact", user: pickerUser(id: 105)),
+                    "Valid Non-Contact",
+                    "Non-Contact",
+                ),
+                (pickerChat(id: 106, user: pickerUser(id: 106, username: "fixture")), "@fixture", "Non-Contact"),
+                (pickerChat(id: 107, user: pickerUser(id: 107, phone: "1234567")), "1234567", "Non-Contact"),
+                (pickerChat(id: 108, user: pickerUser(id: 108)), "User", "Non-Contact"),
+                (pickerChat(id: 109), "Untitled Group", "Group"),
+                (pickerChat(id: 110, title: "Saved Messages"), "Saved Messages", "Group"),
+                (pickerChat(id: 111, user: pickerUser(id: 111, type: botType)), "Bot", "Bot"),
+                (
+                    pickerChat(id: 112, title: " \n", user: pickerUser(id: 112, last: "Surname")),
+                    "Surname",
+                    "Non-Contact",
+                ),
+                (channel, "Untitled Channel", "Channel"),
+                (pickerChat(id: 114, user: pickerUser(id: 114, type: .userTypeDeleted)), "Deleted Account", nil),
+            ]
+            fixture.folders[1].chats = cases.reversed().map(\.0)
+            var selected: Set<Int64>?
+            let picker = ChatFolderChatSelectionViewController(
+                session: fixture.session,
+                title: "Fixture",
+                selectedChatIDs: [101],
+            ) {
+                _, ids in selected = ids
+                return true
+            }
+            fixture.show(picker)
+            let beforeShuffle = picker.candidatePresentationReloadsForProbe
+            fixture.folders[1].chats = cases.map(\.0)
+            fixture.modelChanges.send(())
+            try require(
+                picker.candidatePresentationReloadsForProbe == beforeShuffle,
+                "unchanged shuffled input reloaded selector",
+            )
+            let expected = cases.sorted {
+                let comparison = $0.1.localizedCaseInsensitiveCompare($1.1)
+                return comparison == .orderedSame ? $0.0.id < $1.0.id : comparison == .orderedAscending
+            }
+            let actual = rows(picker)
+            try require(
+                actual.map { $0.textLabel?.text } == expected.map { Optional($0.1) },
+                "selector fallback/sort mismatch",
+            )
+            for (row, item) in zip(actual, expected) {
+                try require(row.detailTextLabel?.text == item.2, "selector contact/type subtitle mismatch")
+                try require(
+                    row.accessoryType == (item.0.id == 101 ? .checkmark : .none),
+                    "fallback changed selection identity",
+                )
+            }
+            let reused = UITableViewCell(style: .subtitle, reuseIdentifier: "FolderChatCell")
+            picker.configurePickerCell(reused, chat: cases[3].0)
+            try require(reused.detailTextLabel?.text == "Contact", "reuse fixture did not bind contact")
+            picker.configurePickerCell(reused, chat: deleted)
+            try require(
+                reused.textLabel?.text == "Deleted Account" && reused.detailTextLabel?.text == nil
+                && reused.accessoryType == .checkmark,
+                "reuse retained subtitle or dropped selection",
+            )
+            picker.configurePickerCell(reused, chat: unknown)
+            try require(
+                reused.textLabel?.text == "Unknown User" && reused.detailTextLabel?.text == nil
+                && reused.accessoryType == .none,
+                "unknown reused deleted selection",
+            )
+            search(picker, "deleted")
+            try require(
+                rows(picker).map { $0.textLabel?.text } == ["Deleted Account", "Deleted Account"],
+                "fallback title not searchable",
+            )
+            picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+            search(picker, "unknown")
+            try require(
+                rows(picker).map { $0.textLabel?.text } == ["Unknown User"],
+                "unknown mislabeled or unsearchable",
+            )
+            picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+            try press(picker)
+            try require(selected == [102] && fixture.writes.isEmpty, "fallback changed submitted IDs or sent RPC")
+        }
+
+        private static func verifySelectorPresentationUpdates() async throws {
+            let fixture = try Fixture()
+            defer { fixture.close() }
+            let chat = pickerChat(id: 201, user: pickerUser(id: 201, type: .userTypeUnknown))
+            fixture.folders[1].chats = [chat]
+            var completions = 0
+            let picker = ChatFolderChatSelectionViewController(
+                session: fixture.session,
+                title: "Fixture",
+                selectedChatIDs: [201],
+            ) {
+                _, _ in completions += 1
+                return true
+            }
+            fixture.show(picker)
+            let initialReloads = picker.candidatePresentationReloadsForProbe
+            chat.unreadCount = 7
+            chat.lastMessage = nil
+            chat.position = .init(isPinned: false, list: .chatListMain, order: 2, source: nil)
+            try await Task.sleep(for: .milliseconds(50))
+            try require(
+                picker.candidatePresentationReloadsForProbe == initialReloads,
+                "non-presentation update reloaded selector",
+            )
+            chat.updatePrivateUser(pickerUser(id: 201, first: "Resolved", contact: true))
+            try await until({
+                picker.tableView.layoutIfNeeded()
+                let row = picker.tableView.cellForRow(at: IndexPath(row: 0, section: 0))
+                return row?.textLabel?.text == "Resolved" && row?.detailTextLabel?.text == "Contact"
+                    && row?.accessoryType == .checkmark
+            }, "accepted user update did not refresh actual selector row")
+            search(picker, "Resolved")
+            chat.chat = pickerChat(id: 201, title: "Renamed", user: pickerUser(id: 201)).chat
+            try await until({ rows(picker).isEmpty }, "accepted title update did not refresh search")
+            fixture.navigation.popViewController(animated: false)
+            chat.chat = pickerChat(id: 201, title: "Resolved", user: pickerUser(id: 201)).chat
+            try await Task.sleep(for: .milliseconds(50))
+            fixture.show(picker)
+            try require(
+                rows(picker).map { $0.textLabel?.text } == ["Resolved"],
+                "returning selector kept offscreen presentation",
+            )
+            chat.chat = pickerChat(id: 201, title: "Renamed", user: pickerUser(id: 201)).chat
+            try await until({ rows(picker).isEmpty }, "reopened selector did not observe title")
+            fixture.ready.send(nil)
+            chat.chat = pickerChat(id: 201, title: "Resolved", user: pickerUser(id: 201)).chat
+            try await Task.sleep(for: .milliseconds(50))
+            try require(rows(picker).isEmpty, "retired candidate subscription refreshed selector")
+            _ = fixture.replace(clientID: 840)
+            try require(
+                rows(picker).map { $0.textLabel?.text } == ["Resolved"],
+                "fresh source did not refresh preserved query",
+            )
+            fixture.window.rootViewController = UIViewController()
+            fixture.window.addSubview(fixture.navigation.view)
+            chat.chat = pickerChat(id: 201, title: "Detached", user: pickerUser(id: 201)).chat
+            try await Task.sleep(for: .milliseconds(50))
+            try require(
+                picker.tableView(picker.tableView, numberOfRowsInSection: 0) == 1,
+                "detached owner accepted candidate update",
+            )
+            try press(picker)
+            try require(completions == 0 && fixture.writes.isEmpty, "detached updated selector completed")
+            fixture.navigation.view.removeFromSuperview()
         }
 
         private static func verifyEditorAndSelector() async throws {
