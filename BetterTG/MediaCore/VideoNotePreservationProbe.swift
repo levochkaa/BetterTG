@@ -20,6 +20,30 @@
             guard condition else { throw Failure(description: message) }
         }
 
+        @MainActor static func waitForGate(
+            _ gate: VideoNoteFinishProbe.Gate,
+            finalization: VideoNoteCaptureFinalization,
+        ) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+            while await !(gate.isEntered) {
+                if finalization.isComplete {
+                    let result = await finalization.value()
+                    switch result {
+                    case .success:
+                        throw Failure(
+                            description: "canonical save completed without entering the requested finish gate",
+                        )
+                    case .failure(let error):
+                        throw Failure(description: "finalization ended before finish gate: \(error)")
+                    }
+                }
+                guard ContinuousClock.now < deadline else {
+                    throw Failure(description: "finish gate was not entered within 15 seconds")
+                }
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            }
+        }
+
         @MainActor static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-video-note-preservation") else { return }
             Task {

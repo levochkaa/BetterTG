@@ -14,6 +14,8 @@
             private var continuation: CheckedContinuation<Void, Never>?
             private var observer: CheckedContinuation<Void, Never>?
 
+            var isEntered: Bool { entered }
+
             func wait() async {
                 entered = true
                 observer?.resume()

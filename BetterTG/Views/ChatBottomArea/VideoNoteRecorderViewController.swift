@@ -1705,6 +1705,8 @@ enum VideoNoteSubmissionResult {
                 chatID: route.chatID, draftKey: route, replyMessageID: 31, replyTo: nil, sendTopic: sendTopic,
                 recordingStore: store,
             )
+            // Production loads/attaches preview views before capture preparation.
+            recorder.loadViewIfNeeded()
             let generation = recorder.operationGeneration
             recorder.recordingDraft = baseDraft
             recorder.recordingDurationBaseline = baseDraft?.totalDuration ?? 0
@@ -1749,7 +1751,7 @@ enum VideoNoteSubmissionResult {
                     + "requested=\(finalization.finishRequested); " + recorder.captureSession
                         .preservationProbeContext(),
             )
-            await gate.waitUntilEntered()
+            try await VideoNotePreservationProbe.waitForGate(gate, finalization: finalization)
             VideoNotePreservationProbe.progress("\(scenario): gate entered")
             if scenario == .explicitCancel {
                 recorder.cancel()
