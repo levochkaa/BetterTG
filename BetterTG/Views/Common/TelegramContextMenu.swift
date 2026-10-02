@@ -177,6 +177,10 @@ class TelegramContextMenuExtractableView: UIView {
 // swiftformat:enable preferFinalClasses
 
 extension UIViewController {
+    var isPresentingTelegramContextMenu: Bool {
+        TelegramContextMenuController.activeController?.owner === self
+    }
+
     @discardableResult func presentTelegramContextMenu(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
@@ -185,6 +189,7 @@ extension UIViewController {
         performsInitialFeedback: Bool = true,
         presentationStyle: TelegramContextMenuPresentationStyle = .message,
         previewController: UIViewController? = nil,
+        onDismiss: (() -> Void)? = nil,
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
@@ -197,6 +202,7 @@ extension UIViewController {
             sourceTransform: sourceBaseTransform ?? sourceView.transform,
             presentationStyle: presentationStyle,
             previewController: previewController,
+            owner: self, onDismiss: onDismiss,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
@@ -215,12 +221,32 @@ extension UIViewController {
     }
 }
 
+// MARK: - TelegramContextMenuRootView
+
+private final class TelegramContextMenuRootView: UIView {
+    var onDetached: (() -> Void)?
+
+    private var wasAttached = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { wasAttached = true }
+        else if wasAttached { onDetached?() }
+    }
+}
+
 // MARK: - TelegramContextMenuController
 
 private final class TelegramContextMenuController: UIViewController {
     // MARK: Fileprivate
 
     fileprivate static var activeController: TelegramContextMenuController?
+
+    fileprivate weak var owner: UIViewController?
+
+    private var onDismiss: (() -> Void)?
+    private var dismissCompletion: (() -> Void)?
+    private var didFinishDismissal = false
 
     // MARK: Private
 
@@ -266,6 +292,8 @@ private final class TelegramContextMenuController: UIViewController {
         sourceTransform: CGAffineTransform,
         presentationStyle: TelegramContextMenuPresentationStyle,
         previewController: UIViewController?,
+        owner: UIViewController,
+        onDismiss: (() -> Void)?,
     ) {
         self.sourceView = sourceView
         self.sourceTransform = sourceTransform
@@ -273,8 +301,13 @@ private final class TelegramContextMenuController: UIViewController {
         self.trackingGesture = trackingGesture
         self.presentationStyle = presentationStyle
         self.previewController = previewController
+        self.owner = owner
+        self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
         trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(dismissMenu), name: UIApplication.didEnterBackgroundNotification, object: nil,
+        )
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -282,10 +315,17 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
     // MARK: Internal
+
+    override func loadView() {
+        let root = TelegramContextMenuRootView()
+        root.onDetached = { [weak self] in self?.finishDismissal() }
+        view = root
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -642,6 +682,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func dismissMenu(completion: (() -> Void)? = nil) {
         guard !isDismissing else { return }
         isDismissing = true
+        dismissCompletion = completion
         let returnFrame = sourceFrameAtBaseTransform()
         UIView.animate(
             withDuration: 0.24,
@@ -678,22 +719,30 @@ private final class TelegramContextMenuController: UIViewController {
             }
             self.menuEffectView.alpha = 0
             self.menuEffectView.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
-        } completion: { _ in
-            self.sourceView?.transform = self.sourceTransform
-            if let previewView = self.previewView, let extractedSource = self.extractedSource {
-                extractedSource.putBackContextMenuContent(previewView)
-            }
-            self.previewController?.willMove(toParent: nil)
-            self.previewController?.view.removeFromSuperview()
-            self.previewController?.removeFromParent()
-            self.sourceView?.alpha = 1
-            self.beginAppearanceTransition(false, animated: false)
-            self.view.removeFromSuperview()
-            self.endAppearanceTransition()
-            self.presentationHostView = nil
-            Self.activeController = nil
-            completion?()
-        }
+        } completion: { _ in self.finishDismissal() }
+    }
+
+    private func finishDismissal() {
+        guard !didFinishDismissal else { return }
+        didFinishDismissal = true
+        isDismissing = true
+        sourceView?.transform = sourceTransform
+        if let previewView, let extractedSource { extractedSource.putBackContextMenuContent(previewView) }
+        previewController?.willMove(toParent: nil)
+        previewController?.view.removeFromSuperview()
+        previewController?.removeFromParent()
+        sourceView?.alpha = 1
+        beginAppearanceTransition(false, animated: false)
+        view.removeFromSuperview()
+        endAppearanceTransition()
+        presentationHostView = nil
+        if Self.activeController === self { Self.activeController = nil }
+        let action = dismissCompletion
+        let callback = onDismiss
+        dismissCompletion = nil
+        onDismiss = nil
+        action?()
+        callback?()
     }
 
     private func sourceFrameAtBaseTransform() -> CGRect {

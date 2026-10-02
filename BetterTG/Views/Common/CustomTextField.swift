@@ -15,7 +15,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     var onTextChange: ((AttributedString) -> Void)?
-    var onPasteImages: (([SelectedImage]) -> Void)?
+    var onPasteImages: (([UIImage]) -> Void)?
+    var onInteractionSettled: (() -> Void)?
+    var onUserInteraction: (() -> Void)?
+
+    private var isPresentingEditMenu = false
 
     // MARK: Private
 
@@ -24,6 +28,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     private var lastWidth = CGFloat.zero
     private var isPastingText = false
     private var isApplyingValue = false
+
+    var permitsClientRestoration: Bool {
+        markedTextRange == nil && !isPresentingEditMenu && !isTracking && !isDragging && !isDecelerating
+            && !(gestureRecognizers ?? []).contains { $0.state == .began || $0.state == .changed }
+    }
 
     init(placeholder: String) {
         self.placeholder = placeholder
@@ -65,6 +74,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         }
     }
 
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        onUserInteraction?()
+        super.touchesBegan(touches, with: event)
+    }
+
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let selected = text(in: textRange), !selected.isEmpty else {
             return UIMenu(children: suggestedActions)
@@ -92,18 +106,14 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
 
     override func paste(_ sender: Any?) {
         if let images = UIPasteboard.general.images, !images.isEmpty {
-            let callback = onPasteImages
-            Task {
-                let selected = await Task.detached(priority: .userInitiated) {
-                    images.compactMap { writeImage($0) }
-                }.value
-                callback?(selected)
-            }
+            receivePastedImages(images)
             return
         }
         isPastingText = true
         super.paste(sender)
     }
+
+    func receivePastedImages(_ images: [UIImage]) { onPasteImages?(Array(images.prefix(10))) }
 
     func setAttributedText(_ value: AttributedString) {
         let value = NSAttributedString(value)
@@ -128,7 +138,22 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         invalidateIntrinsicContentSize()
         isScrollEnabled = intrinsicContentSize.height >= 240
         guard !isApplyingValue else { return }
+        onUserInteraction?()
         onTextChange?(AttributedString(attributedText))
+        onInteractionSettled?()
+    }
+
+    func textViewDidChangeSelection(_: UITextView) { onInteractionSettled?() }
+
+    func textView(_: UITextView, willPresentEditMenuWith _: any UIEditMenuInteractionAnimating) {
+        isPresentingEditMenu = true
+    }
+
+    func textView(_: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
+        animator.addCompletion { [weak self] in
+            self?.isPresentingEditMenu = false
+            self?.onInteractionSettled?()
+        }
     }
 
     func textView(

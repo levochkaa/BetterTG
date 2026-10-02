@@ -18,6 +18,7 @@
                     try verifyImports()
                     try await verifyRefresh()
                     try await verifyProductionRefreshPolicy()
+                    try verifyControllerRestorationGates()
                     result = "Chat restoration state probe passed: detached-display-values/raw-cursor=true; "
                         + "album-edit/delete/latest-overlap=true; local-import-once/same-account/retirement=true; "
                         + "bounded-four-reads/visible-first=true; update/delete/source/cancel/hydration-fences=true; "
@@ -25,7 +26,7 @@
                         + "latest-page-revision/token-fences=true; missing-vs-error/retry-event=true; "
                         + "live-body/shared-hydration/partial-race-retry=true; pagination-ledger/mutation-owner=true; "
                         + "deferred-ready/error/cancel/retirement=true; "
-                        + "Chat-navigation-not-enabled; server-reads/sends=0"
+                        + "controller-viewport/IME/paste-gates=true; controller-network/UI-smoke=pending; server-reads/sends=0"
                 } catch {
                     result = "Chat restoration state probe failed: \(error)"
                 }
@@ -515,6 +516,103 @@
             try await require(
                 !deferred.refreshNextBatch() && deferredDeliveries == 1 && deferred.beginRead() == nil,
                 "cancelled/retired owner resumed a deferred request",
+            )
+        }
+
+        private static func verifyControllerRestorationGates() throws {
+            let account = UUID()
+            let source = TdUpdateSource(accountID: account, clientID: 2)
+            let seed = ChatClientRestorationViewport(
+                source: source, messageID: 42, pixelOffset: -37.5, keepsLatest: false, fallbackOffset: 160,
+            )
+            var viewport = seed
+            try require(
+                !viewport.take(currentSource: source, hasLayout: true, keyboardChanging: false),
+                "layout consumed anchor before diffable apply/appearance",
+            )
+            viewport.appeared = true
+            try require(
+                !viewport.take(currentSource: source, hasLayout: true, keyboardChanging: false),
+                "appearance consumed unapplied anchor",
+            )
+            viewport.snapshotApplied = true
+            try require(
+                !viewport.take(currentSource: source, hasLayout: false, keyboardChanging: false),
+                "empty layout consumed anchor",
+            )
+            try require(
+                !viewport.take(currentSource: source, hasLayout: true, keyboardChanging: true),
+                "keyboard animation consumed anchor",
+            )
+            try require(
+                !viewport.take(
+                    currentSource: .init(accountID: account, clientID: 3),
+                    hasLayout: true,
+                    keyboardChanging: false,
+                ),
+                "new client consumed an old viewport token",
+            )
+            try require(
+                viewport.take(currentSource: source, hasLayout: true, keyboardChanging: false)
+                    && viewport.messageID == 42 && viewport.pixelOffset == -37.5
+                    && !viewport.take(currentSource: source, hasLayout: true, keyboardChanging: false),
+                "source/pixel viewport was lost or applied twice",
+            )
+            var interrupted = seed
+            interrupted.appeared = true
+            interrupted.snapshotApplied = true
+            interrupted.invalidate()
+            try require(
+                !interrupted.take(currentSource: source, hasLayout: true, keyboardChanging: false),
+                "late initial layout rewound a user interaction",
+            )
+            try require(
+                ChatComposerView.restorationSelection(.init(location: 4, length: 9), length: 7) == .init(
+                    location: 4,
+                    length: 3,
+                )
+                    && ChatComposerView
+                        .restorationSelection(.init(location: NSNotFound, length: 2), length: 7) == .init(
+                            location: 7,
+                            length: 0,
+                        ),
+                "composer selection was not clamped to restored text",
+            )
+            let text = FormattedTextView(placeholder: "probe")
+            text.setMarkedText("composing", selectedRange: NSRange(location: 1, length: 0))
+            try require(!text.permitsClientRestoration, "active IME composition allowed transfer")
+            text.unmarkText()
+            try require(text.permitsClientRestoration, "settled IME stayed blocked")
+            let barrier = ChatComposerImportBarrier(location: .init(
+                accountID: account,
+                chatID: 100,
+                clientID: 1,
+                topic: nil,
+            ))
+            var pending = [ChatComposerImportBarrier.Token]()
+            var accepted = 0
+            var retries = 0
+            barrier.onQuiescent = { retries += 1 }
+            text.onPasteImages = { images in
+                if images.count == 10, let token = barrier.begin() { pending.append(token) }
+            }
+            // The real paste dispatch is synchronous: its token exists before
+            // the controller starts JPEG conversion, without touching pasteboard.
+            text.receivePastedImages(Array(repeating: UIImage(), count: 12))
+            pending += (0..<3).compactMap { _ in barrier.begin() } // Photos, camera, document provider awaits.
+            try require(
+                pending.count == 4 && !barrier.isQuiescent && !barrier.retire(),
+                "imports did not block ownership transfer",
+            )
+            for token in pending {
+                try require(
+                    barrier.finish(token, currentAccountID: account, routeIsRetained: true) { accepted += 1 },
+                    "client-only rollover rejected local import",
+                )
+            }
+            try require(
+                accepted == 4 && retries == 1 && barrier.retire(),
+                "imports did not settle before one terminal transfer",
             )
         }
 

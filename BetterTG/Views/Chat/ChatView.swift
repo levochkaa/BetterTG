@@ -6,9 +6,35 @@ import TDLibKitDynamic
 import UIKit
 import UniformTypeIdentifiers
 
+// MARK: - ChatClientRestorationViewport
+
+/// One initial anchor, never a delayed scroll after the user takes control.
+struct ChatClientRestorationViewport {
+    let source: TdUpdateSource
+    let messageID: Int64?
+    let pixelOffset: CGFloat
+    let keepsLatest: Bool
+    let fallbackOffset: CGFloat
+    var snapshotApplied = false
+    var appeared = false
+    private(set) var pending = true
+
+    mutating func take(currentSource: TdUpdateSource?, hasLayout: Bool, keyboardChanging: Bool) -> Bool {
+        guard pending, source == currentSource, snapshotApplied, appeared, hasLayout,
+              !keyboardChanging else { return false }
+        pending = false
+        return true
+    }
+
+    mutating func invalidate() { pending = false }
+}
+
+// MARK: - ChatViewController
+
 final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
     PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
-    UIDocumentPickerDelegate, UIGestureRecognizerDelegate
+    UIDocumentPickerDelegate, UIGestureRecognizerDelegate, UIAdaptivePresentationControllerDelegate,
+    ClientRestorableNavigationEntry
 {
     // MARK: Internal
 
@@ -79,7 +105,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
     private var displayedPinnedMessage: Message?
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
-    private lazy var composerView = ChatComposerView(chatVM: chatVM)
+    private lazy var composerView: ChatComposerView = {
+        let composer = ChatComposerView(chatVM: chatVM)
+        if let state = restoredComposerState { composer.restoreClientViewState(state, focus: false) }
+        return composer
+    }()
+
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
     private let scrollToLatestButton = UIButton(type: .system)
@@ -125,9 +156,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingSelfSizingKeepsLatest = false
     private var selfSizingAnchorRestoreScheduled = false
     private var pendingComposerSendTransitions = [UUID: PendingComposerSendTransition]()
+    private var activeComposerSendAnimations = 0
     private var sendTransitionMessageIDAliases = [Int64: Int64]()
     private var pendingDeleteSnapshotWorkItem: DispatchWorkItem?
     private var pendingDeleteSnapshotDeadline: CFTimeInterval?
+    private lazy var importBarrier = ChatComposerImportBarrier(location: location)
+    private var clientPreparationTask: Task<Void, Never>?
+    private var clientPreparationSource: TdUpdateSource?
+    private var preparedClient: (source: TdUpdateSource, client: TDLibClient, chat: CustomChat, topic: ForumTopic?)?
+    private var clientRetryScheduled = false
+    private var clientOwnerRetired = false
+    private var restoredViewport: ChatClientRestorationViewport?
+    private var restoredComposerState: ChatComposerView.ClientViewState?
+    private var restorationFocusAttempted = false
+    private var restorationFocusSettled = false
+    private var keyboardIsChanging = false
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
         let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
@@ -162,6 +205,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private weak var pressedMessageSourceView: UIView?
     private var pressedMessageSourceTransform = CGAffineTransform.identity
 
+    var navigationClientSource: TdUpdateSource? {
+        location.accountID.map { TdUpdateSource(accountID: $0, clientID: location.clientID) }
+    }
+
     private var showsComposer: Bool {
         presentationMode == .full
             && (location.isTopicScoped || chatVM.isAllMessagesForum || chatVM.canShowComposer)
@@ -188,7 +235,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return "\(bubbleCount) conversations selected, \(sourceCount) messages"
     }
 
-    init(
+    private var routeIsRetained: Bool {
+        !clientOwnerRetired && navigationController?.viewControllers.contains(where: { $0 === self }) == true
+    }
+
+    convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
         forumTopic: ForumTopic? = nil,
@@ -201,18 +252,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatID: customChat.id,
             client: tdlib.activeClient,
         )
-        self.presentationMode = presentationMode
-        self.location = resolvedLocation
-        self.chatVM = ChatVM(
+        let chatVM = ChatVM(
             customChat: customChat,
             location: resolvedLocation,
             forumTopic: forumTopic,
             previewing: presentationMode == .contextPreview,
+            client: tdlib.activeClient,
         )
-        self.targetMessageID = targetMessageID
-        self.targetQuote = targetQuote
-        self.tdlib = tdlib
-        super.init(nibName: nil, bundle: nil)
+        self.init(
+            chatVM: chatVM,
+            presentationMode: presentationMode,
+            targetMessageID: targetMessageID,
+            targetQuote: targetQuote,
+            tdlib: tdlib,
+        )
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -220,6 +273,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     deinit {
+        clientPreparationTask?.cancel()
         prefetchTasks.values.forEach { $0.task?.cancel() }
         MainActor.assumeIsolated {
             for owner in inlineVideoPlaybackOwners.values {
@@ -239,6 +293,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             transition.timeout.cancel()
             transition.snapshots.forEach { $0.view.removeFromSuperview() }
         }
+    }
+
+    private init(
+        chatVM: ChatVM, presentationMode: PresentationMode = .full, targetMessageID: Int64? = nil,
+        targetQuote: MessageQuoteHighlight? = nil, tdlib: TDLib,
+        viewport: ChatClientRestorationViewport? = nil, composer: ChatComposerView.ClientViewState? = nil,
+    ) {
+        self.presentationMode = presentationMode
+        self.location = chatVM.location
+        self.chatVM = chatVM
+        self.targetMessageID = targetMessageID
+        self.targetQuote = targetQuote
+        self.tdlib = tdlib
+        self.restoredViewport = viewport
+        self.restoredComposerState = composer
+        super.init(nibName: nil, bundle: nil)
+        importBarrier.onQuiescent = { [weak self] in self?.retryClientRestoration() }
     }
 
     override func viewDidLoad() {
@@ -282,6 +353,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        restoredViewport?.appeared = true
+        settleRestoredViewport()
+        if preparedClient == nil { clientPreparationSource = nil }
+        retryClientRestoration()
         restoreVisibleInlineVideoPlayback()
         if presentationMode == .full {
             chatVM.readAllReactions()
@@ -306,6 +381,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             updateComposerFloatingState(keyboardAttached)
         }
         updateHistoryInsets()
+        settleRestoredViewport()
+        retryClientRestoration()
     }
 
     override func viewWillTransition(
@@ -348,32 +425,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         updateInlineVideoPlaybackVisibility()
     }
 
+    func scrollViewWillBeginDragging(_: UIScrollView) { abandonRestoredViewport() }
+    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { retryClientRestoration() }
+    }
+
+    func scrollViewDidEndDecelerating(_: UIScrollView) { retryClientRestoration() }
+    func presentationControllerDidDismiss(_: UIPresentationController) { retryClientRestoration() }
+
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
+        picker.dismiss(animated: true) { [weak self] in self?.retryClientRestoration() }
         guard !results.isEmpty else { return }
-        PhotoPickerSelectionLoader.load(results) { [weak self] images in
-            self?.chatVM.discardDisplayedDocuments()
-            self?.chatVM.displayedImages = images
+        guard let token = importBarrier.begin() else { return }
+        let barrier = importBarrier
+        PhotoPickerSelectionLoader.load(results) { [self] images in
+            finishImageImport(images, token: token, barrier: barrier)
         }
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
+        picker.dismiss(animated: true) { [weak self] in self?.retryClientRestoration() }
     }
 
     func imagePickerController(
         _ picker: UIImagePickerController,
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any],
     ) {
-        picker.dismiss(animated: true)
+        picker.dismiss(animated: true) { [weak self] in self?.retryClientRestoration() }
         guard let image = info[.originalImage] as? UIImage else { return }
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        Task { [weak self] in
-            let selected = await Task.detached(priority: .userInitiated) { writeImage(image) }.value
-            guard let selected else { return }
-            self?.chatVM.discardDisplayedDocuments()
-            self?.chatVM.displayedImages = [selected]
-        }
+        importImages([image])
     }
 
     func documentPicker(
@@ -381,24 +462,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         didPickDocumentsAt urls: [URL],
     ) {
         guard !urls.isEmpty else { return }
-        let expectedLocation = chatVM.location
+        guard let token = importBarrier.begin() else { return }
+        let barrier = importBarrier
         Task { [weak self] in
             let documents = await Task.detached(priority: .userInitiated) {
                 SelectedDocumentFileStore.copy(Array(urls.prefix(10)))
             }.value
-            guard let self,
-                  !documents.isEmpty,
-                  chatVM.location == expectedLocation,
-                  chatVM.locationContextIsCurrent,
-                  chatVM.canAttachDocuments
-            else {
-                await Task.detached { SelectedDocumentFileStore.remove(documents.map(\.url)) }.value
-                return
+            let accepted = barrier.finish(
+                token, currentAccountID: self?.tdlib.activeAccountID,
+                routeIsRetained: self?.routeIsRetained == true,
+            ) {
+                guard let self, !documents.isEmpty else { return }
+                self.chatVM.displayedImages = []
+                self.chatVM.replaceDisplayedDocuments(documents)
             }
-            chatVM.displayedImages = []
-            chatVM.replaceDisplayedDocuments(documents)
+            if !accepted {
+                await Task.detached { SelectedDocumentFileStore.remove(documents.map(\.url)) }.value
+            }
         }
     }
+
+    func documentPickerWasCancelled(_: UIDocumentPickerViewController) { retryClientRestoration() }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
@@ -487,11 +571,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return true
     }
 
+    func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
+        guard canRestoreClient(source) else { return nil }
+        guard let prepared = preparedClient, prepared.source == source else {
+            prepareClientMetadata(source)
+            return nil
+        }
+        guard let history = chatVM.historyRestorationState(),
+              let transfer = chatVM.prepareComposerRestoration() else { return nil }
+        let composer = restoredViewport?.pending == true && !restorationFocusAttempted
+            ? restoredComposerState
+            : isViewLoaded ? composerView.clientRestorationState() : restoredComposerState
+        let anchor = isViewLoaded ? captureSnapshotAnchor() : nil
+        let anchorID = anchor?.itemID.displayedMessageID.flatMap { message(for: $0)?.message.id }
+        let previous = restoredViewport?.pending == true ? restoredViewport : nil
+        let viewport = ChatClientRestorationViewport(
+            source: source, messageID: previous?.messageID ?? anchorID,
+            pixelOffset: previous?.pixelOffset ?? anchor?.minYRelativeToViewport ?? 0,
+            keepsLatest: previous?.keepsLatest ?? (!isViewLoaded || isNearLatest),
+            fallbackOffset: previous?.fallbackOffset ?? (isViewLoaded ? collectionView.contentOffset.y : 0),
+        )
+        let destination = ChatLocation(
+            accountID: source.accountID, chatID: location.chatID, clientID: source.clientID, topic: location.topic,
+        )
+        return PreparedClientNavigationReplacement(
+            preflight: { [weak self] in self?.canRestoreClient(source) == true },
+            commit: { [self] in
+                guard canRestoreClient(source),
+                      let replacementVM = ChatVM.restoringComposer(
+                          from: transfer, customChat: prepared.chat, location: destination, forumTopic: prepared.topic,
+                          history: history, visibleMessageIDs: [viewport.messageID].compactMap(\.self),
+                          client: prepared.client,
+                      ) else { return nil }
+                // No rejection after ownership moved. The coordinator installs
+                // the returned controller unconditionally in this exact slot.
+                clientOwnerRetired = true
+                _ = importBarrier.retire()
+                cancellables.removeAll()
+                messageCancellables.removeAll()
+                if isViewLoaded { composerView.retireClientView() }
+                return ChatViewController(chatVM: replacementVM, tdlib: tdlib, viewport: viewport, composer: composer)
+            },
+        )
+    }
+
     private func openProfile() {
         guard presentationMode == .full,
               let accountID = chatVM.accountID,
               navigationController?.topViewController === self
         else { return }
+        abandonRestoredViewport()
         let profile = PeerProfileViewController(
             customChat: chatVM.customChat,
             topic: location.topic,
@@ -507,6 +636,133 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             DispatchQueue.main.async { self?.beginMessageSearch() }
         }
         navigationController?.pushViewController(profile, animated: true)
+    }
+
+    private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
+        guard presentationMode == .full, routeIsRetained, source == tdlib.activeUpdateSource,
+              source.accountID == location.accountID, source.clientID != location.clientID,
+              RootVM.shared.activeAccountID == source.accountID, importBarrier.isQuiescent,
+              !isTerminatingNavigation, presentedViewController == nil, transitionCoordinator == nil,
+              !isPresentingTelegramContextMenu, !keyboardIsChanging, videoNoteRecorder == nil,
+              !voiceGestureDefersSystemGestures, !isSelectingMessages, !messageSearchActive,
+              messageNavigationTask == nil, metadataNavigationTask == nil, reactionPickerTask == nil,
+              pendingScrollMessageID == nil, pendingComposerSendTransitions.isEmpty, activeComposerSendAnimations == 0,
+              pendingDeleteSnapshotDeadline == nil, timelineLayoutMutationDepth == 0,
+              !selfSizingAnchorRestoreScheduled else { return false }
+        guard isViewLoaded else { return true }
+        return !collectionView.isTracking && !collectionView.isDragging && !collectionView.isDecelerating
+            && pressedMessageSourceView == nil && composerView.clientRestorationState() != nil
+    }
+
+    private func prepareClientMetadata(_ source: TdUpdateSource) {
+        guard clientPreparationSource != source else { return }
+        clientPreparationTask?.cancel()
+        clientPreparationSource = source
+        let client = tdlib.activeClient
+        guard client.id == source.clientID else { return }
+        clientPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            let chat = await RootVM.shared.getCustomChatForNavigation(from: location.chatID, client: client)
+            guard !Task.isCancelled, routeIsRetained, tdlib.activeUpdateSource == source,
+                  RootVM.shared.activeAccountID == source.accountID, let chat else { return }
+            let topic: ForumTopic?
+            if let id = location.forumTopicID {
+                topic = try? await client.getForumTopic(chatId: location.chatID, forumTopicId: id)
+                guard topic != nil else { return }
+            } else { topic = nil }
+            guard !Task.isCancelled, routeIsRetained, tdlib.activeUpdateSource == source,
+                  clientPreparationSource == source, RootVM.shared.activeAccountID == source.accountID else { return }
+            preparedClient = (source, client, chat, topic)
+            clientPreparationTask = nil
+            retryClientRestoration()
+        }
+    }
+
+    private func retryClientRestoration() {
+        guard !clientOwnerRetired, !clientRetryScheduled,
+              tdlib.activeAccountID == location.accountID, tdlib.activeClient.id != location.clientID else { return }
+        clientRetryScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            clientRetryScheduled = false
+            NavigationStorage.shared.retryClientRestoration()
+        }
+    }
+
+    private func importImages(_ images: [UIImage]) {
+        guard let token = importBarrier.begin() else { return }
+        let barrier = importBarrier
+        Task { [self] in
+            let selected = await Task
+                .detached(priority: .userInitiated) { images.prefix(10).compactMap { writeImage($0) } }.value
+            finishImageImport(selected, token: token, barrier: barrier)
+        }
+    }
+
+    private func finishImageImport(
+        _ images: [SelectedImage],
+        token: ChatComposerImportBarrier.Token,
+        barrier: ChatComposerImportBarrier,
+    ) {
+        let accepted = barrier
+            .finish(token, currentAccountID: tdlib.activeAccountID, routeIsRetained: routeIsRetained) {
+                guard !images.isEmpty else { return }
+                chatVM.discardDisplayedDocuments()
+                chatVM.displayedImages = images
+            }
+        if !accepted {
+            let urls = images.map(\.url)
+            Task.detached { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+        }
+    }
+
+    private func abandonRestoredViewport() {
+        guard restoredViewport?.pending == true else { return }
+        restoredViewport?.invalidate()
+        restoredComposerState = nil
+        chatVM.beginRestoredHistoryRefresh()
+    }
+
+    private func settleRestoredViewport() {
+        guard restoredViewport?.pending == true, isViewLoaded, view.window != nil,
+              navigationController?.topViewController === self, presentedViewController == nil,
+              chatVM.locationContextIsCurrent else { return }
+        if !restorationFocusAttempted, restoredViewport?.appeared == true {
+            restorationFocusAttempted = true
+            if let composer = restoredComposerState { composerView.restoreClientViewState(composer, focus: true) }
+            view.setNeedsLayout()
+            DispatchQueue.main.async { [weak self] in
+                self?.restorationFocusSettled = true
+                self?.settleRestoredViewport()
+            }
+            return
+        }
+        guard restorationFocusSettled else { return }
+        guard restoredViewport?.take(
+            currentSource: tdlib.activeUpdateSource,
+            hasLayout: collectionView.bounds.height > 0 && timelineLayoutMutationDepth == 0
+                && (chatVM.messages.isEmpty || collectionView.contentSize.height > 0),
+            keyboardChanging: keyboardIsChanging,
+        ) == true, let viewport = restoredViewport else { return }
+        collectionView.layoutIfNeeded()
+        if viewport.keepsLatest { pinToLatestEdge(animated: false) }
+        else if let id = viewport.messageID, let displayed = chatVM.displayedMessageID(containing: id) {
+            restoreSnapshotAnchor(.init(itemID: .message(displayed), minYRelativeToViewport: viewport.pixelOffset))
+        } else {
+            let minimum = -collectionView.adjustedContentInset.top
+            let maximum = max(
+                minimum,
+                collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset
+                    .bottom,
+            )
+            collectionView.setContentOffset(
+                .init(x: 0, y: min(max(viewport.fallbackOffset, minimum), maximum)),
+                animated: false,
+            )
+        }
+        didPerformInitialScroll = true
+        restoredComposerState = nil
+        chatVM.beginRestoredHistoryRefresh()
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -535,6 +791,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
             messageSearchActive = active
+            if active { abandonRestoredViewport() }
+            else { retryClientRestoration() }
             composerView.setHiddenForSearch(active)
             updateScrollToLatestButtonVisibility(animated: true)
             if !active {
@@ -626,11 +884,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onPickFiles = { [weak self] in self?.showDocumentPicker() }
             composerView.onPickEmojiMedia = { [weak self] in self?.showComposerMediaPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
+            composerView.onPasteImages = { [weak self] in self?.importImages($0) }
+            composerView.onInteractionSettled = { [weak self] in self?.retryClientRestoration() }
+            composerView.onUserInteraction = { [weak self] in self?.abandonRestoredViewport() }
             composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
                 voiceGestureDefersSystemGestures = active
                 setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+                if !active { retryClientRestoration() }
             }
             composerView.onConfirmVoiceTrimResume = { [weak self] in
                 self?.confirmVoiceTrimAndResume()
@@ -1106,11 +1368,37 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func observeState() {
+        for name in [UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardDidChangeFrameNotification] {
+            NotificationCenter.default
+                .publisher(for: name)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    keyboardIsChanging = name == UIResponder.keyboardWillChangeFrameNotification
+                    if !keyboardIsChanging { settleRestoredViewport()
+                        retryClientRestoration()
+                    }
+                }
+                .store(in: &cancellables)
+        }
+        NotificationCenter.default
+            .publisher(for: .updateConnectionState)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self, let update = TdScopedUpdate<UpdateConnectionState>(notification: note),
+                      update.source == tdlib.activeUpdateSource, update.source.accountID == location.accountID,
+                      case .connectionStateReady = update.value.state else { return }
+                if preparedClient == nil { clientPreparationSource = nil }
+                retryClientRestoration()
+            }
+            .store(in: &cancellables)
         chatVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
+                    retryClientRestoration()
+                    guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
                     updateStatus()
                     if showsComposer {
                         let voiceDestinationUnavailable = (chatVM.recordingVoiceNote || chatVM.startingVoiceNote)
@@ -1322,7 +1610,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateSnapshot(animated: Bool) {
-        guard isViewLoaded else { return }
+        guard isViewLoaded, !clientOwnerRetired else { return }
         if deferSnapshotForDeleteTransitionIfNeeded() {
             return
         }
@@ -1337,6 +1625,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         let shouldKeepLatestVisible = !didPerformInitialScroll || isNearLatest
+        let restoringClient = restoredViewport?.pending == true
         let anchor = shouldKeepLatestVisible ? nil : captureSnapshotAnchor()
         let itemIDs = ChatTimelineProjection.items(
             messages: chatVM.messages,
@@ -1358,8 +1647,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         timelineLayoutMutationDepth += 1
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             guard let self else { return }
-            defer { timelineLayoutMutationDepth -= 1 }
+            defer {
+                timelineLayoutMutationDepth -= 1
+                settleRestoredViewport()
+                retryClientRestoration()
+            }
             collectionView.layoutIfNeeded()
+            if restoringClient {
+                if restoredViewport?.pending == true { restoredViewport?.snapshotApplied = true }
+                return
+            }
             if let pendingScrollMessageID {
                 let quote = pendingQuoteHighlight
                 let quoteTargetMessageID = pendingQuoteTargetMessageID
@@ -1457,6 +1754,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let transition = pendingComposerSendTransitions.removeValue(forKey: id) else { return }
         transition.timeout.cancel()
         transition.snapshots.forEach { $0.view.removeFromSuperview() }
+        retryClientRestoration()
     }
 
     private func replacePendingComposerSendMessageID(old: Int64, new: Int64) {
@@ -1489,6 +1787,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func performPendingComposerSendTransitions() {
         guard isViewLoaded else { return }
+        defer { retryClientRestoration() }
         collectionView.layoutIfNeeded()
         for (id, transition) in pendingComposerSendTransitions where !transition.messageIDs.isEmpty {
             guard let displayedID = transition.messageIDs
@@ -1531,6 +1830,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             snapshot.layer.cornerRadius = min(12, snapshot.bounds.height / 2)
             snapshot.clipsToBounds = true
             view.addSubview(snapshot)
+            activeComposerSendAnimations += 1
             UIView.animate(
                 withDuration: 0.32,
                 delay: Double(index) * 0.025,
@@ -1539,8 +1839,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 snapshot.frame = destination
                 snapshot.alpha = 0
                 snapshot.layer.cornerRadius = min(8, destination.height / 2)
-            } completion: { _ in
+            } completion: { [weak self] _ in
                 snapshot.removeFromSuperview()
+                self?.activeComposerSendAnimations -= 1
+                self?.retryClientRestoration()
             }
         }
     }
@@ -1634,6 +1936,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func reconfigureMessage(id: Int64) {
+        guard restoredViewport?.pending != true else { updateSnapshot(animated: false)
+            return
+        }
         guard let displayedID = chatVM.displayedMessageID(containing: id) else { return }
         let itemID = ChatTimelineItemID.message(displayedID)
         var snapshot = dataSource.snapshot()
@@ -1765,8 +2070,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return
         }
         messageNavigationTask = Task { [weak self] in
-            guard let self,
-                  let window = await chatVM.prepareMessageWindow(around: id),
+            guard let self else { return }
+            defer {
+                if !Task.isCancelled { messageNavigationTask = nil
+                    retryClientRestoration()
+                }
+            }
+            guard let window = await chatVM.prepareMessageWindow(around: id),
                   !Task.isCancelled
             else { return }
             pendingScrollMessageID = window.displayedMessageID
@@ -1899,6 +2209,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let accountID = TDLib.shared.activeAccountID
             metadataNavigationTask = Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
+                defer { if !Task.isCancelled { metadataNavigationTask = nil
+                    retryClientRestoration()
+                } }
                 let chat = try? await client.createPrivateChat(force: false, userId: userID)
                 guard !Task.isCancelled,
                       TDLib.shared.activeAccountID == accountID,
@@ -1913,6 +2226,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     presentMetadataUnavailable()
                     return
                 }
+                guard !Task.isCancelled, chatVM.locationContextIsCurrent, routeIsRetained else { return }
                 NavigationStorage.shared.push(.customChat(customChat))
                 metadataNavigationTask = nil
             }
@@ -1928,6 +2242,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let currentLocation = location
         metadataNavigationTask = Task { [weak self] in
             guard let self else { return }
+            defer { if !Task.isCancelled { metadataNavigationTask = nil
+                retryClientRestoration()
+            } }
             let topic = try? await client.getForumTopic(
                 chatId: currentLocation.chatID,
                 forumTopicId: id,
@@ -1958,6 +2275,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let currentLocation = location
         metadataNavigationTask = Task { [weak self] in
             guard let self else { return }
+            defer { if !Task.isCancelled { metadataNavigationTask = nil
+                retryClientRestoration()
+            } }
             let message = try? await client.getMessage(
                 chatId: currentLocation.chatID,
                 messageId: messageID,
@@ -1981,6 +2301,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 presentMetadataUnavailable()
                 return
             }
+            guard !Task.isCancelled, chatVM.locationContextIsCurrent, routeIsRetained else { return }
             NavigationStorage.shared.push(.customChat(
                 chatVM.customChat,
                 location: currentLocation.withForumTopic(id: forumTopic.forumTopicId),
@@ -2001,6 +2322,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let accountID = TDLib.shared.activeAccountID
         metadataNavigationTask = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
+            defer { if !Task.isCancelled { metadataNavigationTask = nil
+                retryClientRestoration()
+            } }
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
@@ -2230,6 +2554,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     @objc private func scrollToLatest() {
+        abandonRestoredViewport()
         scrollToLatestMessage(animated: true)
     }
 
@@ -2289,12 +2614,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configuration.selection = .ordered
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = self
+        picker.presentationController?.delegate = self
         present(picker, animated: true)
     }
 
     private func showDocumentPicker() {
         guard chatVM.canAttachDocuments else { return }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.presentationController?.delegate = self
         picker.allowsMultipleSelection = true
         picker.delegate = self
         present(picker, animated: true)
@@ -2312,13 +2639,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         picker.onEmoji = { [weak chatVM] emoji in
             chatVM?.appendComposerEmoji(emoji)
         }
-        picker.onSticker = { [weak picker, weak chatVM] sticker in
+        picker.onSticker = { [weak self, weak picker, weak chatVM] sticker in
             picker?.navigationController?.dismiss(animated: true) {
+                self?.retryClientRestoration()
                 Task { await chatVM?.sendSticker(sticker) }
             }
         }
-        picker.onAnimation = { [weak picker, weak chatVM] animation in
+        picker.onAnimation = { [weak self, weak picker, weak chatVM] animation in
             picker?.navigationController?.dismiss(animated: true) {
+                self?.retryClientRestoration()
                 Task { await chatVM?.sendAnimation(animation) }
             }
         }
@@ -2326,6 +2655,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         navigation.modalPresentationStyle = .pageSheet
         navigation.sheetPresentationController?.detents = [.medium(), .large()]
         navigation.sheetPresentationController?.prefersGrabberVisible = false
+        navigation.presentationController?.delegate = self
         present(navigation, animated: true)
     }
 
@@ -2338,6 +2668,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return
         }
         let picker = UIImagePickerController()
+        picker.presentationController?.delegate = self
         picker.sourceType = .camera
         picker.cameraCaptureMode = .photo
         picker.allowsEditing = false
@@ -2496,6 +2827,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             tracking: gesture,
             sourceBaseTransform: baseTransform,
             performsInitialFeedback: false,
+            onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
         if !presented {
             restorePressedMessageSource()
@@ -2503,6 +2835,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     @objc private func historyTapped(_: UITapGestureRecognizer) {
+        abandonRestoredViewport()
         view.endEditing(true)
     }
 
@@ -2514,6 +2847,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func restorePressedMessageSource() {
+        defer { retryClientRestoration() }
         guard let sourceView = pressedMessageSourceView else { return }
         let transform = pressedMessageSourceTransform
         pressedMessageSourceView = nil
@@ -2716,6 +3050,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func endMessageSelection(reconfigure: Bool = true) {
         guard isSelectingMessages else { return }
+        defer { retryClientRestoration() }
         selectionCapabilityTask?.cancel()
         selectionCapabilityTask = nil
         selectionCapabilityGeneration = nil
@@ -2915,6 +3250,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let messageID = message.id
         reactionPickerTask = Task { [weak self, weak message] in
             guard let self else { return }
+            defer { reactionPickerTask = nil
+                retryClientRestoration()
+            }
             guard let message else {
                 reactionPickerTask = nil
                 return
@@ -3001,6 +3339,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func reconfigureMessages(ids: [DisplayedMessageID]) {
+        guard restoredViewport?.pending != true else { updateSnapshot(animated: false)
+            return
+        }
         guard !ids.isEmpty else { return }
         var snapshot = dataSource.snapshot()
         let existing = ids

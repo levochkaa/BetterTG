@@ -20,6 +20,12 @@ struct ComposerSendTransitionSnapshot {
 // MARK: - ChatComposerView
 
 final class ChatComposerView: UIView {
+    struct ClientViewState {
+        let selection: NSRange
+        let wasFocused: Bool
+        let recordingMode: ChatMediaRecordingMode
+    }
+
     // MARK: Private
 
     private enum VoiceGestureOutcome {
@@ -34,6 +40,9 @@ final class ChatComposerView: UIView {
     var onPickFiles: (() -> Void)?
     var onPickEmojiMedia: (() -> Void)?
     var onTakePhoto: (() -> Void)?
+    var onPasteImages: (([UIImage]) -> Void)?
+    var onInteractionSettled: (() -> Void)?
+    var onUserInteraction: (() -> Void)?
     var onNavigateToMessage: ((MessageMetadataNavigationTarget) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
     var onConfirmVoiceTrimResume: (() -> Void)?
@@ -161,6 +170,42 @@ final class ChatComposerView: UIView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    static func restorationSelection(_ selection: NSRange, length: Int) -> NSRange {
+        let start = min(selection.location, length)
+        return NSRange(location: start, length: min(selection.length, length - start))
+    }
+
+    func clientRestorationState() -> ClientViewState? {
+        guard textView.permitsClientRestoration, !voiceGestureIsTracking, !voiceGestureIsArmed,
+              voiceGestureArmTask == nil, !videoNoteState.isActive, !videoNoteTrimEditing, !videoNoteTrimSaving
+        else { return nil }
+        return ClientViewState(
+            selection: textView.selectedRange, wasFocused: isInputFocused, recordingMode: selectedMediaRecordingMode,
+        )
+    }
+
+    func restoreClientViewState(_ state: ClientViewState, focus: Bool) {
+        selectedMediaRecordingMode = state.recordingMode
+        let length = textView.attributedText.length
+        textView.selectedRange = Self.restorationSelection(state.selection, length: length)
+        updateActionButton()
+        func containsOtherResponder(_ view: UIView) -> Bool {
+            view !== textView && view.isFirstResponder || view.subviews.contains(where: containsOtherResponder)
+        }
+        if focus, state.wasFocused, let window = textView.window, !containsOtherResponder(window) {
+            textView.becomeFirstResponder()
+        }
+    }
+
+    func retireClientView() {
+        draftTask?.cancel()
+        typingTask?.cancel()
+        onInteractionSettled = nil
+        onUserInteraction = nil
+        onPasteImages = nil
+        if textView.isFirstResponder { textView.resignFirstResponder() }
     }
 
     func focusInput() {
@@ -761,11 +806,9 @@ final class ChatComposerView: UIView {
         actionButton.addGestureRecognizer(recordingGestureRecognizer)
 
         textView.onTextChange = { [weak self] text in self?.textChanged(text) }
-        textView.onPasteImages = { [weak self] images in
-            guard let self else { return }
-            chatVM.discardDisplayedDocuments()
-            chatVM.displayedImages = Array(images.prefix(10))
-        }
+        textView.onPasteImages = { [weak self] in self?.onPasteImages?($0) }
+        textView.onInteractionSettled = { [weak self] in self?.onInteractionSettled?() }
+        textView.onUserInteraction = { [weak self] in self?.onUserInteraction?() }
     }
 
     private func setReplyPreviewVisible(_ visible: Bool, animated: Bool) {
