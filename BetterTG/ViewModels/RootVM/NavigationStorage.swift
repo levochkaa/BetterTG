@@ -42,10 +42,13 @@ import UIKit
     }
 
     func navigationController(
-        _: UINavigationController,
+        _ navigationController: UINavigationController,
         didShow _: UIViewController,
         animated _: Bool,
     ) {
+        #if DEBUG
+            ClassicNavigationDiagnostics.didShow(navigationController)
+        #endif
         DispatchQueue.main.async { [weak self] in self?.retryClientRestoration() }
     }
 
