@@ -15,7 +15,7 @@ import UIKit
 
     let client: TDLibClient
 
-    private let source: TdUpdateSource?
+    let source: TdUpdateSource?
 
     var isCurrent: Bool {
         source != nil && source == Self.currentSource
@@ -86,7 +86,7 @@ import UIKit
     }
 }
 
-private extension UIViewController {
+extension UIViewController {
     var chatListActionOwnerIsAttached: Bool {
         var node: UIViewController = self
         while true {

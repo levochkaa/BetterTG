@@ -565,26 +565,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func addChats(to folder: CustomFolder) {
         let scope = actionAuthority.scope(owner: self)
-        let client = actionAuthority.client
         guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
         let controller = ChatFolderChatSelectionViewController(
-            rootVM: rootVM,
+            session: .live(rootVM: rootVM, authority: actionAuthority),
             title: "Add Chats",
             selectedChatIDs: Set(definition.includedChatIds),
-            actionAuthority: actionAuthority,
-        ) { [weak self] selectedChatIDs in
-            guard let self, scope.isCurrent else { return }
-            let updated = definition.replacingIncludedChatIDs(selectedChatIDs)
-            Task { @MainActor [weak self] in
-                do {
-                    _ = try await scope.perform {
-                        try await client.editChatFolder(chatFolderId: info.id, folder: updated)
-                    }
-                } catch {
-                    guard scope.isCurrent else { return }
-                    self?.presentFolderError(error)
-                }
-            }
+        ) { selector, selectedChatIDs in
+            selector.submitFolderEdit(id: info.id, folder: definition.replacingIncludedChatIDs(selectedChatIDs))
+            return false
         }
         pushFolderController(controller)
     }

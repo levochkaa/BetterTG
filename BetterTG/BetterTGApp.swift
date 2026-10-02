@@ -25,6 +25,7 @@ import UIKit
             MessageTextSpoilerProbe.runDebugProbeIfRequested()
             ChatUpdateDeliveryProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
+            FolderFlowSessionProbe.runDebugProbeIfRequested()
             RootListAuthorityProbe.runDebugProbeIfRequested()
             RootChatInsertionProbe.runDebugProbeIfRequested()
             RootScopeSettingsLoadingProbe.runDebugProbeIfRequested()

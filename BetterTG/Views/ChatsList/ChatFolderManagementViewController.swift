@@ -9,8 +9,7 @@ import UIKit
 final class ChatFoldersViewController: UITableViewController {
     // MARK: Private
 
-    private let rootVM: RootVM
-    private let actionAuthority: ChatListActionAuthority
+    private let session: FolderFlowSession
     private var folders: [CustomFolder]
     private var cancellables = Set<AnyCancellable>()
 
@@ -23,10 +22,13 @@ final class ChatFoldersViewController: UITableViewController {
         }
     }
 
-    init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
-        self.rootVM = rootVM
-        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
-        self.folders = rootVM.folders
+    convenience init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
+        self.init(session: .live(rootVM: rootVM, authority: actionAuthority))
+    }
+
+    init(session: FolderFlowSession) {
+        self.session = session
+        self.folders = session.folders
         super.init(style: .insetGrouped)
     }
 
@@ -46,14 +48,11 @@ final class ChatFoldersViewController: UITableViewController {
             action: #selector(addFolder),
         )
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderCell")
-        rootVM.$folders
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] folders in
-                guard let self, actionAuthority.isCurrent else { return }
-                self.folders = folders
-                tableView.reloadData()
-            }
-            .store(in: &cancellables)
+        session.bind(self) { [weak self] in
+            guard let self else { return }
+            folders = session.folders
+            tableView.reloadData()
+        }.store(in: &cancellables)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -86,10 +85,10 @@ final class ChatFoldersViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        guard session.scope(owner: self).isCurrent else { return }
         navigationController?.pushViewController(
             ChatFolderEditorViewController(
-                rootVM: rootVM, folder: customFolders[indexPath.row], actionAuthority: actionAuthority,
+                session: session, folder: customFolders[indexPath.row],
             ),
             animated: true,
         )
@@ -99,7 +98,7 @@ final class ChatFoldersViewController: UITableViewController {
         _: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
     ) -> UISwipeActionsConfiguration? {
-        let scope = actionAuthority.scope(owner: self)
+        let scope = session.scope(owner: self)
         guard scope.isCurrent else { return nil }
         let folder = customFolders[indexPath.row]
         let delete = UIContextualAction(style: .destructive, title: "Remove") { [weak self] _, _, complete in
@@ -115,15 +114,14 @@ final class ChatFoldersViewController: UITableViewController {
     }
 
     @objc private func addFolder() {
-        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        guard session.scope(owner: self).isCurrent else { return }
         navigationController?.pushViewController(
-            ChatFolderEditorViewController(rootVM: rootVM, actionAuthority: actionAuthority), animated: true,
+            ChatFolderEditorViewController(session: session), animated: true,
         )
     }
 
     private func confirmRemoval(of folder: CustomFolder) {
-        let scope = actionAuthority.scope(owner: self)
-        let client = actionAuthority.client
+        let scope = session.scope(owner: self)
         guard scope.isCurrent, case .folder(let info, _) = folder.type else { return }
         let alert = UIAlertController(
             title: "Remove \(folder.name)?",
@@ -132,15 +130,9 @@ final class ChatFoldersViewController: UITableViewController {
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                do {
-                    _ = try await scope.perform {
-                        try await client.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
-                    }
-                } catch {
-                    guard scope.isCurrent else { return }
-                    self?.presentFolderError(error)
-                }
+            guard let self, scope.isCurrent else { return }
+            session.mutate(.delete(info.id), owner: self) { [weak self] result in
+                if case .failure(let error) = result { self?.presentFolderError(error) }
             }
         })
         present(alert, animated: true)
@@ -153,11 +145,16 @@ final class ChatFolderOrderViewController: UITableViewController {
     // MARK: Private
 
     private var folders: [CustomFolder]
-    private let actionAuthority: ChatListActionAuthority
+    private let session: FolderFlowSession
+    private var sessionObservation: AnyCancellable?
 
-    init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
-        self.folders = rootVM.folders
-        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
+    convenience init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
+        self.init(session: .live(rootVM: rootVM, authority: actionAuthority))
+    }
+
+    init(session: FolderFlowSession) {
+        self.folders = session.folders
+        self.session = session
         super.init(style: .insetGrouped)
     }
 
@@ -178,6 +175,7 @@ final class ChatFolderOrderViewController: UITableViewController {
         )
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderOrderCell")
         tableView.setEditing(true, animated: false)
+        sessionObservation = session.bind(self)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -204,7 +202,7 @@ final class ChatFolderOrderViewController: UITableViewController {
         return cell
     }
 
-    override func tableView(_: UITableView, canMoveRowAt _: IndexPath) -> Bool { true }
+    override func tableView(_: UITableView, canMoveRowAt _: IndexPath) -> Bool { session.isCurrent }
 
     override func tableView(_: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
         .none
@@ -215,16 +213,14 @@ final class ChatFolderOrderViewController: UITableViewController {
         moveRowAt sourceIndexPath: IndexPath,
         to destinationIndexPath: IndexPath,
     ) {
-        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        guard session.scope(owner: self).isCurrent else { return }
         let folder = folders.remove(at: sourceIndexPath.row)
         folders.insert(folder, at: destinationIndexPath.row)
     }
 
     @objc private func saveOrder() {
-        let scope = actionAuthority.scope(owner: self)
-        let client = actionAuthority.client
+        let scope = session.scope(owner: self)
         guard scope.isCurrent else { return }
-        navigationItem.rightBarButtonItem?.isEnabled = false
         let folderIDs = folders.compactMap { folder -> Int? in
             if case .folder(let info, _) = folder.type {
                 return info.id
@@ -232,20 +228,12 @@ final class ChatFolderOrderViewController: UITableViewController {
             return nil
         }
         let mainPosition = folders.firstIndex(where: { $0.id == 0 }) ?? 0
-        Task { @MainActor [weak self] in
+        session.mutate(.reorder(folderIDs, mainPosition), owner: self) { [weak self] result in
             guard let self else { return }
-            do {
-                _ = try await scope.perform {
-                    try await client.reorderChatFolders(
-                        chatFolderIds: folderIDs,
-                        mainChatListPosition: mainPosition,
-                    )
-                }
-                guard scope.isCurrent else { return }
+            switch result {
+            case .success:
                 navigationController?.popViewController(animated: true)
-            } catch {
-                guard scope.isCurrent else { return }
-                navigationItem.rightBarButtonItem?.isEnabled = true
+            case .failure(let error):
                 presentFolderError(error)
             }
         }
@@ -257,8 +245,9 @@ final class ChatFolderOrderViewController: UITableViewController {
 final class ChatFolderEditorViewController: UITableViewController, UITextFieldDelegate {
     // MARK: Private
 
-    private let rootVM: RootVM
-    private let actionAuthority: ChatListActionAuthority
+    private let session: FolderFlowSession
+    private var sessionObservation: AnyCancellable?
+    private weak var activeSelection: ChatFolderChatSelectionViewController?
     private let folderInfo: ChatFolderInfo?
     private let originalName: ChatFolderName?
     private var draft: ChatFolder
@@ -272,9 +261,12 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         return field
     }()
 
-    init(rootVM: RootVM, folder: CustomFolder? = nil, actionAuthority: ChatListActionAuthority? = nil) {
-        self.rootVM = rootVM
-        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
+    convenience init(rootVM: RootVM, folder: CustomFolder? = nil, actionAuthority: ChatListActionAuthority? = nil) {
+        self.init(session: .live(rootVM: rootVM, authority: actionAuthority), folder: folder)
+    }
+
+    init(session: FolderFlowSession, folder: CustomFolder? = nil) {
+        self.session = session
         if let folder, case .folder(let info, let definition) = folder.type {
             self.folderInfo = info
             self.originalName = definition.name
@@ -304,6 +296,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         )
         nameField.text = draft.name.text.text
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderEditorCell")
+        sessionObservation = session.bind(self)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -355,7 +348,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        guard session.scope(owner: self).isCurrent else { return }
         guard let row = Section(rawValue: indexPath.section)?.rows[indexPath.row] else { return }
         switch row {
         case .name:
@@ -391,27 +384,27 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     private func selectChats(excluded: Bool) {
-        let scope = actionAuthority.scope(owner: self)
+        let scope = session.scope(owner: self)
         guard scope.isCurrent else { return }
         let selected = Set(excluded ? draft.excludedChatIds : draft.includedChatIds)
         let controller = ChatFolderChatSelectionViewController(
-            rootVM: rootVM,
+            session: session,
             title: excluded ? "Excluded Chats" : "Included Chats",
             selectedChatIDs: selected,
-            actionAuthority: actionAuthority,
-        ) { [weak self] selectedChatIDs in
-            guard let self, scope.isCurrent else { return }
+        ) { [weak self] selection, selectedChatIDs in
+            guard let self, activeSelection === selection, session.scope(owner: self).isCurrent else { return false }
             draft = excluded
                 ? draft.replacingExcludedChatIDs(selectedChatIDs)
                 : draft.replacingIncludedChatIDs(selectedChatIDs)
             tableView.reloadSections(IndexSet(integer: Section.chats.rawValue), with: .none)
+            return true
         }
+        activeSelection = controller
         navigationController?.pushViewController(controller, animated: true)
     }
 
     @objc private func save() {
-        let scope = actionAuthority.scope(owner: self)
-        let client = actionAuthority.client
+        let scope = session.scope(owner: self)
         guard scope.isCurrent else { return }
         nameField.resignFirstResponder()
         let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -426,23 +419,13 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
         let updated = draft.replacingName(name, preserving: originalName)
         let folderID = folderInfo?.id
-        navigationItem.rightBarButtonItem?.isEnabled = false
-        Task { @MainActor [weak self] in
+        let mutation: FolderFlowSession.Mutation = folderID.map { .edit($0, updated) } ?? .create(updated)
+        session.mutate(mutation, owner: self) { [weak self] result in
             guard let self else { return }
-            do {
-                _ = try await scope.perform {
-                    _ =
-                        if let folderID {
-                            try await client.editChatFolder(chatFolderId: folderID, folder: updated)
-                        } else {
-                            try await client.createChatFolder(folder: updated)
-                        }
-                }
-                guard scope.isCurrent else { return }
+            switch result {
+            case .success:
                 navigationController?.popViewController(animated: true)
-            } catch {
-                guard scope.isCurrent else { return }
-                navigationItem.rightBarButtonItem?.isEnabled = true
+            case .failure(let error):
                 presentFolderError(error)
             }
         }
@@ -454,9 +437,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 final class ChatFolderChatSelectionViewController: UITableViewController, UISearchResultsUpdating {
     // MARK: Private
 
-    private let rootVM: RootVM
-    private let actionAuthority: ChatListActionAuthority
-    private let onDone: (Set<Int64>) -> Void
+    private let session: FolderFlowSession
+    private var sessionObservation: AnyCancellable?
+    private let onDone: (ChatFolderChatSelectionViewController, Set<Int64>) -> Bool
     private let searchController = UISearchController(searchResultsController: nil)
     private var selectedChatIDs: Set<Int64>
     private var chats = [CustomChat]()
@@ -464,14 +447,12 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     private var query = ""
 
     init(
-        rootVM: RootVM,
+        session: FolderFlowSession,
         title: String,
         selectedChatIDs: Set<Int64>,
-        actionAuthority: ChatListActionAuthority? = nil,
-        onDone: @escaping (Set<Int64>) -> Void,
+        onDone: @escaping (ChatFolderChatSelectionViewController, Set<Int64>) -> Bool,
     ) {
-        self.rootVM = rootVM
-        self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
+        self.session = session
         self.selectedChatIDs = selectedChatIDs
         self.onDone = onDone
         super.init(style: .insetGrouped)
@@ -497,7 +478,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         searchController.searchBar.placeholder = "Search Chats"
         navigationItem.searchController = searchController
         definesPresentationContext = true
-        reloadCandidates()
+        sessionObservation = session.bind(self) { [weak self] in self?.reloadCandidates() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -524,7 +505,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        guard session.scope(owner: self).isCurrent else { return }
         let chatID = visibleChats[indexPath.row].id
         if selectedChatIDs.contains(chatID) {
             selectedChatIDs.remove(chatID)
@@ -539,10 +520,20 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
         applyFilter()
     }
 
+    func submitFolderEdit(id: Int, folder: ChatFolder) {
+        session.mutate(.edit(id, folder), owner: self) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success: navigationController?.popViewController(animated: true)
+            case .failure(let error): presentFolderError(error)
+            }
+        }
+    }
+
     private func reloadCandidates() {
-        guard actionAuthority.isCurrent else { return }
+        guard session.isCurrent else { return }
         var seen = Set<Int64>()
-        chats = rootVM.allFolders
+        chats = session.allFolders
             .flatMap(\.chats)
             .filter { seen.insert($0.id).inserted }
             .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
@@ -559,10 +550,9 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     }
 
     @objc private func done() {
-        let scope = actionAuthority.scope(owner: self)
+        let scope = session.scope(owner: self)
         guard scope.isCurrent else { return }
-        onDone(selectedChatIDs)
-        guard scope.isCurrent else { return }
+        guard onDone(self, selectedChatIDs), scope.isCurrent else { return }
         navigationController?.popViewController(animated: true)
     }
 }
