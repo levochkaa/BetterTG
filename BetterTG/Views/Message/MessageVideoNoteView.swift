@@ -70,10 +70,17 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         return Self.isSecret(message)
     }
 
+    private var permitsSecretDisplay: Bool {
+        window != nil && traitCollection.sceneCaptureState == .inactive
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
         observePlayer()
+        registerForTraitChanges([UITraitSceneCaptureState.self]) { (view: VideoNotePlaybackView, _) in
+            view.concealIfCaptureUnavailable()
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -133,6 +140,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil { setPlaybackVisible(false) }
+        concealIfCaptureUnavailable()
     }
 
     private static func isSecret(_ message: Message) -> Bool {
@@ -215,6 +223,12 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         } else if !isSecret {
             startDownloadIfNeeded()
         }
+    }
+
+    private func concealIfCaptureUnavailable() {
+        guard isSecret, !permitsSecretDisplay else { return }
+        // Ending capture does not restore this hold or extend its existing deadline.
+        concealSecret()
     }
 
     private func configureViews() {
@@ -429,7 +443,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     private func revealSecretAndPlay() {
-        guard supportsSecretHold, playbackVisible, secretHoldID == nil,
+        guard supportsSecretHold, playbackVisible, permitsSecretDisplay, secretHoldID == nil,
               let backend, let message, backend.isCurrent() else { return }
         let token = UUID()
         secretHoldID = token
@@ -508,6 +522,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     private func isCurrentHold(_ token: UUID) -> Bool {
         !Task.isCancelled && secretHoldID == token && !isRevoked && playbackVisible && backend?.isCurrent() == true
+            && permitsSecretDisplay
             && (secretDeadline.map { $0 > (backend?.now() ?? .infinity) } ?? true)
     }
 

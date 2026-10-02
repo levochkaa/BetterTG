@@ -120,8 +120,9 @@ import UIKit
             clock.finish()
         }
 
-        func makeView(in window: UIWindow) -> VideoNotePlaybackView {
+        func makeView(in window: UIWindow, captureState: UISceneCaptureState = .inactive) -> VideoNotePlaybackView {
             let view = VideoNotePlaybackView(frame: CGRect(x: 10, y: 140, width: 220, height: 220))
+            view.traitOverrides.sceneCaptureState = captureState
             view.configure(message: value, backend: backend)
             window.addSubview(view)
             view.setPlaybackVisible(true)
@@ -143,6 +144,7 @@ import UIKit
                 let url = directory.appendingPathComponent("private.mp4")
                 _ = try await VideoNoteAssetWriter.makeDebugSegment(outputURL: url, duration: 1, frameSeed: 291)
                 try await verify(window: window, url: url)
+                try await verifyCaptureState(window: window, url: url)
                     result = "Video note hold probe passed: actual-UIKit/native-player/private-MP4=true; "
                         + "nil/stale-backend-no-thumbnail=true; "
                     + "unsupported-immediate/unknown/outgoing=no-IO; ack-before-player/pixels=true; "
@@ -150,7 +152,8 @@ import UIKit
                     + "source-collision/client-change/content/edit/delete/offscreen/window/inactive=revoke; "
                     + "fresh-positive-TTL/conservative-clock/no-extension=true; "
                     + "deinit/suspended-download/ordinary-tap=true; real-secret-open/account-writes=0; "
-                    + "server-semantics/touch-hardware/screenshot-prevention=unverified"
+                    + "capture-trait-admission/pending-IO/ACK/pixels/rehold/ordinary=true; "
+                    + "server-semantics/touch-hardware/recording-hardware/screenshot-prevention=unverified"
             } catch { result = "Video note hold probe failed: \(error)" }
             log(result)
             if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -419,6 +422,128 @@ import UIKit
             )
             try require(v.probeSnapshot.path == url.path, "foreign file changed ordinary player")
         }
+    }
+
+    private static func verifyCaptureState(window: UIWindow, url: URL) async throws {
+        for captureState in [UISceneCaptureState.active, .unspecified] {
+            let f = Fixture(url: url), v = f.makeView(in: window, captureState: captureState)
+            defer { v.prepareForReuse()
+            v.removeFromSuperview()
+            f.finish()
+            }
+            v.beginHoldForProbe()
+            await drain()
+            try require(
+                f.messageCalls == 0 && f.downloadCalls == 0 && f.openCalls == 0
+                && !v.probeSnapshot.held && !v.probeSnapshot.playerItem && !v.probeSnapshot.thumbnail,
+                "initial capture state admitted hold or IO",
+            )
+            setCaptureState(.inactive, on: v)
+            await drain()
+            try require(f.messageCalls == 0 && !v.probeSnapshot.held, "capture stop resumed old touch")
+            v.beginHoldForProbe()
+            try await until("new hold after initial capture") { f.openCalls == 1 }
+        }
+
+        for stage in ["dispatch", "metadata", "download", "pre-open", "ACK", "post-ACK", "pixels"] {
+            let f = Fixture(url: url)
+            if stage == "metadata" { f.suspendedMessageCall = 1 }
+            if stage == "pre-open" { f.suspendedMessageCall = 2 }
+            if stage == "post-ACK" { f.suspendedMessageCall = 3 }
+            if stage == "download" { f.needsDownload = true
+            f.suspendDownload = true
+            }
+            let v = f.makeView(in: window)
+            defer { v.prepareForReuse()
+            v.removeFromSuperview()
+            f.finish()
+            }
+            v.beginHoldForProbe()
+            if stage == "metadata" || stage == "pre-open" {
+                try await until("capture \(stage) suspended") { f.messageReply != nil }
+            } else if stage == "download" {
+                try await until("capture download suspended") { f.downloadReply != nil }
+            } else if stage != "dispatch" {
+                try await until("capture \(stage) open") { f.openCalls == 1 }
+                if stage != "ACK" { f.acknowledge(0) }
+                if stage == "post-ACK" {
+                    try await until("capture post-ACK suspended") { f.messageReply != nil }
+                } else if stage == "pixels" {
+                    try await until("capture native pixels") { v.probeSnapshot.visiblePixels }
+                }
+            }
+            let priorDeadline = v.probeSnapshot.deadline
+            let priorReads = f.messageCalls, priorOpens = f.openCalls
+            setCaptureState(.active, on: v)
+            try require(
+                !v.probeSnapshot.held && !v.probeSnapshot.visiblePixels
+                && !v.probeSnapshot.playerItem && !v.probeSnapshot.playbackRequested,
+                "capture \(stage) did not synchronously retire hold/player/pixels",
+            )
+            f.messageReply?.resume()
+            f.messageReply = nil
+            f.downloadReply?.resume()
+            f.downloadReply = nil
+            f.acknowledge(0)
+            await drain()
+            try require(
+                f.messageCalls == priorReads && f.openCalls == priorOpens
+                && !v.probeSnapshot.held && !v.probeSnapshot.playerItem,
+                "capture \(stage) accepted delayed result",
+            )
+            if stage == "download" { try require(f.cancelCalls == 1, "capture kept owned download") }
+            setCaptureState(.inactive, on: v)
+            await drain()
+            try require(
+                f.messageCalls == priorReads && f.openCalls == priorOpens
+                && !v.probeSnapshot.playerItem,
+                "capture \(stage) stop auto-resumed",
+            )
+            if stage == "pixels" {
+                f.clock.advance(101)
+                v.beginHoldForProbe()
+                try await until("fresh hold after capture") { f.openCalls == priorOpens + 1 }
+                f.acknowledge(priorOpens)
+                try await until("fresh native reveal after capture") { v.probeSnapshot.visiblePixels }
+                try require(v.probeSnapshot.deadline == priorDeadline, "capture extended expiry")
+            }
+        }
+
+        do {
+            let f = Fixture(url: url), v = f.makeView(in: window)
+            defer { v.prepareForReuse()
+            f.finish()
+            }
+            v.removeFromSuperview()
+            v.setPlaybackVisible(true)
+            v.beginHoldForProbe()
+            await drain()
+            try require(f.messageCalls == 0 && !v.probeSnapshot.held, "detached hold admitted IO")
+        }
+
+        let f = Fixture(url: url)
+        f.secret = false
+        f.type = nil
+        let v = f.makeView(in: window, captureState: .active)
+        defer { v.prepareForReuse()
+        v.removeFromSuperview()
+        f.finish()
+        }
+        try await until("ordinary captured player") { v.probeSnapshot.playerItem }
+        v.tapForProbe()
+        try await until("ordinary captured pixels") { v.probeSnapshot.visiblePixels }
+        setCaptureState(.inactive, on: v)
+        setCaptureState(.active, on: v)
+        try require(
+            v.probeSnapshot.playerItem && v.probeSnapshot.playbackRequested
+            && v.probeSnapshot.visiblePixels && f.openCalls == 0,
+            "secret capture policy altered ordinary note",
+        )
+    }
+
+    private static func setCaptureState(_ state: UISceneCaptureState, on view: VideoNotePlaybackView) {
+        view.traitOverrides.sceneCaptureState = state
+        view.updateTraitsIfNeeded()
     }
 
     private static func file(url: URL, complete: Bool) -> File {
