@@ -40,7 +40,8 @@ final class RootViewController: UIViewController {
     }
 
     private func render(animated: Bool) {
-        guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID else { return }
+        guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID
+            || (displayedController as? LoginViewController)?.isRevoked == true else { return }
         displayedLoggedInState = rootVM.loggedIn
         displayedAccountID = rootVM.activeAccountID
 
@@ -49,7 +50,7 @@ final class RootViewController: UIViewController {
             let mainController = MainViewController(rootVM: rootVM)
             controller = NavigationStorage.shared.setRoot(mainController)
         } else {
-            controller = LoginViewController()
+            controller = LoginViewController(accountID: displayedAccountID)
         }
 
         transition(from: displayedController, to: controller, animated: animated)

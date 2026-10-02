@@ -13,7 +13,7 @@ func update(
 ) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
-            TDLib.shared.UpdateAuthorizationState(updateAuthorizationState.authorizationState)
+            notificationCenter.postTdUpdate(name: .updateAuthorizationState, object: updateAuthorizationState, source: source)
         case .updateNewMessage(let updateNewMessage):
             notificationCenter.postTdUpdate(name: .updateNewMessage, object: updateNewMessage, source: source)
         case .updateMessageSendAcknowledged(let updateMessageSendAcknowledged):

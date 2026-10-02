@@ -15,6 +15,7 @@ import UIKit
         FFmpegCapabilities.assertRequiredCodecsAvailable()
         #if DEBUG
             TdUpdateSourceProbe.runDebugProbeIfRequested()
+            LoginAuthorizationProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
             ChatComposerEditProbe.runDebugProbeIfRequested()
             ComposerTextProbe.runDebugProbeIfRequested()

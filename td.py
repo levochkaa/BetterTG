@@ -28,8 +28,6 @@ func update(
     notificationCenter: NotificationCenter = nc
 ) {
     switch update {
-        case .updateAuthorizationState(let updateAuthorizationState):
-            TDLib.shared.UpdateAuthorizationState(updateAuthorizationState.authorizationState)
 """
 
 
@@ -112,9 +110,6 @@ def generate(update_source: str) -> bool:
             f"    static var {name}: TdNotification<{type_name}> {{ .init(.{name}) }}\n"
         )
         notification_names.append(f"    static let {name} = Self(\"{name}\")\n")
-
-        if name == "updateAuthorizationState":
-            continue
 
         update_cases.append(
             (

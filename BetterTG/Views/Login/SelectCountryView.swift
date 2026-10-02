@@ -8,13 +8,23 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
 
     private let selectedCountry: PhoneNumberInfo
     private let onSelection: (PhoneNumberInfo) -> Void
+    private let client: TDLibClient
+    private let contextIsCurrent: () -> Bool
+    private var loadTask: Task<Void, Never>?
     private var countries = [PhoneNumberInfo]()
     private var filteredCountries = [PhoneNumberInfo]()
     private var query = ""
 
-    init(selectedCountry: PhoneNumberInfo, onSelection: @escaping (PhoneNumberInfo) -> Void) {
+    init(
+        selectedCountry: PhoneNumberInfo,
+        client: TDLibClient,
+        contextIsCurrent: @escaping () -> Bool,
+        onSelection: @escaping (PhoneNumberInfo) -> Void,
+    ) {
         self.selectedCountry = selectedCountry
         self.onSelection = onSelection
+        self.client = client
+        self.contextIsCurrent = contextIsCurrent
         super.init(style: .insetGrouped)
     }
 
@@ -23,6 +33,8 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
     }
 
     // MARK: Internal
+
+    deinit { loadTask?.cancel() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -63,6 +75,8 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
     }
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard contextIsCurrent() else { return }
+        loadTask?.cancel()
         onSelection(filteredCountries[indexPath.row])
         dismiss(animated: true)
     }
@@ -73,13 +87,17 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
     }
 
     @objc private func cancel() {
+        loadTask?.cancel()
         dismiss(animated: true)
     }
 
     private func loadCountries() {
-        Task { [weak self] in
-            guard let self, let result = try? await td.getCountries().countries else { return }
-            let detectedCountryCode = try? await td.getCountryCode().text
+        let client = client
+        loadTask = Task { [weak self] in
+            guard self?.contextIsCurrent() == true,
+                  let result = try? await client.getCountries().countries,
+                  !Task.isCancelled, self?.contextIsCurrent() == true else { return }
+            let detectedCountryCode = try? await client.getCountryCode().text
             let mapped = result.compactMap { country -> PhoneNumberInfo? in
                 guard let callingCode = country.callingCodes.first else { return nil }
                 return PhoneNumberInfo(
@@ -89,15 +107,14 @@ final class SelectCountryViewController: UITableViewController, UISearchResultsU
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            await MainActor.run {
-                self.countries = mapped
-                if let detectedCountryCode,
-                   let detected = mapped.first(where: { $0.country == detectedCountryCode })
-                {
-                    self.onSelection(detected)
-                }
-                self.filterCountries()
+            guard !Task.isCancelled, let self, contextIsCurrent() else { return }
+            countries = mapped
+            if let detectedCountryCode,
+               let detected = mapped.first(where: { $0.country == detectedCountryCode })
+            {
+                onSelection(detected)
             }
+            filterCountries()
         }
     }
 

@@ -61,6 +61,7 @@ final class TDLib: @unchecked Sendable {
     private var mediaUpdates = TDLibMediaUpdateStreams(source: nil)
     private let activeClientChangesSubject = PassthroughSubject<TdUpdateSource, Never>()
     private let clientReadiness = TDLibClientReadiness()
+    private let authorizationState = TDLibAuthorizationState()
     private var activeVODRanges: TDLibVODRangeCoordinator?
 
     var activeAccount: TelegramAccount? {
@@ -96,6 +97,14 @@ final class TDLib: @unchecked Sendable {
         activeClientSnapshot().map { TdUpdateSource(accountID: $0.accountID, clientID: $0.client.id) }
     }
 
+    var authorizationUpdates: AnyPublisher<TDLibAuthorizationState.Snapshot?, Never> { authorizationState.publisher }
+
+    @MainActor var activeAuthorizationSource: TdUpdateSource? {
+        guard let source = authorizationState.current?.source,
+              authorizationClient(for: source) != nil else { return nil }
+        return source
+    }
+
     var vodRanges: TDLibVODRangeCoordinator {
         guard let activeVODRanges else {
             preconditionFailure("TDLib VOD ranges were accessed before account bootstrap completed")
@@ -104,6 +113,13 @@ final class TDLib: @unchecked Sendable {
     }
 
     private init() {}
+
+    @MainActor func authorizationClient(for source: TdUpdateSource) -> TDLibClient? {
+        guard !lifecycleSuspended, authorizationState.current?.source == source,
+              let snapshot = activeClientSnapshot(), snapshot.accountID == source.accountID,
+              snapshot.client.id == source.clientID else { return nil }
+        return snapshot.client
+    }
 
     func startTdLibUpdateHandler() {
         guard !started else { return }
@@ -134,6 +150,7 @@ final class TDLib: @unchecked Sendable {
         wantsForegroundOwnership = false
         guard started, !lifecycleSuspended else { return }
         lifecycleSuspended = true
+        authorizationState.invalidate()
         if let source = activeUpdateSource { clientReadiness.update(ready: false, source: source) }
         log("TDLib ownership handoff started")
 
@@ -266,46 +283,36 @@ final class TDLib: @unchecked Sendable {
         retire(previous, accountID: removedAccount.id, endingSession: true, removeDirectory: true)
     }
 
-    func UpdateAuthorizationState(_ authorizationState: AuthorizationState) {
+    private func publishAuthorizationState(_ authorizationState: AuthorizationState, source: TdUpdateSource) {
         log("TDLib authorization state received: \(authorizationState.diagnosticName)")
+        isActiveAccountReady = authorizationState == .authorizationStateReady
+        self.authorizationState.update(authorizationState, source: source)
         switch authorizationState {
         case .authorizationStateWaitTdlibParameters:
             nc.post(name: .authorizationStateWaitTdlibParameters)
         case .authorizationStateWaitPhoneNumber:
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitPhoneNumber)
         case .authorizationStateWaitEmailAddress(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitEmailAddress, object: value)
         case .authorizationStateWaitEmailCode(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitEmailCode, object: value)
         case .authorizationStateWaitCode(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitCode, object: value)
         case .authorizationStateWaitOtherDeviceConfirmation(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitOtherDeviceConfirmation, object: value)
         case .authorizationStateWaitRegistration(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitRegistration, object: value)
         case .authorizationStateWaitPassword(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitPassword, object: value)
         case .authorizationStateReady:
-            isActiveAccountReady = true
             nc.post(name: .authorizationStateReady)
         case .authorizationStateLoggingOut:
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateLoggingOut)
         case .authorizationStateClosing:
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateClosing)
         case .authorizationStateClosed:
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateClosed)
         case .authorizationStateWaitPremiumPurchase(let value):
-            isActiveAccountReady = false
             nc.post(name: .authorizationStateWaitPremiumPurchase, object: value)
         }
     }
@@ -337,6 +344,7 @@ final class TDLib: @unchecked Sendable {
             }
         }
         setActiveClient(client)
+        authorizationState.activate(TdUpdateSource(accountID: accountID, clientID: client.id))
         clientReadiness.activate(TdUpdateSource(accountID: accountID, clientID: client.id))
         let mediaUpdates = TDLibMediaUpdateStreams(
             source: TdUpdateSource(accountID: accountID, clientID: client.id),
@@ -376,7 +384,9 @@ final class TDLib: @unchecked Sendable {
                     break
                 }
             }
-            update(incomingUpdate, source: TdUpdateSource(accountID: accountID, clientID: client.id))
+            let source = TdUpdateSource(accountID: accountID, clientID: client.id)
+            publishAuthorizationState(state, source: source)
+            update(incomingUpdate, source: source)
 
             clientReadiness.update(
                 ready: state == .authorizationStateReady && !lifecycleSuspended,
@@ -428,14 +438,6 @@ final class TDLib: @unchecked Sendable {
                     useSecretChats: true,
                     useTestDc: false,
                 )
-                let state = try await client.getAuthorizationState()
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, isActive(client: client, accountID: accountID) else { return }
-                    if case .authorizationStateWaitTdlibParameters = state {
-                        return
-                    }
-                    UpdateAuthorizationState(state)
-                }
             } catch {
                 configuredClientIDs.remove(client.id)
                 log("TDLib client parameter configuration failed: \(error.localizedDescription)")

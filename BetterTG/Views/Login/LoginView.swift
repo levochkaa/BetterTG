@@ -7,7 +7,9 @@ import UIKit
 final class LoginViewController: UIViewController {
     // MARK: Private
 
-    private var loginState = LoginState.phoneNumber
+    private let authorization: LoginAuthorizationSession
+    private let authorizationUpdates: AnyPublisher<TDLibAuthorizationState.Snapshot?, Never>
+    private let hasOtherAccounts: () -> Bool
     private var selectedCountry = PhoneNumberInfo(country: "RU", phoneNumberPrefix: "7", name: "Russian Federation")
     private var cancellables = Set<AnyCancellable>()
 
@@ -21,13 +23,44 @@ final class LoginViewController: UIViewController {
 
     // MARK: Internal
 
+    var isRevoked: Bool { authorization.isRevoked }
+
+    convenience init(accountID: UUID?) {
+        let authorization = LoginAuthorizationSession(
+            accountID: accountID,
+            currentSource: { TDLib.shared.activeAuthorizationSource },
+            client: { TDLib.shared.authorizationClient(for: $0).map(LoginAuthorizationSession.Client.live) },
+        )
+        self.init(
+            authorization: authorization, updates: TDLib.shared.authorizationUpdates,
+            hasOtherAccounts: { TDLib.shared.accounts.contains { $0.id != accountID } },
+        )
+    }
+
+    init(
+        authorization: LoginAuthorizationSession,
+        updates: AnyPublisher<TDLibAuthorizationState.Snapshot?, Never>,
+        hasOtherAccounts: @escaping () -> Bool,
+    ) {
+        self.authorization = authorization
+        self.authorizationUpdates = updates
+        self.hasOtherAccounts = hasOtherAccounts
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func willMove(toParent parent: UIViewController?) {
+        if parent == nil { authorization.revoke() }
+        super.willMove(toParent: parent)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         configureViews()
         configureConstraints()
         configurePublishers()
-        refreshAuthorizationState()
     }
 
     private func configureViews() {
@@ -109,28 +142,26 @@ final class LoginViewController: UIViewController {
     }
 
     private func configurePublishers() {
-        nc.publisher(for: .authorizationStateWaitPassword)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                guard let waitPassword = notification.object as? AuthorizationStateWaitPassword else { return }
-                self?.setTwoFactorState(waitPassword)
+        authorization.onChange = { [weak self] clearCredentials in
+            guard let self else { return }
+            if clearCredentials {
+                inputField.text = nil
+                inputField.placeholder = nil
+                // All presented sheets/callbacks belong to the old auth stage.
+                presentedViewController?.dismiss(animated: false)
             }
+            render()
+            if clearCredentials, authorization.stage != nil, view.window != nil {
+                inputField.becomeFirstResponder()
+                inputField.reloadInputViews()
+            }
+        }
+        authorization.onError = { [weak self] message in self?.showError(message) }
+        // TDLib publishes synchronously on main; an extra queued hop could
+        // replay an older same-client state after the current snapshot.
+        authorizationUpdates
+            .sink { [weak self] state in self?.authorization.accept(state) }
             .store(in: &cancellables)
-
-        nc.publisher(for: .authorizationStateWaitCode)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.setState(.code) }
-            .store(in: &cancellables)
-
-        nc.mergeMany([
-            .authorizationStateWaitPhoneNumber,
-            .authorizationStateClosed,
-            .authorizationStateClosing,
-            .authorizationStateLoggingOut,
-        ])
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in self?.setState(.phoneNumber) }
-        .store(in: &cancellables)
 
         nc.publisher(for: .telegramAccountsChanged)
             .receive(on: DispatchQueue.main)
@@ -138,42 +169,10 @@ final class LoginViewController: UIViewController {
             .store(in: &cancellables)
     }
 
-    private func refreshAuthorizationState() {
-        Task { [weak self] in
-            let state = try? await td.getAuthorizationState()
-            await MainActor.run {
-                guard let self else { return }
-                switch state {
-                case .authorizationStateWaitPassword(let waitPassword):
-                    self.setTwoFactorState(waitPassword)
-                case .authorizationStateWaitCode:
-                    self.setState(.code)
-                case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
-                    self.showError("There was an error with Authorization State. Please restart the app.")
-                case .authorizationStateWaitPremiumPurchase:
-                    self.showError("Login requires Telegram Premium. Please upgrade in the Telegram app.")
-                default:
-                    break
-                }
-            }
-        }
-    }
-
-    private func setState(_ state: LoginState) {
-        loginState = state
-        inputField.text = nil
-        render()
-        inputField.becomeFirstResponder()
-        inputField.reloadInputViews()
-    }
-
-    private func setTwoFactorState(_ waitPassword: AuthorizationStateWaitPassword) {
-        inputField.placeholder = waitPassword.passwordHint.isEmpty ? "2FA" : waitPassword.passwordHint
-        setState(.twoFactor)
-    }
-
     private func render() {
-        titleLabel.text = loginState.title
+        let loginState = authorization.stage
+        let current = authorization.capture() != nil
+        titleLabel.text = loginState?.title ?? "Waiting for authorization"
         countryButton.isHidden = loginState != .phoneNumber
         countryButton.configuration?.title = selectedCountry.name
         prefixLabel.isHidden = loginState != .phoneNumber
@@ -185,23 +184,38 @@ final class LoginViewController: UIViewController {
             switch loginState {
             case .phoneNumber: "Phone Number"
             case .code: "Code"
-            case .twoFactor: inputField.placeholder ?? "2FA"
+            case .twoFactor:
+                if case .authorizationStateWaitPassword(let state) = authorization.snapshot?.state,
+                   !state.passwordHint.isEmpty
+                {
+                    state.passwordHint
+                } else {
+                    "2FA"
+                }
+            case nil: ""
             }
-        accountsButton.isHidden = TDLib.shared.accounts.allSatisfy { $0.id == TDLib.shared.activeAccountID }
+        inputField.isEnabled = current && loginState != nil && !authorization.isBusy
+        continueButton.isEnabled = inputField.isEnabled
+        countryButton.isEnabled = inputField.isEnabled
+        accountsButton.isEnabled = current
+        accountsButton.isHidden = !hasOtherAccounts()
+        if !current || loginState == nil { inputField.resignFirstResponder() }
     }
 
     @objc private func showAccounts() {
-        let otherAccounts = TDLib.shared.sortedAccounts.filter { $0.id != TDLib.shared.activeAccountID }
+        guard let token = authorization.capture() else { return }
+        let otherAccounts = TDLib.shared.sortedAccounts.filter { $0.id != authorization.accountID }
         guard !otherAccounts.isEmpty else { return }
 
         let alert = UIAlertController(title: "Accounts", message: nil, preferredStyle: .actionSheet)
         for account in otherAccounts {
             alert.addAction(UIAlertAction(title: account.title, style: .default) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self, authorization.permits(token) else { return }
                     do {
                         try TDLib.shared.switchToAccount(account.id)
                     } catch {
-                        self?.showError(error.localizedDescription)
+                        if authorization.permits(token) { showError(error.localizedDescription) }
                     }
                 }
             })
@@ -215,34 +229,21 @@ final class LoginViewController: UIViewController {
     }
 
     @objc private func selectCountry() {
-        let countries = SelectCountryViewController(selectedCountry: selectedCountry) { [weak self] country in
-            self?.selectedCountry = country
-            self?.render()
+        guard let token = authorization.capture(),
+              let client = TDLib.shared.authorizationClient(for: token.source) else { return }
+        let countries = SelectCountryViewController(
+            selectedCountry: selectedCountry, client: client,
+            contextIsCurrent: { [weak self] in self?.authorization.permits(token) == true },
+        ) { [weak self] country in
+            guard let self, authorization.permits(token) else { return }
+            selectedCountry = country
+            render()
         }
         present(UINavigationController(rootViewController: countries), animated: true)
     }
 
     @objc private func continueLogin() {
-        let value = inputField.text ?? ""
-        continueButton.isEnabled = false
-        Task { [weak self] in
-            guard let self else { return }
-            let state = try? await td.getAuthorizationState()
-            switch state {
-            case .authorizationStateWaitPassword:
-                _ = try? await td.checkAuthenticationPassword(password: value)
-            case .authorizationStateWaitCode:
-                _ = try? await td.checkAuthenticationCode(code: value)
-            case .authorizationStateWaitPhoneNumber:
-                _ = try? await td.setAuthenticationPhoneNumber(
-                    phoneNumber: "\(selectedCountry.phoneNumberPrefix)\(value)",
-                    settings: nil,
-                )
-            default:
-                break
-            }
-            await MainActor.run { self.continueButton.isEnabled = true }
-        }
+        authorization.submit(inputField.text ?? "", prefix: selectedCountry.phoneNumberPrefix)
     }
 
     private func showError(_ message: String) {
