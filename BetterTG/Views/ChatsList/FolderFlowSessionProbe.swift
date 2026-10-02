@@ -106,11 +106,13 @@
                     try await verifyEditorAndSelector()
                     try await verifyListAndOrder()
                     try await verifyMutationBoundaries()
+                    try await verifyControllerMembership()
                     try await verifySelectorSubmissionAndDetachment()
                     try await verifyRevocation()
                     result = "Folder flow probe passed: actual-session/list/editor/selector/order=true; "
                         + "same-account-ready/draft/name/rules/selection/query/order-preserved=true; "
                         + "stale-ready/scope/pre-dispatch/late-success-error/duplicate-submit=fenced; "
+                        + "root/navigation/page/modal-membership=true; popped-pixels/detached-subtree=denied; "
                         + "dispatched-create-edit-reorder-delete=uncertain; account-A-B-A=revoked; "
                         + "RootVM/native-client/real-foreground/keyboard=unverified; server-calls=0"
                 } catch {
@@ -315,6 +317,85 @@
                     )
                 }
             }
+        }
+
+        private static func verifyControllerMembership() async throws {
+            let fixture = try Fixture()
+            defer { fixture.close() }
+            let root = fixture.navigation.viewControllers[0]
+            try require(root.chatListActionOwnerIsAttached, "window navigation root denied")
+
+            let owner = UIViewController()
+            fixture.show(owner)
+            let covered = UIViewController()
+            fixture.navigation.pushViewController(covered, animated: false)
+            covered.loadViewIfNeeded()
+            fixture.navigation.view.layoutIfNeeded()
+            try require(
+                owner.chatListActionOwnerIsAttached && covered.chatListActionOwnerIsAttached,
+                "covered/current navigation entries denied",
+            )
+            fixture.navigation.popViewController(animated: true)
+            try require(!covered.chatListActionOwnerIsAttached, "popping owner kept authority")
+            try await until({ fixture.navigation.transitionCoordinator == nil }, "membership pop did not settle")
+            fixture.navigation.setViewControllers([root], animated: false)
+            // Deterministic residual pixels: neither controller is a root/member,
+            // even if UIKit or a transition snapshot keeps its view in the window.
+            fixture.window.addSubview(owner.view)
+            try require(
+                owner.view.window === fixture.window && owner.parent == nil && !owner.chatListActionOwnerIsAttached,
+                "detached window pixels granted ownership",
+            )
+            owner.view.removeFromSuperview()
+
+            let detachedChild = UIViewController()
+            let detachedNavigation = UINavigationController(rootViewController: detachedChild)
+            fixture.window.rootViewController = detachedNavigation
+            detachedNavigation.loadViewIfNeeded()
+            detachedChild.loadViewIfNeeded()
+            detachedNavigation.view.layoutIfNeeded()
+            try require(detachedChild.chatListActionOwnerIsAttached, "alternate navigation root denied")
+            fixture.window.rootViewController = fixture.navigation
+            fixture.window.addSubview(detachedNavigation.view)
+            try require(!detachedChild.chatListActionOwnerIsAttached, "detached navigation subtree kept authority")
+            detachedNavigation.view.removeFromSuperview()
+
+            let standalone = UIViewController()
+            fixture.window.rootViewController = standalone
+            standalone.loadViewIfNeeded()
+            fixture.window.layoutIfNeeded()
+            try require(standalone.chatListActionOwnerIsAttached, "standalone window root denied")
+            let container = UIViewController()
+            standalone.addChild(container)
+            standalone.view.addSubview(container.view)
+            container.didMove(toParent: standalone)
+            let page = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
+            container.addChild(page)
+            container.view.addSubview(page.view)
+            page.didMove(toParent: container)
+            let pageChild = UIViewController()
+            page.setViewControllers([pageChild], direction: .forward, animated: false)
+            standalone.view.layoutIfNeeded()
+            try require(
+                container.chatListActionOwnerIsAttached && pageChild.chatListActionOwnerIsAttached,
+                "nested/page containment denied",
+            )
+
+            let modalChild = UIViewController()
+            let modal = UINavigationController(rootViewController: modalChild)
+            modal.modalPresentationStyle = .overFullScreen
+            standalone.present(modal, animated: false)
+            try await until({ modal.viewIfLoaded?.window === fixture.window }, "modal did not attach")
+            try require(
+                modalChild.chatListActionOwnerIsAttached && standalone.chatListActionOwnerIsAttached,
+                "presented navigation/root ownership denied",
+            )
+            modal.dismiss(animated: true)
+            try require(!modalChild.chatListActionOwnerIsAttached, "dismissing modal kept authority")
+            try await until({ standalone.presentedViewController == nil }, "modal did not detach")
+            fixture.window.addSubview(modal.view)
+            try require(!modalChild.chatListActionOwnerIsAttached, "dismissed modal pixels granted ownership")
+            modal.view.removeFromSuperview()
         }
 
         private static func verifySelectorSubmissionAndDetachment() async throws {

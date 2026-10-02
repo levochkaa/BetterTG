@@ -89,20 +89,31 @@ import UIKit
 extension UIViewController {
     var chatListActionOwnerIsAttached: Bool {
         var node: UIViewController = self
-        while true {
+        var window: UIWindow?
+        var visited = Set<ObjectIdentifier>()
+        while visited.insert(ObjectIdentifier(node)).inserted {
             guard !node.isBeingDismissed, !node.isMovingFromParent else { return false }
-            if let navigation = node.parent as? UINavigationController {
-                guard navigation.viewControllers.contains(where: { $0 === node }),
-                      !navigation.isBeingDismissed,
-                      navigation.viewIfLoaded?.window != nil
-                else { return false }
-                // A parent covered by its pushed picker still owns that callback.
-                return true
+            if let nodeWindow = node.viewIfLoaded?.window {
+                guard window == nil || window === nodeWindow else { return false }
+                window = nodeWindow
             }
-            guard let parent = node.parent else {
-                return node.viewIfLoaded?.window != nil
+            if let parent = node.parent {
+                guard parent.children.contains(where: { $0 === node }) else { return false }
+                if let navigation = parent as? UINavigationController {
+                    guard navigation.viewControllers.contains(where: { $0 === node }) else { return false }
+                }
+                // A covered stack entry still owns callbacks, but its navigation
+                // controller must itself belong to the live root/presentation tree.
+                node = parent
+            } else if let presenter = node.presentingViewController {
+                guard presenter.presentedViewController === node else { return false }
+                node = presenter
+            } else {
+                // UIKit can keep popped/dismissed pixels attached during teardown.
+                // A window alone never grants a detached controller authority.
+                return window?.rootViewController === node
             }
-            node = parent
         }
+        return false
     }
 }
