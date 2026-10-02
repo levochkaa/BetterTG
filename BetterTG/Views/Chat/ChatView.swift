@@ -2065,8 +2065,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             guard let self else { return }
             defer {
-                timelineLayoutMutationDepth -= 1
-                applyPendingMessageNavigation()
+                finishTimelineLayoutMutation()
                 settleRestoredViewport()
                 retryClientRestoration()
             }
@@ -2328,9 +2327,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func finishTimelineLayoutMutation(retryPendingNavigation: Bool = true) {
-        guard ChatViewportRestorationAuthority.finishLayoutMutation(depth: &timelineLayoutMutationDepth) else { return }
-        drainTimelineSnapshots()
-        if retryPendingNavigation { applyPendingMessageNavigation() }
+        if ChatViewportRestorationAuthority.finishLayoutMutation(depth: &timelineLayoutMutationDepth),
+           retryPendingNavigation { applyPendingMessageNavigation() }
     }
 
     private func layoutForViewportCompletion() {
@@ -2397,7 +2395,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func reconfigureMessage(id: Int64) {
         guard let displayedID = chatVM.displayedMessageID(containing: id) else { return }
-        reconfigureMessages(ids: [displayedID])
+        let itemID = ChatTimelineItemID.message(displayedID)
+        var snapshot = dataSource.snapshot()
+        guard snapshot.indexOfItem(itemID) != nil else { return }
+        let restoration = captureAutomaticViewportRestoration()
+        snapshot.reconfigureItems([itemID])
+        timelineLayoutMutationDepth += 1
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            guard let self else { return }
+            defer { finishTimelineLayoutMutation() }
+            layoutForViewportCompletion()
+            restoreAutomaticViewport(restoration)
+        }
     }
 
     private func updateHighlightState() {
@@ -2475,7 +2484,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             : nil
         timelineLayoutMutationDepth += 1
         defer { finishTimelineLayoutMutation() }
-        recordMessageNavigationGeometry("insets-before", keepsLatest: keepLatestVisible, writer: "insets")
         collectionView.contentInset = updatedInsets
         collectionView.verticalScrollIndicatorInsets = updatedInsets
         collectionView.layoutIfNeeded()
@@ -2597,8 +2605,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             updateSnapshot(animated: false)
             return
         }
+        guard timelineLayoutMutationDepth == 0 else {
+            recordMessageNavigationPhase("awaiting-layout")
+            return
+        }
         timelineLayoutMutationDepth += 1
-        defer { timelineLayoutMutationDepth -= 1 }
+        // An unavailable layout must wait for an external completion, not recurse.
+        defer { finishTimelineLayoutMutation(retryPendingNavigation: false) }
         collectionView.layoutIfNeeded()
         guard view.window != nil, collectionView.bounds.height > 0, !userIsScrollingTimeline,
               collectionView.layoutAttributesForItem(at: indexPath) != nil
@@ -2977,11 +2990,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             viewportCompletionProbe?.interrupt("reply quote snapshot changed")
         #endif
         message.isReplyQuoteExpanded = true
-        enqueueTimeline(.init(
-            ids: [message.displayedID],
-            quoteID: message.displayedID,
-            viewportRevision: viewportRestorationAuthority.invalidationRevision,
-        ))
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems([itemID])
+        timelineLayoutMutationDepth += 1
+        UIView.performWithoutAnimation {
+            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                guard let self else { return }
+                defer { finishTimelineLayoutMutation() }
+                layoutForViewportCompletion()
+                restoreAutomaticViewport(restoration)
+            }
+        }
     }
 
     private func performContentAction(_ action: MessageContentAction) {
@@ -3982,12 +4001,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func reconfigureMessages(ids: [DisplayedMessageID]) {
         guard !ids.isEmpty else { return }
-        enqueueTimeline(.init(
-            structural: restoredViewport?.pending == true,
-            ids: Set(ids),
-            restoresViewport: true,
-            viewportRevision: viewportRestorationAuthority.invalidationRevision,
-        ))
+        var snapshot = dataSource.snapshot()
+        let existing = ids
+            .map(ChatTimelineItemID.message)
+            .filter { snapshot.indexOfItem($0) != nil }
+        guard !existing.isEmpty else { return }
+        let restoration = captureAutomaticViewportRestoration()
+        snapshot.reconfigureItems(existing)
+        timelineLayoutMutationDepth += 1
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            guard let self else { return }
+            defer { finishTimelineLayoutMutation() }
+            layoutForViewportCompletion()
+            restoreAutomaticViewport(restoration)
+        }
     }
 
     private func forwardSelectedMessages() {
