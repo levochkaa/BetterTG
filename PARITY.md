@@ -1048,6 +1048,11 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Probe uses real UITextView insertion/deletion/callbacks, edit-attempt preparation, DraftMessage Codable and immutable restoration
   transfer. No user clipboard, URL, server calls or account-store writes. Live IME/undo, network edit/send, persisted draft relaunch,
   private semantic clipboard interchange and animated custom-emoji composer presentation remain unverified. No new quote/language picker.
+- Follow-up `26d5f48` expands the same production-field probe: model echo preserves two marked candidates and their commit,
+  restoration stays blocked while composing, and UIKit's actual undo manager restores/reapplies formatting and pasted text with
+  unchanged entities. One-file format/build `build-Debug-20261002-200757-94069-19293.log`: PASS6s, zero warnings. Audit Simulator
+  source `26d5f48`, PID `94652`: `marked-model-feedback=true; UIKit-undo-redo=true`; restoration/text-spoiler regressions pass.
+  This is programmatic UITextInput/undo proof, not a live software-keyboard, dictation, CJK suggestion or keyboard-shortcut test.
 
 ## Implementation ledger
 
@@ -1094,14 +1099,15 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `fb15c25`: semantic composer, edit/restoration, text-spoiler and scoped-update regressions pass (PID `92214`).
+- Latest verified code: `26d5f48`: marked-input model feedback and actual UIKit undo/redo pass (PID `94652`), with restoration/spoiler regressions.
+  `fb15c25`: semantic composer, edit/restoration, text-spoiler and scoped-update regressions pass (PID `92214`).
   Static-image observer/source regression passes at `ba0e192` (PID `89171`).
   `e9b536b`: native inline animation, gallery-owner and PiP-context regressions pass (PIDs `83851`/`84406`/`84924`).
   A23 forum-topic scoped delivery plus Root/Chat-state/spoiler regressions pass at `78f0f8a` (PID `81496`).
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-200325-91739-906.log`.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-200757-94069-19293.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
@@ -1115,7 +1121,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: A23 auth authority, A20 media concealment on the shared owner path, and A25 IME feedback/undo verification.
+- Exact next slices: A23 auth authority, A20 media concealment on the shared owner path, and A22 delayed viewport restoration.
   Retain static-image origin/shared-demand gaps and Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
   process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
