@@ -4,11 +4,67 @@ This file is the checkpoint ledger for the UIKit + Combine + TDLibKit implementa
 `telegram-upstream/master` unless a commit is pinned. The classic pre-Liquid baseline is
 `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, the parent of Telegram's first first-parent `Glass` commit.
 
-Status values: **done** has local implementation proof, **partial** is usable with listed gaps, **next** is the next
-bounded slice, and **queued** has not started. Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and
-Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
+Implementation status and verification are separate. **done** means the recorded bounded scope has its stated proof;
+**implemented breadth** means the main code paths exist, with the listed verification limits; **partial** has known gaps;
+**next** identifies the next bounded slice; **queued** has not started. None implies exhaustive Telegram parity.
+Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and Telegram infrastructure
+(Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
 
-| Priority | Flow | Telegram reference | TDLib API / model | Status and proof |
+## Revalidation before new features — 2026-10-02
+
+The user requested a fresh `gpt-6-astra` review of the accumulated implementation previously developed with `5.6-sol`.
+This documentation update schedules that review; it does not perform it or start/resume a goal. The inspected implementation
+HEAD is `7b0699d789329535786cc6170c98287c45d52ebb`, with no staged or unstaged changes. Re-read HEAD and dirty state on resume.
+There is no `GOAL.md` in this checkout and no active goal was returned by the goal tool at this checkpoint.
+
+All existing implementation and CLEAN/build/probe/smoke claims below remain historical evidence. Their new audit status is
+**pending**, including flows called done or implemented. Preserve the original evidence and its limits; a past clean build,
+zero-marker scan, catalog switch or permission-denial smoke does not prove complete behavior on the current revision.
+Historical slice-level Deferred/Remaining/next notes describe those slices at the time; reconcile them with later slices and
+current code before scheduling duplicate work. This section and the current checkpoint take precedence for resume ordering.
+
+### Audit workflow
+
+1. Read `AGENTS.md`, `CLAUDE.md`, `project.yml`, this ledger, current code, working/index diffs and committed implementation history.
+   Establish the relevant implementation base from Git history. A clean working diff is not an audit of accumulated changes.
+   Inventory every flow, production entry point and shared dependency; preserve unrelated user changes and existing behavior.
+2. Pin the inspected official `telegram-upstream/master` SHA and the relevant pre-Liquid reference for each flow. Use Swiftgram
+   only for toggles. Verify against the pinned TDLibKit API/models, not remembered signatures or copied Telegram infrastructure.
+3. Review the areas below in bounded slices, prioritizing P0 correctness and cross-flow ownership. Follow actual production
+   callers, data and lifetime transitions; flag placeholders, dead paths, missing integration and overclaimed proof. Do not merely
+   review the latest commit, rescan names or reread previous summaries. Fix confirmed P0/P1 findings as their area is reviewed.
+4. Rewrite only for a demonstrated defect, behavioral gap, lifecycle/ownership problem, measured performance problem or avoidable
+   complexity with a concrete maintenance cost. Record the evidence, replacement scope, preserved behavior/data contracts and
+   regression checks before editing. A model change alone is not a rewrite reason. Keep changes bounded and avoid wholesale
+   restarts or speculative abstraction.
+5. For each area, record review date, reviewed SHA/files, Telegram SHA/path, TDLib version/API, findings by P0/P1/P2, fix commits,
+   proof commands/device and blockers.
+   Use audit states `pending`, `reviewed`, `needs-fix`, `fixed`, `runtime-blocked`; retain unresolved findings when runtime is blocked.
+   Separate source review, warning-free build, deterministic probe, Simulator smoke and physical-device/server proof. Missing
+   evidence is unverified, not passed; mark unavailable fixtures/permissions/hardware explicitly and continue independent work.
+6. Before new feature breadth, cover every area once and close actionable P0/P1 findings; log externally blocked checks with a
+   next action. Then select the highest-priority useful gap, not automatically the previous profile-management next step.
+   On later resumes, continue from the recorded audit cursor and recheck changed dependencies; do not restart the entire audit.
+
+| Priority | Area to revalidate | Required checks | New audit state |
+| --- | --- | --- | --- |
+| P0 | MediaCore and animated media | No VLC dependency/consumer; production TGS/WebP/WebM-alpha and custom/animated emoji routes; decode ownership, alpha/timing/sync, bounded caches, offscreen pause, prefetch/cancel/fallback | pending |
+| P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | pending |
+| P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | pending |
+| P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | pending |
+| P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | pending |
+| P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | pending |
+| P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | pending |
+| P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | pending |
+
+Read-only audit subagents return findings and need no commit or duplicate build. At most two subagents may run concurrently.
+Implementation subagents use isolated worktrees, format changed Swift in one invocation, build without warnings and commit;
+the primary integrates verified commits and validates the combined result. Do not spawn when the remaining budget cannot cover
+integration and verification. Each implementation slice must end with proof, a focused attributed commit and an updated checkpoint.
+
+## Implementation ledger
+
+| Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
 | --- | --- | --- | --- | --- |
 | P0 | Remove MobileVLCKit; local audio/video playback seam | `submodules/TelegramUniversalVideoContent/Sources/PlatformVideoContent.swift` at the pre-Liquid baseline | `downloadFile`, `updateFile`, `cancelDownloadFile` | **partial** — `LocalMediaPlayer` uses AVFoundation, gallery playback pauses offscreen and has thumbnail fallback, and downloaded Ogg/Opus audio is cancellably decoded by FFmpeg before AVPlayer use. A range-backed FFmpeg controller now emits owned BGRA video and interleaved float audio for generic VP9/Opus WebM without a full download, renders both tracks on one Apple media clock, and is production-routed through the persistent inline/fullscreen gallery owner. `./build.sh build` passes without warnings and `rg` finds no VLC dependency/import/API marker in `project.yml` or `BetterTG`. Persistent FFmpeg sessions span rolling windows and sample-buffer PiP uses the exact display layer; only active system PiP/device proof remains. |
 | P0 | TGS stickers and animated/custom emoji | `AnimatedStickerFrameSource.swift` gzip/rlottie path, `AnimatedStickerNode.swift` lifecycle, and pre-Liquid `MultiAnimationRenderer.swift` / `EmojiTextAttachmentView.swift` | `MessageSticker`, `TextEntityType.customEmoji`, `getCustomEmojiStickers`, `downloadFile`, `updateFile` | **partial** — timeline/gallery TGS uses bounded zlib decode, pinned Lottie 4.6.1, synchronized loops, visibility pause, parsed cache, prefetch/cancel, and thumbnail fallback. Custom-emoji entities are batch-resolved by ID, mapped from arbitrary TDLib order, overlaid on exact TextKit glyph rects, keep the native glyph until first frame, and share TGS/WebP/WebM clocks/lifecycle. `./test.sh` passes; Telegram `tiny.tgs` decodes to valid 100×100@30 JSON; current idb smoke confirms ordinary/wrapped text and timestamps remain stable. No custom emoji exists in the reachable viewport, so visual rendering and `needsRepainting` substitution remain unproved/pending. |
@@ -32,17 +88,30 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 
 ## Checkpoint
 
-- Current slice: member/admin user rows now open a standalone UIKit member-tag flow with fresh actor/target authority, exact baseline
-  conflict detection, awaited `setChatMemberTag`, account fences and explicit post-success list reload.
-- Timeline invariants: raw TDLib pagination owns the cursor; `mediaAlbumId` owns grouped identity across pages; heterogeneous
+- Current task: documentation-only audit/goal-prompt revision requested on 2026-10-02. Production code has not been re-reviewed or
+  rewritten in this task; all new audit rows are pending. The goal remains inactive until explicitly started/resumed.
+- Documentation validation: `./build.sh build` passed without warnings on Xcode 26.6; log
+  `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
+  main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
+  new runtime smoke were performed. This build does not close any implementation-audit row.
+- Next on resume: record current HEAD/base/dirty state and a fresh warning-free `./build.sh build`, inventory the full existing
+  implementation, then begin the P0 MediaCore/VOD ownership audit. Continue through the audit table before new feature breadth.
+- Previous verified implementation slice: `7b0699d` member/admin user rows open a standalone UIKit member-tag flow with fresh
+  actor/target authority, exact baseline conflict detection, awaited `setChatMemberTag`, account fences and post-success list reload.
+- Timeline invariants to revalidate: raw TDLib pagination owns the cursor; `mediaAlbumId` owns grouped identity across pages; heterogeneous
   message/date/topic items rebuild from canonical state; only messages participate in behavior; every structural apply restores a visible
   message + exact pixel offset. Date→topic ordering and significant-time/locale reconfiguration follow Telegram's header spaces.
-- Verification: warning-free Xcode 26.6 build `.build/logs/xcodebuild/build-Debug-20260831-153759-82885-28094.log`; focused Telegram/API
-  review and post-reload-fix delta review are CLEAN. PID `83599` completed the non-mutating member-tag smoke; Simulator remains booted.
-- Proof blockers: the reachable account lacks member-tag authority, so the fresh denial path is runtime-proved but the authorized editor
-  and server write are source-reviewed/build-proved only. Existing simulator data still has no safe reachable forum with
-  `viewAsTopics == false`; software keyboard remains hidden after first-responder taps; idb omits context-menu actions. Resume from
-  promote/demote/remove member-management tools; do not couple those rights mutations to the completed tag editor.
+- Historical verification: warning-free Xcode 26.6 build `.build/logs/xcodebuild/build-Debug-20260831-153759-82885-28094.log`; focused
+  Telegram/API and post-reload-fix delta reviews reported CLEAN. PID `83599` completed the non-mutating member-tag smoke; Simulator
+  was left booted. These results are not a fresh whole-implementation audit.
+- Historical proof blockers to reassess: the reachable account lacked member-tag authority; the denial path was runtime-proved,
+  authorized editing/writes were source-reviewed/build-proved only. No safe reachable forum had `viewAsTopics == false`, the software
+  keyboard stayed hidden after first-responder taps, and idb omitted context-menu actions. Active PiP and camera capture need capable
+  hardware. Record current availability and continue independent checks without upgrading blocked proof to passed.
+- Deferred feature candidate after the audit: promote/demote/remove member-management tools. Keep rights mutations independent of
+  member tags; confirmed higher-priority audit findings take precedence.
+
+## Historical implementation slices
 
 ### UIKit peer profile and shared-media slice
 
@@ -58,8 +127,9 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   tiles, `No shared files`, real Link rows and a real `.m4a` Audio row. The exact Media→Files→Links→Audio path remains alive after fixing
   UIKit diffable snapshot reentrancy, and Back returns to the group chat. Evidence is under
   `.build/ui-probe-evidence/profile-shared-media-*`; no media or server mutation was selected.
-- Deferred: avatar/video header history and fullscreen entry; edit/member/admin controls; shared-media selection/actions; live metadata
-  reconciliation; gallery caption, gesture, rotation and complete save/forward/delete/open-in-chat/video-control parity.
+- Deferred at this slice (see subsequent profile/gallery slices): avatar/video header history and fullscreen entry; edit/member/admin
+  controls; shared-media selection/actions; live metadata reconciliation; gallery caption, gesture, rotation and complete
+  save/forward/delete/open-in-chat/video-control parity.
 
 ### Profile shared-media gallery slice
 
@@ -235,7 +305,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   `.build/ui-probe-evidence/member-tag-smoke-permission-denied.png`. No text was edited, Save was never pressed and no Telegram mutation
   occurred; Simulator remains booted.
 - Runtime blocker/deferred: this live account cannot edit a tag, so an authorized Save/remove and post-success refetch are not exercised
-  against the server. Promotion, demotion, removal and administrator-right editors remain the next bounded profile-management gap.
+  against the server. Promotion, demotion, removal and administrator-right editors are queued after the revalidation gate.
 
 ### Fullscreen gallery Open in Chat slice
 
@@ -256,7 +326,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   `.build/ui-probe-evidence/gallery-open-in-chat-menu.png` and
   `.build/ui-probe-evidence/gallery-open-in-chat-result.png`; no Telegram mutation occurred.
 - Runtime blocker/deferred: the safe smoke did not switch accounts or delete the selected message during the subsecond dismissal window;
-  both races are generation-fenced and source-reviewed. Forward and Delete remain separate action slices.
+  both races are generation-fenced and source-reviewed. Forward and Delete were subsequently recorded in their own slices below.
 
 ### Gallery Save and secured Share slice
 
@@ -601,7 +671,8 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   autoplay, visible buffering, stable pause, 1.5× rate, offscreen suspension/cancellation, preserved intent, last-seek-wins,
   seek-first PTS, EOF/no-loop, offline/retry, seek clamp, zero renderer errors, finite range downloads, zero full downloads and cleanup.
   `git diff --check` is clean.
-- Persistent session rollover is complete; sample-buffer PiP remains the independent VOD architecture gap.
+- Subsequent slices below record persistent session rollover and the sample-buffer PiP implementation. Active system PiP/background
+  restore remains a physical-device proof gap, subject to the new revalidation gate.
 
 ### Production FFmpeg gallery routing slice
 
