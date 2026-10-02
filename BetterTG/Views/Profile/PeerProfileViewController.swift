@@ -417,7 +417,7 @@ import UIKit
         detailsLabel.isHidden = true
         headerStack.addArrangedSubview(detailsLabel)
         for label in [titleLabel, statusLabel, bioLabel, detailsLabel] {
-            label.widthAnchor.constraint(lessThanOrEqualTo: headerStack.widthAnchor).isActive = true
+            label.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         }
 
         actionStack.axis = .horizontal
@@ -503,6 +503,12 @@ import UIKit
         let height = ceil(size.height)
         guard height > 0 else { return }
         profileHeaderView.frame = CGRect(x: 0, y: -height, width: width, height: height)
+        #if DEBUG
+            ProfileHeaderLayoutProbe.recordIfRequested(
+                header: profileHeaderView, avatar: avatarView,
+                labels: [titleLabel, statusLabel, bioLabel, detailsLabel],
+            )
+        #endif
         guard abs(oldInset - height) > 0.5 else { return }
         collectionView.contentInset.top = height
         collectionView.verticalScrollIndicatorInsets.top = height
