@@ -115,6 +115,10 @@ targets:
       - name: Remove Static TDLib Artifact
         shell: /bin/sh
         basedOnDependencyAnalysis: false
+        # SwiftPM's automatic copy/sign tasks are outside the explicit copy-files phase.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/TDLibFramework.framework
+          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/TDLibFramework.framework/_CodeSignature
         script: |
           static_artifact="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/TDLibFramework.framework"
           if [ -d "$static_artifact" ]; then
