@@ -177,6 +177,7 @@ import UIKit
     private var desiredChatActionContext: ResolvedSendContext?
     private var composerRevision = UInt64.zero
     private let composerEditState = ChatComposerEditState()
+    private let composerRestorationLifetime = ChatComposerRestorationLifetime()
     private var composerMediaDraftTask: Task<Void, Never>?
     private var composerIsDirty = false
     private var awaitingAuthoritativeDraftClear = false
@@ -323,7 +324,8 @@ import UIKit
     }
 
     var locationContextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == location.accountID
+        !composerRestorationLifetime.isRetired
+            && TDLib.shared.activeAccountID == location.accountID
             && TDLib.shared.activeClient.id == location.clientID
             && client.id == location.clientID
     }
@@ -536,11 +538,78 @@ import UIKit
         forumTopicsByID.values.first(where: { $0.info.isGeneral })
     }
 
-    init(
+    private var composerCanTransfer: Bool {
+        !previewing && !composerRestorationLifetime.isRetired
+            && !sendingComposerMessage && sendMessageTask == nil
+            && !loadingVoiceDraft && !startingVoiceNote && !finalizingVoiceNote
+            && !pendingVoiceDraftIsFinalizing && voiceFinalizeTask == nil
+            && !recordingVoiceNote && audioRecorder == nil && recordingVoiceNoteURL == nil
+            && voiceRecordingDraftTask == nil && voiceRecordingTrimTask == nil
+            && !voiceRecordingTrimIsUpdating && !hasPendingVoiceNote && !hasPendingVideoNote
+            && pendingVoiceNote == nil && activeVoiceRecordingDraft == nil && pendingVideoNote == nil
+            && !retryingVideoNote && videoRetryTask == nil && submittingVideoDraftIDs.isEmpty
+            && restoredVideoRecordingDraft == nil
+    }
+
+    convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
         forumTopic: ForumTopic? = nil,
         previewing: Bool = false,
+    ) {
+        self.init(
+            customChat: customChat, location: location, forumTopic: forumTopic,
+            previewing: previewing, restoration: nil,
+        )
+    }
+
+    deinit {
+        log("deinit \(chatID)")
+        loadingMessagesTask?.cancel()
+        sendMessageTask?.cancel()
+        voiceFinalizeTask?.cancel()
+        voiceRecordingDraftTask?.cancel()
+        voiceRecordingTrimTask?.cancel()
+        voiceRetryAvailabilityTask?.cancel()
+        videoRetryAvailabilityTask?.cancel()
+        videoRetryTask?.cancel()
+        reactionMutationTasks.values.forEach { $0.cancel() }
+        pinnedMessageTask?.cancel()
+        forumTopicTask?.cancel()
+        forumTopicTasks.values.forEach { $0.cancel() }
+        draftClearTask?.cancel()
+        composerMediaDraftTask?.cancel()
+        pinMutationTasks.values.forEach { $0.cancel() }
+        voiceRecordingPreviewPlayer.stop()
+        timer?.invalidate()
+        audioRecorder?.stop()
+        MainActor.assumeIsolated {
+            composerRestorationLifetime.finish {
+                if audioRecorder != nil {
+                    Media.shared.endAudioSessionRecord()
+                }
+                if voiceRecordingPreviewOwnsAudioSession {
+                    Media.shared.endAudioSessionRecord()
+                }
+                if let recordingVoiceNoteURL {
+                    try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
+                }
+                let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
+                SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
+                    !outgoingDocumentURLs.contains($0.standardizedFileURL)
+                })
+                if !previewing { Media.shared.onChatDismiss() }
+            }
+        }
+        chatOpenLease.invalidate()
+    }
+
+    private init(
+        customChat: CustomChat,
+        location: ChatLocation?,
+        forumTopic: ForumTopic?,
+        previewing: Bool,
+        restoration: ChatComposerRestorationState?,
     ) {
         let client = td
         let resolvedLocation = location ?? ChatLocation.current(
@@ -567,6 +636,12 @@ import UIKit
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
+        }
+
+        // Install local intent before any publisher, server draft, or async load
+        // can fill the new composer. Only the one-shot factory can pass this seed.
+        if let restoration {
+            seedComposerRestoration(restoration)
         }
 
         setPublishers()
@@ -689,44 +764,44 @@ import UIKit
         }
     }
 
-    deinit {
-        log("deinit \(chatID)")
-        loadingMessagesTask?.cancel()
-        sendMessageTask?.cancel()
-        voiceFinalizeTask?.cancel()
-        voiceRecordingDraftTask?.cancel()
-        voiceRecordingTrimTask?.cancel()
-        voiceRetryAvailabilityTask?.cancel()
-        videoRetryAvailabilityTask?.cancel()
-        videoRetryTask?.cancel()
-        reactionMutationTasks.values.forEach { $0.cancel() }
-        pinnedMessageTask?.cancel()
-        forumTopicTask?.cancel()
-        forumTopicTasks.values.forEach { $0.cancel() }
-        draftClearTask?.cancel()
-        composerMediaDraftTask?.cancel()
-        pinMutationTasks.values.forEach { $0.cancel() }
-        voiceRecordingPreviewPlayer.stop()
-        timer?.invalidate()
-        if audioRecorder != nil {
-            Media.shared.endAudioSessionRecord()
+    static func restoringComposer(
+        from transfer: ChatComposerRestorationTransfer,
+        customChat: CustomChat,
+        location: ChatLocation,
+        forumTopic: ForumTopic? = nil,
+    ) -> ChatVM? {
+        guard location.chatID == customChat.id else { return nil }
+        return transfer.commit(to: location, currentSource: TDLib.shared.activeUpdateSource) { snapshot in
+            ChatVM(
+                customChat: customChat, location: location, forumTopic: forumTopic,
+                previewing: false, restoration: snapshot,
+            )
         }
-        if voiceRecordingPreviewOwnsAudioSession {
-            Media.shared.endAudioSessionRecord()
-        }
-        audioRecorder?.stop()
-        if let recordingVoiceNoteURL {
-            try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
-        }
-        MainActor.assumeIsolated {
-            let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
-            SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
-                !outgoingDocumentURLs.contains($0.standardizedFileURL)
-            })
-        }
-        chatOpenLease.invalidate()
-        if !previewing {
-            Media.shared.onChatDismiss()
+    }
+
+    /// Foundation only: the controller must also fence navigation and local
+    /// picker/recorder work before committing. No route opts into this yet.
+    func prepareComposerRestoration() -> ChatComposerRestorationTransfer? {
+        guard composerCanTransfer, location.accountID != nil else { return nil }
+        let snapshot = composerRestorationState()
+        return ChatComposerRestorationTransfer(snapshot: snapshot) { [self] in
+            guard composerCanTransfer, composerRestorationState() == snapshot,
+                  composerRestorationLifetime.retire()
+            else { return false }
+            _ = voiceRecordingLifecycle.suspend()
+            replySelectionGeneration &+= 1
+            composerEditState.changeSession()
+            composerRevision &+= 1
+            cancellables.removeAll()
+            voiceRecordingPreviewCancellables.removeAll()
+            stopVoiceRecordingPreviewPlayback()
+            loadingMessagesTask?.cancel()
+            composerMediaDraftTask?.cancel()
+            cancelPendingDraftClearRetry()
+            // No discard/remove helper: those helpers delete the transferred files.
+            displayedDocuments = []
+            displayedImages = []
+            return true
         }
     }
 
@@ -2866,6 +2941,38 @@ import UIKit
     func bufferPotentialVoiceMessageDeletions(_ messageIDs: [Int64]) {
         guard finalizingVoiceNote || !registeringVoiceMessageIDs.isEmpty else { return }
         bufferedDeletedMessageIDs.formUnion(messageIDs)
+    }
+
+    private func composerRestorationState() -> ChatComposerRestorationState {
+        ChatComposerRestorationState(
+            location: location,
+            revision: composerRevision,
+            text: text,
+            edit: editCustomMessage.map { .init(target: .init($0), text: editMessageText) },
+            replyMessage: replyMessage.map(ChatComposerRestorationState.MessageValue.init),
+            replyTo: getMessageReplyTo(from: replyMessage),
+            images: displayedImages,
+            documents: displayedDocuments,
+            sendError: sendErrorMessage,
+            draftError: draftErrorMessage,
+        )
+    }
+
+    private func seedComposerRestoration(_ seed: ChatComposerRestorationState) {
+        markComposerDirty()
+        text = seed.text
+        editCustomMessage = seed.edit?.target.makeMessage()
+        editMessageText = seed.edit?.text ?? ""
+        replyMessage = seed.replyMessage?.makeMessage()
+        replyInputOverride = seed.replyTo
+        replyQuote = inputQuote(from: seed.replyTo)
+        replyFallbackPresentation = replyMessage == nil
+            ? seed.replyTo.map { MessageReplyPresentation.fallback(for: $0, currentChatID: chatID) }
+            : nil
+        displayedImages = seed.images
+        displayedDocuments = seed.documents
+        sendErrorMessage = seed.sendError
+        draftErrorMessage = seed.draftError
     }
 
     private func editMessage(_ attempt: ChatComposerEditState.Attempt) async throws {

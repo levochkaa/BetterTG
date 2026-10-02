@@ -17,6 +17,7 @@ import UIKit
             TdUpdateSourceProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
             ChatComposerEditProbe.runDebugProbeIfRequested()
+            ChatComposerRestorationProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()
