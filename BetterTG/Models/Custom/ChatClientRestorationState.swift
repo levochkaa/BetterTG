@@ -213,6 +213,8 @@ struct ChatHistoryLatestRefreshCursor {
         case partial
     }
 
+    enum MutationOwner: Hashable { case reaction, pin }
+
     enum Result {
         case message(ChatHistoryMessageValue)
         case missing
@@ -232,6 +234,12 @@ struct ChatHistoryLatestRefreshCursor {
         fileprivate let revisions: [Int64: UInt64]
     }
 
+    struct ReadToken {
+        fileprivate let owner: UUID
+        fileprivate let generation: UInt64
+        fileprivate let revisions: [Int64: UInt64]
+    }
+
     private struct Request {
         let messageID: Int64
         let revision: UInt64
@@ -244,17 +252,23 @@ struct ChatHistoryLatestRefreshCursor {
     private let read: (Int64) async throws -> Message
     private let hydrate: ((Message) async -> ChatHistoryMessageValue)?
     private let deliver: (Delivery) -> Void
+    private let identity = UUID()
+    private let retriesPartialRaces: Bool
     private var revisions = [Int64: UInt64]()
     private var authoritativeRevisions = [Int64: UInt64]()
     private var deletedIDs = Set<Int64>()
+    private var mutationOwners = [Int64: Set<MutationOwner>]()
     private var latestReadID: UUID?
     private var latestGeneration = UInt64.zero
     private var queue: [Int64]
+    private var queuedIDs: Set<Int64>
+    private var queuedPayloads = [Int64: (message: Message, revision: UInt64)]()
     private var queueIndex = 0
     private var failed = Set<Int64>()
     private var generation = UInt64.zero
     private var cancelled = false
     private var running = false
+    private var retryRequestedWhileRunning = false
 
     var failedMessageIDs: Set<Int64> { failed }
     var remainingCount: Int { queue.count - queueIndex }
@@ -271,6 +285,7 @@ struct ChatHistoryLatestRefreshCursor {
         currentSource: @escaping () -> TdUpdateSource?,
         read: @escaping (Int64) async throws -> Message,
         hydrate: ((Message) async -> ChatHistoryMessageValue)? = nil,
+        retriesPartialRaces: Bool = false,
         deliver: @escaping (Delivery) -> Void,
     ) {
         self.location = location
@@ -278,10 +293,77 @@ struct ChatHistoryLatestRefreshCursor {
         self.currentSource = currentSource
         self.read = read
         self.hydrate = hydrate
+        self.retriesPartialRaces = retriesPartialRaces
         self.deliver = deliver
         let seeded = Set(seedIDs)
         var seen = Set<Int64>()
         self.queue = (visibleIDs.filter(seeded.contains) + seedIDs).filter { seen.insert($0).inserted }
+        self.queuedIDs = seen
+    }
+
+    func beginRead() -> ReadToken? {
+        guard isCurrent, !Task.isCancelled else { return nil }
+        return ReadToken(owner: identity, generation: generation, revisions: revisions)
+    }
+
+    /// Caller merges these values synchronously, with no await after admission.
+    /// Normal pagination shares the ledger without a second hydration pass.
+    func takeCurrentValues(_ values: [ChatHistoryMessageValue], token: ReadToken) -> [ChatHistoryMessageValue] {
+        guard token.owner == identity, token.generation == generation else { return [] }
+        return values.filter { value in
+            let request = Request(
+                messageID: value.message.id, revision: token.revisions[value.message.id, default: 0],
+                generation: token.generation,
+            )
+            guard location.matches(message: value.message), permits(request) else {
+                markUnresolved(request)
+                return false
+            }
+            noteLiveUpdate(messageIDs: [request.messageID], kind: .authoritativeMessage)
+            return true
+        }
+    }
+
+    /// Install a complete accepted TD payload before metadata awaits. Field-only
+    /// updates can then apply immediately without dropping the new message body.
+    @discardableResult func acceptLiveMessage(_ value: ChatHistoryMessageValue) -> Bool {
+        guard isCurrent, !Task.isCancelled, location.matches(message: value.message),
+              !deletedIDs.contains(value.message.id) else { return false }
+        guard mutationOwners[value.message.id] == nil else {
+            noteLiveUpdate(messageIDs: [value.message.id])
+            failed.insert(value.message.id)
+            return false
+        }
+        noteLiveUpdate(messageIDs: [value.message.id], kind: .authoritativeMessage)
+        deliver(.init(source: source, messageID: value.message.id, result: .message(value)))
+        return true
+    }
+
+    func enqueue(messageIDs: [Int64]) {
+        guard isCurrent else { return }
+        queue.append(contentsOf: messageIDs.filter {
+            !deletedIDs.contains($0) && mutationOwners[$0] == nil && queuedIDs.insert($0).inserted
+        })
+    }
+
+    func enqueueHydration(message: Message) {
+        guard isCurrent, location.matches(message: message), !deletedIDs.contains(message.id) else { return }
+        queuedPayloads[message.id] = (message, revisions[message.id, default: 0])
+        enqueue(messageIDs: [message.id])
+    }
+
+    /// A local mutation retains its original wrapper until its callback settles.
+    /// Settlement is an explicit retry event, not an error-driven poll.
+    func setMutationBlocked(_ blocked: Bool, messageID: Int64, owner: MutationOwner) {
+        guard isCurrent, !deletedIDs.contains(messageID) else { return }
+        if blocked {
+            mutationOwners[messageID, default: []].insert(owner)
+            noteLiveUpdate(messageIDs: [messageID])
+            failed.insert(messageID)
+        } else if mutationOwners[messageID]?.remove(owner) != nil, mutationOwners[messageID]?.isEmpty == true {
+            mutationOwners[messageID] = nil
+            enqueue(messageIDs: [messageID])
+        }
     }
 
     /// Partial reactions, pins and other field updates invalidate an older read,
@@ -293,6 +375,8 @@ struct ChatHistoryLatestRefreshCursor {
             if case .authoritativeMessage = kind {
                 authoritativeRevisions[id] = revisions[id]
                 failed.remove(id)
+                queuedIDs.remove(id)
+                queuedPayloads[id] = nil
             }
         }
     }
@@ -300,6 +384,7 @@ struct ChatHistoryLatestRefreshCursor {
     func notePermanentDeletion(messageIDs: [Int64]) {
         noteLiveUpdate(messageIDs: messageIDs, kind: .authoritativeMessage)
         deletedIDs.formUnion(messageIDs)
+        messageIDs.forEach { mutationOwners[$0] = nil }
     }
 
     /// Capture before requesting a raw latest page, including before its async
@@ -320,6 +405,7 @@ struct ChatHistoryLatestRefreshCursor {
         guard isCurrent, !Task.isCancelled, token.id == latestReadID,
               token.generation == generation else { return false }
         latestReadID = nil
+        defer { settleDeferredRetries() }
         for value in values where location.matches(message: value.message) {
             guard token.latestGeneration == latestGeneration else { return false }
             let request = Request(
@@ -331,16 +417,47 @@ struct ChatHistoryLatestRefreshCursor {
         return isCurrent && !Task.isCancelled && token.latestGeneration == latestGeneration
     }
 
+    /// Queue raw page values through the same four-message hydration lane. A
+    /// later partial update makes its cached payload unusable and forces a read.
+    @discardableResult func enqueueLatest(_ messages: [Message], token: LatestReadToken) -> Bool {
+        guard isCurrent, !Task.isCancelled, token.id == latestReadID,
+              token.generation == generation else { return false }
+        latestReadID = nil
+        defer { settleDeferredRetries() }
+        for message in messages where location.matches(message: message) {
+            let request = Request(
+                messageID: message.id, revision: token.revisions[message.id, default: 0], generation: token.generation,
+            )
+            if permits(request) { enqueueHydration(message: message) }
+            else { markUnresolved(request) }
+        }
+        return true
+    }
+
+    /// A Ready event received while the page RPC was busy authorizes one retry.
+    /// Without that event, a failed/repeated page stops until the next event.
+    func failLatestRead(token: LatestReadToken) -> Bool {
+        guard isCurrent, !Task.isCancelled, token.id == latestReadID,
+              token.generation == generation else { return false }
+        latestReadID = nil
+        return settleDeferredRetries()
+    }
+
     func cancel() {
         cancelled = true
         generation &+= 1
         latestReadID = nil
+        retryRequestedWhileRunning = false
     }
 
     /// Explicit connection/user event only. Errors never auto-poll or delete.
     func retryFailures() {
-        guard !running, isCurrent else { return }
-        queue.append(contentsOf: failed.sorted())
+        guard isCurrent else { return }
+        guard !running, latestReadID == nil else {
+            retryRequestedWhileRunning = true
+            return
+        }
+        enqueue(messageIDs: failed.sorted())
         failed.removeAll()
     }
 
@@ -349,12 +466,20 @@ struct ChatHistoryLatestRefreshCursor {
     @discardableResult func refreshNextBatch() async -> Bool {
         guard !running, isCurrent, !Task.isCancelled, queueIndex < queue.count else { return false }
         running = true
-        defer { running = false }
+        defer {
+            running = false
+            if queueIndex == queue.count {
+                queue.removeAll(keepingCapacity: true)
+                queueIndex = 0
+            }
+            settleDeferredRetries()
+        }
         let end = min(queueIndex + 4, queue.count)
-        let requests = queue[queueIndex..<end].map {
+        let requests = queue[queueIndex..<end].filter { queuedIDs.remove($0) != nil }.map {
             Request(messageID: $0, revision: revisions[$0, default: 0], generation: generation)
         }
         queueIndex = end
+        guard !requests.isEmpty else { return true }
         async let first = fetch(requests[0])
         async let second = fetch(requests.count > 1 ? requests[1] : nil)
         async let third = fetch(requests.count > 2 ? requests[2] : nil)
@@ -368,15 +493,7 @@ struct ChatHistoryLatestRefreshCursor {
 
     private func apply(_ result: Result?, for request: Request) {
         guard let result, permits(request) else {
-            // Leave a partial-update race unresolved. A bounded explicit retry
-            // event is required; neither the batch driver nor this callback polls.
-            if isCurrent, !Task.isCancelled, request.generation == generation,
-               !deletedIDs.contains(request.messageID),
-               revisions[request.messageID, default: 0] != request.revision,
-               authoritativeRevisions[request.messageID, default: 0] <= request.revision
-            {
-                failed.insert(request.messageID)
-            }
+            markUnresolved(request)
             return
         }
         if case .retry = result {
@@ -390,9 +507,28 @@ struct ChatHistoryLatestRefreshCursor {
         deliver(.init(source: source, messageID: request.messageID, result: result))
     }
 
+    @discardableResult private func settleDeferredRetries() -> Bool {
+        guard retryRequestedWhileRunning else { return false }
+        retryRequestedWhileRunning = false
+        retryFailures()
+        return isCurrent && !Task.isCancelled
+    }
+
+    private func markUnresolved(_ request: Request) {
+        guard isCurrent, !Task.isCancelled, request.generation == generation,
+              !deletedIDs.contains(request.messageID),
+              revisions[request.messageID, default: 0] != request.revision,
+              authoritativeRevisions[request.messageID, default: 0] <= request.revision else { return }
+        failed.insert(request.messageID)
+        // One coalesced read for a superseding external partial update. A plain
+        // failed request has no newer revision, so it never enqueues itself.
+        if retriesPartialRaces { enqueue(messageIDs: [request.messageID]) }
+    }
+
     private func permits(_ request: Request) -> Bool {
         isCurrent && !Task.isCancelled && request.generation == generation
             && !deletedIDs.contains(request.messageID)
+            && mutationOwners[request.messageID] == nil
             && revisions[request.messageID, default: 0] == request.revision
     }
 
@@ -400,7 +536,13 @@ struct ChatHistoryLatestRefreshCursor {
         guard let request, permits(request) else { return nil }
         let result: Result
         do {
-            let message = try await read(request.messageID)
+            let payload = queuedPayloads.removeValue(forKey: request.messageID)
+            let message: Message =
+                if let payload, payload.revision == request.revision {
+                    payload.message
+                } else {
+                    try await read(request.messageID)
+                }
             guard permits(request) else { return nil }
             result =
                 if message.id != request.messageID || message.chatId != location.chatID {

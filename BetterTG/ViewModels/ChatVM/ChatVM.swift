@@ -21,6 +21,8 @@ import UIKit
     struct PreparedMessageWindow {
         let messages: [CustomMessage]
         let displayedMessageID: DisplayedMessageID
+        let rawOldestMessageID: Int64?
+        let readToken: ChatHistoryRestorationRefresh.ReadToken?
     }
 
     // MARK: Private
@@ -122,8 +124,6 @@ import UIKit
         }
     }
 
-    var metadataRefreshGenerations = [Int64: UUID]()
-
     private var voiceFinalizationGeneration = UInt64.zero
     private var voiceDraftRefreshGeneration = UInt64.zero
     @Published private var pendingVoiceDraftIsFinalizing = false
@@ -194,6 +194,12 @@ import UIKit
     private var voiceSendTransitionIDs = [UUID: UUID]()
     private var hasMoreMessages = true
     private var oldestHistoryMessageID: Int64?
+    private var messageRefresh: ChatHistoryRestorationRefresh?
+    private var messageRefreshTask: Task<Void, Never>?
+    private var latestRestorationCursor: ChatHistoryLatestRefreshCursor?
+    private var restorationWaitsForViewport = false
+    private var latestRestorationFailed = false
+    private var messageReplacementIDs = [Int64: Int64]()
 
     var visiblePinnedMessage: Message? {
         PinnedMessageState.visibleMessage(
@@ -556,16 +562,18 @@ import UIKit
         location: ChatLocation? = nil,
         forumTopic: ForumTopic? = nil,
         previewing: Bool = false,
+        client: TDLibClient? = nil,
     ) {
         self.init(
             customChat: customChat, location: location, forumTopic: forumTopic,
-            previewing: previewing, restoration: nil,
+            previewing: previewing, restoration: nil, history: nil, visibleMessageIDs: [], client: client ?? td,
         )
     }
 
     deinit {
         log("deinit \(chatID)")
         loadingMessagesTask?.cancel()
+        messageRefreshTask?.cancel()
         sendMessageTask?.cancel()
         voiceFinalizeTask?.cancel()
         voiceRecordingDraftTask?.cancel()
@@ -584,6 +592,7 @@ import UIKit
         timer?.invalidate()
         audioRecorder?.stop()
         MainActor.assumeIsolated {
+            messageRefresh?.cancel()
             composerRestorationLifetime.finish {
                 if audioRecorder != nil {
                     Media.shared.endAudioSessionRecord()
@@ -610,8 +619,10 @@ import UIKit
         forumTopic: ForumTopic?,
         previewing: Bool,
         restoration: ChatComposerRestorationState?,
+        history: ChatHistoryRestorationState?,
+        visibleMessageIDs: [Int64],
+        client: TDLibClient,
     ) {
-        let client = td
         let resolvedLocation = location ?? ChatLocation.current(
             chatID: customChat.id,
             client: client,
@@ -643,6 +654,14 @@ import UIKit
         if let restoration {
             seedComposerRestoration(restoration)
         }
+        if let history {
+            self.messages = history.makeMessages()
+            self.oldestHistoryMessageID = history.oldestHistoryMessageID
+            self.hasMoreMessages = history.hasMoreMessages
+            self.latestRestorationCursor = ChatHistoryLatestRefreshCursor(seed: history)
+            self.restorationWaitsForViewport = true
+        }
+        configureMessageRefresh(seedIDs: history?.sourceMessageIDs ?? [], visibleIDs: visibleMessageIDs)
 
         setPublishers()
         observeVoiceRecordingPreviewPlayer()
@@ -770,12 +789,20 @@ import UIKit
         customChat: CustomChat,
         location: ChatLocation,
         forumTopic: ForumTopic? = nil,
+        history: ChatHistoryRestorationState? = nil,
+        visibleMessageIDs: [Int64] = [],
+        client: TDLibClient? = nil,
     ) -> ChatVM? {
-        guard location.chatID == customChat.id else { return nil }
+        let client = client ?? td
+        guard location.chatID == customChat.id, location.clientID == client.id,
+              history.map({ $0.location.accountID == location.accountID
+                      && $0.location.chatID == location.chatID && $0.location.topic == location.topic }) ?? true
+        else { return nil }
         return transfer.commit(to: location, currentSource: TDLib.shared.activeUpdateSource) { snapshot in
             ChatVM(
                 customChat: customChat, location: location, forumTopic: forumTopic,
-                previewing: false, restoration: snapshot,
+                previewing: false, restoration: snapshot, history: history,
+                visibleMessageIDs: visibleMessageIDs, client: client,
             )
         }
     }
@@ -797,6 +824,8 @@ import UIKit
             voiceRecordingPreviewCancellables.removeAll()
             stopVoiceRecordingPreviewPlayback()
             loadingMessagesTask?.cancel()
+            messageRefreshTask?.cancel()
+            messageRefresh?.cancel()
             composerMediaDraftTask?.cancel()
             cancelPendingDraftClearRetry()
             // No discard/remove helper: those helpers delete the transferred files.
@@ -814,6 +843,59 @@ import UIKit
             location: location, messages: messages.map(ChatHistoryMessageValue.init),
             oldestHistoryMessageID: oldestHistoryMessageID, hasMoreMessages: hasMoreMessages,
         )
+    }
+
+    func acceptCompleteMessage(_ message: Message, replacing oldID: Int64? = nil, sendFailed: Bool = false) {
+        guard locationContextIsCurrent else { return }
+        if let oldID, oldID != message.id {
+            messageRefresh?.notePermanentDeletion(messageIDs: [oldID])
+            messageReplacementIDs[message.id] = oldID
+        }
+        let display = CustomMessage(
+            message: message, sendFailed: sendFailed,
+            formattedText: MessageContentPresentation.make(message).formattedText, properties: .default,
+        )
+        if let previous = messages.first(where: { $0.sourceMessages.contains { $0.id == (oldID ?? message.id) } }) {
+            display.properties = previous.properties
+            if previous.message.senderId == message.senderId { display.senderUser = previous.senderUser }
+            if previous.message.replyTo == message.replyTo { display.replyPresentation = previous.replyPresentation }
+            if previous.message.forwardInfo == message
+                .forwardInfo { display.forwardPresentation = previous.forwardPresentation }
+        }
+        if message.mediaAlbumId != 0 { display.album = [message] }
+        if messageRefresh?.acceptLiveMessage(ChatHistoryMessageValue(display)) == true {
+            messageRefresh?.enqueueHydration(message: message)
+        }
+        driveMessageRefresh()
+    }
+
+    func notePartialMessageUpdate(_ ids: [Int64], refresh: Bool = false) {
+        messageRefresh?.noteLiveUpdate(messageIDs: ids)
+        if refresh {
+            let displayed = Set(messages.flatMap(\.sourceMessages).map(\.id))
+            messageRefresh?.enqueue(messageIDs: ids.filter(displayed.contains))
+            driveMessageRefresh()
+        }
+    }
+
+    func notePermanentMessageDeletion(_ ids: [Int64]) {
+        messageRefresh?.notePermanentDeletion(messageIDs: ids)
+        ids.forEach { messageReplacementIDs[$0] = nil }
+    }
+
+    /// The controller starts freshness only after installing its one-shot pixel
+    /// anchor. Publishers already protect this provisional seed in the meantime.
+    func beginRestoredHistoryRefresh() {
+        guard locationContextIsCurrent, restorationWaitsForViewport else { return }
+        restorationWaitsForViewport = false
+        driveMessageRefresh()
+    }
+
+    func retryMessageRefresh() {
+        guard locationContextIsCurrent else { return }
+        messageRefresh?.retryFailures()
+        latestRestorationFailed = false
+        driveMessageRefresh()
     }
 
     func resolveSendContext(
@@ -940,7 +1022,8 @@ import UIKit
     }
 
     func loadMessages() {
-        guard loadingMessagesTask == nil, hasMoreMessages else { return }
+        guard !restorationWaitsForViewport, latestRestorationCursor == nil,
+              loadingMessagesTask == nil, hasMoreMessages else { return }
         let fromMessageID = oldestHistoryMessageID ?? messages.last?.oldestSourceMessageID ?? 0
         loadingMessagesTask = Task { [weak self] in
             await self?._loadMessages(fromMessageID: fromMessageID)
@@ -948,16 +1031,21 @@ import UIKit
     }
 
     func _loadMessages(fromMessageID: Int64) async {
-        guard locationContextIsCurrent else {
+        guard !Task.isCancelled, locationContextIsCurrent else {
             loadingMessagesTask = nil
             return
         }
+        let readToken = messageRefresh?.beginRead()
         guard let chatHistory = await loadHistory(
             fromMessageId: fromMessageID,
             limit: 30,
             offset: 0,
         ) else {
             await main { self.loadingMessagesTask = nil }
+            return
+        }
+        guard !Task.isCancelled, locationContextIsCurrent else {
+            loadingMessagesTask = nil
             return
         }
         guard !chatHistory.isEmpty else {
@@ -968,23 +1056,30 @@ import UIKit
             return
         }
         
-        let customMessages = await chatHistory.asyncMap { chatMessage in
+        let customMessages = await chatHistory.filter { location.matches(message: $0) }.asyncMap { chatMessage in
             await getCustomMessage(from: chatMessage)
         }
         let nextCursor = chatHistory.last?.id
         await main { [customMessages] in
-            guard self.locationContextIsCurrent else {
+            guard !Task.isCancelled, self.locationContextIsCurrent else {
                 self.loadingMessagesTask = nil
                 return
             }
+            let current = readToken.map {
+                self.messageRefresh?
+                    .takeCurrentValues(customMessages.map(ChatHistoryMessageValue.init), token: $0)
+                    .map { $0.makeMessage() } ?? []
+            } ?? customMessages
             self.messages = self.canonicalMessages(
                 merging: self.messages,
-                with: customMessages,
+                with: current,
+                replacingExisting: true,
             )
             let cursorAdvanced = nextCursor != nil && (fromMessageID == 0 || nextCursor != fromMessageID)
             self.oldestHistoryMessageID = nextCursor
             self.hasMoreMessages = cursorAdvanced
             self.loadingMessagesTask = nil
+            self.driveMessageRefresh()
         }
     }
 
@@ -996,6 +1091,7 @@ import UIKit
 
     func prepareMessageWindow(around id: Int64) async -> PreparedMessageWindow? {
         guard locationContextIsCurrent else { return nil }
+        let readToken = messageRefresh?.beginRead()
         let windowSize = 50
         var history = await loadHistory(
             fromMessageId: id,
@@ -1003,6 +1099,7 @@ import UIKit
             offset: -(windowSize / 2),
         ) ?? []
         guard !Task.isCancelled, locationContextIsCurrent else { return nil }
+        let rawOldestMessageID = history.last?.id
         if !history.contains(where: { $0.id == id }),
            let target = try? await client.getMessage(chatId: chatID, messageId: id),
            location.matches(message: target)
@@ -1011,18 +1108,30 @@ import UIKit
         }
         guard !history.isEmpty, locationContextIsCurrent else { return nil }
 
-        let loaded = await history.asyncMap { await getCustomMessage(from: $0) }
+        let loaded = await history.filter { location.matches(message: $0) }
+            .asyncMap { await getCustomMessage(from: $0) }
         guard !Task.isCancelled, locationContextIsCurrent else { return nil }
-        let preparedMessages = canonicalMessages(merging: messages, with: loaded)
-        guard let displayedMessageID = preparedMessages.first(where: { message in
-            message.id == id || message.album.contains(where: { $0.id == id })
-        })?.displayedID else { return nil }
-        return PreparedMessageWindow(messages: preparedMessages, displayedMessageID: displayedMessageID)
+        guard let displayedMessageID = (loaded + messages)
+            .first(where: { message in
+                message.id == id || message.album.contains(where: { $0.id == id })
+            })?.displayedID else { return nil }
+        return PreparedMessageWindow(
+            messages: loaded, displayedMessageID: displayedMessageID,
+            rawOldestMessageID: rawOldestMessageID, readToken: readToken,
+        )
     }
 
     func applyMessageWindow(_ window: PreparedMessageWindow) {
-        messages = window.messages
-        oldestHistoryMessageID = window.messages.last?.oldestSourceMessageID
+        guard !Task.isCancelled, locationContextIsCurrent else { return }
+        let current = window.readToken.map {
+            messageRefresh?.takeCurrentValues(window.messages.map(ChatHistoryMessageValue.init), token: $0)
+                .map { $0.makeMessage() } ?? []
+        } ?? window.messages
+        messages = canonicalMessages(merging: messages, with: current, replacingExisting: true)
+        if let oldest = window.rawOldestMessageID, oldestHistoryMessageID.map({ oldest < $0 }) ?? true {
+            oldestHistoryMessageID = oldest
+        }
+        driveMessageRefresh()
     }
 
     func mergeIncomingMessages(_ incoming: [CustomMessage]) {
@@ -1181,9 +1290,11 @@ import UIKit
         let messageID = message.id
         message.reactionMutationInFlight = true
         reactionMutationGenerations[messageID] = generation
+        messageRefresh?.setMutationBlocked(true, messageID: messageID, owner: .reaction)
         let client = client
         reactionMutationTasks[messageID] = Task { [weak self, weak message] in
             guard let self else { return }
+            defer { settleMessageMutation(messageID, owner: .reaction) }
             var optimistic: MessageReactions?
             var appliedOptimisticState = false
             do {
@@ -1403,6 +1514,7 @@ import UIKit
     }
 
     func applyPinnedMessageUpdate(messageID: Int64, isPinned: Bool) {
+        notePartialMessageUpdate([messageID])
         pinnedMessageAuthoritativeRevision &+= 1
         pinAuthoritativeRevisions[messageID, default: 0] &+= 1
         messages.first(where: { $0.id == messageID })?.isPinned = isPinned
@@ -1569,6 +1681,7 @@ import UIKit
         }
         
         customMessage.formattedText = customMessage.contentPresentation.formattedText
+        if case .messageSendingStateFailed = message.sendingState { customMessage.sendFailed = true }
         
         return customMessage
     }
@@ -2963,6 +3076,88 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    private func configureMessageRefresh(seedIDs: [Int64], visibleIDs: [Int64]) {
+        let client = client
+        let location = location
+        guard let accountID = location.accountID else { return }
+        let source = TdUpdateSource(accountID: accountID, clientID: client.id)
+        messageRefresh = ChatHistoryRestorationRefresh(
+            location: location, source: source, seedIDs: seedIDs, visibleIDs: visibleIDs,
+            currentSource: { [weak self] in
+                self?.locationContextIsCurrent == true ? TDLib.shared.activeUpdateSource : nil
+            },
+            read: { try await client.getMessage(chatId: location.chatID, messageId: $0) },
+            hydrate: { [weak self] message in
+                guard let self else {
+                    return ChatHistoryMessageValue(CustomMessage(message: message, properties: .default))
+                }
+                return await ChatHistoryMessageValue(getCustomMessage(from: message))
+            },
+            retriesPartialRaces: true,
+            deliver: { [weak self] in self?.applyMessageRefresh($0) },
+        )
+    }
+
+    private func applyMessageRefresh(_ delivery: ChatHistoryRestorationRefresh.Delivery) {
+        guard locationContextIsCurrent, delivery.source == TDLib.shared.activeUpdateSource else { return }
+        switch delivery.result {
+        case .message(let value):
+            let oldID = messageReplacementIDs.removeValue(forKey: delivery.messageID) ?? delivery.messageID
+            let replacement = value.makeMessage()
+            if let previous = messages.first(where: { $0.sourceMessages.contains { $0.id == oldID } }) {
+                preservePresentationState(from: previous, in: replacement)
+                replaceSourceMessage(oldID: oldID, with: replacement)
+            } else {
+                mergeIncomingMessages([replacement])
+            }
+        case .missing:
+            removeMessagesFromTimeline([delivery.messageID])
+        case .retry:
+            break // Keep display seeds and raw pagination state while offline.
+        }
+    }
+
+    private func driveMessageRefresh() {
+        guard locationContextIsCurrent, !restorationWaitsForViewport, messageRefreshTask == nil,
+              let refresh = messageRefresh,
+              refresh.remainingCount > 0 || latestRestorationCursor != nil && !latestRestorationFailed
+        else { return }
+        messageRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                messageRefreshTask = nil
+                if !Task.isCancelled, refresh.remainingCount > 0 { driveMessageRefresh() }
+            }
+            while !Task.isCancelled, locationContextIsCurrent {
+                if await refresh.refreshNextBatch() { continue }
+                guard !latestRestorationFailed, var cursor = latestRestorationCursor,
+                      let token = refresh.beginLatestRead() else { break }
+                guard let page = await loadHistory(fromMessageId: cursor.fromMessageID, limit: 30, offset: 0),
+                      !Task.isCancelled, locationContextIsCurrent
+                else {
+                    latestRestorationFailed = !refresh.failLatestRead(token: token)
+                    if latestRestorationFailed { break }
+                    continue
+                }
+                guard cursor.accept(rawPage: page, requestedFromMessageID: cursor.fromMessageID),
+                      refresh.enqueueLatest(page, token: token)
+                else {
+                    latestRestorationFailed = !refresh.failLatestRead(token: token)
+                    if latestRestorationFailed { break }
+                    continue
+                }
+                latestRestorationCursor = cursor.isComplete ? nil : cursor
+            }
+        }
+    }
+
+    private func settleMessageMutation(_ id: Int64, owner: ChatHistoryRestorationRefresh.MutationOwner) {
+        // Reaction and pin work may overlap for one wrapper. The last owner
+        // releases it on success, failure or cancellation, never mid-operation.
+        messageRefresh?.setMutationBlocked(false, messageID: id, owner: owner)
+        driveMessageRefresh()
+    }
+
     private func composerRestorationState() -> ChatComposerRestorationState {
         ChatComposerRestorationState(
             location: location,
@@ -3310,9 +3505,21 @@ import UIKit
         }
     }
 
+    private func preservePresentationState(from previous: CustomMessage, in replacement: CustomMessage) {
+        replacement.isReplyQuoteExpanded = previous.isReplyQuoteExpanded
+        if let forward = previous.forwardPresentation,
+           forward.navigationTarget == nil, forward.targetMessageID != nil,
+           forward.targetChatID == replacement.forwardPresentation?.targetChatID,
+           forward.targetMessageID == replacement.forwardPresentation?.targetMessageID
+        {
+            replacement.forwardPresentation = replacement.forwardPresentation?.removingNavigationTarget()
+        }
+    }
+
     private func canonicalMessages(
         merging existing: [CustomMessage],
         with incoming: [CustomMessage],
+        replacingExisting: Bool = false,
     ) -> [CustomMessage] {
         var result = existing
         for candidate in incoming {
@@ -3323,15 +3530,24 @@ import UIKit
                 result.append(candidate)
                 continue
             }
-            guard case .album = candidate.displayedID else { continue }
             let current = result[index]
-            let combined = deduplicatedAlbumMessages(current.sourceMessages + candidate.sourceMessages)
+            if replacingExisting { preservePresentationState(from: current, in: candidate) }
+            guard case .album = candidate.displayedID else {
+                if replacingExisting {
+                    result[index] = candidate
+                    if replyMessage?.id == candidate.id { replyMessage = candidate }
+                }
+                continue
+            }
+            let combined = deduplicatedAlbumMessages(replacingExisting
+                ? candidate.sourceMessages + current.sourceMessages
+                : current.sourceMessages + candidate.sourceMessages)
             let candidateNewest = candidate.newestSourceMessage
             let currentNewest = current.newestSourceMessage
             let candidateIsNewer = candidateNewest.date == currentNewest.date
                 ? candidateNewest.id > currentNewest.id
                 : candidateNewest.date > currentNewest.date
-            let representative = candidateIsNewer
+            let representative = candidateIsNewer || replacingExisting && candidate.id == current.id
                 ? candidate
                 : current
             representative.album = combined
@@ -3513,7 +3729,7 @@ import UIKit
                 .messages
             }
         guard locationContextIsCurrent else { return nil }
-        return loaded?.filter { location.matches(message: $0) }
+        return loaded
     }
 
     private func setMessagePinned(
@@ -3540,9 +3756,11 @@ import UIKit
         let authoritativeRevision = pinAuthoritativeRevisions[messageID, default: 0]
         let bannerRevision = pinnedMessageAuthoritativeRevision
         pinMutationGenerations[messageID] = generation
+        messageRefresh?.setMutationBlocked(true, messageID: messageID, owner: .pin)
         let client = client
         pinMutationTasks[messageID] = Task { [weak self, weak message] in
             guard let self else { return }
+            defer { settleMessageMutation(messageID, owner: .pin) }
             guard let message else {
                 pinMutationTasks[messageID] = nil
                 pinMutationGenerations[messageID] = nil

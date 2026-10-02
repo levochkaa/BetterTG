@@ -6,6 +6,10 @@ import TDLibKitDynamic
 
 extension ChatVM {
     func setPublishers() {
+        observeCurrentUpdate(.updateConnectionState) { [weak self] update, _ in
+            guard case .connectionStateReady = update.state else { return }
+            self?.retryMessageRefresh()
+        }
         observeCurrentUpdate(.updateChatReadInbox) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             customChat.unreadCount = update.unreadCount
@@ -66,18 +70,18 @@ extension ChatVM {
         observeCurrentUpdate(.updateMessageInteractionInfo) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id,
-                  let message = messages.first(where: { $0.id == update.messageId })
+                  TDLib.shared.activeClient.id == client.id
             else { return }
-            message.reactions = update.interactionInfo?.reactions
+            notePartialMessageUpdate([update.messageId])
+            messages.first(where: { $0.id == update.messageId })?.reactions = update.interactionInfo?.reactions
         }
         observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id,
-                  let message = messages.first(where: { $0.id == update.messageId })
+                  TDLib.shared.activeClient.id == client.id
             else { return }
-            message.unreadReactions = update.unreadReactions
+            notePartialMessageUpdate([update.messageId])
+            messages.first(where: { $0.id == update.messageId })?.unreadReactions = update.unreadReactions
         }
         observeCurrentUpdate(.updateMessageIsPinned) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
@@ -169,7 +173,8 @@ extension ChatVM {
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.update(user: update.user)
             for message in messages {
-                if message.senderUser?.id == update.user.id {
+                if message.message.senderId == .messageSenderUser(.init(userId: update.user.id)) {
+                    notePartialMessageUpdate([message.id])
                     message.senderUser = update.user
                 }
             }
@@ -244,12 +249,8 @@ extension ChatVM {
     ) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         releaseOutgoingDocumentFile(messageID: update.oldMessageId)
-        Task { [weak self] in
-            guard let self, acceptsUpdate(authority) else { return }
-            let replacement = await getCustomMessage(from: update.message)
-            guard acceptsUpdate(authority) else { return }
-            replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
-        }
+        guard acceptsUpdate(authority) else { return }
+        acceptCompleteMessage(update.message, replacing: update.oldMessageId)
     }
 
     private func updateMessageSendFailed(
@@ -258,21 +259,23 @@ extension ChatVM {
     ) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         replaceOutgoingDocumentMessageID(old: update.oldMessageId, new: update.message.id)
-        Task { [weak self] in
-            guard let self, acceptsUpdate(authority) else { return }
-            let replacement = await getCustomMessage(from: update.message)
-            guard acceptsUpdate(authority) else { return }
-            replacement.sendFailed = true
-            replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
-        }
+        guard acceptsUpdate(authority) else { return }
+        acceptCompleteMessage(update.message, replacing: update.oldMessageId, sendFailed: true)
     }
 
-    private func updateDeleteMessages(_ update: UpdateDeleteMessages, authority: ChatUpdateDeliveryAuthority) {
+    private func updateDeleteMessages(_ update: UpdateDeleteMessages, authority _: ChatUpdateDeliveryAuthority) {
         guard !update.fromCache, update.isPermanent else { return }
+        notePermanentMessageDeletion(update.messageIds)
         bufferPotentialVoiceMessageDeletions(update.messageIds)
         handlePotentialVideoMessageDeletions(update.messageIds)
-        let deletedIDs = Set(update.messageIds)
         update.messageIds.forEach { releaseOutgoingDocumentFile(messageID: $0) }
+        removeMessagesFromTimeline(update.messageIds)
+    }
+
+    /// A confirmed history absence only removes display state. Send-draft
+    /// outcomes and file ownership remain exclusive to accepted TD updates.
+    func removeMessagesFromTimeline(_ ids: [Int64]) {
+        let deletedIDs = Set(ids)
         let deletedBubbleIDs = Set(messages.compactMap { message -> DisplayedMessageID? in
             message.sourceMessages.allSatisfy { deletedIDs.contains($0.id) }
                 ? message.displayedID
@@ -301,16 +304,12 @@ extension ChatVM {
             }
             return message
         }
-        promotedRepresentativeIDs.forEach { refreshMessage(id: $0, authority: authority) }
+        notePartialMessageUpdate(promotedRepresentativeIDs, refresh: true)
     }
 
     private func updateNewMessage(_ update: UpdateNewMessage, authority: ChatUpdateDeliveryAuthority) {
-        Task { [weak self] in
-            guard let self, acceptsUpdate(authority) else { return }
-            let customMessage = await getCustomMessage(from: update.message)
-            guard acceptsUpdate(authority) else { return }
-            mergeIncomingMessages([customMessage])
-        }
+        guard acceptsUpdate(authority) else { return }
+        acceptCompleteMessage(update.message)
     }
 
     private func updateMessageEdited(_ update: UpdateMessageEdited, authority: ChatUpdateDeliveryAuthority) {
@@ -318,15 +317,8 @@ extension ChatVM {
     }
 
     private func refreshMessage(id: Int64, authority: ChatUpdateDeliveryAuthority) {
-        Task { [weak self] in
-            guard let self, acceptsUpdate(authority) else { return }
-            guard let message = try? await client.getMessage(chatId: chatID, messageId: id),
-                  acceptsUpdate(authority), location.matches(message: message)
-            else { return }
-            let replacement = await getCustomMessage(from: message)
-            guard acceptsUpdate(authority) else { return }
-            replaceSourceMessage(oldID: id, with: replacement)
-        }
+        guard acceptsUpdate(authority) else { return }
+        notePartialMessageUpdate([id], refresh: true)
     }
 
     private func refreshReferencedMetadata(
@@ -360,7 +352,7 @@ extension ChatVM {
                   forward.targetChatID == chatID,
                   forward.targetMessageID.map(messageIDs.contains) == true
             else { continue }
-            metadataRefreshGenerations[message.id] = UUID()
+            notePartialMessageUpdate([message.id])
             message.forwardPresentation = forward.removingNavigationTarget()
         }
     }
@@ -377,29 +369,7 @@ extension ChatVM {
     }
 
     private func refreshMetadata(for message: CustomMessage, authority: ChatUpdateDeliveryAuthority) {
-        let generation = UUID()
-        metadataRefreshGenerations[message.id] = generation
-        Task { [weak self, weak message] in
-            guard let self, let message, acceptsUpdate(authority) else { return }
-            let previousForward = message.forwardPresentation
-            async let replyPresentation = metadataResolver.replyPresentation(for: message.message)
-            async let forwardPresentation = metadataResolver.forwardPresentation(for: message.message.forwardInfo)
-            let resolvedReply = await replyPresentation
-            var resolvedForward = await forwardPresentation
-            if let previousForward,
-               previousForward.navigationTarget == nil,
-               previousForward.targetMessageID != nil,
-               previousForward.targetChatID == resolvedForward?.targetChatID,
-               previousForward.targetMessageID == resolvedForward?.targetMessageID
-            {
-                resolvedForward = resolvedForward?.removingNavigationTarget()
-            }
-            guard acceptsUpdate(authority), metadataRefreshGenerations[message.id] == generation,
-                  messages.contains(where: { $0 === message })
-            else { return }
-            message.replyPresentation = resolvedReply
-            message.forwardPresentation = resolvedForward
-            metadataRefreshGenerations[message.id] = nil
-        }
+        guard acceptsUpdate(authority) else { return }
+        notePartialMessageUpdate([message.id], refresh: true)
     }
 }

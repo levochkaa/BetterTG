@@ -17,11 +17,14 @@
                     try verifyValuesAndAlbums()
                     try verifyImports()
                     try await verifyRefresh()
+                    try await verifyProductionRefreshPolicy()
                     result = "Chat restoration state probe passed: detached-display-values/raw-cursor=true; "
                         + "album-edit/delete/latest-overlap=true; local-import-once/same-account/retirement=true; "
                         + "bounded-four-reads/visible-first=true; update/delete/source/cancel/hydration-fences=true; "
                         + "partial-update-retry/full-message-satisfied/permanent-tombstones=true; "
                         + "latest-page-revision/token-fences=true; missing-vs-error/retry-event=true; "
+                        + "live-body/shared-hydration/partial-race-retry=true; pagination-ledger/mutation-owner=true; "
+                        + "deferred-ready/error/cancel/retirement=true; "
                         + "Chat-navigation-not-enabled; server-reads/sends=0"
                 } catch {
                     result = "Chat restoration state probe failed: \(error)"
@@ -319,11 +322,209 @@
             try require(guardedDeliveries == finalDeliveries, "old-client completion delivered")
         }
 
+        private static func verifyProductionRefreshPolicy() async throws {
+            let location = ChatLocation(accountID: UUID(), chatID: 100, clientID: 42, topic: nil)
+            let source = TdUpdateSource(accountID: location.accountID!, clientID: location.clientID)
+            var refresh: ChatHistoryRestorationRefresh!
+            defer { refresh = nil }
+            var reads = [Int64]()
+            var hydrated = [Int64]()
+            var deliveries = [ChatHistoryMessageValue]()
+            var partialDuringHydration = true
+            var fail = false
+            refresh = ChatHistoryRestorationRefresh(
+                location: location, source: source, seedIDs: [], visibleIDs: [], currentSource: { source },
+                read: { id in
+                    reads.append(id)
+                    if fail { throw TDLibKit.Error(code: 500, message: "offline") }
+                    return fixture(id: id, text: "read-\(reads.count)")
+                },
+                hydrate: { message in
+                    hydrated.append(message.id)
+                    if message.id == 12 { refresh.notePermanentDeletion(messageIDs: [12]) }
+                    if partialDuringHydration {
+                        partialDuringHydration = false
+                        refresh.noteLiveUpdate(messageIDs: [message.id])
+                    }
+                    return value(message)
+                }, retriesPartialRaces: true,
+                deliver: { if case .message(let value) = $0.result { deliveries.append(value) } },
+            )
+            let oldPage = refresh.beginRead()!
+            let live = fixture(id: 1, text: "complete live body")
+            try require(refresh.acceptLiveMessage(value(live)), "complete TD body was not applied before metadata")
+            refresh.enqueueHydration(message: live)
+            refresh.noteLiveUpdate(messageIDs: [1]) // Pin/reaction arrives before queued hydration starts.
+            try await require(refresh.refreshNextBatch(), "live hydration was not queued")
+            try require(
+                reads == [1] && deliveries.map(\.message) == [live] && refresh.remainingCount == 1,
+                "older cached payload or hydration replaced a newer partial update",
+            )
+            try await require(refresh.refreshNextBatch(), "partial race did not enqueue one coalesced read")
+            try require(
+                reads == [1, 1] && deliveries.last?.message == fixture(id: 1, text: "read-2")
+                    && refresh.failedMessageIDs.isEmpty,
+                "partial retry did not refresh the unresolved body",
+            )
+            try await require(!refresh.refreshNextBatch(), "settled partial retry hot-polled")
+            try require(
+                refresh.takeCurrentValues([value(fixture(id: 1, text: "old page"))], token: oldPage).isEmpty,
+                "normal pagination bypassed the live-message revision ledger",
+            )
+
+            refresh.setMutationBlocked(true, messageID: 2, owner: .reaction)
+            refresh.setMutationBlocked(true, messageID: 2, owner: .pin)
+            try require(!refresh.acceptLiveMessage(value(fixture(id: 2))), "in-flight mutation wrapper was replaced")
+            refresh.enqueue(messageIDs: [2])
+            try await require(!refresh.refreshNextBatch(), "blocked mutation launched a read")
+            refresh.setMutationBlocked(false, messageID: 2, owner: .reaction)
+            try await require(!refresh.refreshNextBatch(), "reaction completion released the active pin owner")
+            refresh.setMutationBlocked(false, messageID: 2, owner: .pin)
+            try await require(refresh.refreshNextBatch(), "mutation settlement did not refresh")
+            try require(deliveries.last?.message.id == 2, "settled mutation did not deliver")
+            refresh.setMutationBlocked(true, messageID: 3, owner: .pin)
+            refresh.notePermanentDeletion(messageIDs: [3])
+            refresh.setMutationBlocked(false, messageID: 3, owner: .pin)
+            refresh.retryFailures()
+            try await require(!refresh.refreshNextBatch() && !reads.contains(3), "deleted mutation owner resurrected")
+
+            fail = true
+            refresh.enqueue(messageIDs: [4])
+            _ = await refresh.refreshNextBatch()
+            try await require(
+                !refresh.refreshNextBatch() && refresh.failedMessageIDs == [4], "plain read error retried itself",
+            )
+            fail = false
+            refresh.retryFailures()
+            _ = await refresh.refreshNextBatch()
+            try require(deliveries.last?.message.id == 4, "explicit error retry failed")
+
+            let token = refresh.beginRead()!
+            refresh.notePermanentDeletion(messageIDs: [5])
+            let accepted = refresh.takeCurrentValues([value(fixture(id: 5)), value(fixture(id: 6))], token: token)
+            try require(accepted.map(\.message.id) == [6], "normal page read resurrected permanent deletion")
+            let partialBeforeBody = refresh.beginRead()!
+            refresh.noteLiveUpdate(messageIDs: [11])
+            try require(
+                refresh.takeCurrentValues([value(fixture(id: 11))], token: partialBeforeBody).isEmpty,
+                "pin/reaction before initial body accepted the older page",
+            )
+            refresh.enqueue(messageIDs: [12])
+            _ = await refresh.refreshNextBatch()
+            refresh.retryFailures()
+            try await require(
+                !refresh.refreshNextBatch() && deliveries.contains { $0.message.id == 11 }
+                    && !deliveries.contains { $0.message.id == 12 },
+                "partial-before-body stayed unresolved or deletion during hydration resurrected",
+            )
+            let hydrationCount = hydrated.count
+            let latest = refresh.beginLatestRead()!
+            try require(
+                refresh.enqueueLatest([fixture(id: 7), fixture(id: 8)], token: latest),
+                "raw latest page rejected",
+            )
+            _ = await refresh.refreshNextBatch()
+            try require(
+                hydrated.count == hydrationCount + 2 && !reads.contains(7) && !reads.contains(8)
+                    && Set(deliveries.suffix(2).map(\.message.id)) == [7, 8],
+                "raw latest page duplicated reads or bypassed shared hydration",
+            )
+
+            let topicLocation = location.withForumTopic(id: 1)
+            let topicSeed = ChatHistoryRestorationState(
+                location: topicLocation, messages: [value(fixture(id: 20, topic: topicLocation.topic))],
+                oldestHistoryMessageID: 10, hasMoreMessages: true,
+            )
+            var bridge = ChatHistoryLatestRefreshCursor(seed: topicSeed)
+            var topicDeliveries = [Int64]()
+            let topicRefresh = ChatHistoryRestorationRefresh(
+                location: topicLocation, source: source, seedIDs: [], visibleIDs: [], currentSource: { source },
+                read: { fixture(id: $0, topic: topicLocation.topic) },
+                deliver: { topicDeliveries.append($0.messageID) },
+            )
+            let foreign = [fixture(id: 40, topic: location.withForumTopic(id: 2).topic), fixture(id: 35)]
+            try require(
+                bridge.accept(rawPage: foreign, requestedFromMessageID: 0) && bridge.fromMessageID == 35
+                    && !bridge.isComplete && topicRefresh.enqueueLatest(
+                        foreign,
+                        token: topicRefresh.beginLatestRead()!,
+                    ),
+                "foreign-topic page lost the raw bridge cursor",
+            )
+            try await require(
+                !topicRefresh.refreshNextBatch() && topicDeliveries.isEmpty,
+                "foreign topic hydrated into route",
+            )
+            let overlap = [fixture(id: 34), fixture(id: 20, topic: topicLocation.topic)]
+            try require(
+                bridge.accept(rawPage: overlap, requestedFromMessageID: 35) && bridge.isComplete
+                    && topicRefresh.enqueueLatest(overlap, token: topicRefresh.beginLatestRead()!),
+                "raw overlap did not finish the topic bridge",
+            )
+            _ = await topicRefresh.refreshNextBatch()
+            try require(topicDeliveries == [20], "topic bridge admitted a foreign message")
+
+            var deferred: ChatHistoryRestorationRefresh!
+            defer { deferred = nil }
+            var attempts = 0
+            var deferredDeliveries = 0
+            var cancelDuringRead = false
+            deferred = ChatHistoryRestorationRefresh(
+                location: location, source: source, seedIDs: [9], visibleIDs: [], currentSource: { source },
+                read: { id in
+                    attempts += 1
+                    if attempts == 1 || cancelDuringRead {
+                        deferred.retryFailures() // Ready/manual retry while a batch owns the worker.
+                        if cancelDuringRead { deferred.cancel() }
+                        throw TDLibKit.Error(code: 500, message: "interrupted")
+                    }
+                    return fixture(id: id)
+                }, retriesPartialRaces: true,
+                deliver: { if case .message = $0.result { deferredDeliveries += 1 } },
+            )
+            try require(
+                deferred.takeCurrentValues([value(fixture(id: 10))], token: token).isEmpty,
+                "read token crossed owners",
+            )
+            _ = await deferred.refreshNextBatch()
+            try require(deferred.remainingCount == 1, "ready event was dropped during a failing request")
+            _ = await deferred.refreshNextBatch()
+            try await require(
+                !deferred.refreshNextBatch() && attempts == 2 && deferredDeliveries == 1,
+                "deferred ready retry did not settle exactly once",
+            )
+            let failedLatest = deferred.beginLatestRead()!
+            deferred.retryFailures()
+            try require(
+                deferred.failLatestRead(token: failedLatest),
+                "ready during latest RPC was overwritten by failure",
+            )
+            try require(
+                !deferred.failLatestRead(token: deferred.beginLatestRead()!),
+                "latest failure retried without a new event",
+            )
+            let successfulLatest = deferred.beginLatestRead()!
+            deferred.retryFailures()
+            try require(
+                deferred.enqueueLatest([], token: successfulLatest),
+                "ready during successful latest wedged its token",
+            )
+            cancelDuringRead = true
+            deferred.enqueue(messageIDs: [10])
+            _ = await deferred.refreshNextBatch()
+            try await require(
+                !deferred.refreshNextBatch() && deferredDeliveries == 1 && deferred.beginRead() == nil,
+                "cancelled/retired owner resumed a deferred request",
+            )
+        }
+
         private static func value(_ message: Message) -> ChatHistoryMessageValue {
             .init(CustomMessage(message: message, properties: .default))
         }
 
-        private static func fixture(id: Int64, album: Int64 = 0, text: String = "message") -> Message {
+        private static func fixture(
+            id: Int64, album: Int64 = 0, text: String = "message", topic: MessageTopic? = nil,
+        ) -> Message {
             Message(
                 authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 100,
                 containsUnreadMention: false, containsUnreadPollVotes: false,
@@ -340,7 +541,7 @@
                 replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
                 selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
                 senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-                suggestedPostInfo: nil, summaryLanguageCode: "", topicId: nil, unreadReactions: [], viaBotUserId: 0,
+                suggestedPostInfo: nil, summaryLanguageCode: "", topicId: topic, unreadReactions: [], viaBotUserId: 0,
             )
         }
     }
