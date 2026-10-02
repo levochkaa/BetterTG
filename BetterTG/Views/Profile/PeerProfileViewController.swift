@@ -283,6 +283,7 @@ ClientRestorableNavigationEntry {
         self.currentUserProfilePhoto = customChat.user?.profilePhoto
         self.currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
         super.init(nibName: nil, bundle: nil)
+        observeClientOwnership()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -308,6 +309,7 @@ ClientRestorableNavigationEntry {
         configureDataSource()
         configureSharedMessageRefresh()
         observeAccount()
+        handleClientReadiness(restorationIdentity.readySource)
         loadProfileInfo()
         if restoration != nil {
             applySnapshot(animated: false) { [weak self] in
@@ -357,6 +359,85 @@ ClientRestorableNavigationEntry {
         updateProfileHeaderLayout()
         restoreViewportIfNeeded()
     }
+
+    #if DEBUG
+    static func verifyUnloadedMembersParent() throws {
+        guard let accountID = TDLib.shared.activeAccountID, let actorID = TDLib.shared.activeAccount?.userID else {
+            throw PeerProfileMembersRestorationProbe
+                .Failure(description: "unloaded parent probe requires an active account")
+        }
+        let client = TDLib.shared.activeClient
+        let origin = TdUpdateSource(accountID: accountID, clientID: client.id)
+        var expectedReady: TdUpdateSource?
+        var replayedReadiness = false
+        let readiness = TDLib.shared.readyClientChanges.prefix(1).sink {
+            expectedReady = $0
+            replayedReadiness = true
+        }
+        defer { readiness.cancel() }
+        let chat = RootChatInsertionProbe.chat(
+            .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
+            title: "Retained profile",
+            id: 8,
+        )
+        let seed = PeerProfileRestorationState(
+            source: origin,
+            actorID: actorID,
+            chatID: 8,
+            topic: nil,
+            tab: .files,
+            messages: [],
+            cursor: 61,
+            hasMore: true,
+            total: 200,
+            error: nil,
+            resumePage: true,
+            bio: "accepted bio",
+            details: ["accepted detail"],
+            viewport: .init(messageID: 70, minY: -12, distanceFromTop: 600),
+        )
+        let parent = PeerProfileViewController(
+            customChat: chat,
+            topic: nil,
+            client: client,
+            accountID: accountID,
+            restoration: seed,
+        )
+        try PeerProfileMembersRestorationProbe.require(
+            !parent.isViewLoaded && replayedReadiness
+            && parent.restorationIdentity.readySource == expectedReady,
+            "init did not admit client ownership independently of view load",
+        )
+        for nextID in [client.id &+ 1, client.id &+ 2] {
+            let next = TdUpdateSource(accountID: accountID, clientID: nextID)
+            parent.handleClientSource(next, actorID: actorID)
+            parent.handleClientReadiness(nil)
+            try PeerProfileMembersRestorationProbe.require(
+                !parent.restorationIdentity.accepts(next, current: next, actorID: actorID),
+                "unloaded parent admitted pre-ready epoch",
+            )
+            parent.handleClientReadiness(next)
+            guard let retained = parent.restorationState() else {
+                throw PeerProfileMembersRestorationProbe.Failure(description: "unloaded parent lost transferable state")
+            }
+            try PeerProfileMembersRestorationProbe.require(
+                !parent.isViewLoaded && parent.sharedMessageRefresh == nil
+                && parent.infoTask == nil && parent.historyTask == nil && parent.permissionTask == nil
+                && parent.restorationIdentity.accepts(next, current: next, actorID: actorID)
+                && retained.source == origin && retained.tab == .files && retained.cursor == 61
+                && retained.viewport.messageID == 70 && retained.viewport.minY == -12 && retained.resumePage,
+                "unloaded parent epoch lost readiness/state or started view-owned work",
+            )
+        }
+        let foreign = TdUpdateSource(accountID: UUID(), clientID: client.id &+ 3)
+        parent.handleClientSource(foreign, actorID: actorID)
+        parent.handleClientSource(origin, actorID: actorID)
+        try PeerProfileMembersRestorationProbe.require(
+            parent.restorationIdentity.revoked && !parent.isViewLoaded,
+            "unloaded parent account ABA revived",
+        )
+    }
+    #endif
 
     private static func statusText(for customChat: CustomChat) -> String {
         switch customChat.type {
@@ -437,8 +518,10 @@ ClientRestorableNavigationEntry {
                 avatarReconciliationRequestID = nil
                 sharedMessageRefresh?.stop()
                 cancellables.removeAll()
-                avatarView.prepareForReuse()
-                collectionView.visibleCells.compactMap { $0 as? SharedMediaGridCell }.forEach { $0.pauseLoading() }
+                if isViewLoaded {
+                    avatarView.prepareForReuse()
+                    collectionView.visibleCells.compactMap { $0 as? SharedMediaGridCell }.forEach { $0.pauseLoading() }
+                }
                 #if DEBUG
                 log("Profile client restoration: replacement accepted")
                 #endif
@@ -517,18 +600,29 @@ ClientRestorableNavigationEntry {
         canWaitForClientRestoration && restorationIdentity.accepts(
             source, current: TDLib.shared.activeUpdateSource, actorID: TDLib.shared.activeAccount?.userID,
         ) && RootVM.shared.activeAccountID == accountID && transitionCoordinator == nil
-            && !collectionView.isDragging && !collectionView.isDecelerating
+            && (!isViewLoaded || !collectionView.isDragging && !collectionView.isDecelerating)
     }
 
     private func restorationState() -> PeerProfileRestorationState? {
-        guard let accountUserID, isViewLoaded else { return nil }
+        guard let accountUserID else { return nil }
+        let tab: SharedTab
+        let viewport: PeerProfileViewport
+        if isViewLoaded {
+            tab = currentSharedTab
+            viewport = restoredViewport ?? .capture(collectionView, messageID: { dataSource.itemIdentifier(for: $0) })
+        } else if let restoration {
+            // A covered replacement may never load its view before another client
+            // epoch. Transfer accepted state, not an uninitialized collection offset.
+            tab = restoration.tab
+            viewport = restoredViewport ?? restoration.viewport
+        } else { return nil }
         return PeerProfileRestorationState(
             source: restorationIdentity.origin, actorID: accountUserID, chatID: customChat.id, topic: topic,
-            tab: currentSharedTab, messages: sortedSharedMessages, cursor: oldestMessageID,
+            tab: tab, messages: sortedSharedMessages, cursor: oldestMessageID,
             hasMore: hasMore, total: sharedTotalMessageCount, error: historyError,
             resumePage: historyRequest.needsResume || restoredViewport != nil && restoration?.shouldResumePage == true,
             bio: currentBioText, details: currentDetailTexts,
-            viewport: restoredViewport ?? .capture(collectionView, messageID: { dataSource.itemIdentifier(for: $0) }),
+            viewport: viewport,
         )
     }
 
@@ -896,34 +990,19 @@ ClientRestorableNavigationEntry {
         }
     }
 
-    private func observeAccount() {
+    /// Source lifetime is independent of view lifetime: a Profile underneath
+    /// Members may remain unloaded across more than one replacement epoch.
+    private func observeClientOwnership() {
         TDLib.shared
             .activeClientChanges
             .sink { [weak self] source in
-                guard let self else { return }
-                restorationIdentity.observe(source: source, actorID: TDLib.shared.activeAccount?.userID)
-                if preparedMetadata?.0 != source { preparedMetadata = nil }
-                metadataPreparation.cancel()
-                handleAccountChange()
+                self?.handleClientSource(source, actorID: TDLib.shared.activeAccount?.userID)
             }
             .store(in: &cancellables)
         TDLib.shared
             .readyClientChanges
             .sink { [weak self] source in
-                guard let self else { return }
-                restorationIdentity.readySource = source
-                if source == nil { metadataPreparation.cancel() }
-                if source == restorationIdentity.origin {
-                    if sharedMessageRefresh == nil { configureSharedMessageRefresh() }
-                    resumeSharedHistoryIfNeeded()
-                } else {
-                    sharedMessageRefresh?.stop()
-                    sharedMessageRefresh = nil
-                    historyTask?.cancel()
-                    historyTask = nil
-                    revokeSharedMessages(Set(messagesByID.keys))
-                }
-                retryClientRestoration()
+                self?.handleClientReadiness(source)
             }
             .store(in: &cancellables)
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
@@ -933,6 +1012,34 @@ ClientRestorableNavigationEntry {
             )
             self?.handleAccountChange()
         }
+    }
+
+    private func handleClientSource(_ source: TdUpdateSource, actorID: Int64?) {
+        restorationIdentity.observe(source: source, actorID: actorID)
+        if preparedMetadata?.0 != source { preparedMetadata = nil }
+        metadataPreparation.cancel()
+        handleAccountChange()
+    }
+
+    private func handleClientReadiness(_ source: TdUpdateSource?) {
+        restorationIdentity.readySource = source
+        if source == nil { metadataPreparation.cancel() }
+        if isViewLoaded {
+            if source == restorationIdentity.origin {
+                if sharedMessageRefresh == nil { configureSharedMessageRefresh() }
+                resumeSharedHistoryIfNeeded()
+            } else {
+                sharedMessageRefresh?.stop()
+                sharedMessageRefresh = nil
+                historyTask?.cancel()
+                historyTask = nil
+                revokeSharedMessages(Set(messagesByID.keys))
+            }
+        }
+        retryClientRestoration()
+    }
+
+    private func observeAccount() {
         nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
             self?.handleChatTitleUpdate(update)
         }

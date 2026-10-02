@@ -453,7 +453,7 @@ import UIKit
         let pageOffset = revalidation.active ? revalidation.cursor : rawOffset
         tableView.tableFooterView = nil
         loadTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
             do {
                 if !checkedAvailability, case .supergroup(_, let id) = source {
                     let info = try await client.getSupergroupFullInfo(supergroupId: id)
