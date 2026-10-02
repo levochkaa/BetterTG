@@ -15,6 +15,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let folderViewports: [Int: ChatListViewportSnapshot]
     }
 
+    #if DEBUG
+        private static var didOpenForumListForSmoke = false
+    #endif
+
     // MARK: Private
 
     private let rootVM: RootVM
@@ -212,6 +216,28 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureAutomatedSmokeRoute() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-smoke-forum-list") {
+            guard !Self.didOpenForumListForSmoke else { return }
+            let source = TDLib.shared.activeUpdateSource
+            rootVM.$folders
+                .compactMap { folders in
+                    folders.lazy.flatMap(\.chats).first {
+                        $0.supergroup?.isForum == true && $0.chat.viewAsTopics
+                    }
+                }
+                .first()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] chat in
+                    guard let self, !Self.didOpenForumListForSmoke, source != nil,
+                          TDLib.shared.activeUpdateSource == source,
+                          navigationController?.topViewController === self else { return }
+                    Self.didOpenForumListForSmoke = true
+                    NavigationStorage.shared.push(.customChat(chat), animated: false)
+                    log("Forum list smoke: opened existing topics route; no topic selected")
+                }
+                .store(in: &cancellables)
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("-ui-smoke-forum-topic-write") {
             let client = TDLib.shared.activeClient
             let accountID = TDLib.shared.activeAccountID
