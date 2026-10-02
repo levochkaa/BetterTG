@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A24 edit-mode dispatch/completion and A26 send-draft container relocation.
+Active queue: A26 send-draft container relocation; A24 edit-mode repair has integrated policy proof.
 A12/A13/A18 delivery correlation and accepted-update transport are repaired with bounded proofs below;
 callbacks rejected before publication and recovery without a registered temporary ID remain separate gaps.
 A11 preserves voice recording route/reply/caption, PCM, waveform, trim and revision contracts across lifecycle teardown;
@@ -130,7 +130,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | needs-fix — secret photo/video/animation blur and hold-only presentation, captured-context open/expiry acknowledgment, release/cancel/background teardown and export/transition protection. Existing inline video/PiP/export rejection does not prove secret-media viewing semantics |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | needs-fix — preserve structural layout deltas without rewinding user scroll; invalidate obsolete automatic restoration by interaction/layout generation, distinguish explicit navigation, and verify prepend/edit/media resize/keyboard while dragging and overlapping snapshots. Self-sizing's separate fresh-scroll guard does not cover these paths |
 | A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | needs-fix — extend accepted provenance and frozen RPC/client-generation boundaries through root/list and remaining chat/topic subscribers; verify delayed updates/responses and A→B→A/replacement-client collisions. A13's outcome/delete migration does not cover these events |
-| A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | needs-fix — dispatch by edit-session presence, immutable payload and session/revision completion fences; preserve ordinary draft, empty media captions and newer edit/error state |
+| A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | needs-fix — semantic attributed-string round trip with UTF-16 ranges, independent formatting and entity payloads; separate from spoiler concealment A10 |
 | A26 | P1 | Real own-draft reinstall at `d8ed16e` relocates the app data container: `VoiceNoteDraftStore.loadAllDrafts` rejects persisted absolute URLs and deletes the manifest although its Ogg remains. `VideoNoteFileStore.loadAllManifests` has the same absolute-path filter for MP4/thumbnail | needs-fix — safe relative manifests and legacy managed-path rebasing across all canonical/list loads; preserve enqueue/outcome/tombstone/origin authority, reject unrelated/external paths; deterministic relocation plus production reinstall proof |
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | needs-fix — shared effective capability using chat kind/permissions/status, live updates and fresh `getChat`/`getChatMember` before writes; channels remain admin-only |
@@ -447,6 +447,22 @@ A20/A21 remain separate. No new gesture P0/P1 was confirmed by this source pass;
   `activate(notify:false)` are source-reviewed, not server/lifecycle-exercised. `pip-supported=false`: active system PiP still
   requires a capable device. Marker scan over production/dependencies is empty; no Simulator shutdown or account reset occurred.
 
+### Edit-mode safety proof — 2026-10-02
+
+- A24 worker `8aa914f` integrated as `b18da97`. Primary reviewed the entire policy/probe and all edit-session assignment sites.
+  `ChatVM` dispatches explicitly between ordinary/invalid-edit/edit, captures the message/formatted payload, and checks session,
+  text revision, task cancellation and current location after request completion. Closing Edit preserves the ordinary reply;
+  newer typing or a reopened same-ID session survives an old success/error. Semantic entity conversion A25 remains unchanged.
+- Six Swift files formatted in one invocation; warning-free primary wrapper build
+  `.build/logs/xcodebuild/build-Debug-20261002-161023-77945-13703.log` (10s). Worker log copied with `worker-A24-` prefix;
+  `.build/ui-probe-evidence/astra-a24-worker/README.md` preserves scope and reference notes.
+- Same authenticated audit Simulator, PID `79320`: `-ui-probe-composer-edit -media-probe-voice-finalization
+  -media-probe-draft-outcomes` all pass. Results are under `.build/ui-probe-evidence/astra-a24-primary`, `astra-a24-voice`,
+  `astra-a24-drafts`. Edit probe executes the production submission/token policy with suspended callbacks: zero ordinary sends
+  for invalid edit, immutable payload, A→B→A revision, same-ID reopen, caller completion-delivery fence, cancellation, unchanged
+  success and empty media caption. It uses counters and fixtures, not a real ChatVM, keyboard, selected-attachment view or TDLib
+  server edit. Production wiring/disabled action is source/build-proved only. No account data or messages were changed.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -477,23 +493,24 @@ A20/A21 remain separate. No new gesture P0/P1 was confirmed by this source pass;
   warning-free build/probe proof; `909215a` repairs A11 with production navigation/relaunch/Delete proof. A13 `c356513` has
   accepted-event transport proof; A04 through `ef8f4ba` has native and Simulator decoder/controller proof. A12 `847b838` and
   A18 `76f9998` have combined isolated store/stream proofs. A14 `bb01b8f` and A19 `d8ed16e` have integrated bounded probes.
-  Voice/video A15–A17/A26, text A10/A25, edit A24 and other queued findings remain open.
+  A24 `b18da97` has integrated edit-policy proof. Voice/video A15–A17/A26, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest integrated slice: A19 `d8ed16e`, including A14 `bb01b8f`; isolated context/owner/store probes pass, but production
-  voice reinstall exposed A26. Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-160148-52841-23853.log`.
+- Latest integrated slice: A24 `b18da97`, including A19/A14; isolated edit/context/owner/store probes pass, but production
+  voice reinstall exposed A26. Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-161023-77945-13703.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19; A26 relocation is next.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
-  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14; A24 edit-session repair is next. Parent owns idb; Simulators remain booted.
+  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24; read-only foreground-client audit is next.
+  Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: A24 edit-mode/session safety and A26 safe send-draft path relocation, then remaining A05–A10/A15–A17 and
+- Exact next slices: A26 safe send-draft path relocation, then remaining A05–A10/A15–A17 and
   A20–A23/A25/A27/A28. Recover only the backed-up own A26 manifest for production reinstall/discard verification.
   A12 crash before registration retains unresolved ownership; do not guess an outcome. Retain A04's cold partial-range/lookahead proof gap.
   B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
