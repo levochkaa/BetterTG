@@ -61,6 +61,7 @@ import UIKit
     private let customChat: CustomChat
     private let isSelfProfile: Bool
     private let topic: MessageTopic?
+    private let editorRetention = PeerProfileEditorRetention()
     private var infoPermission: PeerProfileInfoPermissionState
     private var currentChatTitle: String
     private var currentChatPhotoInfo: ChatPhotoInfo?
@@ -272,6 +273,10 @@ import UIKit
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if !contextIsCurrent {
+            handleAccountChange()
+            return
+        }
         // Gallery selection grants only the members actually opened in this profile route.
         for cell in collectionView.visibleCells.compactMap({ $0 as? SharedMediaGridCell }) {
             cell.refreshRevealState()
@@ -718,6 +723,9 @@ import UIKit
 
     private func handleAccountChange() {
         guard !contextIsCurrent else { return }
+        guard !editorRetention.shouldRetain(
+            parent: self, accountID: accountID, currentAccountID: TDLib.shared.activeAccountID,
+        ) else { return }
         let leaveProfile: () -> Void = { [weak self] in
             guard let self,
                   let navigationController,
@@ -1682,12 +1690,13 @@ import UIKit
                 description: currentBioText,
             )
         }
-        navigationController?.pushViewController(PeerProfileEditViewController(
+        let editor = PeerProfileEditViewController(
             accountID: accountID,
             accountUserID: accountUserID,
-            client: client,
             mode: mode,
-        ), animated: true)
+        )
+        editorRetention.editor = editor
+        navigationController?.pushViewController(editor, animated: true)
     }
 
     @objc private func retrySharedMedia() {

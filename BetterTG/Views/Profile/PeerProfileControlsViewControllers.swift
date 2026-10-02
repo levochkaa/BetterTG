@@ -889,7 +889,7 @@ private enum PeerProfileMemberTagError: LocalizedError {
 
 // MARK: - PeerProfileEditViewController
 
-@MainActor final class PeerProfileEditViewController: UIViewController, UITextFieldDelegate {
+@MainActor final class PeerProfileEditViewController: UIViewController, UITextFieldDelegate, UITextViewDelegate {
     enum Mode {
         case selfProfile(userID: Int64, firstName: String, lastName: String, bio: String)
         case chat(
@@ -899,9 +899,7 @@ private enum PeerProfileMemberTagError: LocalizedError {
         )
     }
 
-    private let accountID: UUID
-    private let accountUserID: Int64?
-    private let client: TDLibClient
+    private let session: PeerProfileEditSession
     private let mode: Mode
     private var persistedDetail: String
     private var persistedFirst: String
@@ -911,17 +909,21 @@ private enum PeerProfileMemberTagError: LocalizedError {
     private let secondField = UITextField()
     private let detailView = UITextView()
     private let errorLabel = UILabel()
-    private var saveTask: Task<Void, Never>?
+    private var editRevision = UInt64.zero
     private var cancellables = Set<AnyCancellable>()
 
-    private var contextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
+    var editAccountID: UUID { session.accountID }
+    var canRetainStaleProfile: Bool { session.state != .revoked }
+    #if DEBUG
+        var persistedFieldsForProbe: [String] { [persistedFirst, persistedSecond, persistedDetail] }
+    #endif
+
+    convenience init(accountID: UUID, accountUserID: Int64?, mode: Mode) {
+        self.init(session: .live(accountID: accountID, actorID: accountUserID), mode: mode)
     }
 
-    init(accountID: UUID, accountUserID: Int64?, client: TDLibClient, mode: Mode) {
-        self.accountID = accountID
-        self.accountUserID = accountUserID
-        self.client = client
+    init(session: PeerProfileEditSession, mode: Mode) {
+        self.session = session
         self.mode = mode
         switch mode {
         case .selfProfile(_, let firstName, let lastName, let bio):
@@ -938,8 +940,6 @@ private enum PeerProfileMemberTagError: LocalizedError {
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
-    deinit { saveTask?.cancel() }
-
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Edit"
@@ -951,13 +951,21 @@ private enum PeerProfileMemberTagError: LocalizedError {
             action: #selector(save),
         )
         configureForm()
-        nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
-            guard let self, !contextIsCurrent else { return }
-            saveTask?.cancel()
-            saveTask = nil
-            view.isUserInteractionEnabled = false
-            navigationItem.rightBarButtonItem?.isEnabled = false
-        }
+        session.publisher
+            .sink { [weak self] state in
+                guard let self else { return }
+                navigationItem.rightBarButtonItem?.isEnabled = state == .ready
+                switch state {
+                case .ready: navigationItem.prompt = nil
+                case .waiting: navigationItem.prompt = "Reconnecting… Your changes are kept."
+                case .saving: navigationItem.prompt = "Saving…"
+                case .uncertain: navigationItem.prompt = "Result unknown. Check the profile before retrying."
+                case .revoked:
+                    navigationItem.prompt = "This account is no longer active."
+                    view.isUserInteractionEnabled = false
+                }
+            }
+            .store(in: &cancellables)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -974,6 +982,8 @@ private enum PeerProfileMemberTagError: LocalizedError {
         return true
     }
 
+    func textViewDidChange(_: UITextView) { editingChanged() }
+
     private func configureForm() {
         let scrollView = UIScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -989,9 +999,11 @@ private enum PeerProfileMemberTagError: LocalizedError {
             field.adjustsFontForContentSizeCategory = true
             field.clearButtonMode = .whileEditing
             field.delegate = self
+            field.addTarget(self, action: #selector(editingChanged), for: .editingChanged)
             stack.addArrangedSubview(field)
         }
         detailView.font = .preferredFont(forTextStyle: .body)
+        detailView.delegate = self
         detailView.adjustsFontForContentSizeCategory = true
         detailView.backgroundColor = .secondarySystemBackground
         detailView.layer.cornerRadius = 10
@@ -1031,8 +1043,9 @@ private enum PeerProfileMemberTagError: LocalizedError {
         ])
     }
 
+    @objc private func editingChanged() { editRevision &+= 1 }
     @objc private func save() {
-        guard saveTask == nil, contextIsCurrent else { return }
+        guard session.state == .ready else { return }
         let first = firstField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let second = secondField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let detail = detailView.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1040,87 +1053,47 @@ private enum PeerProfileMemberTagError: LocalizedError {
             showError(secondField.isHidden ? "Chat title is required." : "First name is required.")
             return
         }
-        navigationItem.rightBarButtonItem?.isEnabled = false
         errorLabel.isHidden = true
-        saveTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                _ = try await performSave(first: first, second: second, detail: detail)
-                guard !Task.isCancelled, contextIsCurrent else { return }
-                saveTask = nil
-                navigationItem.rightBarButtonItem?.isEnabled = true
-                _ = navigationController?.popViewController(animated: true)
-            } catch {
-                guard !Task.isCancelled, contextIsCurrent else { return }
-                saveTask = nil
-                navigationItem.rightBarButtonItem?.isEnabled = true
-                showError(error.localizedDescription)
-            }
-        }
-    }
-
-    private func performSave(first: String, second: String, detail: String) async throws -> Bool {
+        var mutations = [PeerProfileEditSession.Mutation]()
         switch mode {
         case .selfProfile(let userID, _, _, _):
-            guard userID == accountUserID,
-                  TDLib.shared.activeAccount?.userID == accountUserID,
-                  contextIsCurrent
-            else { throw PeerProfileEditError.permissionChanged }
-            var changed = false
+            guard session.representsActor(userID) else {
+                showError(PeerProfileEditError.permissionChanged.localizedDescription)
+                return
+            }
             if first != persistedFirst || second != persistedSecond {
-                _ = try await client.setName(firstName: first, lastName: second)
-                persistedFirst = first
-                persistedSecond = second
-                changed = true
+                mutations.append(.name(first, second))
             }
-            guard TDLib.shared.activeAccount?.userID == accountUserID,
-                  contextIsCurrent
-            else { throw PeerProfileEditError.permissionChanged }
             let normalizedBio = detail.replacingOccurrences(of: "\n", with: " ")
-            if normalizedBio != persistedDetail {
-                do {
-                    _ = try await client.setBio(bio: normalizedBio)
-                    persistedDetail = normalizedBio
-                    changed = true
-                } catch where changed {
-                    throw PeerProfileEditError
-                        .partialSuccess("Name was saved, but bio failed: \(error.localizedDescription)")
-                }
-            }
-            return changed
+            if normalizedBio != persistedDetail { mutations.append(.bio(normalizedBio)) }
         case .chat(let chatID, _, _):
-            guard let accountUserID,
-                  TDLib.shared.activeAccount?.userID == accountUserID,
-                  contextIsCurrent
-            else { throw PeerProfileEditError.permissionChanged }
-            let authorization = PeerProfileInfoEditAuthorization.live(
-                accountID: accountID, actorUserID: accountUserID, chatID: chatID, client: client,
-            )
-            var changed = false
-            if first != persistedFirst {
-                _ = try await authorization.perform {
-                    try await client.setChatTitle(chatId: chatID, title: first)
-                }
-                persistedFirst = first
-                changed = true
-            }
-            guard TDLib.shared.activeAccount?.userID == accountUserID,
-                  contextIsCurrent
-            else { throw PeerProfileEditError.permissionChanged }
-            if detail != persistedDetail {
-                do {
-                    _ = try await authorization.perform {
-                        try await client.setChatDescription(chatId: chatID, description: detail)
-                    }
-                    persistedDetail = detail
-                    changed = true
-                } catch where changed {
-                    throw PeerProfileEditError
-                        .partialSuccess("Title was saved, but description failed: \(error.localizedDescription)")
-                }
-            }
-            return changed
+            if first != persistedFirst { mutations.append(.title(chatID, first)) }
+            if detail != persistedDetail { mutations.append(.description(chatID, detail)) }
         }
+        let revision = editRevision
+        session.save(mutations, owner: self, accepted: { [weak self] mutation in
+            guard let self else { return }
+            switch mutation {
+            case .name(let first, let last):
+                persistedFirst = first
+                persistedSecond = last
+            case .title(_, let value): persistedFirst = value
+            case .bio(let value), .description(_, let value): persistedDetail = value
+            }
+        }, completion: { [weak self] result, completed in
+            guard let self, editRevision == revision else { return }
+            switch result {
+            case .success: navigationController?.popViewController(animated: true)
+            case .failure(let error):
+                let prefix =
+                    if case .selfProfile = mode {
+                        "Name was saved, but bio failed: "
+                    } else {
+                        "Title was saved, but description failed: "
+                    }
+                showError((completed > 0 ? prefix : "") + error.localizedDescription)
+            }
+        })
     }
 
     private func showError(_ message: String) {

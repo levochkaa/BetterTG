@@ -31,6 +31,7 @@ import UIKit
             RootScopeSettingsLoadingProbe.runDebugProbeIfRequested()
             RootChatProjectionProbe.runDebugProbeIfRequested()
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
+            PeerProfileEditSessionProbe.runIfRequested()
             PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()
             MessagePollInteractionStore.runDebugSubmissionProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()
