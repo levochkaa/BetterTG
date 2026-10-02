@@ -567,8 +567,13 @@ import UIKit
                 self?.mediaTransitionTarget(for: messageID)
             },
         )
+        let originatingTab = currentSharedTab
+        gallery.paginationIsCurrent = { [weak self] in
+            guard let self else { return false }
+            return contextIsCurrent && currentSharedTab == originatingTab
+        }
         gallery.onRequestMoreMessages = { [weak self] in
-            guard let self, contextIsCurrent else { return }
+            guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
             loadMore()
         }
         gallery.contextIsCurrent = { [weak self] in
@@ -576,6 +581,12 @@ import UIKit
         }
         gallery.onOpenMessageID = { [weak self] messageID in
             self?.onOpenMessage?(messageID)
+        }
+        gallery.onGalleryRestored = { [weak self] restoredGallery in
+            guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
+            activeMediaGallery = restoredGallery
+            restoredGallery.updateMessages(sortedSharedMessages)
+            restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
         }
         activeMediaGallery = gallery
         present(gallery, animated: true)

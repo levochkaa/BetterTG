@@ -59,6 +59,7 @@ final class TDLib: @unchecked Sendable {
     private var recoveringClientIDs = Set<Int32>()
     private var cancellables = Set<AnyCancellable>()
     private var mediaUpdates = TDLibMediaUpdateStreams(source: nil)
+    private let activeClientChangesSubject = PassthroughSubject<TdUpdateSource, Never>()
     private var activeVODRanges: TDLibVODRangeCoordinator?
 
     var activeAccount: TelegramAccount? {
@@ -80,6 +81,10 @@ final class TDLib: @unchecked Sendable {
 
     var deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never> {
         mediaUpdates.deleteMessageUpdates
+    }
+
+    var activeClientChanges: AnyPublisher<TdUpdateSource, Never> {
+        activeClientChangesSubject.eraseToAnyPublisher()
     }
 
     var vodRanges: TDLibVODRangeCoordinator {
@@ -331,6 +336,7 @@ final class TDLib: @unchecked Sendable {
             client: .live(client),
             updates: mediaUpdates.fileUpdates,
         )
+        activeClientChangesSubject.send(TdUpdateSource(accountID: accountID, clientID: client.id))
         try? client.setLogStream(logStream: .logStreamEmpty) { _ in }
 
         if notify {

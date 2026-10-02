@@ -60,6 +60,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let location: ChatLocation
     private let chatVM: ChatVM
     private let tdlib: TDLib
+    private lazy var galleryPlaybackContext = MediaGalleryPlaybackContext(
+        client: chatVM.client,
+        location: location,
+        tdlib: tdlib,
+    )
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>!
@@ -217,7 +222,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     deinit {
         prefetchTasks.values.forEach { $0.task?.cancel() }
         MainActor.assumeIsolated {
-            inlineVideoPlaybackOwners.values.forEach { $0.invalidate() }
+            for owner in inlineVideoPlaybackOwners.values {
+                owner.onReturnToInline = nil
+                if !GalleryPictureInPictureCoordinator.shared.isRetaining(owner) {
+                    owner.invalidate()
+                }
+            }
         }
         messageNavigationTask?.cancel()
         metadataNavigationTask?.cancel()
@@ -1835,6 +1845,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func showMedia(_ messages: [Message], selection: Int64) {
+        guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent else { return }
         let transferredOwner = inlineVideoPlaybackOwners[selection]
         let transferredOwners = messages.compactMap { inlineVideoPlaybackOwners[$0.id] }
         let transitionSource = galleryTransitionTarget(for: selection)
@@ -1845,6 +1856,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             tdlib: tdlib,
             actionClient: chatVM.client,
             sourceLocation: location,
+            playbackContext: galleryPlaybackContext,
             transferredPlaybackOwner: transferredOwner,
             transferredPlaybackOwners: transferredOwners,
             transitionSource: transitionSource,
@@ -2098,13 +2110,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func inlineVideoPlaybackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
-        guard case .messageVideo(let video) = message.content, !video.isSecret else { return nil }
+        guard case .messageVideo(let video) = message.content, !video.isSecret,
+              let galleryPlaybackContext, galleryPlaybackContext.isCurrent
+        else { return nil }
         if let owner = inlineVideoPlaybackOwners[message.id], !owner.isDeleted {
             return owner
         }
         guard let owner = GalleryVideoPlaybackOwner(
             message: message,
             tdlib: tdlib,
+            playbackContext: galleryPlaybackContext,
             deferPlaybackUntilVisible: true,
         ) else { return nil }
         owner.onReturnToInline = { [weak self, weak owner] returnedOwner in

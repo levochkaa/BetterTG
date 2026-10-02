@@ -807,6 +807,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     var onRequestMoreMessages: (() -> Void)?
+    var paginationIsCurrent: (() -> Bool)?
+    var onGalleryRestored: ((MediaGalleryViewController) -> Void)?
     var contextIsCurrent: (() -> Bool)?
     var onOpenMessageID: ((Int64) -> Void)? {
         didSet {
@@ -818,6 +820,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
+
+    fileprivate let playbackContext: MediaGalleryPlaybackContext?
+    fileprivate let pictureInPictureCoordinator: GalleryPictureInPictureCoordinator
 
     private var messages: [Message]
     private var totalMessageCount: Int?
@@ -901,8 +906,24 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         return owner.isPictureInPictureRetained
     }
 
+    fileprivate var restorationSnapshot: MediaGalleryRestorationSnapshot? {
+        guard hasCurrentContext, let playbackContext else { return nil }
+        return MediaGalleryRestorationSnapshot(
+            context: playbackContext,
+            totalMessageCount: totalMessageCount,
+            routeIsCurrent: contextIsCurrent,
+            paginationIsCurrent: paginationIsCurrent,
+            onOpenMessageID: onOpenMessageID,
+            onRequestMoreMessages: onRequestMoreMessages,
+            onGalleryRestored: onGalleryRestored,
+            transitionSourceProvider: transitionSourceProvider,
+        )
+    }
+
     private var hasCurrentContext: Bool {
-        !contextWasInvalidated && (contextIsCurrent?() ?? true)
+        !contextWasInvalidated
+            && (playbackContext?.isCurrent ?? false)
+            && (contextIsCurrent?() ?? true)
     }
 
     private var canBeginInteractiveDismissal: Bool {
@@ -933,12 +954,18 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         tdlib: TDLib = .shared,
         actionClient: TDLibClient? = nil,
         sourceLocation: ChatLocation? = nil,
+        playbackContext: MediaGalleryPlaybackContext? = nil,
+        pictureInPictureCoordinator: GalleryPictureInPictureCoordinator? = nil,
         transferredPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
         transferredPlaybackOwners: [GalleryVideoPlaybackOwner] = [],
         transitionSource: MediaGalleryTransitionTarget? = nil,
         transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)? = nil,
     ) {
         self.tdlib = tdlib
+        self.playbackContext = playbackContext ?? actionClient.flatMap { client in
+            sourceLocation.flatMap { MediaGalleryPlaybackContext(client: client, location: $0, tdlib: tdlib) }
+        }
+        self.pictureInPictureCoordinator = pictureInPictureCoordinator ?? .shared
         self.actionAccountID = sourceLocation?.accountID
         self.actionClient = actionClient
         self.actionChatID = sourceLocation?.chatID
@@ -967,7 +994,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         transitioningDelegate = transitionController
         let transferredOwners = transferredPlaybackOwners + [transferredPlaybackOwner].compactMap(\.self)
         for owner in transferredOwners where owner.tdlib === tdlib {
-            guard self.messages.contains(where: { $0.id == owner.messageID }) else { continue }
+            guard let context = self.playbackContext,
+                  owner.playbackContext.matches(context),
+                  self.messages.contains(where: {
+                      $0.id == owner.messageID && $0.chatId == owner.chatID && context.location.matches(message: $0)
+                  })
+            else { continue }
             videoPlaybackOwners[owner.messageID] = owner
             owner.galleryController = self
         }
@@ -1175,7 +1207,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func preparePictureInPicture(for owner: GalleryVideoPlaybackOwner) -> Bool {
         guard hasCurrentContext else { return false }
-        return GalleryPictureInPictureCoordinator.shared.prepare(
+        return pictureInPictureCoordinator.prepare(
             owner: owner,
             gallery: self,
             messages: messages,
@@ -1193,11 +1225,16 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         owner: GalleryVideoPlaybackOwner,
         completion: @escaping (Bool) -> Void,
     ) {
-        guard hasCurrentContext else {
+        guard hasCurrentContext, !didReleasePlaybackOwners,
+              let playbackContext, owner.playbackContext.matches(playbackContext),
+              owner.canReturnToPresentation
+        else {
             completion(false)
             return
         }
-        guard let index = messages.firstIndex(where: { $0.id == owner.messageID }) else {
+        guard let index = messages.firstIndex(where: {
+            $0.id == owner.messageID && $0.chatId == owner.chatID && playbackContext.location.matches(message: $0)
+        }) else {
             completion(false)
             return
         }
@@ -1225,6 +1262,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func pictureInPictureDidFinish(for _: GalleryVideoPlaybackOwner) {
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
         if messages.indices.contains(selectedIndex) {
             collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
                 .flatMap { $0 as? MediaGalleryCell }?
@@ -1351,6 +1389,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cancelDelete()
         cancelOpenInChat()
         contextWasInvalidated = true
+        if let playbackContext {
+            playbackContext.revoke()
+            pictureInPictureCoordinator.contextWasRevoked(playbackContext)
+        }
         contextInvalidationCompletion = completion
         onRequestMoreMessages = nil
         paginationRequestedMessageCount = messages.count
@@ -1393,7 +1435,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func observePermanentMessageDeletes() {
-        deleteMessagesCancellable = tdlib.deleteMessageUpdates
+        deleteMessagesCancellable = playbackContext?.deleteMessageUpdates
             .receive(on: DispatchQueue.main)
             .sink { [weak self] update in
                 self?.handlePermanentMessageDeletes(update)
@@ -1815,7 +1857,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             owner.galleryController = self
             return owner
         }
-        guard let owner = GalleryVideoPlaybackOwner(message: message, tdlib: tdlib) else { return nil }
+        guard let playbackContext,
+              let owner = GalleryVideoPlaybackOwner(message: message, tdlib: tdlib, playbackContext: playbackContext)
+        else { return nil }
         owner.galleryController = self
         videoPlaybackOwners[message.id] = owner
         return owner
@@ -1827,7 +1871,6 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         collectionView.visibleCells
             .compactMap { $0 as? MediaGalleryCell }
             .forEach { $0.unbindGalleryChrome() }
-        let pictureInPictureCoordinator = GalleryPictureInPictureCoordinator.shared
         pictureInPictureCoordinator.galleryWillDismiss(self)
         for owner in videoPlaybackOwners.values {
             if pictureInPictureCoordinator.isRetaining(owner) {
@@ -1843,8 +1886,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func shouldPlayItem(at index: Int) -> Bool {
         guard index == selectedIndex, messages.indices.contains(index) else { return false }
-        guard let activeOwner = GalleryPictureInPictureCoordinator.shared.activeOwner else { return true }
+        guard let activeOwner = pictureInPictureCoordinator.activeOwner else { return true }
         return activeOwner.messageID == messages[index].id
+            && activeOwner.chatID == messages[index].chatId
+            && playbackContext.map(activeOwner.playbackContext.matches) == true
     }
 
     private func prunePlaybackOwners(around index: Int) {
@@ -1985,7 +2030,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private func performOnSelectedItem(_ command: GalleryPlaybackCommand) {
         guard hasCurrentContext, !didReleasePlaybackOwners else { return }
         if command == .togglePictureInPicture,
-           let activeOwner = GalleryPictureInPictureCoordinator.shared.activeOwner
+           let activeOwner = pictureInPictureCoordinator.activeOwner,
+           playbackContext.map(activeOwner.playbackContext.matches) == true
         {
             activeOwner.performPlaybackCommand(command)
             return
@@ -3934,6 +3980,61 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 }
 
+// MARK: - MediaGalleryPlaybackContext
+
+/// Playback authority outlives a route, but never follows a replacement TDLib client.
+@MainActor final class MediaGalleryPlaybackContext {
+    let client: TDLibClient?
+    let location: ChatLocation
+    let vodRanges: TDLibVODRangeCoordinator
+    let deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never>
+
+    private let currentClientMatches: () -> Bool
+    private var isRevoked = false
+
+    var isCurrent: Bool { !isRevoked && currentClientMatches() }
+
+    init?(client: TDLibClient, location: ChatLocation, tdlib: TDLib) {
+        guard let accountID = location.accountID,
+              client.id == location.clientID,
+              tdlib.activeAccountID == accountID,
+              tdlib.activeClient == client
+        else { return nil }
+        self.client = client
+        self.location = location
+        self.vodRanges = tdlib.vodRanges
+        self.deleteMessageUpdates = tdlib.deleteMessageUpdates
+        self.currentClientMatches = { [weak tdlib] in
+            guard let tdlib, tdlib.activeAccountID == accountID else { return false }
+            return tdlib.activeClient == client
+        }
+    }
+
+    #if DEBUG
+        fileprivate init(
+            probeLocation: ChatLocation,
+            vodRanges: TDLibVODRangeCoordinator,
+            currentClientMatches: @escaping () -> Bool,
+        ) {
+            self.client = nil
+            self.location = probeLocation
+            self.vodRanges = vodRanges
+            self.deleteMessageUpdates = Empty(completeImmediately: false).eraseToAnyPublisher()
+            self.currentClientMatches = currentClientMatches
+        }
+    #endif
+
+    func matches(_ other: MediaGalleryPlaybackContext) -> Bool {
+        isCurrent && other.isCurrent && hasSameIdentity(as: other)
+    }
+
+    func revoke() { isRevoked = true }
+
+    fileprivate func hasSameIdentity(as other: MediaGalleryPlaybackContext) -> Bool {
+        location == other.location && vodRanges === other.vodRanges
+    }
+}
+
 // MARK: - GalleryVideoPlaybackOwner
 
 @MainActor final class GalleryVideoPlaybackOwner: NSObject,
@@ -3944,10 +4045,13 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     let messageID: Int64
     let chatID: Int64
     let tdlib: TDLib
+    let playbackContext: MediaGalleryPlaybackContext
     weak var galleryController: MediaGalleryViewController?
     var onPermanentDeletion: ((GalleryVideoPlaybackOwner) -> Void)?
     var onReturnToInline: ((GalleryVideoPlaybackOwner) -> Bool)?
     private(set) var isDeleted = false
+
+    fileprivate weak var transferCoordinator: GalleryPictureInPictureCoordinator?
 
     // MARK: Private
 
@@ -3994,13 +4098,29 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         galleryController != nil || attachmentContext == .fullscreen || isPictureInPictureRetained
     }
 
+    fileprivate var canReturnToPresentation: Bool {
+        !isDeleted && !isInvalidated && !pendingInvalidationAfterPictureInPicture && playbackContext.isCurrent
+    }
+
+    private var pictureInPictureCoordinator: GalleryPictureInPictureCoordinator {
+        transferCoordinator ?? .shared
+    }
+
     init?(
         message: Message,
         tdlib: TDLib,
+        playbackContext: MediaGalleryPlaybackContext? = nil,
         deferPlaybackUntilVisible: Bool = false,
     ) {
         guard case .messageVideo(let video) = message.content else { return nil }
+        guard let playbackContext = playbackContext ?? MediaGalleryPlaybackContext(
+            client: tdlib.activeClient,
+            location: .current(chatID: message.chatId, client: tdlib.activeClient),
+            tdlib: tdlib,
+        ), playbackContext.isCurrent, playbackContext.location.matches(message: message)
+        else { return nil }
         self.tdlib = tdlib
+        self.playbackContext = playbackContext
         self.chatID = message.chatId
         self.messageID = message.id
         self.allowsPictureInPicture = !video.isSecret
@@ -4016,7 +4136,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             supportsStreaming: video.video.supportsStreaming,
             isSecret: video.isSecret,
             startTimestamp: TimeInterval(video.startTimestamp),
-            vodRanges: tdlib.vodRanges,
+            vodRanges: playbackContext.vodRanges,
             deferPlaybackUntilVisible: deferPlaybackUntilVisible,
         )
         configurePictureInPicture()
@@ -4024,15 +4144,21 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 
     #if DEBUG
-        private init(
+        fileprivate init(
             probeMessageID: Int64,
             videoFile: File? = nil,
             vodRanges: TDLibVODRangeCoordinator = TDLib.shared.vodRanges,
             mimeType: String = "video/mp4",
             fileName: String = "inline-handoff-probe.mp4",
             supportsStreaming: Bool = false,
+            playbackContext: MediaGalleryPlaybackContext? = nil,
         ) {
             self.tdlib = .shared
+            self.playbackContext = playbackContext ?? MediaGalleryPlaybackContext(
+                probeLocation: ChatLocation(accountID: UUID(), chatID: 0, clientID: 0, topic: nil),
+                vodRanges: vodRanges,
+                currentClientMatches: { true },
+            )
             self.chatID = 0
             self.messageID = probeMessageID
             self.allowsPictureInPicture = true
@@ -4054,6 +4180,16 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             configurePictureInPicture()
             observeMessageDeletion()
         }
+
+        fileprivate func setDebugPictureInPictureState(pending: Bool, active: Bool) {
+            isPictureInPictureStartRequested = pending
+            isPictureInPictureActive = active
+        }
+
+        fileprivate func completeDebugPictureInPictureStop() { completePictureInPictureStop() }
+        fileprivate var debugIsInvalidated: Bool { isInvalidated }
+        fileprivate var debugIsStopping: Bool { isPictureInPictureStopRequested }
+        fileprivate var debugViewIdentity: ObjectIdentifier { ObjectIdentifier(mediaView) }
     #endif
 
     #if DEBUG
@@ -4151,7 +4287,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                 && owner.mediaView.debugCurrentItemIdentifier == inlineItemIdentifier
                 && owner.mediaView.debugPlaybackTime >= inlinePlaybackTime
                 && !owner.mediaView.debugIsMuted
-            let returnGallery = MediaGalleryViewController(messages: [], selection: 0)
+            let returnGallery = MediaGalleryViewController(
+                messages: [], selection: 0, playbackContext: owner.playbackContext,
+            )
             owner.galleryController = returnGallery
             owner.onReturnToInline = { _ in true }
             let borrowedOwnerReturned = owner.returnToInlineIfAvailable()
@@ -4227,7 +4365,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             controlsOwner.invalidate()
 
             let transferredOwner = GalleryVideoPlaybackOwner(probeMessageID: 9002)
-            let probeGallery = MediaGalleryViewController(messages: [], selection: 0)
+            let probeGallery = MediaGalleryViewController(
+                messages: [], selection: 0, playbackContext: transferredOwner.playbackContext,
+            )
             let coordinator = GalleryPictureInPictureCoordinator.shared
             let preparedTransfer = coordinator.prepare(
                 owner: transferredOwner,
@@ -4240,7 +4380,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             let transferCleanedUp = transferredOwner.isInvalidated && coordinator.activeOwner == nil
 
             let pendingStartOwner = GalleryVideoPlaybackOwner(probeMessageID: 9005)
-            let pendingStartGallery = MediaGalleryViewController(messages: [], selection: 0)
+            let pendingStartGallery = MediaGalleryViewController(
+                messages: [], selection: 0, playbackContext: pendingStartOwner.playbackContext,
+            )
             let preparedPendingStart = coordinator.prepare(
                 owner: pendingStartOwner,
                 gallery: pendingStartGallery,
@@ -4808,7 +4950,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 
     func returnToInlineIfAvailable() -> Bool {
-        guard !isDeleted,
+        guard canReturnToPresentation,
               let onReturnToInline
         else { return false }
         galleryController = nil
@@ -4872,7 +5014,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         applyEffectivePlaybackVisibility()
         releasePictureInPictureAudioSession()
         updatePictureInPictureControl()
-        GalleryPictureInPictureCoordinator.shared.didFail(owner: self)
+        pictureInPictureCoordinator.didFail(owner: self)
         if pendingInvalidationAfterPictureInPicture {
             finishInvalidation()
         }
@@ -4895,7 +5037,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             completionHandler(false)
             return
         }
-        GalleryPictureInPictureCoordinator.shared.restore(
+        pictureInPictureCoordinator.restore(
             owner: self,
             completion: completionHandler,
         )
@@ -4968,7 +5110,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             keepForGalleryPlayback: isPlaybackVisible && mediaView.isPlaybackRequested,
         )
         updatePictureInPictureControl()
-        GalleryPictureInPictureCoordinator.shared.didStop(owner: self)
+        pictureInPictureCoordinator.didStop(owner: self)
         if pendingInvalidationAfterPictureInPicture {
             finishInvalidation()
         } else if !isInvalidated, retiringController {
@@ -5146,7 +5288,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 
     private func observeMessageDeletion() {
-        tdlib.deleteMessageUpdates
+        playbackContext.deleteMessageUpdates
             .receive(on: DispatchQueue.main)
             .sink { [weak self] update in
                 guard let self,
@@ -5164,7 +5306,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         guard !isDeleted else { return }
         isDeleted = true
         onPermanentDeletion?(self)
-        GalleryPictureInPictureCoordinator.shared.messageWasDeleted(owner: self)
+        pictureInPictureCoordinator.messageWasDeleted(owner: self)
         if notifyGallery {
             galleryController?.playbackOwnerWasDeleted(self)
         }
@@ -5191,13 +5333,14 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             return
         }
         guard isPlaybackVisible,
+              playbackContext.isCurrent,
               pictureInPictureSourceIdentity == mediaView.pictureInPictureSourceIdentity,
               mediaView.isPictureInPictureReady,
               pictureInPictureController.isPictureInPicturePossible,
               galleryController?.preparePictureInPicture(for: self) == true
         else { return }
         guard activatePictureInPictureAudioSession() else {
-            GalleryPictureInPictureCoordinator.shared.didFail(owner: self)
+            pictureInPictureCoordinator.didFail(owner: self)
             return
         }
         rejectsLatePictureInPictureStart = false
@@ -5438,9 +5581,62 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 }
 
+// MARK: - MediaGalleryRestorationSnapshot
+
+/// Route callbacks are weak at their source. They do not decide playback authority.
+@MainActor private struct MediaGalleryRestorationSnapshot {
+    let context: MediaGalleryPlaybackContext
+    let totalMessageCount: Int?
+    let routeIsCurrent: (() -> Bool)?
+    let paginationIsCurrent: (() -> Bool)?
+    let onOpenMessageID: ((Int64) -> Void)?
+    let onRequestMoreMessages: (() -> Void)?
+    let onGalleryRestored: ((MediaGalleryViewController) -> Void)?
+    let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
+
+    func applyRouteBindings(to gallery: MediaGalleryViewController) {
+        guard routeIsCurrent?() ?? true else { return }
+        gallery.onOpenMessageID = onOpenMessageID.map { action in
+            { messageID in
+                guard context.isCurrent, routeIsCurrent?() ?? true else { return }
+                action(messageID)
+            }
+        }
+        gallery.paginationIsCurrent = paginationIsCurrent
+        guard paginationIsCurrent?() ?? true else { return }
+        gallery.onRequestMoreMessages = onRequestMoreMessages.map { action in
+            {
+                guard context.isCurrent, routeIsCurrent?() ?? true, paginationIsCurrent?() ?? true else { return }
+                action()
+            }
+        }
+        gallery.onGalleryRestored = onGalleryRestored
+        onGalleryRestored?(gallery)
+    }
+}
+
 // MARK: - GalleryPictureInPictureCoordinator
 
 @MainActor final class GalleryPictureInPictureCoordinator {
+    private final class RestoreRequest {
+        var completion: ((Bool) -> Void)?
+        var retry: DispatchWorkItem?
+        var timeout: DispatchWorkItem?
+        weak var presentedGallery: MediaGalleryViewController?
+
+        init(completion: @escaping (Bool) -> Void) { self.completion = completion }
+
+        func finish(_ result: Bool) {
+            retry?.cancel()
+            timeout?.cancel()
+            retry = nil
+            timeout = nil
+            let completion = completion
+            self.completion = nil
+            completion?(result)
+        }
+    }
+
     // MARK: Internal
 
     static let shared = GalleryPictureInPictureCoordinator()
@@ -5452,22 +5648,37 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     private weak var galleryController: MediaGalleryViewController?
     private weak var presentingViewController: UIViewController?
     private var restorationMessages = [Message]()
+    private var restorationSnapshot: MediaGalleryRestorationSnapshot?
+    private var contextWasInvalidated = false
+    private var contextCancellable: AnyCancellable?
+    private var restoreRequest: RestoreRequest?
+    private var restoreGeneration = UInt64.zero
 
-    private init() {}
+    private init(clientChanges: AnyPublisher<TdUpdateSource, Never> = TDLib.shared.activeClientChanges) {
+        self.contextCancellable = clientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.revokeStaleContext() }
+    }
 
     func prepare(
         owner: GalleryVideoPlaybackOwner,
         gallery: MediaGalleryViewController,
         messages: [Message],
     ) -> Bool {
-        guard !owner.isDeleted else { return false }
+        guard owner.canReturnToPresentation,
+              let snapshot = gallery.restorationSnapshot,
+              owner.playbackContext.matches(snapshot.context)
+        else { return false }
         if let activeOwner, activeOwner !== owner {
             return false
         }
         activeOwner = owner
+        owner.transferCoordinator = self
         galleryController = gallery
         presentingViewController = gallery.presentingViewController
         restorationMessages = messages
+        restorationSnapshot = snapshot
+        contextWasInvalidated = false
         return true
     }
 
@@ -5485,34 +5696,29 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         owner: GalleryVideoPlaybackOwner,
         completion: @escaping (Bool) -> Void,
     ) {
-        guard activeOwner === owner,
-              !owner.isDeleted,
-              restorationMessages.contains(where: {
-                  $0.chatId == owner.chatID && $0.id == owner.messageID
-              })
-        else {
-            completion(false)
-            return
-        }
+        guard let request = beginRestore(owner: owner, completion: completion) else { return }
         if let galleryController,
            !galleryController.isBeingDismissed,
            galleryController.viewIfLoaded?.window != nil
         {
-            galleryController.restorePictureInPicture(owner: owner, completion: completion)
+            galleryController.restorePictureInPicture(owner: owner) { [weak self, weak request] result in
+                guard let self, let request else { return }
+                complete(request, result: result && requestIsCurrent(request, owner: owner))
+            }
             return
         }
         guard let presentingViewController,
               presentingViewController.viewIfLoaded?.window != nil,
               !restorationMessages.isEmpty
         else {
-            completion(false)
+            complete(request, result: false)
             return
         }
         presentRestoredGallery(
             owner: owner,
             presenter: presentingViewController,
             retriesRemaining: 20,
-            completion: completion,
+            request: request,
         )
     }
 
@@ -5528,85 +5734,478 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         restorationMessages.removeAll {
             $0.chatId == owner.chatID && $0.id == owner.messageID
         }
+        if activeOwner === owner, let request = restoreRequest { complete(request, result: false) }
+    }
+
+    func contextWasRevoked(_ context: MediaGalleryPlaybackContext) {
+        guard let owner = activeOwner, owner.playbackContext.hasSameIdentity(as: context) else { return }
+        revoke(owner: owner)
+    }
+
+    private func beginRestore(
+        owner: GalleryVideoPlaybackOwner,
+        completion: @escaping (Bool) -> Void,
+    ) -> RestoreRequest? {
+        restoreGeneration &+= 1
+        let generation = restoreGeneration
+        if let previous = restoreRequest { complete(previous, result: false) }
+        guard generation == restoreGeneration else {
+            completion(false)
+            return nil
+        }
+        revokeStaleContext()
+        guard activeOwner === owner,
+              !contextWasInvalidated,
+              owner.canReturnToPresentation,
+              let snapshot = restorationSnapshot,
+              owner.playbackContext.matches(snapshot.context),
+              restorationMessages.contains(where: {
+                  $0.chatId == owner.chatID && $0.id == owner.messageID && snapshot.context
+                      .location
+                      .matches(message: $0)
+              })
+        else {
+            completion(false)
+            return nil
+        }
+        let request = RestoreRequest(completion: completion)
+        restoreRequest = request
+        let timeout = DispatchWorkItem { [weak self, weak request] in
+            guard let self, let request else { return }
+            complete(request, result: false)
+        }
+        request.timeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
+        return request
+    }
+
+    private func revokeStaleContext() {
+        guard let owner = activeOwner, !owner.playbackContext.isCurrent else { return }
+        revoke(owner: owner)
+    }
+
+    private func revoke(owner: GalleryVideoPlaybackOwner) {
+        guard activeOwner === owner, !contextWasInvalidated else { return }
+        contextWasInvalidated = true
+        owner.playbackContext.revoke()
+        restorationMessages.removeAll()
+        restorationSnapshot = nil
+        if let request = restoreRequest { complete(request, result: false) }
+        owner.onReturnToInline = nil
+        owner.setPlaybackVisible(false)
+        owner.invalidate()
+        // Active/pending AVKit controllers retain their layer until the existing
+        // stop callback or fenced stop timeout finishes. Never detach them early.
+        if !owner.isPictureInPictureRetained { finish(owner: owner) }
+    }
+
+    private func requestIsCurrent(_ request: RestoreRequest, owner: GalleryVideoPlaybackOwner) -> Bool {
+        revokeStaleContext()
+        return restoreRequest === request && activeOwner === owner
+            && !contextWasInvalidated && owner.canReturnToPresentation
+    }
+
+    private func complete(_ request: RestoreRequest, result: Bool) {
+        guard restoreRequest === request else { return }
+        restoreRequest = nil
+        if !result { request.presentedGallery?.dismiss(animated: false) }
+        request.finish(result)
     }
 
     private func presentRestoredGallery(
         owner: GalleryVideoPlaybackOwner,
         presenter: UIViewController,
         retriesRemaining: Int,
-        completion: @escaping (Bool) -> Void,
+        request: RestoreRequest,
     ) {
-        guard activeOwner === owner else {
-            completion(false)
-            return
-        }
-        guard !owner.isDeleted else {
-            completion(false)
+        guard requestIsCurrent(request, owner: owner) else {
+            complete(request, result: false)
             return
         }
         guard presenter.viewIfLoaded?.window != nil, !presenter.isBeingDismissed else {
-            completion(false)
+            complete(request, result: false)
             return
         }
         if presenter.presentedViewController != nil {
             guard retriesRemaining > 0 else {
-                completion(false)
+                complete(request, result: false)
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak owner, weak presenter] in
-                guard let self, let owner, let presenter else {
-                    completion(false)
+            let retry = DispatchWorkItem { [weak self, weak owner, weak presenter, weak request] in
+                guard let self, let request else { return }
+                guard let owner, let presenter else {
+                    complete(request, result: false)
                     return
                 }
                 presentRestoredGallery(
                     owner: owner,
                     presenter: presenter,
                     retriesRemaining: retriesRemaining - 1,
-                    completion: completion,
+                    request: request,
                 )
             }
+            request.retry = retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: retry)
             return
+        }
+        guard let gallery = makeRestoredGallery(owner: owner, request: request) else { return }
+        presenter.present(gallery, animated: true) { [weak self, weak gallery, weak owner, weak request] in
+            self?.finishPresentation(owner: owner, gallery: gallery, request: request)
+        }
+    }
+
+    private func finishPresentation(
+        owner: GalleryVideoPlaybackOwner?,
+        gallery: MediaGalleryViewController?,
+        request: RestoreRequest?,
+    ) {
+        guard let owner, let gallery, let request, requestIsCurrent(request, owner: owner) else {
+            gallery?.dismiss(animated: false)
+            if let request { complete(request, result: false) }
+            return
+        }
+        galleryController = gallery
+        gallery.restorePictureInPicture(owner: owner) { [weak self, weak request] result in
+            guard let self, let request else { return }
+            complete(request, result: result && requestIsCurrent(request, owner: owner))
+        }
+    }
+
+    private func makeRestoredGallery(
+        owner: GalleryVideoPlaybackOwner,
+        request: RestoreRequest,
+    ) -> MediaGalleryViewController? {
+        guard requestIsCurrent(request, owner: owner), let snapshot = restorationSnapshot else {
+            complete(request, result: false)
+            return nil
         }
         let gallery = MediaGalleryViewController(
             messages: restorationMessages,
             selection: owner.messageID,
+            totalMessageCount: snapshot.totalMessageCount,
             tdlib: owner.tdlib,
+            actionClient: snapshot.context.client,
+            sourceLocation: snapshot.context.location,
+            playbackContext: snapshot.context,
+            pictureInPictureCoordinator: self,
             transferredPlaybackOwner: owner,
+            transitionSourceProvider: snapshot.transitionSourceProvider,
         )
+        snapshot.applyRouteBindings(to: gallery)
+        guard requestIsCurrent(request, owner: owner) else {
+            complete(request, result: false)
+            return nil
+        }
+        request.presentedGallery = gallery
         galleryController = gallery
         owner.galleryController = gallery
-        presenter.present(gallery, animated: true) { [weak self, weak gallery, weak owner] in
-            guard let self,
-                  let gallery,
-                  let owner,
-                  activeOwner === owner
-            else {
-                completion(false)
-                return
-            }
-            galleryController = gallery
-            gallery.restorePictureInPicture(owner: owner, completion: completion)
-        }
+        return gallery
     }
 
     private func finish(owner: GalleryVideoPlaybackOwner) {
         guard activeOwner === owner else { return }
+        let request = restoreRequest
         let gallery = galleryController
+        let canReturn = !contextWasInvalidated && owner.canReturnToPresentation
         activeOwner = nil
         galleryController = nil
         presentingViewController = nil
         restorationMessages.removeAll()
-        if let gallery, !gallery.isBeingDismissed {
+        restorationSnapshot = nil
+        if let request { complete(request, result: false) }
+        if canReturn, let gallery, !gallery.isBeingDismissed,
+           gallery.playbackContext?.isCurrent == true,
+           gallery.viewIfLoaded?.window != nil
+        {
             owner.galleryController = gallery
             gallery.pictureInPictureDidFinish(for: owner)
         } else {
             owner.galleryController = nil
-            if !owner.returnToInlineIfAvailable() {
+            if !canReturn || !owner.returnToInlineIfAvailable() {
                 owner.invalidate()
             }
         }
     }
 }
+
+#if DEBUG
+    extension GalleryPictureInPictureCoordinator {
+        private enum ProbeFailure: Swift.Error { case invariant(String) }
+
+        private final class ProbeIdentity {
+            var source = TdUpdateSource(accountID: UUID(), clientID: 11)
+        }
+
+        private struct ProbeFixture {
+            let identity: ProbeIdentity
+            let changes: PassthroughSubject<TdUpdateSource, Never>
+            let coordinator: GalleryPictureInPictureCoordinator
+            let context: MediaGalleryPlaybackContext
+            let owner: GalleryVideoPlaybackOwner
+            let gallery: MediaGalleryViewController
+            let message: Message
+        }
+
+        static func runDebugProbeIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-media-probe-pip-context") else { return }
+            Task {
+                let result: String
+                do {
+                    try verifyRestorationBindings()
+                    try await verifyContextRevocation(sameAccount: false, pendingStart: false)
+                    try await verifyContextRevocation(sameAccount: true, pendingStart: true)
+                    try verifyRestoreCompletions()
+                    result = "PiP context probe: frozen-authority=true, same-owner-and-view=true, "
+                        + "topic-and-nil-topic=true, action-binding=true, same-tab-pagination-rebound=true, "
+                        + "changed-tab-pagination-disabled=true, weak-route-loss-preserves-authority=true, "
+                        + "account-and-client-revocation=true, client-event-without-account-notification=true, "
+                        + "pending-and-active-retained-until-stop=true, stale-reattach-rejected=true, "
+                        + "restore-completion-once=true, user-stores-untouched=true"
+                } catch {
+                    result = "PiP context probe failed: \(error)"
+                }
+                if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    try? Data(result.utf8).write(
+                        to: directory.appendingPathComponent("pip-context-probe.txt"), options: .atomic,
+                    )
+                }
+                log(result)
+            }
+        }
+
+        private static func verifyRestorationBindings() throws {
+            let fixture = makeProbeFixture(topic: .messageTopicForum(.init(forumTopicId: 42)))
+            let coordinator = fixture.coordinator
+            let owner = fixture.owner
+            defer { owner.completeDebugPictureInPictureStop()
+            owner.invalidate()
+            }
+            var routeExists = true
+            var tab = PeerProfileViewController.SharedTab.media
+            var opened: Int64?
+            var rebinds = 0
+            var pages = 0
+            weak var boundGallery = fixture.gallery
+            fixture.gallery.contextIsCurrent = { routeExists }
+            fixture.gallery.paginationIsCurrent = { tab == .media }
+            fixture.gallery.onOpenMessageID = { opened = $0 }
+            fixture.gallery.onGalleryRestored = { gallery in boundGallery = gallery
+            rebinds += 1
+            }
+            fixture.gallery.onRequestMoreMessages = {
+                pages += 1
+                boundGallery?.updateTotalMessageCount(99)
+            }
+            guard coordinator.prepare(owner: owner, gallery: fixture.gallery, messages: [fixture.message]) else {
+                throw ProbeFailure.invariant("prepare with explicit topic")
+            }
+            owner.setDebugPictureInPictureState(pending: false, active: true)
+            let viewIdentity = owner.debugViewIdentity
+            fixture.gallery.preparePlaybackOwnersForDismissalTransition()
+            var completions = [Bool]()
+            guard coordinator.isRetaining(owner),
+                  let request = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
+                  let restored = coordinator.makeRestoredGallery(owner: owner, request: request)
+            else { throw ProbeFailure.invariant("normal dismissed restoration") }
+            restored.onOpenMessageID?(fixture.message.id)
+            restored.onRequestMoreMessages?()
+            guard restored.playbackContext === fixture.context,
+                  restored.restorationSnapshot?.context.location.topic == fixture.message.topicId,
+                  owner.galleryController === restored, owner.debugViewIdentity == viewIdentity,
+                  opened == fixture.message.id, boundGallery === restored,
+                  pages == 1, rebinds == 1, restored.restorationSnapshot?.totalMessageCount == 99
+            else { throw ProbeFailure.invariant("authority/actions/pagination were not restored") }
+            coordinator.complete(request, result: true)
+            coordinator.complete(request, result: false)
+            guard completions == [true] else { throw ProbeFailure.invariant("duplicate successful completion") }
+
+            coordinator.galleryWillDismiss(restored)
+            tab = .files
+            guard let changedRequest = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
+                  let changedGallery = coordinator.makeRestoredGallery(owner: owner, request: changedRequest)
+            else { throw ProbeFailure.invariant("changed-tab frozen restoration") }
+            guard changedGallery.onRequestMoreMessages == nil, rebinds == 1,
+                  changedGallery.onOpenMessageID != nil,
+                  changedGallery.selectedMessageID == fixture.message.id
+            else { throw ProbeFailure.invariant("changed tab rebound unrelated history") }
+            coordinator.complete(changedRequest, result: true)
+
+            coordinator.galleryWillDismiss(changedGallery)
+            routeExists = false
+            guard let routeRequest = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
+                  let routeGallery = coordinator.makeRestoredGallery(owner: owner, request: routeRequest),
+                  fixture.context.isCurrent, routeGallery.playbackContext === fixture.context,
+                  routeGallery.onOpenMessageID == nil, routeGallery.onRequestMoreMessages == nil
+            else { throw ProbeFailure.invariant("route loss revoked valid playback authority") }
+            coordinator.complete(routeRequest, result: true)
+        }
+
+        private static func verifyContextRevocation(sameAccount: Bool, pendingStart: Bool) async throws {
+            let fixture = makeProbeFixture()
+            let coordinator = fixture.coordinator
+            let owner = fixture.owner
+            defer { owner.completeDebugPictureInPictureStop()
+            owner.invalidate()
+            }
+            // nil topic keeps its existing all-messages meaning.
+            guard fixture.context
+.location
+                .matches(message: makeProbeMessage(topic: .messageTopicForum(.init(forumTopicId: 42)))),
+                  coordinator.prepare(owner: owner, gallery: fixture.gallery, messages: [fixture.message])
+            else { throw ProbeFailure.invariant("nil-topic or prepare") }
+            owner.setDebugPictureInPictureState(pending: pendingStart, active: !pendingStart)
+            var inlineReturns = 0
+            owner.onReturnToInline = { _ in inlineReturns += 1
+            return true
+            }
+            fixture.gallery.preparePlaybackOwnersForDismissalTransition()
+            var completions = [Bool]()
+            guard let request = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
+                  let restored = coordinator.makeRestoredGallery(owner: owner, request: request)
+            else { throw ProbeFailure.invariant("in-flight restore setup") }
+            let timeout = request.timeout
+            let lateRetry = DispatchWorkItem {
+                _ = coordinator.makeRestoredGallery(owner: owner, request: request)
+            }
+            request.retry = lateRetry
+            let original = fixture.identity.source
+            fixture.identity.source = TdUpdateSource(
+                accountID: sameAccount ? original.accountID : UUID(), clientID: 22,
+            )
+            // Only the injected client publisher fires: no account notification,
+            // real activate(), TDLib command or account storage is involved.
+            fixture.changes.send(fixture.identity.source)
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            guard completions == [false], coordinator.isRetaining(owner),
+                  owner.debugIsStopping, !owner.debugIsInvalidated, !fixture.context.isCurrent
+            else { throw ProbeFailure.invariant("replacement did not retain a stopping controller") }
+            lateRetry.perform()
+            timeout?.perform()
+            coordinator.finishPresentation(owner: owner, gallery: restored, request: request)
+            owner.completeDebugPictureInPictureStop()
+            fixture.identity.source = original
+            guard completions == [false], coordinator.activeOwner == nil,
+                  owner.debugIsInvalidated, inlineReturns == 0, !fixture.context.isCurrent,
+                  coordinator.makeRestoredGallery(owner: owner, request: request) == nil
+            else { throw ProbeFailure.invariant("late callback revived or reattached a revoked owner") }
+        }
+
+        private static func verifyRestoreCompletions() throws {
+            for terminal in ["stop", "delete", "failure", "timeout", "supersede"] {
+                let fixture = makeProbeFixture()
+                let coordinator = fixture.coordinator
+                let owner = fixture.owner
+                defer { owner.completeDebugPictureInPictureStop()
+                owner.invalidate()
+                }
+                guard coordinator.prepare(owner: owner, gallery: fixture.gallery, messages: [fixture.message]) else {
+                    throw ProbeFailure.invariant("terminal prepare")
+                }
+                owner.setDebugPictureInPictureState(pending: false, active: true)
+                coordinator.galleryWillDismiss(fixture.gallery)
+                var completions = [Bool]()
+                guard let request = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
+                      let restored = coordinator.makeRestoredGallery(owner: owner, request: request)
+                else { throw ProbeFailure.invariant("terminal restoration factory") }
+                let timeout = request.timeout
+                switch terminal {
+                case "stop": owner.completeDebugPictureInPictureStop()
+                case "delete": owner.confirmPermanentDeletionFromGallery()
+                case "failure":
+                    owner.setDebugPictureInPictureState(pending: false, active: false)
+                    coordinator.didFail(owner: owner)
+                case "timeout": timeout?.perform()
+                default:
+                    guard let replacement = coordinator.beginRestore(
+                        owner: owner,
+                        completion: { completions.append($0) },
+                    ) else {
+                        throw ProbeFailure.invariant("replacement request")
+                    }
+                    coordinator.complete(replacement, result: false)
+                }
+                coordinator.finishPresentation(owner: owner, gallery: restored, request: request)
+                coordinator.complete(request, result: true)
+                timeout?.perform()
+                let expected = terminal == "supersede" ? [false, false] : [false]
+                guard completions == expected else { throw ProbeFailure.invariant("\(terminal) completion count") }
+            }
+        }
+
+        private static func makeProbeFixture(topic: MessageTopic? = nil) -> ProbeFixture {
+            let identity = ProbeIdentity()
+            let source = identity.source
+            let ranges = TDLibVODRangeCoordinator(
+                accountID: source.accountID.uuidString,
+                client: TDLibVODRangeClient(
+                    cancel: { _ in },
+                    download: { _, _, _, _, _ in throw TDLibVODRangeError.cancelled },
+                    downloadedPrefixSize: { _, _ in throw TDLibVODRangeError.cancelled },
+                    getFile: { _ in throw TDLibVODRangeError.cancelled },
+                    isNetworkAvailable: { false },
+                ),
+            )
+            let location = ChatLocation(accountID: source.accountID, chatID: 0, clientID: source.clientID, topic: topic)
+            let context = MediaGalleryPlaybackContext(
+                probeLocation: location, vodRanges: ranges, currentClientMatches: { identity.source == source },
+            )
+            let owner = GalleryVideoPlaybackOwner(probeMessageID: 9001, vodRanges: ranges, playbackContext: context)
+            let changes = PassthroughSubject<TdUpdateSource, Never>()
+            let coordinator = GalleryPictureInPictureCoordinator(clientChanges: changes.eraseToAnyPublisher())
+            let message = makeProbeMessage(topic: topic)
+            let gallery = MediaGalleryViewController(
+                messages: [message], selection: message.id, totalMessageCount: 10,
+                sourceLocation: location, playbackContext: context, pictureInPictureCoordinator: coordinator,
+                transferredPlaybackOwner: owner,
+            )
+            return ProbeFixture(
+                identity: identity, changes: changes, coordinator: coordinator, context: context,
+                owner: owner, gallery: gallery, message: message,
+            )
+        }
+
+        private static func makeProbeMessage(topic: MessageTopic?) -> Message {
+            let file = File(
+                expectedSize: 0, id: 7777,
+                local: .init(
+                    canBeDeleted: false, canBeDownloaded: false, downloadOffset: 0,
+                    downloadedPrefixSize: 0, downloadedSize: 0, isDownloadingActive: false,
+                    isDownloadingCompleted: false, path: "",
+                ),
+                remote: .init(
+                    id: "",
+                    isUploadingActive: false,
+                    isUploadingCompleted: false,
+                    uniqueId: "",
+                    uploadedSize: 0,
+                ),
+                size: 0,
+            )
+            return Message(
+                authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 0,
+                containsUnreadMention: false, containsUnreadPollVotes: false,
+                content: .messageVideo(.init(
+                    alternativeVideos: [], caption: .init(entities: [], text: "context probe"), cover: nil,
+                    hasSpoiler: false, isSecret: false, showCaptionAboveMedia: false, startTimestamp: 0,
+                    storyboards: [],
+                    video: .init(
+                        duration: 1, fileName: "context-probe.mp4", hasStickers: false, height: 16,
+                        mimeType: "video/mp4", minithumbnail: nil, supportsStreaming: false,
+                        thumbnail: nil, video: file, width: 16,
+                    ),
+                )),
+                date: 0, editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
+                guestBotCallerId: nil, hasTimestampedMedia: false, id: 9001, importInfo: nil, interactionInfo: nil,
+                isChannelPost: false, isFromOffline: false, isOutgoing: true, isPaidGramSuggestedPost: false,
+                isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
+                receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
+                selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
+                senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
+                suggestedPostInfo: nil, summaryLanguageCode: "", topicId: topic, unreadReactions: [], viaBotUserId: 0,
+            )
+        }
+    }
+#endif
 
 // MARK: - MediaGalleryCell
 
