@@ -175,6 +175,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A40 | P1 | `6a29431` integration log contains an AppIntents metadata warning for the notification extension; both wrapper output paths concealed this warning | fixed — `eff2876` removes warning filters and unused extension import, skips its inapplicable AppIntents stage. Complete signed/unsigned/final-signed logs are warning-free after A41. Compact-only historical claims are not proof of zero warnings |
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
+| A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1676,6 +1677,32 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a33-primary`. No editor/media item/server action opened. Other widths, dynamic category changes,
   long/RTL titles and scrolled-offset resizing remain unverified. Circular Back remains separate A32 work.
 
+### A43 chat-list read-receipt delivery — 2026-10-03
+
+- Baseline `d8e2bb0`: `ChatListCell.deliveryState` reads the immutable Chat's outgoing read watermark, but generated
+  `updateChatReadOutbox` has no subscriber. Folder rows already observe `CustomChat.objectWillChange`; missing TDLib feed,
+  not missing cell rendering, is the narrow defect. No broad unread-badge or timeline rewrite is included.
+- Add the receipt to Root's existing account/client-scoped observation and active-read projection. Patch only the matching
+  Chat watermark in main/custom/archive instances; deduplicate shared object identities and unchanged values. No getChat
+  round trip. Revision stamps preserve a newer accepted receipt across earlier getChat/hydration/rebuild results while
+  respecting later read and complete-snapshot boundaries. Existing source/epoch retirement remains unchanged.
+- References: Telegram current `6ad963e5b62d354da79040f388ae2b9132fb17b8`,
+  `ChatListUI/Sources/Node/ChatListItem.swift`3393–3411 and1590–1591; pre-Liquid
+  `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, same path3093–3111 and1510–1511: account read counters drive
+  Delivered/Read and accessibility independently of unread badges. TDLib `022d6020`, `td_api.tl`10417–10418;
+  `MessagesManager.cpp`9938–9950,27270–27284 sends the dedicated update;25560–25565 only schedules database persistence.
+  Last-message/position updates are not guaranteed companions. No upstream infrastructure imported.
+- Three Swift files formatted together; `build-Debug-20261003-032256-23469-20517.log`: PASS9s, complete warning/error scan
+  empty. Independent source review found no introduced P1/P2. Audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5,
+  PID `24065`, source `d8e2bb0` plus this delta: root projection, list authority and insertion probes all pass.
+- Expanded probe exercises production scoped NotificationCenter delivery, authority and field patch; multiple distinct
+  folders/archive instances, shared-instance single publication, duplicate/current/wrong-chat/foreign-source handling,
+  old-client queued delivery rejection, stale hydration and newer read/snapshot precedence. Actual `ChatListCell.configure`
+  changes AX from Delivered to Read without a new last message. Its private center/fixture makes no server calls and does not
+  inject updates into the user's Root. RootVM subscriber/table wiring is source-reviewed, not runtime-injected. The fixture
+  retains a lease while switching its fake source to test field ordering; production source changes still invalidate leases,
+  covered by the existing retirement regression. No live peer-read, full list receipt smoke or server mutation claim.
+
 ### A30d ForumTopics client recovery — 2026-10-02
 
 - `958bc82` (worker `45c93ef`) adds prepared same-account replacement of only the stale topic-list navigation slot. Metadata
@@ -1894,7 +1921,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest code `e049da3` includes A30g `55ff037`/`f9b5dad`, visible Retry `e049da3` and A42 `59f187b`.
+- Latest verified implementation includes A43 receipt feed above (three native root regressions PASS, PID `24065`).
+  Its baseline `d8e2bb0` includes A30g `55ff037`/`f9b5dad`, visible Retry `e049da3` and A42 `59f187b`.
   Native Members/Profile regressions pass (PID `99916`); actual `f9b5dad` Members survives two ownership epochs and Admins one,
   with stable small-list geometry and Back→Profile. Actual active-search foreground still needs A30d binding renewal: same-PID
   typing/clearing remains stale until Cancel. This is the next bounded slice; A30g large-list/permission/editor limits remain.

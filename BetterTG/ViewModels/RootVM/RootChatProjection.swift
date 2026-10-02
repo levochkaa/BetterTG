@@ -24,6 +24,7 @@ import TDLibKitDynamic
         var notifications: Stamp<ChatNotificationSettings>?
         var marked: Stamp<Bool>?
         var unread: Stamp<UpdateChatReadInbox>?
+        var readOutbox: Stamp<Int64>?
         var last: Stamp<Message?>?
         var draft: Stamp<DraftMessage?>?
         var positions: Stamp<[ChatPosition]>?
@@ -67,7 +68,8 @@ import TDLibKitDynamic
                 isTranslatable: base.isTranslatable,
                 lastMessage: last.map { $0.replacing(base.lastMessage, after: boundary) } ?? base.lastMessage,
                 lastReadInboxMessageId: read?.lastReadInboxMessageId ?? base.lastReadInboxMessageId,
-                lastReadOutboxMessageId: base.lastReadOutboxMessageId,
+                lastReadOutboxMessageId: readOutbox?.replacing(base.lastReadOutboxMessageId, after: boundary)
+                    ?? base.lastReadOutboxMessageId,
                 messageAutoDeleteTime: base.messageAutoDeleteTime,
                 messageSenderId: base.messageSenderId,
                 notificationSettings: notifications?.replacing(base.notificationSettings, after: boundary) ?? base
@@ -188,6 +190,8 @@ import TDLibKitDynamic
                 }
             case .updateChatReadInbox(let value):
                 modify(value.chatId) { $0.unread = stamp(value) }
+            case .updateChatReadOutbox(let value):
+                modify(value.chatId) { $0.readOutbox = stamp(value.lastReadOutboxMessageId) }
             case .updateChatTitle(let value):
                 modify(value.chatId) { $0.title = stamp(value.title) }
             case .updateChatPhoto(let value):
@@ -233,6 +237,20 @@ import TDLibKitDynamic
     #if DEBUG
         var debugActiveReadCount: Int { leases.count }
     #endif
+
+    /// Apply the receipt without a redundant getChat round trip. The same typed
+    /// field patch also protects active hydration/rebuild reads from stale data.
+    static func applyReadOutbox(_ update: UpdateChatReadOutbox, to folders: [CustomFolder]) {
+        let delta = Delta(readOutbox: .init(revision: 1, value: update.lastReadOutboxMessageId))
+        var visited = Set<ObjectIdentifier>()
+        for folder in folders {
+            for chat in folder.chats where chat.id == update.chatId {
+                guard visited.insert(ObjectIdentifier(chat)).inserted,
+                      chat.chat.lastReadOutboxMessageId != update.lastReadOutboxMessageId else { continue }
+                chat.chat = delta.applying(to: chat.chat, after: 0)
+            }
+        }
+    }
 
     func begin(chatID: Int64? = nil) -> Lease {
         let lease = Lease(chatID: chatID)

@@ -1,8 +1,10 @@
 // RootChatProjectionProbe.swift
 
 #if DEBUG
+    import Combine
     import Foundation
     import TDLibKitDynamic
+    import UIKit
 
     @MainActor enum RootChatProjectionProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
@@ -24,6 +26,7 @@
                 let result: String
                 do {
                     try verifyReadBoundaries()
+                    try await verifyReadOutbox()
                     try await verifyRebuild()
                     try await verifyInsertionAdmission()
                     try await verifyInsertionRetirement()
@@ -31,6 +34,7 @@
                     result = "Root chat projection probe passed: actual-reducer/insertion-helper=true; "
                         + "pre-read-freshness/raw-peer-boundaries/nil-fields=true; suspended-rebuild/new-folder/complete-partial-membership=true; "
                         + "late-insertion-unread/user/notification/title=true; coalesced-feed/terminal/supersession/epoch/refresh-retirement=true; "
+                        + "scoped-outbox/live-folder-archive-patch/stale-hydration/native-cell-read-AX=true; "
                         + "RootVM/notification-RPC-wiring=source-reviewed; real-folder-rebuild=unverified; server-calls=0"
                 } catch {
                     result = "Root chat projection probe failed: \(error)"
@@ -170,6 +174,101 @@
                 projection.debugActiveReadCount == 0 && !read.isValid && !replacement.isValid,
                 "epoch invalidation retained active reads",
             )
+        }
+
+        private static func verifyReadOutbox() async throws {
+            let projection = RootChatProjection()
+            let authority = RootListAuthority()
+            let source = TdUpdateSource(accountID: UUID(), clientID: 1)
+            let replacement = TdUpdateSource(accountID: source.accountID, clientID: 2)
+            var current = source
+            let center = NotificationCenter()
+            var subscriptions = Set<AnyCancellable>()
+            let message = populatedChat(isOutgoing: true).lastMessage
+            let main = RootChatInsertionProbe.chat(position(50), user: user("receipt"), last: message, unread: 3)
+            let archived = RootChatInsertionProbe.chat(position(40, list: .chatListArchive), last: message)
+            let other = RootChatInsertionProbe.chat(position(30), id: 8)
+            let folder = RootChatInsertionProbe.folder()
+            folder.chats = [main]
+            let folders = [
+                CustomFolder(chats: [main, other], type: .main), folder,
+                CustomFolder(chats: [archived], type: .archive),
+            ]
+            var published = 0
+            main.objectWillChange.sink { published += 1 }.store(in: &subscriptions)
+            center.scopedPublisher(&subscriptions, for: .updateChatReadOutbox) { event in
+                guard authority.accepts(
+                    event.source, ownerAccountID: source.accountID, activeSource: current,
+                ) else { return }
+                projection.record(.updateChatReadOutbox(event.value))
+                RootChatProjection.applyReadOutbox(event.value, to: folders)
+            }
+            func post(_ value: Int64, from source: TdUpdateSource) {
+                center.postTdUpdate(
+                    name: .updateChatReadOutbox,
+                    object: UpdateChatReadOutbox(chatId: 7, lastReadOutboxMessageId: value), source: source,
+                )
+            }
+            func drain() async {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.main.async { continuation.resume() }
+                }
+            }
+            let cell = ChatListCell(style: .default, reuseIdentifier: ChatListCell.reuseIdentifier)
+            let client = TDLib.shared.activeClient
+            cell.configure(chat: main, isMuted: false, client: client)
+            try require(cell.accessibilityLabel?.contains(", Delivered") == true, "receipt baseline was not delivered")
+            post(1, from: source)
+            await drain()
+            try require(
+                main.chat.lastReadOutboxMessageId == 1 && archived.chat.lastReadOutboxMessageId == 1
+                && other.chat.lastReadOutboxMessageId == 0 && published == 1
+                && main.unreadCount == 3 && main.lastMessage == message,
+                "receipt did not patch all exact rows once or changed another field/chat",
+            )
+            cell.configure(chat: main, isMuted: false, client: client)
+            try require(cell.accessibilityLabel?.contains(", Read") == true, "native list cell did not expose Read")
+            post(1, from: source)
+            await drain()
+            try require(published == 1, "duplicate receipt republished unchanged live rows")
+
+            let lease = projection.begin(chatID: 7)
+            defer { projection.finish(lease) }
+            let boundary = projection.revision
+            let pendingRaw = main.chat
+            post(9, from: source)
+            current = replacement
+            authority.invalidate()
+            post(2, from: replacement)
+            post(10, from: TdUpdateSource(accountID: UUID(), clientID: replacement.clientID))
+            center.post(
+                name: .updateChatReadOutbox,
+                object: UpdateChatReadOutbox(chatId: 7, lastReadOutboxMessageId: 11),
+            )
+            await drain()
+            try require(
+                main.chat.lastReadOutboxMessageId == 2 && archived.chat.lastReadOutboxMessageId == 2
+                && published == 2 && projection.revision == boundary + 1,
+                "queued old-client/foreign-account/unscoped receipt crossed authority",
+            )
+            try require(
+                lease.project(pendingRaw, after: boundary).lastReadOutboxMessageId == 2
+                && lease.project(pendingRaw, after: projection.revision).lastReadOutboxMessageId == 1,
+                "outbox projection lost delayed-read update or overwrote a newer read boundary",
+            )
+            let hydrated = RootChatInsertionProbe.chat(position(50), last: message)
+            lease.track(hydrated, raw: boundary, peer: boundary)
+            try require(hydrated.chat.lastReadOutboxMessageId == 2, "late insertion lost accepted read receipt")
+            projection.record(.updateNewChat(.init(chat: pendingRaw)))
+            try require(
+                lease.project(pendingRaw, after: boundary).lastReadOutboxMessageId == 1,
+                "older receipt overrode a newer complete chat snapshot",
+            )
+            projection.record(.updateChatReadOutbox(.init(chatId: 7, lastReadOutboxMessageId: 3)))
+            lease.project(hydrated)
+            try require(hydrated.chat.lastReadOutboxMessageId == 3, "receipt after complete snapshot was lost")
+            projection.invalidate()
+            try require(!lease.isValid && lease.debugRetainedChatCount == 0, "retired receipt lease retained data")
         }
 
         private static func verifyRebuild() async throws {
@@ -490,7 +589,7 @@
             )
         }
 
-        private static func populatedChat() -> CustomChat {
+        private static func populatedChat(isOutgoing: Bool = false) -> CustomChat {
             let text = FormattedText(entities: [], text: "old")
             let draft = DraftMessage(
                 content: .draftMessageContentText(.init(linkPreviewOptions: nil, text: text)),
@@ -507,7 +606,7 @@
                 effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil, guestBotCallerId: nil,
                 hasTimestampedMedia: false,
                 id: 1, importInfo: nil, interactionInfo: nil, isChannelPost: false, isFromOffline: false,
-                isOutgoing: false,
+                isOutgoing: isOutgoing,
                 isPaidGramSuggestedPost: false, isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0,
                 paidMessageStarCount: 0,
                 receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,

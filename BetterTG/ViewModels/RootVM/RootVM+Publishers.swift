@@ -53,6 +53,9 @@ extension RootVM {
                 folder.chats.first(where: { $0.id == update.chatId })?.unreadCount = update.unreadCount
             }
         }
+        observeListUpdate(.updateChatReadOutbox, projecting: Update.updateChatReadOutbox) { owner, update in
+            RootChatProjection.applyReadOutbox(update, to: owner.allFolders)
+        }
         observeListUpdate(.updateNewChat, projecting: Update.updateNewChat) { $0.updateNewChat($1) }
         observeListUpdate(.updateChatPosition, projecting: Update.updateChatPosition) { $0.updateChatPosition($1) }
         observeListUpdate(.updateChatDraftMessage, projecting: Update.updateChatDraftMessage) {
