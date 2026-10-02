@@ -26,6 +26,7 @@ final class MessageMediaView: UIView {
 
     @discardableResult func configure(
         message: CustomMessage,
+        client: TDLibClient,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
@@ -71,6 +72,7 @@ final class MessageMediaView: UIView {
                     let animationView = FFmpegAnimatedVideoView()
                     animationView.configure(
                         file: animation.animation.animation,
+                        client: client,
                         thumbnail: animation.animation.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: animation.animation.width,
@@ -95,6 +97,7 @@ final class MessageMediaView: UIView {
                     let stickerView = TGSStickerView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
+                        client: client,
                         thumbnail: sticker.sticker.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: sticker.sticker.width,
@@ -107,6 +110,7 @@ final class MessageMediaView: UIView {
                     let stickerView = AnimatedWebPView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
+                        client: client,
                         thumbnail: sticker.sticker.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: sticker.sticker.width,
@@ -119,6 +123,7 @@ final class MessageMediaView: UIView {
                     let stickerView = FFmpegAnimatedVideoView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
+                        client: client,
                         thumbnail: sticker.sticker.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: sticker.sticker.width,

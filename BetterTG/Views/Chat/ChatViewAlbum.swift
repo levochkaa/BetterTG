@@ -1253,7 +1253,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             completion(false)
             return
         }
-        cell.configure(message: messages[index], videoPlaybackOwner: owner)
+        cell.configure(message: messages[index], client: playbackContext.client, videoPlaybackOwner: owner)
         cell.setPlaybackVisible(true)
         updateCounter()
         bindSelectedCellChrome()
@@ -3567,7 +3567,11 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
         ) as? MediaGalleryCell else { return UICollectionViewCell() }
         guard hasCurrentContext, !didReleasePlaybackOwners else { return cell }
         let message = messages[indexPath.item]
-        cell.configure(message: message, videoPlaybackOwner: playbackOwner(for: message))
+        cell.configure(
+            message: message,
+            client: playbackContext?.client,
+            videoPlaybackOwner: playbackOwner(for: message),
+        )
         return cell
     }
 }
@@ -6259,7 +6263,7 @@ final class MediaGalleryCell: UICollectionViewCell {
         }
     }
 
-    func configure(message: Message, videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil) {
+    func configure(message: Message, client: TDLibClient?, videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil) {
         prepareForReuse()
         transitionMediaSize = Self.mediaSize(for: message)
         if let videoPlaybackOwner {
@@ -6271,6 +6275,7 @@ final class MediaGalleryCell: UICollectionViewCell {
             return
         }
         let view: UIView & GalleryMediaView
+        guard let client else { return }
         switch message.content {
         case .messagePhoto(let photo):
             let imageView = ZoomableGalleryImageView()
@@ -6281,6 +6286,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 let animationView = FFmpegAnimatedVideoView(frame: .zero)
                 animationView.configure(
                     file: animation.animation.animation,
+                    client: client,
                     thumbnail: animation.animation.thumbnail,
                     displaySize: nil,
                     onTap: nil,
@@ -6304,6 +6310,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 let stickerView = TGSStickerView(frame: .zero)
                 stickerView.configure(
                     file: sticker.sticker.sticker,
+                    client: client,
                     thumbnail: sticker.sticker.thumbnail,
                     displaySize: nil,
                     onTap: nil,
@@ -6313,6 +6320,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 let stickerView = AnimatedWebPView(frame: .zero)
                 stickerView.configure(
                     file: sticker.sticker.sticker,
+                    client: client,
                     thumbnail: sticker.sticker.thumbnail,
                     displaySize: nil,
                     onTap: nil,
@@ -6322,6 +6330,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 let stickerView = FFmpegAnimatedVideoView(frame: .zero)
                 stickerView.configure(
                     file: sticker.sticker.sticker,
+                    client: client,
                     thumbnail: sticker.sticker.thumbnail,
                     displaySize: nil,
                     onTap: nil,

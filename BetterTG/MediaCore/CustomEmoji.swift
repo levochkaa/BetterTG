@@ -20,10 +20,6 @@ actor CustomEmojiStickerRepository {
     private var stickersByKey = [CacheKey: Sticker]()
     private var missingKeys = Set<CacheKey>()
 
-    func stickers(for identifiers: [TdInt64]) async -> [TdInt64: Sticker] {
-        await stickers(for: identifiers, client: td)
-    }
-
     func stickers(
         for identifiers: [TdInt64],
         client: TDLibClient,
@@ -68,7 +64,7 @@ final class CustomEmojiInlineView: UIView {
     private var contentView: (UIView & AnimatedFileView)?
     private var playbackVisible = false
 
-    func configure(sticker: Sticker) {
+    func configure(sticker: Sticker, client: TDLibClient) {
         prepareForReuse()
         let view: UIView & AnimatedFileView =
             switch sticker.format {
@@ -90,6 +86,7 @@ final class CustomEmojiInlineView: UIView {
         ])
         view.configure(
             file: sticker.sticker,
+            client: client,
             thumbnail: sticker.thumbnail,
             displaySize: nil,
             onTap: nil,

@@ -189,7 +189,7 @@ private final class ForumTopicRunIconView: UIView {
                       self.generation == currentGeneration,
                       let sticker
                 else { return }
-                self.install(sticker)
+                self.install(sticker, client: client)
             }
         }
     }
@@ -208,7 +208,7 @@ private final class ForumTopicRunIconView: UIView {
         imageView.image = nil
     }
 
-    private func install(_ sticker: Sticker) {
+    private func install(_ sticker: Sticker, client: TDLibClient) {
         let view = CustomEmojiInlineView()
         customEmojiView = view
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -220,7 +220,7 @@ private final class ForumTopicRunIconView: UIView {
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        view.configure(sticker: sticker)
+        view.configure(sticker: sticker, client: client)
         view.onFirstFrameReady = { [weak self, weak view] in
             guard let self, customEmojiView === view else { return }
             backgroundView.isHidden = true

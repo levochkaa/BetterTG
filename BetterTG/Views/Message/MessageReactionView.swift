@@ -101,7 +101,7 @@ final class MessageReactionStripView: UIView {
                     for (identifier, buttons) in customButtons {
                         guard let sticker = stickers[identifier] else { continue }
                         for button in buttons {
-                            button.installCustomEmoji(sticker)
+                            button.installCustomEmoji(sticker, client: client)
                             button.setPlaybackVisible(self.playbackVisible)
                         }
                     }
@@ -314,7 +314,7 @@ private final class MessageReactionButton: UIControl {
         accessibilityTraits = reaction.isChosen ? [.button, .selected] : [.button]
     }
 
-    func installCustomEmoji(_ sticker: Sticker) {
+    func installCustomEmoji(_ sticker: Sticker, client: TDLibClient) {
         customEmojiView?.prepareForReuse()
         customEmojiView?.removeFromSuperview()
         let view = CustomEmojiInlineView()
@@ -328,7 +328,7 @@ private final class MessageReactionButton: UIControl {
             view.widthAnchor.constraint(equalToConstant: 20),
             view.heightAnchor.constraint(equalToConstant: 20),
         ])
-        view.configure(sticker: sticker)
+        view.configure(sticker: sticker, client: client)
         view.onFirstFrameReady = { [weak self, weak view] in
             guard let self, let view, customEmojiView === view else { return }
             emojiLabel.isHidden = true

@@ -210,7 +210,7 @@ UISearchBarDelegate {
                     for: indexPath,
                 ) as? ComposerStickerCell
                 if let sticker = stickers[id] {
-                    cell?.configure(sticker: sticker)
+                    cell?.configure(sticker: sticker, client: client)
                 }
                 return cell ?? UICollectionViewCell()
             case .animation(let id):
@@ -360,8 +360,8 @@ private final class ComposerStickerCell: UICollectionViewCell {
         stickerView.prepareForReuse()
     }
 
-    func configure(sticker: Sticker) {
-        stickerView.configure(sticker: sticker)
+    func configure(sticker: Sticker, client: TDLibClient) {
+        stickerView.configure(sticker: sticker, client: client)
         isAccessibilityElement = true
         accessibilityLabel = sticker.emoji.isEmpty ? "Sticker" : "Sticker \(sticker.emoji)"
         accessibilityTraits = .button

@@ -8,6 +8,7 @@ protocol AnimatedFileView where Self: UIView {
 
     func configure(
         file: File,
+        client: TDLibClient,
         thumbnail: Thumbnail?,
         displaySize: CGSize?,
         onTap: (() -> Void)?,

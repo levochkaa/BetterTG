@@ -462,6 +462,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         let hasMedia = mediaView.configure(
             message: message,
+            client: client,
             videoPlaybackOwners: videoPlaybackOwners,
         ) { [weak self] messages, selection in
             self?.onMediaTap?(messages, selection)
@@ -486,6 +487,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             textView.isHidden = false
             textView.configure(
                 formattedText: formatted,
+                client: client,
                 statusText: timestampText,
                 statusColor: timestampColor,
                 maximumWidth: maximumTextWidth(for: bounds.width),

@@ -241,13 +241,13 @@ final class MessageStructuredContentView: UIView {
         let view: (UIView & MessageSupplementView)? =
             switch presentation.supplement {
             case .animatedEmoji(let emoji, let content):
-                StickerGlyphContentView(emoji: emoji, sticker: content.sticker, value: nil)
+                StickerGlyphContentView(emoji: emoji, sticker: content.sticker, value: nil, client: client)
             case .audio(let audio):
                 TelegramFileMessageView(audio: audio, client: client, onAction: onAction)
             case .contact(let contact):
                 ContactMessageContentView(contact: contact, onAction: onAction)
             case .dice(let dice):
-                StickerGlyphContentView(emoji: dice.emoji, sticker: dice.sticker, value: dice.value)
+                StickerGlyphContentView(emoji: dice.emoji, sticker: dice.sticker, value: dice.value, client: client)
             case .document(let document):
                 TelegramFileMessageView(document: document, client: client, onAction: onAction)
             case .location(let location):
@@ -1433,7 +1433,7 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
     private let emojiLabel = UILabel()
     private var stickerView: CustomEmojiInlineView?
 
-    init(emoji: String, sticker: Sticker?, value: Int?) {
+    init(emoji: String, sticker: Sticker?, value: Int?, client: TDLibClient) {
         super.init(frame: .zero)
         emojiLabel.translatesAutoresizingMaskIntoConstraints = false
         emojiLabel.text = emoji
@@ -1445,7 +1445,7 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
         if let sticker {
             let stickerView = CustomEmojiInlineView()
             stickerView.translatesAutoresizingMaskIntoConstraints = false
-            stickerView.configure(sticker: sticker)
+            stickerView.configure(sticker: sticker, client: client)
             addSubview(stickerView)
             self.stickerView = stickerView
             NSLayoutConstraint.activate([

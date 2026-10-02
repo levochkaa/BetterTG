@@ -53,6 +53,7 @@
                 configureReply(expanded: false)
                 textView.configure(
                     formattedText: destinationText,
+                    client: td,
                     statusText: "03:45",
                     statusColor: .secondaryLabel,
                     maximumWidth: 320,

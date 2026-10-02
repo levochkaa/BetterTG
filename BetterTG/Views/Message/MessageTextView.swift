@@ -93,6 +93,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
 
     func configure(
         formattedText: FormattedText,
+        client: TDLibClient,
         statusText: String,
         statusColor: UIColor,
         maximumWidth: CGFloat = Utils.maxMessageContentWidth,
@@ -108,7 +109,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         )
         result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
         attributedText = result
-        loadCustomEmoji(from: formattedText)
+        loadCustomEmoji(from: formattedText, client: client)
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
         accessibilityLabel = formattedText.text
@@ -194,7 +195,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         return (ceil(usedRect.width), ceil(usedRect.height))
     }
 
-    private func loadCustomEmoji(from formattedText: FormattedText) {
+    private func loadCustomEmoji(from formattedText: FormattedText, client: TDLibClient) {
         let requests = formattedText.entities.compactMap { entity -> CustomEmojiRequest? in
             guard case .textEntityTypeCustomEmoji(let customEmoji) = entity.type else { return nil }
             return CustomEmojiRequest(
@@ -208,11 +209,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
         customEmojiTask = Task { [weak self] in
             let stickers = await CustomEmojiStickerRepository.shared.stickers(
                 for: requests.map(\.identifier),
+                client: client,
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.customEmojiGeneration == generation else { return }
-                self.installCustomEmoji(requests: requests, stickers: stickers)
+                self.installCustomEmoji(requests: requests, stickers: stickers, client: client)
             }
         }
     }
@@ -220,6 +222,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private func installCustomEmoji(
         requests: [CustomEmojiRequest],
         stickers: [TdInt64: Sticker],
+        client: TDLibClient,
     ) {
         for request in requests {
             guard let sticker = stickers[request.identifier],
@@ -227,7 +230,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
             else { continue }
             let emojiView = CustomEmojiInlineView()
             emojiView.isUserInteractionEnabled = false
-            emojiView.configure(sticker: sticker)
+            emojiView.configure(sticker: sticker, client: client)
             emojiView.onFirstFrameReady = { [weak self, weak emojiView] in
                 guard let self, let emojiView,
                       customEmojiPlacements.contains(where: { $0.view === emojiView }),

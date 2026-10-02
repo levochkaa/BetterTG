@@ -521,7 +521,7 @@ private final class ForumTopicIconView: UIView {
                       self.generation == currentGeneration,
                       let sticker
                 else { return }
-                self.install(sticker)
+                self.install(sticker, client: client)
             }
         }
     }
@@ -540,7 +540,7 @@ private final class ForumTopicIconView: UIView {
         fallbackImageView.image = nil
     }
 
-    private func install(_ sticker: Sticker) {
+    private func install(_ sticker: Sticker, client: TDLibClient) {
         let view = CustomEmojiInlineView()
         customEmojiView = view
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -552,7 +552,7 @@ private final class ForumTopicIconView: UIView {
             view.widthAnchor.constraint(equalToConstant: 24),
             view.heightAnchor.constraint(equalToConstant: 24),
         ])
-        view.configure(sticker: sticker)
+        view.configure(sticker: sticker, client: client)
         view.onFirstFrameReady = { [weak self, weak view] in
             guard let self, customEmojiView === view else { return }
             backgroundView.isHidden = true

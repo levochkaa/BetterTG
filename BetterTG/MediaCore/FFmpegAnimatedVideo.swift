@@ -412,12 +412,12 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     func configure(
         file: File,
+        client: TDLibClient,
         thumbnail: Thumbnail?,
         displaySize: CGSize?,
         onTap: (() -> Void)?,
     ) {
         prepareForReuse()
-        let client = td
         guard let request = AnimatedFileDownload(fileID: file.id, client: client) else { return }
         fileRequest = request
         representedFileID = file.id
@@ -465,6 +465,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         frameView.isHidden = true
         thumbnailView.isHidden = false
         thumbnailView.cancel()
+        thumbnailView.image = nil
         widthConstraint.isActive = false
         heightConstraint.isActive = false
     }
