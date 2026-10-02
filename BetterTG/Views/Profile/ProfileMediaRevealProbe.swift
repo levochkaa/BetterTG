@@ -1,0 +1,284 @@
+// ProfileMediaRevealProbe.swift
+
+#if DEBUG
+import Combine
+import TDLibKitDynamic
+import UIKit
+
+@MainActor enum ProfileMediaRevealProbe {
+    private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
+    private final class Identity {
+        var source = TdUpdateSource(accountID: UUID(), clientID: 311)
+        let changes = PassthroughSubject<TdUpdateSource, Never>()
+    }
+
+    private struct Fixture {
+        let identity: Identity
+        let context: MediaGalleryPlaybackContext
+        let session: MediaRevealSession
+        let backend: TDLibVODProbeBackend
+        let file: File
+    }
+
+    static func runIfRequested(in window: UIWindow) {
+        guard ProcessInfo.processInfo.arguments.contains("-ui-probe-profile-media-reveal") else { return }
+        Task {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("profile-media-reveal-\(UUID())")
+            let result: String
+            do {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: root) }
+                guard let png = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24))
+                    .image(actions: { renderer in
+                    UIColor.systemRed.setFill()
+                    renderer.fill(CGRect(x: 0, y: 0, width: 24, height: 24))
+                })
+.pngData() else { throw Failure(description: "PNG fixture") }
+                let url = root.appendingPathComponent("private.png")
+                try png.write(to: url)
+                try await verifyCells(window: window, url: url, png: png)
+                result = "Profile media reveal probe passed: actual-grid/photo/video/secret=true; "
+                    + "pre-reveal-loads=0; covered-AX=true; cover-only-snapshot=true; first-tap-gallery=true; "
+                    + "selected-and-paged-grants-only=true; return-refresh=true; accepted-revision-reconceals=true; "
+                    + "stale-snapshot/reuse/source-denied=true; ordinary-caption-spoiler-AX=true; "
+                    + "thumbnail-transport=private-PNG-injection; actual-TDLib/profile-navigation/VoiceOver=unverified"
+            } catch {
+                result = "Profile media reveal probe failed: \(error)"
+            }
+            if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? Data(result.utf8).write(
+                    to: documents.appendingPathComponent("profile-media-reveal-probe.txt"),
+                    options: .atomic,
+                )
+            }
+            log(result)
+        }
+    }
+
+    private static func fixture(url: URL, accountID: UUID? = nil, clientID: Int32 = 311) async throws -> Fixture {
+        guard let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        else { throw Failure(description: "fixture size") }
+        let backend = TDLibVODProbeBackend(
+            fileURL: url, fileSize: size.int64Value, network: TDLibVODProbeNetwork(available: false),
+        )
+        let identity = Identity()
+        identity.source = TdUpdateSource(accountID: accountID ?? UUID(), clientID: clientID)
+        let source = identity.source
+        let context = MediaGalleryPlaybackContext(
+            probeLocation: ChatLocation(accountID: source.accountID, chatID: 0, clientID: source.clientID, topic: nil),
+            vodRanges: TDLibVODRangeCoordinator(accountID: source.accountID.uuidString, client: backend.client),
+            clientChanges: identity.changes.eraseToAnyPublisher(),
+            currentClientMatches: { identity.source == source },
+        )
+        return await Fixture(
+            identity: identity,
+            context: context,
+            session: MediaRevealSession(context: context),
+            backend: backend,
+            file: backend.file(expectedSize: size.int64Value),
+        )
+    }
+
+    private static func verifyCells(window: UIWindow, url: URL, png: Data) async throws {
+        let f = try await fixture(url: url)
+        let messages = (1...3).map { message(file: f.file, id: Int64($0), png: png) }
+        f.session.reconcile(messages)
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 150))
+        host.isHidden = true
+        window.addSubview(host)
+        defer { host.removeFromSuperview() }
+        var loads = [Int64]()
+        let cells = messages.enumerated().map { index, message in
+            let cell = SharedMediaGridCell(frame: CGRect(x: index * 120, y: 0, width: 110, height: 110))
+            cell.debugThumbnailLoader = { loaded, imageView in
+                loads.append(loaded.id)
+                imageView.loadPlaceholder(data: png)
+            }
+            host.addSubview(cell)
+            cell.configure(message: message, context: f.context, permit: f.session.permit(for: message))
+            cell.layoutIfNeeded()
+            return cell
+        }
+        for cell in cells {
+            cell.pauseLoading()
+            cell.resumeLoading()
+            try require(
+                cell.debugHasCover && !cell.debugHasRawImage && cell.accessibilityLabel == "Media spoiler",
+                "raw concealed cell/AX",
+            )
+            try require(cell.contentView.subviews.compactMap { $0 as? MediaConcealmentView }.allSatisfy {
+                !$0.isUserInteractionEnabled && !$0.isAccessibilityElement
+            }, "cover intercepts first tap or duplicates AX")
+        }
+        try require(loads.isEmpty, "concealed cell loaded thumbnail/minithumbnail")
+        let coveredSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
+        try require(coveredSnapshot?.snapshotView is MediaConcealmentView, "raw covered transition")
+
+        // Use the actual gallery initializer/selection, never a synthetic reveal policy.
+        let gallery = MediaGalleryViewController(
+            messages: messages, selection: 2, sourceLocation: f.context.location,
+            playbackContext: f.context, mediaRevealSession: f.session,
+        )
+        gallery.loadViewIfNeeded()
+        for cell in cells {
+            cell.refreshRevealState()
+        }
+        try require(
+            loads == [2] && cells[1].debugHasRawImage && cells[0].debugHasCover && cells[2].debugHasCover,
+            "first gallery tap did not grant only selected member",
+        )
+        try require(coveredSnapshot?.snapshotView == nil, "old cover snapshot survived render replacement")
+        let rawSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
+        try require((rawSnapshot?.snapshotView as? UIImageView)?.image != nil, "revealed image snapshot absent")
+        try require(
+            cells[1].accessibilityLabel?.contains("hidden-caption") == false,
+            "text spoiler caption leaked after media reveal",
+        )
+        gallery.debugRevealSelection(at: 2)
+        for cell in cells {
+            cell.refreshRevealState()
+        }
+        try require(
+            loads == [2, 3] && cells[0].debugHasCover && cells[2].debugHasRawImage,
+            "gallery paging/return overgranted",
+        )
+
+        let replacement = message(file: f.file, id: 2, revision: 1, png: png)
+        f.session.reconcile([replacement])
+        try require(
+            cells[1].debugHasCover && !cells[1].debugHasRawImage && rawSnapshot?.snapshotView == nil,
+            "accepted revision did not synchronously revoke grid/snapshot",
+        )
+        try require(gallery.debugRevealMessage(at: 1).editDate == 1, "gallery kept stale profile payload")
+        cells[1].configure(message: replacement, context: f.context, permit: f.session.permit(for: replacement))
+        cells[1].pauseLoading()
+        cells[1].resumeLoading()
+        try require(loads == [2, 3], "replacement loaded before a fresh grant")
+        gallery.debugRevealSelection(at: 1)
+        cells[1].refreshRevealState()
+        try require(loads == [2, 3, 2] && cells[1].debugHasRawImage, "fresh accepted revision cannot reveal")
+        let reusedSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
+        cells[1].prepareForReuse()
+        cells[1].configure(message: messages[0], context: f.context, permit: f.session.permit(for: messages[0]))
+        try require(
+            reusedSnapshot?.snapshotView == nil && !cells[1].debugHasRawImage && cells[1].debugHasCover,
+            "reuse retained grant or source pixels",
+        )
+        f.session.reconcile([message(file: f.file, id: 2, revision: 2, png: png)])
+        try require(loads == [2, 3, 2] && cells[1].debugHasCover, "late old member callback affected reuse")
+
+        let currentSnapshot = cells[2].transitionTarget(for: 3, validation: { true })
+        f.identity.source = TdUpdateSource(accountID: UUID(), clientID: 312)
+        f.identity.changes.send(f.identity.source)
+        try require(currentSnapshot?.snapshotView == nil, "source switch left valid snapshot")
+        try await wait { cells[2].debugHasCover }
+        cells[2].pauseLoading()
+        cells[2].resumeLoading()
+        try require(!cells[2].debugHasRawImage && loads == [2, 3, 2], "old client cell resumed download")
+
+        let other = try await fixture(url: url)
+        other.session.reconcile(messages)
+        cells[2].configure(message: messages[2], context: other.context, permit: f.session.permit(for: messages[2]))
+        try require(cells[2].debugHasCover && loads == [2, 3, 2], "foreign session capability admitted")
+        cells[2].configure(message: messages[2], context: other.context, permit: other.session.permit(for: messages[2]))
+        try require(cells[2].debugHasCover, "colliding account/message inherited reveal")
+
+        // Same account, replacement client: grants cannot cross an epoch either.
+        other.session.reveal(messages[2])
+        cells[2].refreshRevealState()
+        let epochPermit = other.session.permit(for: messages[2])
+        cells[2].configure(message: messages[2], context: f.context, permit: epochPermit)
+        try require(cells[2].debugHasCover && !cells[2].debugHasRawImage, "current foreign permit admitted")
+        let epoch = try await fixture(url: url, accountID: other.identity.source.accountID, clientID: 313)
+        epoch.session.reconcile(messages)
+        cells[2].configure(message: messages[2], context: epoch.context, permit: epochPermit)
+        try require(cells[2].debugHasCover && !cells[2].debugHasRawImage, "replacement-client capability admitted")
+
+        for video in [false, true] {
+            let covered = message(file: epoch.file, id: video ? 11 : 10, video: video, png: png)
+            let secret = message(file: epoch.file, id: video ? 13 : 12, video: video, secret: true, png: png)
+            epoch.session.reconcile([covered, secret])
+            let count = loads.count
+            for message in [covered, secret] {
+                cells[0].configure(message: message, context: epoch.context, permit: epoch.session.permit(for: message))
+                cells[0].pauseLoading()
+                cells[0].resumeLoading()
+                try require(
+                    cells[0].debugHasCover && !cells[0].debugHasRawImage && loads.count == count,
+                    "photo/video minithumbnail bypassed cover",
+                )
+            }
+            try require(
+                !epoch.session.reveal(secret) && cells[0].accessibilityLabel == "Protected media",
+                "secret admitted",
+            )
+        }
+        let ordinary = message(file: epoch.file, id: 20, spoiler: false, png: png)
+        epoch.session.reconcile([ordinary])
+        cells[0].configure(message: ordinary, context: epoch.context, permit: epoch.session.permit(for: ordinary))
+        try require(cells[0].debugHasRawImage && !cells[0].debugHasCover, "ordinary media regressed")
+        try require(cells[0].accessibilityLabel?.contains("hidden-caption") == false, "ordinary text spoiler AX leaked")
+        let firstDownloads = await f.backend.downloadCalls
+        let otherDownloads = await other.backend.downloadCalls
+        let epochDownloads = await epoch.backend.downloadCalls
+        try require(
+            firstDownloads.isEmpty && otherDownloads.isEmpty && epochDownloads.isEmpty,
+            "probe unexpectedly started VOD transport",
+        )
+    }
+
+    private static func message(
+        file: File,
+        id: Int64,
+        revision: Int = 0,
+        video: Bool = false,
+        secret: Bool = false,
+        spoiler: Bool = true,
+        png: Data,
+    ) -> Message {
+        let caption = FormattedText(
+            entities: [.init(length: 14, offset: 0, type: .textEntityTypeSpoiler)],
+            text: "hidden-caption",
+        )
+        let mini = Minithumbnail(data: png, height: 24, width: 24)
+        let content: MessageContent = video
+            ? .messageVideo(.init(
+                alternativeVideos: [], caption: caption, cover: nil, hasSpoiler: spoiler, isSecret: secret,
+                showCaptionAboveMedia: false, startTimestamp: 0, storyboards: [], video: .init(
+                    duration: 1, fileName: "private.mp4", hasStickers: false, height: 24, mimeType: "video/mp4",
+                    minithumbnail: mini, supportsStreaming: false, thumbnail: nil, video: file, width: 24,
+                ),
+            ))
+            : .messagePhoto(.init(
+                caption: caption, hasSpoiler: spoiler, isSecret: secret, photo: .init(
+                    hasStickers: false, minithumbnail: mini,
+                    sizes: [.init(height: 24, photo: file, progressiveSizes: [], type: "y", width: 24)],
+                ), showCaptionAboveMedia: false, video: nil,
+            ))
+        return Message(
+            authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 0,
+            containsUnreadMention: false, containsUnreadPollVotes: false, content: content,
+            date: 0, editDate: revision, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
+            guestBotCallerId: nil, hasTimestampedMedia: false, id: id, importInfo: nil, interactionInfo: nil,
+            isChannelPost: false, isFromOffline: false, isOutgoing: true, isPaidGramSuggestedPost: false,
+            isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
+            receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
+            selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
+            senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
+            suggestedPostInfo: nil, summaryLanguageCode: "", topicId: nil, unreadReactions: [], viaBotUserId: 0,
+        )
+    }
+
+    private static func require(_ condition: Bool, _ message: String) throws {
+        guard condition else { throw Failure(description: message) }
+    }
+
+    private static func wait(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !condition() {
+            try require(ContinuousClock.now < deadline, "client-change delivery timeout")
+            try await Task<Never, Never>.sleep(for: .milliseconds(10))
+        }
+    }
+}
+#endif

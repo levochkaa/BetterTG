@@ -144,6 +144,12 @@ import UIKit
     private var renderedAvatarItemID: Int64?
     private weak var activeMediaGallery: MediaGalleryViewController?
     private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
+    private lazy var mediaPlaybackContext = MediaGalleryPlaybackContext(
+        client: client,
+        location: ChatLocation(accountID: accountID, chatID: customChat.id, clientID: client.id, topic: topic),
+        tdlib: .shared,
+    )
+    private lazy var mediaRevealSession = mediaPlaybackContext.map(MediaRevealSession.init)
 
     private var currentSharedTab: SharedTab {
         SharedTab(rawValue: segmentedControl.selectedSegmentIndex) ?? .media
@@ -262,6 +268,14 @@ import UIKit
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         refreshInfoPermission()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Gallery selection grants only the members actually opened in this profile route.
+        for cell in collectionView.visibleCells.compactMap({ $0 as? SharedMediaGridCell }) {
+            cell.refreshRevealState()
+        }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -536,7 +550,11 @@ import UIKit
                     withReuseIdentifier: SharedMediaGridCell.reuseIdentifier,
                     for: indexPath,
                 ) as? SharedMediaGridCell
-                cell?.configure(message: message)
+                cell?.configure(
+                    message: message,
+                    context: mediaPlaybackContext,
+                    permit: mediaRevealSession?.permit(for: message),
+                )
                 return cell ?? UICollectionViewCell()
             }
             let cell = collectionView.dequeueReusableCell(
@@ -549,7 +567,8 @@ import UIKit
     }
 
     private func openMediaGallery(selectedMessage: Message) {
-        guard contextIsCurrent, presentedViewController == nil else { return }
+        guard contextIsCurrent, presentedViewController == nil,
+              let mediaPlaybackContext, mediaPlaybackContext.isCurrent else { return }
         let messages = sortedSharedMessages.filter { message in
             switch message.content {
             case .messagePhoto, .messageVideo:
@@ -572,6 +591,8 @@ import UIKit
                 clientID: client.id,
                 topic: topic,
             ),
+            playbackContext: mediaPlaybackContext,
+            mediaRevealSession: mediaRevealSession,
             transitionSource: transitionSource,
             transitionSourceProvider: { [weak self] messageID in
                 self?.mediaTransitionTarget(for: messageID)
@@ -603,12 +624,16 @@ import UIKit
     }
 
     private func mediaTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
-        guard let indexPath = dataSource.indexPath(for: messageID),
+        guard contextIsCurrent, let message = messagesByID[messageID],
+              let indexPath = dataSource.indexPath(for: messageID),
               let cell = collectionView.cellForItem(at: indexPath) as? SharedMediaGridCell
         else { return nil }
+        cell.refreshRevealState()
         return cell.transitionTarget(for: messageID) { [weak self, weak cell] in
             guard let self, let cell, contextIsCurrent,
-                  let currentIndexPath = dataSource.indexPath(for: messageID)
+                  let currentIndexPath = dataSource.indexPath(for: messageID),
+                  let current = messagesByID[messageID],
+                  MediaRevealSession.Key(message: current) == MediaRevealSession.Key(message: message)
             else { return false }
             return collectionView.cellForItem(at: currentIndexPath) === cell
         }
@@ -1231,9 +1256,15 @@ import UIKit
 
     private func applySnapshot() {
         let messages = sortedSharedMessages
+        // Revoke accepted same-ID revisions before either grid cells or the gallery can use old pixels.
+        mediaRevealSession?.reconcile(messages)
+        let existingIDs = Set(dataSource.snapshot().itemIdentifiers)
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.messages])
         snapshot.appendItems(messages.map(\.id))
+        if currentSharedTab == .media {
+            snapshot.reconfigureItems(messages.map(\.id).filter(existingIDs.contains))
+        }
         dataSource.apply(snapshot, animatingDifferences: true)
         if currentSharedTab == .media {
             activeMediaGallery?.updateMessages(messages)
@@ -1664,13 +1695,30 @@ import UIKit
 
 // MARK: - SharedMediaGridCell
 
-private final class SharedMediaGridCell: UICollectionViewCell {
+final class SharedMediaGridCell: UICollectionViewCell {
     static let reuseIdentifier = "SharedMediaGridCell"
+
+    #if DEBUG
+        var debugThumbnailLoader: ((Message, TDImageLoadingView) -> Void)?
+        var debugHasRawImage: Bool { imageView.image != nil }
+        var debugHasCover: Bool { cover != nil }
+    #endif
 
     private let imageView = TDImageLoadingView()
     private let videoBadge = UIImageView(image: UIImage(systemName: "play.fill"))
     private var representedMessage: Message?
     private var loadingIsPaused = false
+    private var context: MediaGalleryPlaybackContext?
+    private var permit: MediaRevealPermit?
+    private var subscriptions = Set<AnyCancellable>()
+    private var cover: MediaConcealmentView?
+    private var renderGeneration = UUID()
+    private var renderedAllowsPixels = false
+
+    private var allowsPixels: Bool {
+        guard let representedMessage, let context, permit?.matches(context) == true else { return false }
+        return MediaRevealPermit.allows(representedMessage, permit: permit, requiresPermit: true)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1704,15 +1752,38 @@ private final class SharedMediaGridCell: UICollectionViewCell {
         imageView.image = nil
         representedMessage = nil
         loadingIsPaused = false
+        subscriptions.removeAll()
+        context = nil
+        permit = nil
+        cover?.removeFromSuperview()
+        cover = nil
+        renderedAllowsPixels = false
+        renderGeneration = UUID()
+        accessibilityLabel = nil
     }
 
-    func configure(message: Message) {
+    func configure(message: Message, context: MediaGalleryPlaybackContext?, permit: MediaRevealPermit?) {
+        subscriptions.removeAll()
         representedMessage = message
+        self.context = context
+        self.permit = permit
         loadingIsPaused = false
-        loadThumbnail(for: message)
+        permit?.revisionChanges.sink { [weak self] in self?.render() }.store(in: &subscriptions)
+        context?.clientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.context?.isCurrent != true else { return }
+                render()
+            }
+            .store(in: &subscriptions)
         isAccessibilityElement = true
         accessibilityTraits = .button
-        accessibilityLabel = "\(MessageContentPresentation.make(message).summary), \(profileDateString(message.date))"
+        render()
+    }
+
+    func refreshRevealState() {
+        guard representedMessage != nil, renderedAllowsPixels != allowsPixels else { return }
+        render()
     }
 
     func pauseLoading() {
@@ -1722,34 +1793,90 @@ private final class SharedMediaGridCell: UICollectionViewCell {
     }
 
     func resumeLoading() {
-        guard loadingIsPaused, let representedMessage else { return }
+        guard loadingIsPaused, representedMessage != nil else { return }
         loadingIsPaused = false
-        loadThumbnail(for: representedMessage)
+        render()
     }
 
     func transitionTarget(
         for messageID: Int64,
         validation additionalValidation: @escaping () -> Bool,
     ) -> MediaGalleryTransitionTarget? {
-        guard representedMessage?.id == messageID else { return nil }
+        guard let message = representedMessage, message.id == messageID,
+              permit?.isCurrent == true, context?.isCurrent == true else { return nil }
+        let generation = renderGeneration
+        let usesImage = renderedAllowsPixels
+        let source: UIView = cover ?? imageView
         return MediaGalleryTransitionTarget(
             messageID: messageID,
-            sourceView: imageView,
+            sourceView: source,
             snapshotFactory: { [weak imageView] in
-                imageView?.makeImageSnapshot(contentMode: .scaleAspectFill)
+                usesImage
+                    ? imageView?.makeImageSnapshot(contentMode: .scaleAspectFill)
+                    : MediaConcealmentView(message: message)
             },
             validation: { [weak self] in
-                self?.representedMessage?.id == messageID
-                    && self?.window != nil
+                guard let self else { return false }
+                return representedMessage?.id == messageID && renderGeneration == generation
+                    && permit?.isCurrent == true && context?.isCurrent == true
+                    && (!usesImage || allowsPixels) && window != nil
                     && additionalValidation()
             },
         )
     }
 
+    private func render() {
+        guard let message = representedMessage else { return }
+        renderGeneration = UUID()
+        imageView.cancel()
+        imageView.image = nil
+        cover?.removeFromSuperview()
+        cover = nil
+        renderedAllowsPixels = allowsPixels
+        videoBadge.isHidden = true
+        if renderedAllowsPixels {
+            accessibilityLabel = "\(MessageTextSpoilerPresentation.summary(for: message)), \(profileDateString(message.date))"
+            accessibilityHint = "Open media"
+            if !loadingIsPaused { loadThumbnail(for: message) }
+        } else {
+            let cover = MediaConcealmentView(message: message)
+            cover.isUserInteractionEnabled = false
+            cover.isAccessibilityElement = false
+            cover.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(cover)
+            NSLayoutConstraint.activate([
+                cover.topAnchor.constraint(equalTo: contentView.topAnchor),
+                cover.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                cover.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                cover.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            ])
+            self.cover = cover
+            accessibilityLabel = cover.accessibilityLabel
+            accessibilityHint = permit?.key.isSecret == true ? nil : "Open media"
+        }
+    }
+
     private func loadThumbnail(for message: Message) {
+        guard allowsPixels else { return }
+        #if DEBUG
+            if let debugThumbnailLoader {
+                debugThumbnailLoader(message, imageView)
+                return
+            }
+        #endif
+        guard let context, let client = context.client, let accountID = context.location.accountID else { return }
         switch message.content {
         case .messagePhoto(let photo):
-            imageView.load(photo: photo.photo, preferredSize: .yBox)
+            if let size = photo.photo.sizes.getSize(.yBox) ?? photo.photo.sizes.first {
+                imageView.load(
+                    file: size.photo,
+                    placeholderData: photo.photo.minithumbnail?.data,
+                    accountID: accountID,
+                    client: client,
+                )
+            } else {
+                imageView.loadPlaceholder(data: photo.photo.minithumbnail?.data)
+            }
             videoBadge.isHidden = true
         case .messageVideo(let video):
             if let thumbnail = video.video.thumbnail {
@@ -1757,6 +1884,8 @@ private final class SharedMediaGridCell: UICollectionViewCell {
                     file: thumbnail.file,
                     placeholderData: video.video.minithumbnail?.data,
                     maximumPixelSize: 480,
+                    accountID: accountID,
+                    client: client,
                 )
             } else {
                 imageView.loadPlaceholder(data: video.video.minithumbnail?.data)
