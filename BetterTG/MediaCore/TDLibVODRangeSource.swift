@@ -107,6 +107,7 @@ actor TDLibVODRangeSource {
     private struct PendingWaiter {
         let continuation: CheckedContinuation<Void, Swift.Error>
         let generation: UInt64
+        let token: UUID
         let timeoutTask: Task<Void, Never>
     }
 
@@ -423,12 +424,17 @@ actor TDLibVODRangeSource {
             try Task.checkCancellation()
             guard generation == seekGeneration else { throw TDLibVODRangeError.staleRequest }
             do {
+                let observedUpdateSequence = lastUpdateSequence
                 try await startFullDownload(generation: generation)
                 guard generation == seekGeneration else { throw TDLibVODRangeError.staleRequest }
                 if let exactSize {
                     return exactSize
                 }
-                try await waitForSignal(id: waiterID, generation: generation)
+                try await waitForSignal(
+                    id: waiterID,
+                    generation: generation,
+                    afterUpdateSequence: observedUpdateSequence,
+                )
             } catch TDLibVODRangeError.timedOut where !didRetry && client.isNetworkAvailable() {
                 didRetry = true
                 detachOwnedRequest()
@@ -479,10 +485,15 @@ actor TDLibVODRangeSource {
 
             if requiresFullDownload, !latestFile.local.isDownloadingCompleted {
                 guard client.isNetworkAvailable() else { throw TDLibVODRangeError.offline }
+                let observedUpdateSequence = lastUpdateSequence
                 try await startFullDownload(generation: generation)
                 guard generation == seekGeneration else { throw TDLibVODRangeError.staleRequest }
                 if !latestFile.local.isDownloadingCompleted {
-                    try await waitForSignal(id: waiterID, generation: generation)
+                    try await waitForSignal(
+                        id: waiterID,
+                        generation: generation,
+                        afterUpdateSequence: observedUpdateSequence,
+                    )
                     continue
                 }
             }
@@ -518,6 +529,7 @@ actor TDLibVODRangeSource {
             )
             guard generation == seekGeneration else { throw TDLibVODRangeError.staleRequest }
 
+            let observedUpdateSequence = lastUpdateSequence
             let refreshedPrefix = try await availablePrefix(
                 from: requestedRange.lowerBound,
                 generation: generation,
@@ -527,7 +539,11 @@ actor TDLibVODRangeSource {
             }
 
             do {
-                try await waitForSignal(id: waiterID, generation: generation)
+                try await waitForSignal(
+                    id: waiterID,
+                    generation: generation,
+                    afterUpdateSequence: observedUpdateSequence,
+                )
             } catch TDLibVODRangeError.timedOut where timeoutRetries == 0 && client.isNetworkAvailable() {
                 timeoutRetries += 1
                 // Reissue the same demand. Do not globally cancel a shared request because
@@ -677,26 +693,45 @@ actor TDLibVODRangeSource {
         throw lastError
     }
 
-    private func waitForSignal(id: UUID, generation: UInt64) async throws {
+    private func waitForSignal(
+        id: UUID,
+        generation: UInt64,
+        afterUpdateSequence observedUpdateSequence: UInt64,
+    ) async throws {
+        try Task.checkCancellation()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
             guard generation == seekGeneration else {
                 continuation.resume(throwing: TDLibVODRangeError.staleRequest)
                 return
             }
+            // A prefix query may return its old snapshot after updateFile has already
+            // supplied the missing bytes. Recheck availability instead of losing that wakeup.
+            guard observedUpdateSequence == lastUpdateSequence else {
+                continuation.resume()
+                return
+            }
+            let token = UUID()
             let timeoutTask = Task { [requestTimeout] in
-                try? await Task<Never, Never>.sleep(for: requestTimeout)
-                self.timeoutWaiter(id: id, generation: generation)
+                do {
+                    try await Task<Never, Never>.sleep(for: requestTimeout)
+                } catch {
+                    return
+                }
+                self.timeoutWaiter(id: id, generation: generation, token: token)
             }
             waiters[id] = PendingWaiter(
                 continuation: continuation,
                 generation: generation,
+                token: token,
                 timeoutTask: timeoutTask,
             )
         }
     }
 
-    private func timeoutWaiter(id: UUID, generation: UInt64) {
-        guard let waiter = waiters[id], waiter.generation == generation else { return }
+    private func timeoutWaiter(id: UUID, generation: UInt64, token: UUID) {
+        // A read can rearm within the same seek generation before an old deadline
+        // callback reaches this actor. Only this particular registration may expire.
+        guard let waiter = waiters[id], waiter.generation == generation, waiter.token == token else { return }
         waiters[id] = nil
         waiter.timeoutTask.cancel()
         waiter.continuation.resume(throwing: TDLibVODRangeError.timedOut)
@@ -1118,8 +1153,11 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                     fileSize: fileSize,
                 )
                 let leaseProof = try await probeLeaseOwnership(fileURL: temporaryURL, fileSize: fileSize)
+                let deadlineProof = try await probeWaiterDeadlines(fileURL: temporaryURL, fileSize: fileSize)
+                let updateProof = try await probeUpdateBeforeWait(fileURL: temporaryURL, fileSize: fileSize)
                 let proof = "VOD range probe: cap/probe/planner=true, \(cacheProof), "
-                    + "\(coalescingProof), \(seekProof), \(offlineProof), \(leaseProof)"
+                    + "\(coalescingProof), \(seekProof), \(offlineProof), \(leaseProof), "
+                    + "\(deadlineProof), \(updateProof)"
                 writeDebugProbeResult(proof)
                 log(proof)
             } catch {
@@ -1369,6 +1407,82 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
             return "last-lease-cancel/revive=true"
         }
 
+        static func probeWaiterDeadlines(fileURL: URL, fileSize: Int64) async throws -> String {
+            let network = TDLibVODProbeNetwork(available: true)
+            let backend = TDLibVODProbeBackend(fileURL: fileURL, fileSize: fileSize, network: network)
+            let source = await TDLibVODRangeSource(
+                accountID: "probe-waiter-deadlines",
+                file: backend.file(expectedSize: fileSize),
+                client: backend.client,
+                requestTimeout: .seconds(3),
+            )
+            let id = UUID()
+            let generation = await source.seekGeneration
+            let firstWait = Task {
+                try await source.waitForSignal(id: id, generation: generation, afterUpdateSequence: 0)
+            }
+            defer { firstWait.cancel() }
+            try await waitUntil { await source.waiters[id] != nil }
+            guard let oldToken = await source.waiters[id]?.token else {
+                throw TDLibVODProbeError.invariant("first deadline was not registered")
+            }
+            await source.signalWaiters()
+            try await firstWait.value
+
+            let secondWait = Task {
+                try await source.waitForSignal(id: id, generation: generation, afterUpdateSequence: 0)
+            }
+            defer { secondWait.cancel() }
+            try await waitUntil { await source.waiters[id] != nil }
+            guard let newToken = await source.waiters[id]?.token, newToken != oldToken else {
+                throw TDLibVODProbeError.invariant("rearmed deadline reused its identity")
+            }
+            // Deliver the previous registration's deadline after this read has rearmed.
+            await source.timeoutWaiter(id: id, generation: generation, token: oldToken)
+            guard await source.waiters[id]?.token == newToken else {
+                throw TDLibVODProbeError.invariant("old deadline expired a rearmed read")
+            }
+            await source.timeoutWaiter(id: id, generation: generation, token: newToken)
+            do {
+                try await secondWait.value
+                throw TDLibVODProbeError.invariant("current deadline failed to expire")
+            } catch TDLibVODRangeError.timedOut {
+                // The current deadline remains authoritative; only the old one is ignored.
+            }
+            await source.cancel()
+            return "deadline-token/rearm=true"
+        }
+
+        static func probeUpdateBeforeWait(fileURL: URL, fileSize: Int64) async throws -> String {
+            let network = TDLibVODProbeNetwork(available: true)
+            let backend = TDLibVODProbeBackend(fileURL: fileURL, fileSize: fileSize, network: network)
+            await backend.setSuspendPrefixResponse(after: 2)
+            let source = await TDLibVODRangeSource(
+                accountID: "probe-update-before-wait",
+                file: backend.file(expectedSize: fileSize),
+                client: backend.client,
+                requestTimeout: .seconds(3),
+            )
+            let read = Task { try await source.read(offset: 0, count: 64 * 1024) }
+            defer { read.cancel() }
+            try await waitUntil { await backend.prefixReplySuspended }
+            await backend.addCached(0..<cacheProbeSize)
+            await source.update(file: backend.file(expectedSize: fileSize), sequence: 1)
+            await backend.resumePrefixResponse()
+            // The prefix RPC returns its earlier zero snapshot after the only progress update.
+            // Bytes must become ready before the three-second timeout can rescue a lost wakeup.
+            try await waitUntil {
+                if case .cachedReady = await source.state { return true }
+                return false
+            }
+            let chunk = try await read.value
+            guard chunk.data.count == 64 * 1024, await backend.downloadCalls.count == 1 else {
+                throw TDLibVODProbeError.invariant("progress wakeup duplicated or lost the byte read")
+            }
+            await source.cancel()
+            return "update-before-wait=true"
+        }
+
         static func waitUntil(
             _ condition: @escaping @Sendable () async -> Bool,
         ) async throws {
@@ -1438,6 +1552,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         private(set) var cancelCount = 0
         private(set) var completedCancelCount = 0
         private(set) var cancelStarted = false
+        private(set) var prefixReplySuspended = false
 
         nonisolated let fileSize: Int64
         nonisolated let network: TDLibVODProbeNetwork
@@ -1452,6 +1567,8 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         private var cachedRanges = [Range<Int64>]()
         private var lastDownloadRange: Range<Int64>?
         private var cancelContinuation: CheckedContinuation<Void, Never>?
+        private var prefixRepliesUntilSuspension: Int?
+        private var prefixContinuation: CheckedContinuation<Void, Never>?
 
         nonisolated var client: TDLibVODRangeClient {
             TDLibVODRangeClient(
@@ -1465,7 +1582,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 },
                 downloadedPrefixSize: { [weak self] _, offset in
                     guard let self else { return 0 }
-                    return await prefix(from: offset)
+                    return await prefixResponse(from: offset)
                 },
                 getFile: { [weak self] _ in
                     guard let self else { throw TDLibVODRangeError.cancelled }
@@ -1495,6 +1612,17 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         func setSuspendCancel(_ value: Bool) {
             suspendCancel = value
+        }
+
+        func setSuspendPrefixResponse(after replies: Int) {
+            prefixRepliesUntilSuspension = max(1, replies)
+        }
+
+        func resumePrefixResponse() {
+            let continuation = prefixContinuation
+            prefixContinuation = nil
+            prefixReplySuspended = false
+            continuation?.resume()
         }
 
         func addCached(_ range: Range<Int64>) {
@@ -1560,6 +1688,22 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 isActive: !autoFulfill,
                 isCompleted: covers(0..<fileSize),
             )
+        }
+
+        private func prefixResponse(from offset: Int64) async -> Int64 {
+            let snapshot = prefix(from: offset)
+            if let remaining = prefixRepliesUntilSuspension {
+                if remaining > 1 {
+                    prefixRepliesUntilSuspension = remaining - 1
+                } else {
+                    prefixRepliesUntilSuspension = nil
+                    prefixReplySuspended = true
+                    await withCheckedContinuation { continuation in
+                        prefixContinuation = continuation
+                    }
+                }
+            }
+            return snapshot
         }
 
         private func prefix(from offset: Int64) -> Int64 {

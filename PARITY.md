@@ -13,12 +13,13 @@ Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and Telegram in
 ## Revalidation before new features — 2026-10-02
 
 The user requested a fresh `gpt-6-astra` review of the accumulated implementation previously developed with `5.6-sol`.
-This documentation update schedules that review; it does not perform it or start/resume a goal. The inspected implementation
-HEAD is `7b0699d789329535786cc6170c98287c45d52ebb`, with no staged or unstaged changes. Re-read HEAD and dirty state on resume.
-There is no `GOAL.md` in this checkout and no active goal was returned by the goal tool at this checkpoint.
+The initial documentation handoff was `6b417da`; the goal subsequently started on 2026-10-02 from that clean HEAD, whose last
+production commit was `7b0699d789329535786cc6170c98287c45d52ebb`. There is no `GOAL.md` in this checkout. The active objective is
+the user-supplied attachment; this ledger records progress without reducing its scope. Re-read HEAD and dirty state on resume.
 
-All existing implementation and CLEAN/build/probe/smoke claims below remain historical evidence. Their new audit status is
-**pending**, including flows called done or implemented. Preserve the original evidence and its limits; a past clean build,
+All existing implementation and CLEAN/build/probe/smoke claims in the old ledger remain historical evidence. Their new audit status
+starts as **pending**, including flows called done or implemented; the audit results below record subsequent coverage and findings.
+Preserve the original evidence and its limits; a past clean build,
 zero-marker scan, catalog switch or permission-denial smoke does not prove complete behavior on the current revision.
 Historical slice-level Deferred/Remaining/next notes describe those slices at the time; reconcile them with later slices and
 current code before scheduling duplicate work. This section and the current checkpoint take precedence for resume ordering.
@@ -48,12 +49,12 @@ current code before scheduling duplicate work. This section and the current chec
 
 | Priority | Area to revalidate | Required checks | New audit state |
 | --- | --- | --- | --- |
-| P0 | MediaCore and animated media | No VLC dependency/consumer; production TGS/WebP/WebM-alpha and custom/animated emoji routes; decode ownership, alpha/timing/sync, bounded caches, offscreen pause, prefetch/cancel/fallback | pending |
+| P0 | MediaCore and animated media | No VLC dependency/consumer; production TGS/WebP/WebM-alpha and custom/animated emoji routes; decode ownership, alpha/timing/sync, bounded caches, offscreen pause, prefetch/cancel/fallback | needs-fix — first source pass; A05–A09 below, runtime pending |
 | P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | pending |
-| P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | pending |
+| P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | needs-fix — range/decoder/renderer source pass; A01–A04 below; owner/PiP audit incomplete |
 | P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | pending |
 | P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | pending |
-| P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | pending |
+| P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | needs-fix — animated transport A05/A06; remaining cross-flow audit pending |
 | P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | pending |
 | P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | pending |
 
@@ -61,6 +62,75 @@ Read-only audit subagents return findings and need no commit or duplicate build.
 Implementation subagents use isolated worktrees, format changed Swift in one invocation, build without warnings and commit;
 the primary integrates verified commits and validates the combined result. Do not spawn when the remaining budget cannot cover
 integration and verification. Each implementation slice must end with proof, a focused attributed commit and an updated checkpoint.
+
+### Astra audit baseline and coverage
+
+- Date/source: 2026-10-02, clean `6b417da362960e152f07ba86000b7777b636b0f5`. Pre-UIKit base is
+  `67ecc4ff2287483652019b40f383d50015a35a77` (parent of `a543a0d`); VLC replacement began at `6216eee`, parent
+  `0599bfdc8ff862a548b686b0f04df8b2f8ec28e5`. Audit current reachable code and the accumulated history, including integration
+  merge `5d990c1`; other branches and unrelated push/build work are not authorization to merge or rewrite them.
+- Official references: `telegram-upstream/master` = `6ad963e5b62d354da79040f388ae2b9132fb17b8`; classic baseline remains
+  `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`. TDLibKit is pinned to `1.5.2-tdlib-1.8.66-022d6020`, TDLib `022d6020`;
+  Lottie 4.6.1, libwebp 1.6.0 and checksum-pinned FFmpeg 9.0 are unchanged.
+- Current marker scan over `project.yml`, `BetterTG`, `BetterTGNotificationService` and `Packages` found no VLC API/dependency,
+  SwiftUI/hosting/representable or Liquid Glass production marker. This is a dependency/source check, not visual/runtime parity.
+
+| Area | Production entry points and shared dependencies located | Coverage at this checkpoint |
+| --- | --- | --- |
+| Animated media | `MessageContentView`, `MessageTextView`, reactions, composer picker and gallery → `AnimatedFileView`, TGS/WebP/FFmpeg views, `CustomEmojiStickerRepository` | Source pass through these consumers; runtime and fixes outstanding |
+| Voice/video notes | `ChatBottomArea`, `VideoNoteRecorderViewController`, `ChatVM` → capture/writer/codec, recording/send stores and coordinators, message playback | Inventory only; not re-reviewed |
+| VOD | `ChatView`/`ChatViewAlbum` → `GalleryVideoPlaybackOwner`, `LocalMediaPlayer` or FFmpeg sample player → range coordinator/resource loader/decoder/renderer/C AVIO | Source pass over range/loader and C/Swift decoder/render session; complete owner/PiP review pending |
+| Content/actions | `MessageContentPresentation`, `MessageMetadataPresentation`, structured/text/reaction views → `ChatVM`, `MessageForwardingService`, topic/forward controllers | Inventory only; adjacent spoiler finding A10 reported |
+| Composer/timeline | `ChatBottomArea`, `ChatView`, `ChatVM`, `ChatDraftKey`, `MessageSendTransition`, date/topic header models | Inventory only; not re-reviewed |
+| Profiles/gallery | Peer profile/control/avatar controllers → `ChatViewAlbum` gallery and owner/export/actions | Inventory only; not re-reviewed |
+| Accounts | `TDLib`, `TelegramAccountRegistry`, root/settings controllers → client activation/retirement, storage, update subjects | Add/switch/remove code already exists; previous queued label was stale. Isolation audit remains incomplete |
+| Lists/shell | `MainView`, `RootVM`, `FolderView`, `ChatFolderManagementViewController`, navigation/context-menu views | Inventory only; not re-reviewed |
+
+### Astra findings and repair queue
+
+All locations refer to the reviewed `6b417da` implementation unless a fix is recorded. Source findings are not runtime proof.
+
+| ID | Priority | Evidence / trigger | State and bounded repair |
+| --- | --- | --- | --- |
+| A01 | P1 | `TDLibVODRangeSource.waitForSignal/timeoutWaiter`: canceled sleep still invokes timeout; a repeated wait reuses read ID and seek generation, allowing an old callback to consume its replacement | fixed in range-waiter slice: per-registration token, cancellation return; obsolete/current-deadline probe passed |
+| A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in range-waiter slice: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
+| A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | needs-fix: deduplicate identical snapshots; verify settled delivery count and resume/error/queue changes |
+| A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | needs-fix: consistent video-main-track end policy matching upstream `video ?? audio`, plus unequal-track controller proof |
+| A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | needs-fix: capture account/client/file generation and propagate it through consumers; reject foreign updates/completions |
+| A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | needs-fix: account/client-scoped file demand leases covering visible consumers and prefetch |
+| A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | needs-fix: move creation and decoder lifetime operations onto worker executor; measure/prove main-thread boundary |
+| A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | needs-fix: PTS/duration scheduling and decoder EOF, separately bounded cache |
+| A09 | P1 | Apple-container `messageAnimation` routes to static `FileMediaPreviewView`; only fullscreen owns playback | needs-fix: account-scoped inline AVFoundation animation loop with visibility/reuse/cancel contracts |
+| A10 | P1 | Adjacent text review found spoiler formatting only adds background color; text/custom-emoji foreground stays visible with no reveal state | Reported for upcoming MessageContent audit; verify text/overlay routes before repair |
+
+Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
+observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
+(lines 545/578). `ChunkMediaPlayerV2.swift` changes synchronizer rate only when effective rate differs (lines 699–702).
+Animation references: pre-Liquid `AnimatedStickerNode.swift` source creation outside main (lines 477–507), `SoftwareVideoSource.swift`
+PTS/duration (213–227), `EmojiTextAttachmentView.swift` account/visibility ownership; current `VideoStickerFrameSource.swift` derives
+frame count at EOF (351/409–420). No Telegram infrastructure is copied.
+
+Positive source checks: bounded cancellable TGS inflate, copied premultiplied WebP/FFmpeg frames, bounded frame caches, first-frame
+fallback; checked C AVIO arithmetic/packet ownership, serialized close/cancel and retained Swift callback contexts. These checks do not
+close runtime gaps. P2 follow-ups include TGS parsed-cache byte bounds, custom-emoji metadata eviction, repainting and glyph advance.
+
+### Range-waiter repair proof — 2026-10-02
+
+- Scope: A01/A02 only. Preserve range planning, source/client ownership, finite fetch limits and cancellation generations. A fresh
+  UUID identifies each waiter registration; sleep cancellation exits, and a delayed old callback cannot expire a replacement.
+  Update-sequence checks cover size discovery, full-file fallback and range-prefix waits without losing an already-delivered update.
+- One SwiftFormat invocation covered `TDLibVODRangeSource.swift`; `./build.sh build` passed without warnings in
+  `.build/logs/xcodebuild/build-Debug-20261002-141955-60817-17803.log`. Independent diff review found no blocker.
+- `./build.sh run --skip-build -- -media-probe-vod-ranges`, iPhone 17 Pro / iOS 26.5,
+  `8108A92F-7E93-49C8-87F4-FA53A5A40A99`, PID `74821`: idb pulled
+  `.build/ui-probe-evidence/astra-vod-range-probe.txt/vod-range-probe.txt`. It reports
+  `deadline-token/rearm=true`, `update-before-wait=true`, existing cache/lookahead/coalescing/disjoint-seek/offline/exact-size and
+  last-lease-revival checks passed. This is a deterministic production-source probe with injected file transport, not live Telegram VOD.
+- Separate runtime blocker B01: after the probe, this existing Simulator process terminated with `EXC_BAD_ACCESS` in pinned TDLib
+  `td::get_page_blocks_rich_message_media` → `RichMessage::parse` → `MessagesManager::parse_dialog` while loading its database.
+  Report: `/Users/lev/Library/Logs/DiagnosticReports/BetterTG-2026-10-02-142322.ips`. The screenshot shows Home, so it is not a passing
+  app-flow smoke. No database reset/removal was performed. Verify probes on an isolated Simulator and separately investigate this
+  dependency/data compatibility failure; the original database remains unverified.
 
 ## Implementation ledger
 
@@ -88,14 +158,15 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ## Checkpoint
 
-- Current task: documentation-only audit/goal-prompt revision requested on 2026-10-02. Production code has not been re-reviewed or
-  rewritten in this task; all new audit rows are pending. The goal remains inactive until explicitly started/resumed.
+- Current task: active Astra revalidation. First source pass and production inventory are recorded above; audit of the remaining
+  domains and repairs are still required. A01/A02 range-waiter repair passed build and deterministic Simulator probe; B01 blocks
+  normal app-flow verification on the existing Simulator database.
 - Documentation validation: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Next on resume: record current HEAD/base/dirty state and a fresh warning-free `./build.sh build`, inventory the full existing
-  implementation, then begin the P0 MediaCore/VOD ownership audit. Continue through the audit table before new feature breadth.
+- Next: A03 paused-renderer feedback, isolated-Simulator verification, then the remaining P1 queue and audit coverage.
+  Do not restart already recorded source review unless code/dependencies change. New feature breadth remains behind the audit gate.
 - Previous verified implementation slice: `7b0699d` member/admin user rows open a standalone UIKit member-tag flow with fresh
   actor/target authority, exact baseline conflict detection, awaited `setChatMemberTag`, account fences and post-success list reload.
 - Timeline invariants to revalidate: raw TDLib pagination owns the cursor; `mediaAlbumId` owns grouped identity across pages; heterogeneous
