@@ -114,7 +114,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in `37c8b44`: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
 | A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | fixed in `3005369`: deduplicate complete identical snapshots while preserving every pause transport command; settled feedback, seek/rate/EOF/offline/retry probes passed |
 | A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | fixed by `83103ba`, `14a01c5`, `ef8f4ba` — explicit video-main end, estimated-versus-final duration authority and verified EOF/watchdog teardown; native and integrated decoder/controller probes pass, including under/overestimated metadata. Cold large-file partial-range proof remains separate |
-| A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | needs-fix: capture account/client/file generation and propagate it through consumers; reject foreign updates/completions |
+| A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | partial — `128ada2` freezes configured-view transport, scopes notifications and fences decode/frame installation. Explicit originating-client propagation from consumers and custom-emoji fetch remain next; A06 shared cancellation remains open |
 | A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | needs-fix: account/client-scoped file demand leases covering visible consumers and prefetch |
 | A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | fixed in `3917128`: native-free init, worker-isolated prepare/read/reset/deinit and setup/reuse fences; actual native-operation thread/lifecycle probe passed before and after integration |
 | A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | needs-fix: PTS/duration scheduling and decoder EOF, separately bounded cache |
@@ -771,6 +771,26 @@ is imported. This source pass does not prove every content's real rendering/acti
   and selected folder, then typed `7` without another focus tap; AX and screenshot show `2323237`. Closed search and verified the
   empty placeholder. Screenshot: `astra-a23b-primary/root-search-foreground.png`. Software keyboard was hidden; text focus was
   demonstrated by input, not by keyboard pixels. This does not prove restoration of an open Chat or a real account switch.
+
+### Animated file transport authority — 2026-10-02
+
+- A05a `128ada2`: all three TGS/WebP/FFmpeg views use one configured request with captured account/client/file identity.
+  Scoped notifications check the accepted origin at main delivery; download/cancel closures retain the original client.
+  Client replacement retires the request and view. Asset/frame callbacks check request identity, current source and path;
+  canceled same-file reuse cannot install an old decode. Thumbnails use the existing explicit-account/client loader.
+  Complete files issue no teardown cancellation. Native worker ownership, alpha, caches and timing remain unchanged.
+- This is deliberately partial: callers still capture the active client at configure. An old asynchronous consumer can pass an old
+  File into a new configure; the next slice makes originating clients explicit through custom emoji, timeline, picker and gallery.
+  Shared visible/prefetch download demand (A06) is not implemented by this request wrapper.
+- Reference: pinned pre-Liquid `AnimatedStickerNode/Sources/AnimatedStickerNode.swift:288–291,348–424` owns its source subscription,
+  disposes/replaces it and gates playback by visibility. TDLib pinned `downloadFile` documents immediate non-synchronous state plus
+  `updateFile`; `cancelDownloadFile(onlyIfPending:true)` only cancels a pending request. No Telegram infrastructure imported.
+- Six Swift files formatted together. Final build `.build/logs/xcodebuild/build-Debug-20261002-182359-89980-13950.log` passes without
+  warnings (11s), after correcting unused-result and weak-reference diagnostics. Simulator PID `91050`, built from this exact source,
+  passes `-media-probe-animation-authority`: isolated actual request/notification path, colliding/foreign/unscoped/wrong-file updates,
+  queued account replacement, same-file reuse, late RPC, captured cancel and deinit cleanup. Backend closures are fixtures; no TD calls.
+  A07 native worker regression and A23 Chat/Root probes also pass in `.build/ui-probe-evidence/astra-a05a-primary`.
+  This does not prove real sticker playback, account switching, or all consumer origins.
 
 ## Implementation ledger
 
