@@ -42,7 +42,8 @@ import UIKit
         let clock = Clock()
         let url: URL
         var needsDownload = false
-        var secret = true
+            var secret = true
+            var minithumbnail: Minithumbnail?
         var outgoing = false
         var type: MessageSelfDestructType? = .messageSelfDestructTypeTimer(.init(selfDestructTime: 5))
         var postTTL = 4.0
@@ -69,6 +70,7 @@ import UIKit
                 type: type,
                 remaining: opened ? postTTL : 0,
                 outgoing: outgoing,
+                minithumbnail: minithumbnail,
             )
         }
 
@@ -141,10 +143,11 @@ import UIKit
                 let url = directory.appendingPathComponent("private.mp4")
                 _ = try await VideoNoteAssetWriter.makeDebugSegment(outputURL: url, duration: 1, frameSeed: 291)
                 try await verify(window: window, url: url)
-                result = "Video note hold probe passed: actual-UIKit/native-player/private-MP4=true; "
+                    result = "Video note hold probe passed: actual-UIKit/native-player/private-MP4=true; "
+                        + "nil/stale-backend-no-thumbnail=true; "
                     + "unsupported-immediate/unknown/outgoing=no-IO; ack-before-player/pixels=true; "
                     + "release-before-dispatch/no-open; late-ACK/error/new-hold/reuse=fenced; "
-                    + "source-collision/client-change/content/edit/delete/offscreen/inactive=revoke; "
+                    + "source-collision/client-change/content/edit/delete/offscreen/window/inactive=revoke; "
                     + "fresh-positive-TTL/conservative-clock/no-extension=true; "
                     + "deinit/suspended-download/ordinary-tap=true; real-secret-open/account-writes=0; "
                     + "server-semantics/touch-hardware/screenshot-prevention=unverified"
@@ -159,8 +162,38 @@ import UIKit
         }
     }
 
-    private static func verify(window: UIWindow, url: URL) async throws {
-        for kind in 0..<4 {
+        private static func verify(window: UIWindow, url: URL) async throws
+    {
+            let thumbnailImage = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+            }
+            guard let thumbnailData = thumbnailImage.jpegData(compressionQuality: 0.8) else {
+                throw Failure(description: "private thumbnail fixture")
+            }
+            for stale in [false, true] {
+                let f = Fixture(url: url)
+                f.secret = false
+                f.type = nil
+                f.minithumbnail = Minithumbnail(data: thumbnailData, height: 2, width: 2)
+                if stale { f.currentSource = TdUpdateSource(accountID: f.source.accountID, clientID: 18) }
+                let v = VideoNotePlaybackView(frame: CGRect(x: 10, y: 140, width: 220, height: 220))
+                defer { v.prepareForReuse()
+                v.removeFromSuperview()
+                f.finish()
+                }
+                v.configure(message: f.value, backend: stale ? f.backend : nil)
+                window.addSubview(v)
+                v.setPlaybackVisible(true)
+                await drain()
+                try require(
+                    !v.probeSnapshot.thumbnail && !v.probeSnapshot.playerItem
+                    && f.downloadCalls == 0 && f.messageCalls == 0,
+                    "rejected backend admitted pixels/download",
+                )
+            }
+            for kind in 0..<4
+        {
             let f = Fixture(url: url)
             if kind == 0 { f.type = .messageSelfDestructTypeImmediately }
             if kind == 1 { f.type = nil }
@@ -220,6 +253,7 @@ import UIKit
             for action in [
                 "release",
                 "offscreen",
+                "window",
                 "inactive",
                 "scene",
                 "source",
@@ -250,6 +284,7 @@ import UIKit
                 switch action {
                 case "release": v.releaseHoldForProbe()
                 case "offscreen": v.setPlaybackVisible(false)
+                case "window": v.removeFromSuperview()
                 case "inactive": f.lifecycle.send(Notification(name: UIApplication.willResignActiveNotification))
                 case "scene": f.lifecycle.send(Notification(name: UIScene.willDeactivateNotification))
                 case "source":
@@ -408,6 +443,7 @@ import UIKit
         type: MessageSelfDestructType?,
         remaining: Double,
         outgoing: Bool,
+        minithumbnail: Minithumbnail?,
     ) -> Message {
         Message(
             authorSignature: "",
@@ -422,7 +458,7 @@ import UIKit
                 videoNote: .init(
                     duration: 1,
                     length: 220,
-                    minithumbnail: nil,
+                    minithumbnail: minithumbnail,
                     speechRecognitionResult: nil,
                     thumbnail: nil,
                     video: file,

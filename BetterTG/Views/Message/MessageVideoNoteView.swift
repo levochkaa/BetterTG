@@ -130,6 +130,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { setPlaybackVisible(false) }
+    }
+
     private static func isSecret(_ message: Message) -> Bool {
         guard case .messageVideoNote(let value) = message.content else { return false }
         return value.isSecret
@@ -144,6 +149,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 ? VideoNotePlaybackBackend.captured(client: client, context: context)
                 : nil,
         )
+        guard backend?.isCurrent() == true, !isRevoked else { return }
         if !isSecret, let thumbnail = videoNote?.thumbnail {
             thumbnailView.load(file: thumbnail.file, placeholderData: videoNote?.minithumbnail?.data, client: client)
         }
@@ -159,15 +165,15 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         isSecret = value.isSecret
         sideConstraint.constant = min(260, max(180, CGFloat(videoNote.length)))
         durationLabel.text = format(videoNote.duration)
-        if !isSecret, let data = videoNote.minithumbnail?.data {
-            thumbnailView.image = UIImage(data: data)
-        }
         secretBlurView.isHidden = !isSecret
         accessibilityLabel = "Video message, \(format(videoNote.duration))"
         accessibilityHint = isSecret
             ? (supportsSecretHold ? "Touch and hold to open" : "Protected message unavailable")
             : "Double-tap to play or pause"
         guard let backend, backend.isCurrent(), !isSecret || supportsSecretHold else { return }
+        if !isSecret, let data = videoNote.minithumbnail?.data {
+            thumbnailView.image = UIImage(data: data)
+        }
         observeBinding(backend)
         update(file: videoNote.video)
         if !isSecret { startDownloadIfNeeded() }
