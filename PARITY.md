@@ -92,9 +92,9 @@ All locations refer to the reviewed `6b417da` implementation unless a fix is rec
 
 | ID | Priority | Evidence / trigger | State and bounded repair |
 | --- | --- | --- | --- |
-| A01 | P1 | `TDLibVODRangeSource.waitForSignal/timeoutWaiter`: canceled sleep still invokes timeout; a repeated wait reuses read ID and seek generation, allowing an old callback to consume its replacement | fixed in range-waiter slice: per-registration token, cancellation return; obsolete/current-deadline probe passed |
-| A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in range-waiter slice: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
-| A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | needs-fix: deduplicate identical snapshots; verify settled delivery count and resume/error/queue changes |
+| A01 | P1 | `TDLibVODRangeSource.waitForSignal/timeoutWaiter`: canceled sleep still invokes timeout; a repeated wait reuses read ID and seek generation, allowing an old callback to consume its replacement | fixed in `37c8b44`: per-registration token, cancellation return; obsolete/current-deadline probe passed |
+| A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in `37c8b44`: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
+| A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | fixed in renderer-feedback slice: deduplicate complete identical snapshots while preserving every pause transport command; settled feedback, seek/rate/EOF/offline/retry probes passed |
 | A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | needs-fix: consistent video-main-track end policy matching upstream `video ?? audio`, plus unequal-track controller proof |
 | A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | needs-fix: capture account/client/file generation and propagate it through consumers; reject foreign updates/completions |
 | A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | needs-fix: account/client-scoped file demand leases covering visible consumers and prefetch |
@@ -132,6 +132,34 @@ close runtime gaps. P2 follow-ups include TGS parsed-cache byte bounds, custom-e
   app-flow smoke. No database reset/removal was performed. Verify probes on an isolated Simulator and separately investigate this
   dependency/data compatibility failure; the original database remains unverified.
 
+### Isolated range and renderer-feedback proof — 2026-10-02
+
+- Isolated iPhone 17 Pro / iOS 26.5 Simulator `BetterTG Astra Audit`, `59EB535C-3610-41A2-AB68-53A9467DC24B`,
+  avoids B01 without modifying the original database. Each run used
+  `./build.sh run --skip-build --simulator-id 59EB535C-3610-41A2-AB68-53A9467DC24B -- ARGUMENT` and idb.
+  Login screenshots/hierarchies and live processes accompany the probe output; no account login or server mutation occurred.
+- A01/A02 recheck at `37c8b44`, argument `-media-probe-vod-ranges`, PID `78859`: all existing range checks plus
+  `deadline-token/rearm=true` and `update-before-wait=true` passed. Evidence:
+  `.build/ui-probe-evidence/astra-isolated-vod-range-probe/vod-range-probe.txt` and
+  `astra-isolated-vod-login-visible{.png,-hierarchy.json}`. The process remained alive after 89 seconds.
+- A03 preserves `pause()`'s unconditional `setRate(0, time: .invalid)`, including cancellation of pending rate changes.
+  `snapshotPublisher` deduplicates the full Equatable snapshot, retaining changes to clock/rate, generation, topology, queues,
+  errors and finish state. The bounded asynchronous feedback probe receives exactly one settled paused snapshot.
+- One SwiftFormat invocation covered `FFmpegSampleBufferRenderer.swift`; warning-free build:
+  `.build/logs/xcodebuild/build-Debug-20261002-142824-79043-26845.log`. Independent diff review found no blocker.
+- `-media-probe-vod-sample-buffer`, PID `79850`: `pause-feedback-events=1`, 24 video/101 audio buffers, stable pause,
+  seek generation/preroll, stale drops, finish delivery, rate 1.5 and zero renderer errors passed. Output:
+  `.build/ui-probe-evidence/astra-isolated-vod-sample-buffer-probe/vod-sample-buffer-probe.txt`;
+  login screenshot/hierarchy: `astra-isolated-sample-buffer-login{.png,-hierarchy.json}`.
+- `-media-probe-vod-ffmpeg-controller`, PID `80246`: pause/rate/offscreen intent, last-seek-wins, persistent rolling windows
+  (11 windows, one open, zero rollover seeks), EOF, offline/retry/clamp and cleanup passed; finite ranges, zero full downloads
+  and zero renderer errors. Output: `.build/ui-probe-evidence/astra-isolated-vod-ffmpeg-controller-probe/vod-ffmpeg-controller-probe.txt`;
+  login screenshot/hierarchy: `astra-isolated-ffmpeg-controller-login{.png,-hierarchy.json}`. Process alive after 51 seconds.
+  Fixture SHA-256: `685af512ee52d20c4aa20ef182d7d208df242d45b674f8e6fc2bbef91bfeb810`.
+- These are deterministic production-source probes, not live Telegram message playback or system PiP proof. The controller
+  fixture's slightly unequal track ends do not cover A04's materially different durations. B01 remains unresolved.
+  Both Simulators remain booted; the smoke agent disconnected its owned idb session.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -158,14 +186,14 @@ close runtime gaps. P2 follow-ups include TGS parsed-cache byte bounds, custom-e
 
 ## Checkpoint
 
-- Current task: active Astra revalidation. First source pass and production inventory are recorded above; audit of the remaining
-  domains and repairs are still required. A01/A02 range-waiter repair passed build and deterministic Simulator probe; B01 blocks
-  normal app-flow verification on the existing Simulator database.
+- Current task: closing the started audit-repair slices and updating the reusable goal instructions. First source pass and
+  production inventory are recorded above; audit of the remaining domains and repairs are still required. A01/A02/A03 passed
+  warning-free builds and isolated deterministic Simulator probes; B01 still blocks the original Simulator database.
 - Documentation validation: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Next: A03 paused-renderer feedback, isolated-Simulator verification, then the remaining P1 queue and audit coverage.
+- Next after an explicit resume: remaining P1 queue and audit coverage; retain the completed range/renderer checks.
   Do not restart already recorded source review unless code/dependencies change. New feature breadth remains behind the audit gate.
 - Previous verified implementation slice: `7b0699d` member/admin user rows open a standalone UIKit member-tag flow with fresh
   actor/target authority, exact baseline conflict detection, awaited `setChatMemberTag`, account fences and post-success list reload.

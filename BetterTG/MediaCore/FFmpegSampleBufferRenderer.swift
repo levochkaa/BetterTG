@@ -124,7 +124,9 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
     private var failureMonitor: DispatchSourceTimer?
 
     var snapshotPublisher: AnyPublisher<Snapshot, Never> {
-        snapshotSubject.eraseToAnyPublisher()
+        // Playback gating may repeat pause while consuming a snapshot. Keep the
+        // transport command authoritative without feeding identical state back forever.
+        snapshotSubject.removeDuplicates().eraseToAnyPublisher()
     }
 
     @MainActor var currentTime: TimeInterval {
@@ -1252,6 +1254,23 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
                 try await Task<Never, Never>.sleep(for: .milliseconds(200))
                 let pauseStable = abs(probeRenderer.currentTime - pausedTime) < 0.05
 
+                var pauseFeedbackCount = 0
+                let pauseFeedback = probeRenderer.snapshotPublisher
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak probeRenderer] _ in
+                        pauseFeedbackCount += 1
+                        // Model the production player's paused gate, but bound a
+                        // regression so the probe can report it instead of spinning.
+                        guard pauseFeedbackCount <= 32 else { return }
+                        probeRenderer?.pause()
+                    }
+                probeRenderer.pause()
+                try await Task<Never, Never>.sleep(for: .milliseconds(200))
+                pauseFeedback.cancel()
+                guard pauseFeedbackCount == 1 else {
+                    throw ProbeError.pausedSnapshotFeedback(pauseFeedbackCount)
+                }
+
                 let seekGeneration = probeRenderer.reset(at: 1)
                 let staleVideoWasDropped = probeRenderer.enqueue(
                     video: TDLibVODFFmpegDecoder.VideoFrame(
@@ -1313,6 +1332,7 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
 
                 result = "VOD sample-buffer probe: surface-ready=true, video=\(initial.videoFrameCount), "
                     + "audio=\(initial.audioFrameCount), pause-stable=true, seek-generation=true, "
+                    + "pause-feedback-events=\(pauseFeedbackCount), "
                     + "stale-drop=true, seek-first-pts>=1=true, input-finished=true, combine-finish=true, "
                     + "rate=1.5, current=\(finalSnapshot.currentTime), bgra-pool=true, float-pcm=true, "
                     + "renderer-errors=0, finite-downloads=true, full-downloads=0"
@@ -1348,6 +1368,10 @@ private final class FFmpegBoundedSampleBufferQueue: @unchecked Sendable {
                 try await Task<Never, Never>.sleep(for: .milliseconds(20))
             }
             throw RenderError.invalidTime
+        }
+
+        enum ProbeError: Swift.Error {
+            case pausedSnapshotFeedback(Int)
         }
 
         final class ProbeSnapshotRecorder {
