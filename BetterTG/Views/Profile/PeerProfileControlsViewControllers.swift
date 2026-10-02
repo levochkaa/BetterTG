@@ -455,13 +455,6 @@ import UIKit
         tableView.tableFooterView = nil
         loadTask = Task { [weak self] in
             guard let self, !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
-            #if DEBUG
-            if isRestorationProbe {
-                probeReadDispatches += 1
-                loadTask = nil
-                return
-            }
-            #endif
             do {
                 if !checkedAvailability, case .supergroup(_, let id) = source {
                     let info = try await client.getSupergroupFullInfo(supergroupId: id)
