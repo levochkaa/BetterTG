@@ -72,6 +72,16 @@ enum VideoNoteSubmissionResult {
     private let captureSession = VideoNoteCaptureSession()
     private let recordingStore: VideoNoteRecordingDraftStore
     private var captureFinalization: VideoNoteCaptureFinalization?
+    private var lifecycleTask: Task<Void, Never>?
+    private var lifecycleTaskID: UUID?
+    private var lifecycleGeneration: UUID?
+    private var lifecycleEpoch = 0
+    private var lifecyclePaused = false
+    private var isInBackground = false
+    private var pendingLifecyclePreview: (generation: UUID, draft: VideoNoteRecordingDraft)?
+    private var backgroundLease: VideoNoteBackgroundLease?
+    private var backgroundLeaseGeneration: UUID?
+    private var backgroundLeaseBackend = VideoNoteBackgroundLease.Backend.application
     private let previewPlayer = LocalMediaPlayer()
     private let chatID: Int64
     private let draftKey: ChatDraftKey
@@ -119,6 +129,9 @@ enum VideoNoteSubmissionResult {
     private var initialScreenBrightness: CGFloat?
     private var currentZoomFactor: CGFloat = 1
     private var pinchStartZoomFactor: CGFloat = 1
+    #if DEBUG
+        private var beforeSubmitProbe: ((VideoNoteAsset, VideoNoteInputThumbnailAsset?) async -> Void)?
+    #endif
 
     var hasPersistedRecordingDraft: Bool {
         recordingDraft != nil
@@ -143,6 +156,8 @@ enum VideoNoteSubmissionResult {
         self.sendTopic = sendTopic
         self.recordingStore = recordingStore
         super.init(nibName: nil, bundle: nil)
+        self.isInBackground = UIApplication.shared.applicationState == .background
+        self.lifecyclePaused = isInBackground
         captureSession.onAutomaticStop = { [weak self] generation, result in
             guard let self else {
                 if case .success(let asset) = result {
@@ -156,8 +171,12 @@ enum VideoNoteSubmissionResult {
             guard let finalization = self?.captureFinalization, finalization.generation == generation else { return }
             finalization.fail(error)
         }
+        captureSession.onCaptureInterruption = { [weak self] generation in
+            self?.preserveForLifecycle(background: false, generation: generation)
+        }
         observeCaptureSession()
         observePreviewPlayer()
+        observeLifecycle()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -171,6 +190,7 @@ enum VideoNoteSubmissionResult {
         captureSession.stopCapture()
         previewPlayer.stop()
         MainActor.assumeIsolated {
+            backgroundLease?.finish()
             releasePreviewAudioSession()
             restoreScreenBrightness()
         }
@@ -208,14 +228,14 @@ enum VideoNoteSubmissionResult {
     }
 
     func beginHolding() async -> Bool {
-        guard exitDisposition == .none, !didRequestDismiss, !state.isActive else { return false }
+        guard !isInBackground, exitDisposition == .none, !didRequestDismiss, !state.isActive else { return false }
         exitDisposition = .none
         recordingDurationBaseline = 0
         return await beginCapture(lockedInitially: false)
     }
 
     func recordMore() {
-        guard operationTask == nil,
+        guard !isInBackground, lifecycleTask == nil, operationTask == nil,
               trimBaseDraft == nil,
               case .preview = state,
               let recordingDraft,
@@ -315,6 +335,7 @@ enum VideoNoteSubmissionResult {
     }
 
     func finishForSend() {
+        guard !isInBackground else { return }
         switch state {
         case .preview:
             submitPreview()
@@ -333,12 +354,13 @@ enum VideoNoteSubmissionResult {
     }
 
     func togglePreviewPlayback() {
-        guard trimBaseDraft == nil else { return }
+        guard !isInBackground, trimBaseDraft == nil else { return }
         guard case .preview(let duration, let isPlaying, let canRecordMore) = state else { return }
         if isPlaying {
             previewPlayer.pause()
             state = .preview(duration: duration, isPlaying: false, canRecordMore: canRecordMore)
         } else {
+            lifecyclePaused = false
             previewPlayer.play()
             state = .preview(duration: duration, isPlaying: true, canRecordMore: canRecordMore)
         }
@@ -391,6 +413,7 @@ enum VideoNoteSubmissionResult {
         )
         guard finished else { return }
         let generation = operationGeneration
+        let epoch = lifecycleEpoch
         startOperation { [weak self] _ in
             guard let self else { return }
             do {
@@ -407,10 +430,15 @@ enum VideoNoteSubmissionResult {
                 trimBaseDraft = nil
                 transientTrimRange = nil
                 previewPlayer.setPlaybackRange(storedDraft.effectiveRange)
-                previewPlayer.play(from: storedDraft.effectiveRange.lowerBound)
+                let autoplay = epoch == lifecycleEpoch && !lifecyclePaused && !isInBackground
+                if autoplay {
+                    previewPlayer.play(from: storedDraft.effectiveRange.lowerBound)
+                } else {
+                    previewPlayer.seek(to: storedDraft.effectiveRange.lowerBound, tolerance: 0)
+                }
                 state = .preview(
                     duration: storedDraft.effectiveRange.upperBound - storedDraft.effectiveRange.lowerBound,
-                    isPlaying: true,
+                    isPlaying: autoplay,
                     canRecordMore: storedDraft.canRecordMore,
                 )
                 onPreviewData?(storedDraft, previewThumbnails)
@@ -502,6 +530,8 @@ enum VideoNoteSubmissionResult {
     private func beginCapture(lockedInitially: Bool) async -> Bool {
         let generation = UUID()
         operationGeneration = generation
+        lifecyclePaused = false
+        pendingLifecyclePreview = nil
         captureFinalization = makeCaptureFinalization(generation: generation)
         locked = lockedInitially
         state = .preparing
@@ -512,14 +542,16 @@ enum VideoNoteSubmissionResult {
         do {
             try await captureSession.prepare(position: preferredPosition, generation: generation)
             try Task.checkCancellation()
-            guard operationGeneration == generation else { throw CancellationError() }
+            guard operationGeneration == generation,
+                  captureFinalization?.isPreserving != true else { throw CancellationError() }
             cameraPreview.updateConnection(
                 position: captureSession.currentPosition,
                 orientation: currentInterfaceOrientation,
             )
             try await Task<Never, Never>.sleep(for: .milliseconds(150))
             try Task.checkCancellation()
-            guard operationGeneration == generation else { throw CancellationError() }
+            guard operationGeneration == generation,
+                  captureFinalization?.isPreserving != true else { throw CancellationError() }
             let remainingDuration = max(0.5, 60 - recordingDurationBaseline)
             let remainingAutomaticDuration = max(0.5, 59.5 - recordingDurationBaseline)
             try await captureSession.startRecording(
@@ -539,7 +571,8 @@ enum VideoNoteSubmissionResult {
             if captureFinalization?.generation == generation { captureFinalization?.fail(error) }
             guard !Task.isCancelled,
                   operationGeneration == generation,
-                  exitDisposition == .none
+                  exitDisposition == .none,
+                  captureFinalization?.isPreserving != true
             else { return false }
             let errorMessage = message(for: error)
             if lockedInitially, recordingDraft != nil, operationGeneration == generation {
@@ -694,7 +727,9 @@ enum VideoNoteSubmissionResult {
         captureSession.statePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] update in
-                guard let self, update.generation == operationGeneration, exitDisposition == .none else { return }
+                guard let self, update.generation == operationGeneration, exitDisposition == .none,
+                      captureFinalization?.isPreserving != true
+                else { return }
                 switch update.state {
                 case .configuring:
                     if !state.isActive || state == .preparing {
@@ -729,6 +764,140 @@ enum VideoNoteSubmissionResult {
             .store(in: &cancellables)
     }
 
+    private func observeLifecycle() {
+        NotificationCenter.default
+            .publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in self?.preserveForLifecycle(background: true) }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in self?.resumeLifecyclePreview() }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: AVAudioSession.interruptionNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      type == AVAudioSession.InterruptionType.began.rawValue
+                else { return }
+                self?.preserveForLifecycle(background: false)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func pauseForLifecycle() {
+        lifecycleEpoch += 1
+        lifecyclePaused = true
+        previewPlayer.pause()
+        previewMuted = true
+        previewPlayer.setMuted(true)
+        releasePreviewAudioSession()
+        restoreScreenBrightness()
+        if case .preview(let duration, _, let canRecordMore) = state {
+            state = .preview(duration: duration, isPlaying: false, canRecordMore: canRecordMore)
+        }
+    }
+
+    private func preserveForLifecycle(background: Bool, generation: UUID? = nil) {
+        guard generation == nil || captureFinalization?.generation == generation else { return }
+        if background { isInBackground = true }
+        pauseForLifecycle()
+        // Pending exports are fenced before onSubmit; accepted submissions retain ownership.
+        guard state != .sending, exitDisposition != .discard,
+              let finalization = captureFinalization, !finalization.isComplete
+        else { return }
+        finalization.preserve()
+        if background, backgroundLeaseGeneration != finalization.generation {
+            backgroundLease?.finish()
+            backgroundLeaseGeneration = finalization.generation
+            backgroundLease = VideoNoteBackgroundLease(backend: backgroundLeaseBackend) { [weak self, finalization] in
+                // Once adopted, the canonical transaction must finish even after expiry.
+                guard !finalization.hasAcceptedAsset, !finalization.isComplete else { return }
+                self?.captureSession.cancelCapture(generation: finalization.generation)
+                finalization.fail(CancellationError())
+            }
+        }
+        guard lifecycleGeneration != finalization.generation else { return }
+        lifecycleGeneration = finalization.generation
+        finishingCaptureGeneration = finalization.generation
+        let previousOperation = operationTask
+        let hasRecording = captureSession.stopInputPreservingRecording(generation: finalization.generation)
+        if exitDisposition == .none { state = .stopping }
+        if hasRecording {
+            finalization.requestFinish()
+        } else if !finalization.finishRequested {
+            finalization.fail(CancellationError())
+        }
+        startLifecycleOperation { [self, finalization] in
+            if hasRecording {
+                do {
+                    if let asset = try await captureSession.stopRecording(generation: finalization.generation) {
+                        finalization.accept(asset)
+                    }
+                } catch {
+                    finalization.fail(error)
+                }
+            }
+            let result = await finalization.value()
+            if backgroundLeaseGeneration == finalization.generation { backgroundLease?.finish() }
+            await previousOperation?.value
+            guard ownsLifecyclePreview(finalization) else { return }
+            let draft: VideoNoteRecordingDraft? =
+                switch result {
+                case .success(let saved): saved
+                case .failure:
+                    await recordingStore.drafts(for: finalization.destination)
+                        .first { $0.id == finalization.baseDraft?.id }
+                }
+            guard ownsLifecyclePreview(finalization) else { return }
+            if let draft {
+                recordingDraft = draft
+                pendingLifecyclePreview = (finalization.generation, draft)
+                state = .preview(
+                    duration: draft.effectiveRange.upperBound - draft.effectiveRange.lowerBound,
+                    isPlaying: false, canRecordMore: draft.canRecordMore,
+                )
+                resumeLifecyclePreview(clearBackground: false)
+            } else {
+                state = .failed("Recording was interrupted before a video preview could be saved.")
+            }
+        }
+    }
+
+    private func ownsLifecyclePreview(_ finalization: VideoNoteCaptureFinalization) -> Bool {
+        captureFinalization === finalization && operationGeneration == finalization.generation
+            && finalization.destination == draftKey && exitDisposition == .none && !didRequestDismiss
+    }
+
+    private func resumeLifecyclePreview(clearBackground: Bool = true) {
+        if clearBackground { isInBackground = false }
+        guard !isInBackground, let pending = pendingLifecyclePreview,
+              pending.generation == operationGeneration, pending.draft.destination == draftKey,
+              exitDisposition == .none, !didRequestDismiss
+        else { return }
+        pendingLifecyclePreview = nil
+        startLifecycleOperation { [self] in
+            do {
+                try await preparePreview(draft: pending.draft, generation: pending.generation, autoplay: false)
+            } catch {
+                guard operationGeneration == pending.generation, exitDisposition == .none,
+                      !didRequestDismiss else { return }
+                state = .failed("Couldn’t restore the saved video-message preview.")
+            }
+        }
+    }
+
+    private func startLifecycleOperation(_ operation: @escaping @MainActor () async -> Void) {
+        let id = UUID()
+        lifecycleTaskID = id
+        lifecycleTask = Task { [weak self] in
+            await operation()
+            guard let self, lifecycleTaskID == id else { return }
+            lifecycleTaskID = nil
+            lifecycleTask = nil
+        }
+    }
+
     private func observePreviewPlayer() {
         previewPlayer.statePublisher
             .receive(on: DispatchQueue.main)
@@ -738,6 +907,10 @@ enum VideoNoteSubmissionResult {
                 else { return }
                 switch playerState {
                 case .playing:
+                    guard !isInBackground, !lifecyclePaused else {
+                        previewPlayer.pause()
+                        return
+                    }
                     state = .preview(
                         duration: duration,
                         isPlaying: true,
@@ -818,7 +991,7 @@ enum VideoNoteSubmissionResult {
     }
 
     private func finishRecording(submitAfterCapture: Bool) {
-        guard operationTask == nil else { return }
+        guard !isInBackground, operationTask == nil else { return }
         switch state {
         case .holding(let duration):
             if duration - recordingDurationBaseline < 0.5 {
@@ -836,6 +1009,7 @@ enum VideoNoteSubmissionResult {
         }
         let generation = operationGeneration
         let finalization = captureFinalization
+        let epoch = lifecycleEpoch
         finalization?.requestFinish()
         finishingCaptureGeneration = generation
         state = .stopping
@@ -853,7 +1027,10 @@ enum VideoNoteSubmissionResult {
                 try await processCapturedAsset(asset, generation: generation, finalization: finalization)
                 guard !Task.isCancelled,
                       operationGeneration == generation,
-                      self.operationID == operationID
+                      self.operationID == operationID,
+                      finalization?.isPreserving != true,
+                      lifecycleEpoch == epoch,
+                      !captureSession.wasInterrupted(generation: generation)
                 else { return }
                 completeOperation(operationID)
                 if submitAfterCapture {
@@ -872,7 +1049,8 @@ enum VideoNoteSubmissionResult {
                 }
                 guard !Task.isCancelled,
                       operationGeneration == generation,
-                      exitDisposition == .none
+                      exitDisposition == .none,
+                      finalization?.isPreserving != true
                 else { return }
                 if recordingDurationBaseline > 0,
                    recordingDraft != nil,
@@ -919,7 +1097,9 @@ enum VideoNoteSubmissionResult {
     private func preparePreview(
         draft: VideoNoteRecordingDraft,
         generation: UUID,
+        autoplay: Bool = true,
     ) async throws {
+        let epoch = lifecycleEpoch
         let composition = try await recordingStore.composition(for: draft)
         guard operationGeneration == generation, exitDisposition == .none else {
             if exitDisposition == .discard {
@@ -928,12 +1108,21 @@ enum VideoNoteSubmissionResult {
             throw CancellationError()
         }
         try Task.checkCancellation()
-        installPreview(draft: draft, composition: composition)
+        if isInBackground {
+            recordingDraft = draft
+            pendingLifecyclePreview = (generation, draft)
+            return
+        }
+        installPreview(
+            draft: draft, composition: composition,
+            autoplay: autoplay && epoch == lifecycleEpoch && !lifecyclePaused,
+        )
     }
 
     private func installPreview(
         draft: VideoNoteRecordingDraft,
         composition: VideoNoteCompositionResult,
+        autoplay: Bool = true,
     ) {
         recordingDraft = draft
         exitDisposition = .none
@@ -952,13 +1141,13 @@ enum VideoNoteSubmissionResult {
         previewPlayer.setMuted(previewMuted)
         previewPlayer.load(
             composition: composition,
-            autoplay: true,
+            autoplay: autoplay,
             loops: true,
             playbackRange: draft.effectiveRange,
         )
         state = .preview(
             duration: draft.effectiveRange.upperBound - draft.effectiveRange.lowerBound,
-            isPlaying: true,
+            isPlaying: autoplay,
             canRecordMore: draft.canRecordMore,
         )
         onPreviewData?(draft, [])
@@ -1025,7 +1214,7 @@ enum VideoNoteSubmissionResult {
     }
 
     private func submitPreview() {
-        guard operationTask == nil,
+        guard !isInBackground, lifecycleTask == nil, operationTask == nil,
               trimBaseDraft == nil,
               let onSubmit
         else {
@@ -1036,6 +1225,8 @@ enum VideoNoteSubmissionResult {
         }
         let generation = operationGeneration
         let draft = recordingDraft
+        let epoch = lifecycleEpoch
+        let wasInterrupted = captureSession.wasInterrupted(generation: generation)
         if let draft,
            draft.effectiveRange.upperBound - draft.effectiveRange.lowerBound < 1 - 0.000_001
         {
@@ -1093,6 +1284,28 @@ enum VideoNoteSubmissionResult {
                 asset = currentAsset
                 originRecordingDraftID = nil
             } else {
+                return
+            }
+            #if DEBUG
+                await beforeSubmitProbe?(asset, thumbnail)
+            #endif
+            guard !Task.isCancelled, operationGeneration == generation,
+                  lifecycleEpoch == epoch, !isInBackground,
+                  wasInterrupted || !captureSession.wasInterrupted(generation: generation)
+            else {
+                if draft != nil { try? FileManager.default.removeItem(at: asset.url) }
+                if let thumbnail { try? FileManager.default.removeItem(at: thumbnail.url) }
+                if operationGeneration == generation, exitDisposition == .discard {
+                    if let draft { await recordingStore.discard(id: draft.id) }
+                    if ownsCurrentAsset, let currentAsset { discardOwnedAsset(currentAsset) }
+                    releaseSubmittedPreview()
+                    return
+                }
+                guard operationGeneration == generation, exitDisposition == .none, !didRequestDismiss else { return }
+                previewPlayer.pause()
+                let duration = draft.map { $0.effectiveRange.upperBound - $0.effectiveRange.lowerBound } ?? asset
+                    .duration
+                state = .preview(duration: duration, isPlaying: false, canRecordMore: draft?.canRecordMore ?? false)
                 return
             }
             let result = await onSubmit(
@@ -1178,8 +1391,9 @@ enum VideoNoteSubmissionResult {
                 previewThumbnails = []
                 previewMuted = true
                 previewPlayer.setMuted(true)
-                previewPlayer.load(url: asset.url, autoplay: true, loops: true)
-                state = .preview(duration: asset.duration, isPlaying: true, canRecordMore: false)
+                let autoplay = epoch == lifecycleEpoch && !lifecyclePaused && !isInBackground
+                previewPlayer.load(url: asset.url, autoplay: autoplay, loops: true)
+                state = .preview(duration: asset.duration, isPlaying: autoplay, canRecordMore: false)
                 onError?(message)
             }
         }
@@ -1299,7 +1513,8 @@ enum VideoNoteSubmissionResult {
                     if finalization == nil { try? FileManager.default.removeItem(at: asset.url) }
                     guard !Task.isCancelled,
                           operationGeneration == generation,
-                          exitDisposition == .none
+                          exitDisposition == .none,
+                          finalization?.isPreserving != true
                     else { return }
                     if recordingDurationBaseline > 0,
                        recordingDraft != nil,
@@ -1502,7 +1717,7 @@ enum VideoNoteSubmissionResult {
     }
 
     private func togglePreviewMute() -> Bool {
-        guard case .preview = state else { return false }
+        guard !isInBackground, case .preview = state else { return false }
         previewMuted.toggle()
         previewPlayer.setMuted(true)
         updatePreviewAudioSession()
@@ -1655,6 +1870,297 @@ enum VideoNoteSubmissionResult {
 
 #if DEBUG
     extension VideoNoteRecorderViewController {
+        private enum LifecycleProbeScenario: String, CaseIterable {
+            case background
+            case manualBeforeFinish
+            case automaticBeforeFinish
+            case automaticBeforeDelivery
+            case appendBeforeSave
+            case appendFailure
+            case expireBeforeFinish
+            case expireDuringSave
+            case cameraInterruption
+            case navigationThenBackground
+            case explicitCancel
+        }
+
+        static func verifyDebugLifecyclePreservation(directory: URL) async throws {
+            var immediateExpirations = 0
+            var immediateEnds = 0
+            let lease = VideoNoteBackgroundLease(backend: .init(begin: { expiration in
+                expiration()
+                return UIBackgroundTaskIdentifier(rawValue: 41)
+            }, end: { _ in immediateEnds += 1 })) { immediateExpirations += 1 }
+            lease.finish()
+            try VideoNotePreservationProbe.require(
+                immediateExpirations == 1 && immediateEnds == 1, "synchronous lease expiry was lost/duplicated",
+            )
+            for scenario in LifecycleProbeScenario.allCases {
+                try await verifyDebugLifecycle(scenario, directory: directory)
+            }
+            try await verifyDebugLifecyclePendingStartAndSend(directory: directory)
+        }
+
+        private static func verifyDebugLifecycle(_ scenario: LifecycleProbeScenario, directory: URL) async throws {
+            VideoNotePreservationProbe.lifecycleProgress("\(scenario): started")
+            let directory = directory.appendingPathComponent(scenario.rawValue, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let store = VideoNoteRecordingDraftStore(
+                directoryURL: directory.appendingPathComponent("store"), adoptedRecordingOrigins: { [] },
+            )
+            let route = ChatDraftKey(accountID: UUID(), chatID: 42, topic: nil)
+            let sendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 7))
+            let baseAsset = try await VideoNoteAssetWriter.makeDebugSegment(
+                outputURL: directory.appendingPathComponent("base.mp4"), duration: 1.1, frameSeed: 3,
+            )
+            let base = try await store.adopt(
+                baseAsset, chatID: route.chatID, draftKey: route, replyMessageID: 31, replyTo: nil,
+                sendTopic: sendTopic,
+            )
+            let recorder = VideoNoteRecorderViewController(
+                chatID: route.chatID, draftKey: route, replyMessageID: 31, replyTo: nil, sendTopic: sendTopic,
+                recordingStore: store,
+            )
+            recorder.loadViewIfNeeded()
+            recorder.recordingDraft = base
+            recorder.recordingDurationBaseline = base.totalDuration
+            let generation = recorder.operationGeneration
+            let finalization = recorder.makeCaptureFinalization(generation: generation)
+            recorder.captureFinalization = finalization
+            recorder.state = .holding(base.totalDuration + 0.6)
+            var sends = 0
+            recorder.onSubmit = { asset, _, _, _, _ in
+                sends += 1
+                return .retained(asset, originConsumed: false, message: "unexpected send")
+            }
+            var begins = 0
+            var ends = 0
+            var expiration: (@MainActor @Sendable () -> Void)?
+            recorder.backgroundLeaseBackend = .init(begin: { callback in
+                begins += 1
+                expiration = callback
+                return UIBackgroundTaskIdentifier(rawValue: begins)
+            }, end: { _ in ends += 1 })
+            let gate = VideoNoteFinishProbe.Gate()
+            defer { Task { await gate.open() } }
+            let blocksSave = [.appendBeforeSave, .appendFailure, .expireDuringSave].contains(scenario)
+            let blocksDelivery = scenario == .automaticBeforeDelivery
+            if blocksSave { await store.setBeforeCaptureSaveProbe { await gate.wait() } }
+            var beforeFinish: (@Sendable () async -> Void)?
+            var beforeDelivery: (@Sendable () async -> Void)?
+            if !blocksSave, !blocksDelivery { beforeFinish = { await gate.wait() } }
+            if blocksDelivery { beforeDelivery = { await gate.wait() } }
+            try await recorder.captureSession.installPreservationProbe(
+                output: directory.appendingPathComponent("capture.mp4"), generation: generation,
+                beforeFinish: beforeFinish,
+                beforeDelivery: beforeDelivery,
+            )
+            var automaticTask: Task<Void, Never>?
+            switch scenario {
+            case .automaticBeforeDelivery, .automaticBeforeFinish, .navigationThenBackground:
+                automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
+            case .appendBeforeSave, .appendFailure, .expireDuringSave, .manualBeforeFinish:
+                recorder.finishForSend()
+            case .cameraInterruption:
+                recorder.captureSession.interruptPreservationProbe()
+            case .background, .expireBeforeFinish, .explicitCancel:
+                recorder.preserveForLifecycle(background: true)
+            }
+            let manualTask = recorder.operationTask
+            try await VideoNotePreservationProbe.waitForGate(gate, finalization: finalization)
+            VideoNotePreservationProbe.lifecycleProgress("\(scenario): gate entered")
+            if scenario == .navigationThenBackground { recorder.teardownForNavigation() }
+            recorder.preserveForLifecycle(background: true)
+            recorder.resumeLifecyclePreview()
+            recorder.preserveForLifecycle(background: true)
+            recorder.preserveForLifecycle(background: false, generation: generation)
+            try VideoNotePreservationProbe.require(begins == 1, "duplicate lifecycle renewed background lease")
+            var restored: [VideoNoteRecordingDraft]?
+            let restore = Task {
+                await VideoNoteRecordingPreservation.wait(for: route)
+                restored = await store.drafts(for: route)
+            }
+            await VideoNoteRecordingPreservation.wait(for: .init(accountID: UUID(), chatID: route.chatID, topic: nil))
+            try VideoNotePreservationProbe.require(restored == nil, "exact route did not wait for canonical result")
+            if scenario == .appendFailure { _ = try await store.updateTrim(in: base, range: base.effectiveRange) }
+            if scenario == .expireBeforeFinish || scenario == .expireDuringSave {
+                expiration?()
+                expiration?()
+                try VideoNotePreservationProbe.require(ends == 1, "lease expiry did not release exactly once")
+                if scenario == .expireDuringSave {
+                    try VideoNotePreservationProbe.require(
+                        finalization.hasAcceptedAsset && !finalization.isComplete,
+                        "expiry cancelled accepted canonical save",
+                    )
+                }
+            }
+            if scenario == .explicitCancel { recorder.cancel() }
+            await gate.open()
+            await automaticTask?.value
+            _ = await finalization.value()
+            await manualTask?.value
+            await recorder.lifecycleTask?.value
+            await restore.value
+            try VideoNotePreservationProbe.require(ends == 1 && sends == 0, "lease leak or interrupted implicit send")
+            let drafts = await store.drafts(for: route)
+            if scenario == .explicitCancel {
+                try VideoNotePreservationProbe.require(
+                    drafts.isEmpty && finalization.isDiscarded,
+                    "explicit cancel retained draft",
+                )
+                return
+            }
+            guard drafts.count == 1, let draft = drafts.first else {
+                throw VideoNotePreservationProbe.Failure(description: "missing/duplicate lifecycle canonical draft")
+            }
+            let expectedSegments = scenario == .appendFailure || scenario == .expireBeforeFinish ? 1 : 2
+            try VideoNotePreservationProbe.require(
+                draft.id == base.id && draft.segments.count == expectedSegments
+                    && draft.segments.first?.id == base.segments.first?.id
+                    && draft.destination == route && draft.replyMessageID == 31 && draft.sendTopic == sendTopic,
+                "lifecycle lost canonical base/route/reply/topic",
+            )
+            for segment in draft.segments {
+                _ = try await VideoNoteAssetWriter.validate(url: segment.fileURL, expectedLength: 400)
+            }
+            recorder.resumeLifecyclePreview()
+            await recorder.lifecycleTask?.value
+            recorder.resumeLifecyclePreview()
+            if scenario == .navigationThenBackground {
+                try VideoNotePreservationProbe.require(recorder.state == .idle, "foreground revived detached UI")
+            } else {
+                guard case .preview(_, false, _) = recorder.state else {
+                    throw VideoNotePreservationProbe
+                        .Failure(description: "foreground preview was not paused: \(recorder.state)")
+                }
+                try VideoNotePreservationProbe.require(
+                    !recorder.previewPlayer.isPlaybackRequested,
+                    "foreground autoplay",
+                )
+                recorder.preserveForLifecycle(background: true)
+                recorder.resumeLifecyclePreview()
+                try VideoNotePreservationProbe.require(
+                    !recorder.previewPlayer.isPlaybackRequested && begins == 1,
+                    "retained preview restarted playback or renewed lease",
+                )
+            }
+            // A delayed callback cannot pause/claim the successor generation.
+            recorder.operationGeneration = UUID()
+            recorder.captureFinalization = recorder.makeCaptureFinalization(generation: recorder.operationGeneration)
+            recorder.lifecyclePaused = false
+            recorder.preserveForLifecycle(background: false, generation: generation)
+            try VideoNotePreservationProbe.require(!recorder.lifecyclePaused, "old interruption affected successor")
+            try VideoNotePreservationProbe.require(
+                !FileManager.default.fileExists(atPath: directory.appendingPathComponent("capture.mp4").path),
+                "unadopted lifecycle raw output retained",
+            )
+        }
+
+        private static func verifyDebugLifecyclePendingStartAndSend(directory: URL) async throws {
+            VideoNotePreservationProbe.lifecycleProgress("pending-start/accepted-submit: started")
+            let store = VideoNoteRecordingDraftStore(
+                directoryURL: directory.appendingPathComponent("pending-store"), adoptedRecordingOrigins: { [] },
+            )
+            let route = ChatDraftKey(accountID: UUID(), chatID: 43, topic: nil)
+            let asset = try await VideoNoteAssetWriter.makeDebugSegment(
+                outputURL: directory.appendingPathComponent("pending-base.mp4"), duration: 1.1, frameSeed: 3,
+            )
+            let base = try await store.adopt(
+                asset,
+                chatID: route.chatID,
+                draftKey: route,
+                replyMessageID: nil,
+                replyTo: nil,
+                sendTopic: nil,
+            )
+            let recorder = VideoNoteRecorderViewController(
+                chatID: route.chatID, draftKey: route, replyMessageID: nil, replyTo: nil, sendTopic: nil,
+                recordingStore: store,
+            )
+            recorder.loadViewIfNeeded()
+            recorder.recordingDraft = base
+            recorder.captureFinalization = recorder.makeCaptureFinalization(generation: recorder.operationGeneration)
+            recorder.state = .preparing
+            var begins = 0
+            var ends = 0
+            recorder.backgroundLeaseBackend = .init(begin: { _ in
+                begins += 1
+                return UIBackgroundTaskIdentifier(rawValue: 1)
+            }, end: { _ in ends += 1 })
+            recorder.preserveForLifecycle(background: true)
+            await recorder.lifecycleTask?.value
+            await VideoNoteRecordingPreservation.wait(for: route)
+            recorder.resumeLifecyclePreview()
+            await recorder.lifecycleTask?.value
+            try VideoNotePreservationProbe.require(
+                recorder.recordingDraft?.id == base.id && begins == 1 && ends == 1,
+                "pending start lost previous draft or leaked lease",
+            )
+            let gate = VideoNoteFinishProbe.Gate()
+            defer { Task { await gate.open() } }
+            var sends = 0
+            var cancelled = false
+            recorder.onSubmit = { asset, _, _, _, _ in
+                sends += 1
+                await gate.wait()
+                cancelled = Task.isCancelled
+                return .retained(asset, originConsumed: false, message: "fixture retry")
+            }
+            let exportGate = VideoNoteFinishProbe.Gate()
+            defer { Task { await exportGate.open() } }
+            var preparedURLs = [URL]()
+            recorder.beforeSubmitProbe = { asset, thumbnail in
+                preparedURLs = [asset.url] + (thumbnail.map { [$0.url] } ?? [])
+                await exportGate.wait()
+            }
+            recorder.finishForSend()
+            let exportDeadline = ContinuousClock.now.advanced(by: .seconds(15))
+            while await !exportGate.isEntered {
+                guard ContinuousClock.now < exportDeadline else {
+                    throw VideoNotePreservationProbe.Failure(description: "pre-submit export gate timeout")
+                }
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            }
+            recorder.preserveForLifecycle(background: true)
+            recorder.resumeLifecyclePreview()
+            await exportGate.open()
+            await recorder.operationTask?.value
+            try VideoNotePreservationProbe.require(
+                sends == 0 && !preparedURLs.isEmpty
+                    && preparedURLs.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+                    && recorder.recordingDraft?.id == base.id && !recorder.previewPlayer.isPlaybackRequested,
+                "background/foreground during export sent, leaked export, deleted canonical draft or autoplayed",
+            )
+            for segment in base.segments {
+                try VideoNotePreservationProbe.require(
+                    FileManager.default.fileExists(atPath: segment.fileURL.path),
+                    "cancelled export removed canonical source",
+                )
+            }
+            recorder.beforeSubmitProbe = nil
+            recorder.finishForSend()
+            let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+            while await !gate.isEntered {
+                guard ContinuousClock.now < deadline
+                    else { throw VideoNotePreservationProbe.Failure(description: "submit gate timeout") }
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            }
+            recorder.preserveForLifecycle(background: true)
+            recorder.preserveForLifecycle(background: false)
+            try VideoNotePreservationProbe.require(
+                recorder.state == .sending && begins == 1,
+                "lifecycle claimed accepted submission",
+            )
+            await gate.open()
+            await recorder.operationTask?.value
+            try VideoNotePreservationProbe.require(
+                sends == 1 && !cancelled,
+                "accepted submission was cancelled/duplicated",
+            )
+            recorder.resumeLifecyclePreview()
+            recorder.teardownForNavigation()
+        }
+
         private enum PreservationProbeScenario: String, CaseIterable {
             case navigation
             case manualBeforeFinish
@@ -1663,7 +2169,7 @@ enum VideoNoteSubmissionResult {
             case appendBeforeSave
             case appendFailure
             case explicitCancel
-            case navigationThenBackground
+            case navigationThenCaptureFailure
         }
 
         static func verifyDebugNavigationPreservation(directory: URL) async throws {
@@ -1690,7 +2196,7 @@ enum VideoNoteSubmissionResult {
                 ChatDraftKey(accountID: route.accountID, chatID: route.chatID, topic: sendTopic),
             ]
             let usesBase = scenario == .appendBeforeSave || scenario == .appendFailure
-                || scenario == .navigationThenBackground || scenario == .explicitCancel
+                || scenario == .navigationThenCaptureFailure || scenario == .explicitCancel
             var baseDraft: VideoNoteRecordingDraft?
             if usesBase {
                 let asset = try await VideoNoteAssetWriter.makeDebugSegment(
@@ -1742,7 +2248,7 @@ enum VideoNoteSubmissionResult {
                 recorder.teardownForNavigation()
             case .appendBeforeSave, .appendFailure, .explicitCancel, .manualBeforeFinish:
                 recorder.finishForSend()
-            case .automaticBeforeDelivery, .automaticBeforeFinish, .navigationThenBackground:
+            case .automaticBeforeDelivery, .automaticBeforeFinish, .navigationThenCaptureFailure:
                 automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
             }
             let activeOperation = recorder.operationTask
@@ -1793,7 +2299,7 @@ enum VideoNoteSubmissionResult {
             if scenario == .appendFailure, let baseDraft {
                 _ = try await store.updateTrim(in: baseDraft, range: baseDraft.effectiveRange)
             }
-            if scenario == .navigationThenBackground {
+            if scenario == .navigationThenCaptureFailure {
                 recorder.captureSession.terminatePreservationProbe()
             }
             await gate.open()
@@ -1804,7 +2310,7 @@ enum VideoNoteSubmissionResult {
             await restoration.value
             VideoNotePreservationProbe.progress("\(scenario): restoration returned")
             await recorder.operationTask?.value
-            let failed = scenario == .appendFailure || scenario == .navigationThenBackground
+            let failed = scenario == .appendFailure || scenario == .navigationThenCaptureFailure
             switch result {
             case .success where failed:
                 throw VideoNotePreservationProbe.Failure(description: "\(scenario): expected finalization failure")

@@ -37,6 +37,10 @@ enum VideoNoteCaptureError: Swift.Error {
             handleCaptureFailure("Probe lifecycle interruption")
         }
 
+        func interruptPreservationProbe() {
+            handleCaptureInterruption()
+        }
+
         func publishPreservationProbeState(_ state: State) {
             contextLock.withLock { enqueueStateLocked(state, generation: stateGeneration) }
         }
@@ -371,6 +375,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     let captureSession = AVCaptureSession()
     @MainActor var onAutomaticStop: ((UUID, Result<VideoNoteAsset, Error>) -> Void)?
     @MainActor var onRecordingTerminated: ((UUID, Error) -> Void)?
+    @MainActor var onCaptureInterruption: ((UUID) -> Void)?
 
     private let configurationQueue = DispatchQueue(label: "bettertg.video-note.capture.configuration")
     private let videoOutputQueue = DispatchQueue(label: "bettertg.video-note.capture.video", qos: .userInitiated)
@@ -378,6 +383,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     private let contextLock = NSLock()
     private let stateSubject = CurrentValueSubject<StateUpdate, Never>(.init(generation: nil, state: .idle))
     private var stateGeneration: UUID?
+    private var interruptedGeneration: UUID?
     private var preparationGeneration: UUID?
     private var activeCaptureGeneration: UUID?
     private var captureEnabled = false
@@ -709,6 +715,14 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         terminateCapture(matching: nil)
     }
 
+    func cancelCapture(generation: UUID) {
+        terminateCapture(matching: generation)
+    }
+
+    func wasInterrupted(generation: UUID) -> Bool {
+        contextLock.withLock { interruptedGeneration == generation }
+    }
+
     /// Stops device work without cancelling a finish already owned by manual/auto stop.
     func stopInputPreservingRecording(generation: UUID) -> Bool {
         let ownership = contextLock.withLock { () -> (matched: Bool, hasRecording: Bool) in
@@ -874,7 +888,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     private func isCurrentPreparation(_ generation: UUID) -> Bool {
         contextLock.lock()
         defer { contextLock.unlock() }
-        return preparationGeneration == generation
+        return preparationGeneration == generation && interruptedGeneration != generation
     }
 
     private func failPreparation(_ generation: UUID, message: String) -> Bool {
@@ -954,7 +968,9 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                         captureSession.startRunning()
                     }
                     let shouldEnable = contextLock.withLock { () -> Bool in
-                        guard self.preparationGeneration == generation else { return false }
+                        guard self.preparationGeneration == generation,
+                              self.interruptedGeneration != generation
+                        else { return false }
                         self.captureEnabled = true
                         self.preparationGeneration = nil
                         self.activeCaptureGeneration = generation
@@ -1066,12 +1082,12 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     }
 
     private func terminateCapture(matching generation: UUID?) {
-        let result = contextLock.withLock { () -> (Bool, RecordingContext?) in
+        let result = contextLock.withLock { () -> (Bool, RecordingContext?, UUID?) in
             if let generation,
                preparationGeneration != generation,
                activeCaptureGeneration != generation
             {
-                return (false, nil)
+                return (false, nil, nil)
             }
             preparationGeneration = nil
             activeCaptureGeneration = nil
@@ -1080,12 +1096,12 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             let context = recordingContext
             recordingContext = nil
             enqueueStateLocked(.idle, generation: generation ?? stateGeneration)
-            return (true, context)
+            return (true, context, stateGeneration)
         }
         guard result.0 else { return }
         result.1?.writer.cancel()
         configurationQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self, contextLock.withLock({ self.stateGeneration == result.2 }) else { return }
             Self.disableTorch(on: videoInput?.device)
             if captureSession.isRunning {
                 captureSession.stopRunning()
@@ -1115,7 +1131,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             object: captureSession,
             queue: nil,
         ) { [weak self] _ in
-            self?.handleCaptureFailure("Video-note capture was interrupted.")
+            self?.handleCaptureInterruption()
         })
         notificationTokens.append(center.addObserver(
             forName: AVCaptureSession.runtimeErrorNotification,
@@ -1124,13 +1140,29 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         ) { [weak self] _ in
             self?.handleCaptureFailure("Video-note capture stopped unexpectedly.")
         })
-        notificationTokens.append(center.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: nil,
-        ) { [weak self] _ in
-            self?.handleCaptureFailure("Video-note capture stopped in the background.")
-        })
+    }
+
+    private func handleCaptureInterruption() {
+        let generation = contextLock.withLock { () -> UUID? in
+            guard let generation = recordingContext?.captureGeneration
+                ?? activeCaptureGeneration ?? preparationGeneration
+            else { return nil }
+            interruptedGeneration = generation
+            captureEnabled = false
+            pendingRecordingStart = nil
+            recordingContext?.videoFramesEnabled = false
+            recordingContext?.audioFramesEnabled = false
+            return generation
+        }
+        guard let generation else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let onCaptureInterruption {
+                onCaptureInterruption(generation)
+            } else {
+                handleCaptureFailure("Video-note capture was interrupted.")
+            }
+        }
     }
 
     private func handleCaptureFailure(_ message: String) {

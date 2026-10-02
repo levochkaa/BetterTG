@@ -2,6 +2,59 @@
 
 import Foundation
 import TDLibKitDynamic
+import UIKit
+
+// MARK: - VideoNoteBackgroundLease
+
+/// A background assertion owns only time to checkpoint this capture, never a send.
+@MainActor final class VideoNoteBackgroundLease {
+    @MainActor struct Backend {
+        static var application: Backend {
+            Backend(
+                begin: { expiration in UIApplication.shared.beginBackgroundTask(
+                    withName: "Video note checkpoint",
+                    expirationHandler: { MainActor.assumeIsolated { expiration() } },
+                ) },
+                end: { UIApplication.shared.endBackgroundTask($0) },
+            )
+        }
+
+        let begin: @MainActor (@escaping @MainActor @Sendable () -> Void) -> UIBackgroundTaskIdentifier
+        let end: @MainActor (UIBackgroundTaskIdentifier) -> Void
+    }
+
+    private let backend: Backend
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+    private var onExpiration: (() -> Void)?
+    private var isStarting = true
+    private var expiredDuringStart = false
+
+    init(backend: Backend? = nil, onExpiration: @escaping () -> Void) {
+        self.backend = backend ?? .application
+        self.onExpiration = onExpiration
+        self.identifier = self.backend.begin { [weak self] in self?.expire() }
+        self.isStarting = false
+        if expiredDuringStart { expire() }
+    }
+
+    func finish() {
+        let previous = identifier
+        identifier = .invalid
+        onExpiration = nil
+        if previous != .invalid { backend.end(previous) }
+    }
+
+    private func expire() {
+        if isStarting {
+            expiredDuringStart = true
+            return
+        }
+        guard identifier != .invalid else { return }
+        let expiration = onExpiration
+        finish()
+        expiration?()
+    }
+}
 
 // MARK: - VideoNoteRecordingPreservation
 
@@ -50,6 +103,7 @@ import TDLibKitDynamic
     private var waiters = [CheckedContinuation<Result<VideoNoteRecordingDraft, Swift.Error>, Never>]()
 
     var isComplete: Bool { result != nil }
+    var hasAcceptedAsset: Bool { acceptedAssetURL != nil }
 
     init(
         generation: UUID,
