@@ -132,7 +132,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | needs-fix — per-message/account reveal state, concealed snapshots/preview/AX and playback gating across single/album/reuse/fullscreen transitions; distinct from caption/text spoiler A10 |
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | needs-fix — secret photo/video/animation blur and hold-only presentation, captured-context open/expiry acknowledgment, release/cancel/background teardown and export/transition protection. Existing inline video/PiP/export rejection does not prove secret-media viewing semantics |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | needs-fix — preserve structural layout deltas without rewinding user scroll; invalidate obsolete automatic restoration by interaction/layout generation, distinguish explicit navigation, and verify prepend/edit/media resize/keyboard while dragging and overlapping snapshots. Self-sizing's separate fresh-scroll guard does not cover these paths |
-| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e` scopes typed updates and freezes nested read clients with owner-epoch checks; bounded probe passes. Chat/topic and remaining subscribers, same-epoch ordering and real multi-account RPC races remain open |
+| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e` freezes update/read authority; Chat `df9eb7a` fences 20 typed subscribers and five asynchronous hydration paths. Bounded probes pass. Remaining subscribers, same-epoch ordering and real multi-account RPC races remain open |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | needs-fix — semantic attributed-string round trip with UTF-16 ranges, independent formatting and entity payloads; separate from spoiler concealment A10 |
 | A26 | P1 | Real own-draft reinstall at `d8ed16e` relocates the app data container: `VoiceNoteDraftStore.loadAllDrafts` rejects persisted absolute URLs and deletes the manifest although its Ogg remains. `VideoNoteFileStore.loadAllManifests` has the same absolute-path filter for MP4/thumbnail | fixed in `8519b33` (worker `2e28fad`) — relative managed filenames, strict legacy container rebasing, retained malformed/missing manifests and migration-write fallback. Isolated voice/video relocation/outcome probes and own voice recovery→reinstall→Discard pass; DEBUG fixture correction `5a87726` keeps production validation strict |
@@ -752,6 +752,26 @@ is imported. This source pass does not prove every content's real rendering/acti
   results pass in `.build/ui-probe-evidence/astra-a23a-primary`. Real RootVM/RPC wiring is source-reviewed; no real account switch,
   delayed server response or account/list mutation was performed.
 
+### Chat update delivery and integrated regression — 2026-10-02
+
+- A23b `df9eb7a` (worker `6c43e20`) binds 20 ChatVM typed subscriptions to their accepted account/client and exact chat/topic.
+  Five asynchronous new/sent/failed/message/reference hydration paths recheck that authority and the nonretired owner before
+  publication. Durable send outcomes, deletion transport and local recording-store notifications retain their existing ownership.
+  Same-client body/partial/delete ordering and actual Chat foreground restoration remain separate work.
+- Reference: the pinned current/pre Telegram AccountContext ownership and A13 accepted-update contract above; generated TDLib
+  update models, `getMessage` and captured-client metadata reads are unchanged. No server mutations or account switches exercised.
+- Four changed Swift files formatted together; primary build `.build/logs/xcodebuild/build-Debug-20261002-180630-74419-20491.log`
+  passes without warnings (9s). On the audit Simulator, installed `df9eb7a`, PID `75292`, actual generated dispatcher and observer
+  probe passes queued A1→A2, A→B→A3, colliding IDs, missing origin, retired owner, route/topic and late callback checks.
+  This is an isolated observer test, not delayed live ChatVM/TDLib network proof.
+- The same launch passes Root authority, A16 video submission ownership, A13 update source, A12 draft outcomes, A30b2 history/import
+  and A31 poll attempt probes. Separate `d34eeb3`, PID `73141`, passes A17 native video-finish regression.
+  Evidence: `.build/ui-probe-evidence/astra-a23b-primary` and `astra-a15a-primary/video-note-finish-probe.txt`.
+- Production Root/Main smoke on `df9eb7a`: selected `groups`, entered own query `232323`, Home→app icon, observed the same query
+  and selected folder, then typed `7` without another focus tap; AX and screenshot show `2323237`. Closed search and verified the
+  empty placeholder. Screenshot: `astra-a23b-primary/root-search-foreground.png`. Software keyboard was hidden; text focus was
+  demonstrated by input, not by keyboard pixels. This does not prove restoration of an open Chat or a real account switch.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -793,14 +813,14 @@ is imported. This source pass does not prove every content's real rendering/acti
   Voice/video background A15b, Chat/secondary-route A30b2, remaining A23, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `d34eeb3`, including A15a/A23a/history-import foundation/A31 and earlier ownership repairs;
-  video navigation plus six root/history/poll/list/navigation/composer probes pass (PID `72550`). Main search/focus smoke belongs to `1f47005`.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-180134-71658-8387.log`.
+- Latest verified code: `df9eb7a`, including A23b Chat source guards and earlier ownership repairs;
+  seven Chat/Root/video/update/outcome/history/poll probes pass (PID `75292`), plus production Main search/focus foreground smoke.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-180630-74419-20491.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
-  A30b2 history/freshness helpers are integrated; A23b Chat update-delivery fences are ready for primary integration before Chat activation.
+  A30b2 history/freshness helpers and A23b Chat update-delivery fences are integrated; production history/revision wiring is underway.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a; A15b1 video lifecycle preservation is underway.
   Parent owns idb; Simulators remain booted.
@@ -809,8 +829,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: integrate A23b Chat accepted-update/post-hydration source guards, then actual quiescent Chat activation with
-  shared freshness revisions, anchor/focus and controller import/modal/paste guards; A15b1 video background/interruption, then voice A15b2.
+- Exact next slices: wire A30b2 shared history revisions and seeded ChatVM, then quiescent Chat activation with
+  anchor/focus and controller import/modal/paste guards; A15b1 video background/interruption, then voice A15b2.
+  Primary starts A05 animation transport authority, followed by explicit consumer propagation and A06 shared download demand.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
   process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
   The full A30 transaction
