@@ -115,10 +115,13 @@
                 "frozen password dispatch or duplicate",
             )
             relay.invalidate()
+            // UITextField normalizes an empty placeholder to nil on this runtime.
             try require(
-                (input.text ?? "").isEmpty && input.placeholder == "" && !input.isEnabled && !session
+                (input.text ?? "").isEmpty && (input.placeholder ?? "").isEmpty && !input.isEnabled && !session
                     .permits(oldAction),
-                "handoff kept credential/hint/action",
+                "handoff clearing: text-empty=\((input.text ?? "").isEmpty); hint-nil=\(input.placeholder == nil); "
+                    +
+                        "hint-empty=\(input.placeholder == ""); input-enabled=\(input.isEnabled); action-valid=\(session.permits(oldAction))",
             )
             relay.update(password, source: a1)
             try require(relay.current == nil, "closed source revived after handoff")
