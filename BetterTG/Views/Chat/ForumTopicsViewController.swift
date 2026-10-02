@@ -207,6 +207,9 @@ import UIKit
                 retireModel()
                 cancelPreparation()
                 ownershipCancellables.removeAll()
+                #if DEBUG
+                log("ForumTopics client restoration: replacement accepted")
+                #endif
                 return replacement
             },
         )
@@ -317,6 +320,9 @@ import UIKit
         applySnapshot(model.topics, client: model.client)
         observeState()
         model.start()
+        #if DEBUG
+        log("ForumTopics client restoration: search binding accepted")
+        #endif
     }
 
     private func prepareClientMetadata(_ source: TdUpdateSource) {
