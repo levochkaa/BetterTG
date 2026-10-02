@@ -26,9 +26,14 @@ import TDLibKitDynamic
     private var nextOffsetMessageID = Int64.zero
     private var requestedCursors = Set<ForumTopicPageCursor>()
     private var query = ""
+    private var acceptedQuery = ""
+    private var pendingPageRequest: ForumTopicPageRequest?
+    private var restoringPages = false
+    private var restorationReset: Bool?
+    private var retired = false
 
     private var contextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == location.accountID
+        !retired && TDLib.shared.activeAccountID == location.accountID
             && TDLib.shared.activeClient.id == location.clientID
             && client.id == location.clientID
     }
@@ -37,10 +42,26 @@ import TDLibKitDynamic
         customChat: CustomChat,
         location: ChatLocation,
         client: TDLibClient,
+        restoration: ForumTopicsRestorationState? = nil,
     ) {
         self.customChat = customChat
         self.location = location
         self.client = client
+        if let restoration, restoration.accepts(location) {
+            self.topics = restoration.topics
+            self.query = restoration.query
+            self.acceptedQuery = restoration.query
+            self.nextOffsetDate = restoration.cursor.date
+            self.nextOffsetForumTopicID = restoration.cursor.forumTopicID
+            self.nextOffsetMessageID = restoration.cursor.messageID
+            self.requestedCursors = restoration.completedCursors
+            self.hasMore = restoration.hasMore
+            self.restoringPages = true
+            self.restorationReset = restoration.pendingReset
+            self.pendingPageRequest = restoration.pendingReset.map {
+                ForumTopicPageRequest(cursor: restoration.cursor, resets: $0)
+            }
+        }
         self.chatOpenLease = ChatOpenLeaseCoordinator.shared.acquire(
             location: location,
             client: client,
@@ -56,6 +77,39 @@ import TDLibKitDynamic
 
     func loadInitial() {
         load(reset: true, query: query)
+    }
+
+    func start() {
+        guard restoringPages else { loadInitial()
+            return
+        }
+        restoringPages = false
+        // The saved rows/cursor are a display seed, not a fresh server head.
+        if let restorationReset { load(reset: restorationReset, query: query) }
+    }
+
+    func restorationState(rawQuery: String) -> ForumTopicsRestorationState {
+        ForumTopicsRestorationState(
+            location: location, rawQuery: rawQuery, modelQuery: query, acceptedQuery: acceptedQuery,
+            topics: topics,
+            cursor: ForumTopicPageCursor(
+                date: nextOffsetDate,
+                forumTopicID: nextOffsetForumTopicID,
+                messageID: nextOffsetMessageID,
+            ),
+            requestedCursors: requestedCursors, hasMore: hasMore, request: pendingPageRequest,
+        )
+    }
+
+    func retire() {
+        retired = true
+        generation &+= 1
+        loadTask?.cancel()
+        loadTask = nil
+        topicRefreshTasks.values.forEach { $0.cancel() }
+        topicRefreshTasks.removeAll()
+        cancellables.removeAll()
+        chatOpenLease.invalidate()
     }
 
     func search(_ query: String) {
@@ -97,6 +151,7 @@ import TDLibKitDynamic
         }
         loading = true
         errorMessage = nil
+        pendingPageRequest = ForumTopicPageRequest(cursor: cursor, resets: reset)
         loadTask = Task { [weak self] in
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
             do {
@@ -117,6 +172,7 @@ import TDLibKitDynamic
                     existing: reset ? [] : topics,
                     incoming: result.topics,
                 )
+                acceptedQuery = query
                 nextOffsetDate = result.nextOffsetDate
                 nextOffsetForumTopicID = result.nextOffsetForumTopicId
                 nextOffsetMessageID = result.nextOffsetMessageId
@@ -126,6 +182,7 @@ import TDLibKitDynamic
                 )
                 loading = false
                 loadTask = nil
+                pendingPageRequest = nil
             } catch is CancellationError {
                 guard currentGeneration == generation else { return }
                 requestedCursors.remove(cursor)

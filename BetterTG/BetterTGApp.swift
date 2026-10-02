@@ -30,6 +30,7 @@ import UIKit
             PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()
             MessagePollInteractionStore.runDebugSubmissionProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()
+            ForumTopicsRestorationProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             SendDraftRelocationProbe.runDebugProbeIfRequested()
             TDLibMediaUpdateStreamsProbe.runDebugProbeIfRequested()
