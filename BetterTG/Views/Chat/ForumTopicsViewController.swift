@@ -176,6 +176,9 @@ import UIKit
                 preparationTask?.cancel()
                 cancellables.removeAll()
                 viewModel.retire()
+                #if DEBUG
+                    log("ForumTopics client restoration: replacement accepted")
+                #endif
                 return replacement
             },
         )
@@ -209,19 +212,21 @@ import UIKit
         preparationTask?.cancel()
         let client = TDLib.shared.activeClient
         guard client.id == source.clientID else { return }
+        let chatID = viewModel.location.chatID
         preparationSource = source
         preparationTask = Task { [weak self] in
-            guard let self else { return }
             defer {
-                if preparationSource == source {
+                if let self, preparationSource == source {
                     preparationTask = nil
                     preparationSource = nil
                 }
             }
-            let chat = await RootVM.shared.getCustomChatForNavigation(from: viewModel.location.chatID, client: client)
-            guard !Task.isCancelled, routeIsRetained, preparationSource == source,
+            guard !Task.isCancelled, self?.routeIsRetained == true,
+                  self?.preparationSource == source, TDLib.shared.activeUpdateSource == source else { return }
+            let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+            guard let self, !Task.isCancelled, routeIsRetained, preparationSource == source,
                   TDLib.shared.activeUpdateSource == source, RootVM.shared.activeAccountID == source.accountID,
-                  let chat, chat.chat.id == viewModel.location.chatID, chat.chat.viewAsTopics else { return }
+                  let chat, chat.chat.id == chatID, chat.chat.viewAsTopics else { return }
             preparedClient = (source, client, chat)
             retryClientRestoration()
         }
@@ -368,27 +373,28 @@ import UIKit
         let client = viewModel.client
         let location = viewModel.location
         targetResolutionTask = Task { [weak self] in
-            guard let self else { return }
             defer {
-                if targetIntent.owns(attempt) {
+                if let self, targetIntent.owns(attempt) {
                     targetIntent.finish(attempt)
                     targetResolutionTask = nil
                 }
             }
-            guard contextIsCurrent, targetIntent.owns(attempt), !Task.isCancelled else { return }
+            guard self?.contextIsCurrent == true, self?.targetIntent.owns(attempt) == true,
+                  !Task.isCancelled else { return }
             let message = try? await client.getMessage(
                 chatId: location.chatID,
                 messageId: targetMessageID,
             )
-            guard !Task.isCancelled, contextIsCurrent, targetIntent.owns(attempt) else { return }
+            guard !Task.isCancelled, self?.contextIsCurrent == true,
+                  self?.targetIntent.owns(attempt) == true else { return }
             guard let message, message.chatId == location.chatID, message.id == targetMessageID,
                   case .messageTopicForum(let forumTopic) = message.topicId
             else {
-                presentLoadError("The message topic couldn't be opened.")
+                self?.presentLoadError("The message topic couldn't be opened.")
                 return
             }
             let topic = try? await client.getForumTopic(chatId: location.chatID, forumTopicId: forumTopic.forumTopicId)
-            guard !Task.isCancelled, contextIsCurrent, targetIntent.owns(attempt) else { return }
+            guard let self, !Task.isCancelled, contextIsCurrent, targetIntent.owns(attempt) else { return }
             guard let topic, topic.info.chatId == location.chatID,
                   topic.info.forumTopicId == forumTopic.forumTopicId
             else {
