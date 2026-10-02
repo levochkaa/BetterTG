@@ -86,10 +86,26 @@
                 "malformed range did not fail closed",
             )
             _ = unsafe.attributedText()
-            let splitSurrogate = MessageTextSpoilerPresentation(.init(entities: [
-                .init(length: 1, offset: 1, type: .textEntityTypeSpoiler),
-            ], text: "🙂"))
-            try require(splitSurrogate.accessibilityText() == "Spoiler", "surrogate split accepted")
+            for offset in [0, 1] {
+                let splitSurrogate = MessageTextSpoilerPresentation(.init(entities: [
+                    .init(length: 1, offset: offset, type: .textEntityTypeSpoiler),
+                    .init(length: 1, offset: offset, type: .textEntityTypeCode),
+                ], text: "🙂"))
+                try require(
+                    splitSurrogate.text.entities.isEmpty && splitSurrogate.accessibilityText() == "Spoiler"
+                        && splitSurrogate.action(at: offset, revealed: true) == .none,
+                    "surrogate split start/end accepted",
+                )
+                _ = splitSurrogate.attributedText()
+            }
+            for (value, offset, length) in [("🙂", 0, 2), ("e\u{301}", 1, 1)] {
+                let valid = FormattedText(entities: [
+                    .init(length: length, offset: offset, type: .textEntityTypeSpoiler),
+                ], text: value)
+                let validProjection = MessageTextSpoilerPresentation(valid)
+                try require(validProjection.text == valid, "valid scalar boundary rejected")
+                _ = validProjection.attributedText()
+            }
             let overlapping = MessageTextSpoilerPresentation(.init(entities: [
                 .init(length: 4, offset: 0, type: .textEntityTypeSpoiler),
                 .init(length: 4, offset: 2, type: .textEntityTypeSpoiler),

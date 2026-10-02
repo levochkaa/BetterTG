@@ -19,11 +19,13 @@ struct MessageTextSpoilerPresentation {
     let ranges: [NSRange]
 
     init(_ original: FormattedText) {
-        let length = original.text.utf16.count
+        let utf16 = original.text as NSString
+        let length = utf16.length
         let entities = original.entities.filter { entity in
             entity.offset >= 0 && entity.length > 0 && entity.offset <= length
                 && entity.length <= length - entity.offset
-                && Range(NSRange(location: entity.offset, length: entity.length), in: original.text) != nil
+                && Self.isScalarBoundary(entity.offset, in: utf16)
+                && Self.isScalarBoundary(entity.offset + entity.length, in: utf16)
         }
         self.text = FormattedText(entities: entities, text: original.text)
         let acceptedEntities = Set(entities)
@@ -54,6 +56,12 @@ struct MessageTextSpoilerPresentation {
         return content.summary.replacingCharacters(
             in: range, with: Self(formatted).accessibilityText(revealed: revealed),
         )
+    }
+
+    private static func isScalarBoundary(_ offset: Int, in text: NSString) -> Bool {
+        guard offset > 0, offset < text.length else { return true }
+        return !(0xD800...0xDBFF).contains(text.character(at: offset - 1))
+            || !(0xDC00...0xDFFF).contains(text.character(at: offset))
     }
 
     func conceals(_ range: NSRange, revealed: Bool) -> Bool {
