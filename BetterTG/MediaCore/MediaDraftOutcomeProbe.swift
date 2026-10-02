@@ -43,6 +43,17 @@
         }
 
         private static func verify<Store: MediaDraftProbeStore>(_ type: Store.Type, root: URL) async throws {
+            var stage = "setup"
+            do {
+                try await verifyCases(type, root: root) { stage = $0 }
+            } catch {
+                throw Failure(description: "\(Store.self) \(stage): \(error)")
+            }
+        }
+
+        private static func verifyCases<Store: MediaDraftProbeStore>(
+            _ type: Store.Type, root: URL, markStage: (String) -> Void,
+        ) async throws {
             let accountID = UUID()
             let chatID = Int64(100)
             let topic = MessageTopic.messageTopicForum(.init(forumTopicId: 42))
@@ -62,24 +73,30 @@
                 for early in [false, true] {
                     for succeeds in [false, true] {
                         let label = "\(Store.self) \(name) early=\(early) success=\(succeeds)"
+                        markStage("\(label) adopt-primary")
                         let directory = root.appendingPathComponent(UUID().uuidString)
                         let store = type.init(directoryURL: directory, legacyBindingAllowed: { _ in false })
                         let adopted = try await store.probeAdopt(route: route, sendTopic: sendTopic, root: root)
+                        markStage("\(label) adopt-unrelated")
                         let unrelatedRoute = ChatDraftKey(accountID: UUID(), chatID: chatID, topic: deliveredTopic)
                         let unrelated = try await store.probeAdopt(route: unrelatedRoute, sendTopic: nil, root: root)
+                        markStage("\(label) begin-enqueue")
                         let draft = try await store.beginEnqueue(adopted)
                         let delivery = ChatDraftDeliveryKey(accountID: accountID, chatID: chatID, topic: deliveredTopic)
                         try require(draft.deliveryKey == delivery, "\(label): delivery key")
                         if early {
+                            markStage("\(label) early-outcome")
                             let resolution = try await store.probeOutcome(delivery, id: -101, succeeds: succeeds)
                             try require(resolution == nil, "\(label): early outcome consumed before registration")
                         }
+                        markStage("\(label) register")
                         let registration = try await store.probeRegister(draft, id: -101)
                         let resolved: Store.Draft?
                         if early {
                             try require(registration.outcome == succeeds, "\(label): exact early outcome")
                             resolved = registration.draft
                         } else {
+                            markStage("\(label) late-outcome")
                             try require(registration.outcome == nil, "\(label): unexpected registration outcome")
                             resolved = try await store.probeOutcome(delivery, id: -101, succeeds: succeeds)
                         }
@@ -95,6 +112,7 @@
                                 "\(label): retry state",
                             )
                         }
+                        markStage("\(label) relaunch")
                         let relaunched = type.init(directoryURL: directory, legacyBindingAllowed: { _ in false })
                         let restored = await relaunched.drafts(for: route, migrateLegacy: false)
                         try require(restored.count == (succeeds ? 0 : 1), "\(label): relaunch")
@@ -116,6 +134,7 @@
                 ChatDraftDeliveryKey(accountID: accountID, chatID: chatID, topic: nil),
             ]
             for early in [false, true] {
+                markStage("invalid-delivery early=\(early)")
                 let directory = root.appendingPathComponent(UUID().uuidString)
                 let store = type.init(directoryURL: directory, legacyBindingAllowed: { _ in false })
                 let adopted = try await store.probeAdopt(route: base, sendTopic: topic, root: root)
@@ -142,6 +161,7 @@
                 )
             }
 
+            markStage("route/delivery enqueue gates")
             let gateDirectory = root.appendingPathComponent(UUID().uuidString)
             let gateStore = type.init(directoryURL: gateDirectory, legacyBindingAllowed: { _ in false })
             let first = try await gateStore.probeAdopt(route: base, sendTopic: topic, root: root)
@@ -158,6 +178,7 @@
 
             // Write old-version manifests directly: current beginEnqueue deliberately rejects this state.
             for duplicateID in [false, true] {
+                markStage("ambiguous persisted candidates duplicateID=\(duplicateID)")
                 let directory = root.appendingPathComponent(UUID().uuidString)
                 let store = type.init(directoryURL: directory, legacyBindingAllowed: { _ in false })
                 var first = try await store.probeAdopt(route: base, sendTopic: topic, root: root)
@@ -186,6 +207,7 @@
                 for matchesID in [false, true] {
                     for persistedRegistration in [false, true] {
                         let label = "\(Store.self) crash success=\(succeeds) exact=\(matchesID) registered=\(persistedRegistration)"
+                        markStage(label)
                         let directory = root.appendingPathComponent(UUID().uuidString)
                         let store = type.init(directoryURL: directory, legacyBindingAllowed: { _ in false })
                         let adopted = try await store.probeAdopt(route: base, sendTopic: topic, root: root)
@@ -231,6 +253,7 @@
                 }
             }
 
+            markStage("legacy account binding")
             let legacyDirectory = root.appendingPathComponent(UUID().uuidString)
             let legacyStore = type.init(directoryURL: legacyDirectory, legacyBindingAllowed: { $0 == base })
             let legacy = try await legacyStore.probeAdopt(route: nil, sendTopic: topic, root: root)
@@ -288,8 +311,9 @@
             try await probeOutcome(delivery, id: id, succeeds: succeeds, migrateLegacy: false)
         }
 
-        func probeInput(root: URL) throws -> URL {
+        func probeInput(root: URL, fileExtension: String) throws -> URL {
             let source = root.appendingPathComponent("input-\(UUID().uuidString)")
+                .appendingPathExtension(fileExtension)
             try Data([0, 1, 2, 3]).write(to: source, options: .atomic)
             return source
         }
@@ -304,7 +328,10 @@
             try adopt(VoiceNoteSendDraft(
                 id: UUID(), chatID: route?.chatID ?? 100, caption: .init(entities: [], text: ""),
                 createdAt: Foundation.Date(), duration: 1, enqueueStartedAt: nil, failedSendState: nil,
-                fileURL: probeInput(root: root), isEncoded: true, replyMessageID: nil, replyTo: nil,
+                // Opaque lifecycle bytes still need the production encoded-file
+                // extension; an extensionless input is adopted as raw ID.wav.
+                fileURL: probeInput(root: root, fileExtension: "ogg"), isEncoded: true,
+                replyMessageID: nil, replyTo: nil,
                 sendTopic: sendTopic, temporaryMessageID: nil, waveform: Data(), destination: route,
             ))
         }
@@ -352,7 +379,7 @@
             root: URL,
         ) throws -> VideoNoteSendDraft {
             try adopt(
-                .init(duration: 1, length: 400, url: probeInput(root: root)),
+                .init(duration: 1, length: 400, url: probeInput(root: root, fileExtension: "mp4")),
                 chatID: route?.chatID ?? 100, draftKey: route,
                 replyMessageID: nil, replyTo: nil, sendTopic: sendTopic,
             )
