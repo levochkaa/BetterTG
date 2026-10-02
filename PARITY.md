@@ -164,7 +164,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | needs-fix — measure public bar/safe-area/prompt state before choosing a fix. Data/caret retention passes; no layout-parity claim. Root stack replacement and waiting→ready prompt updates are unproven causes |
 | A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
-| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold and repeated loaded Files navigation still misses the selected old message despite phase `applied`; that marker precedes animated offset application and immediate highlight reconfiguration | needs-fix — `1b1429f` retires retained viewport intent; `17e3fb4` fixes final layout-release wakeup. Native value-consumer checks pass, actual target smoke fails. Instrument real offset/target geometry and subsequent writers before changing animation. Existing history lookup completed in this run; do not attribute this failure to metadata hydration |
+| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore becomes eligible during the explicit animation and interrupts it | needs-fix — `1b1429f` retires retained viewport intent; `17e3fb4` fixes final layout-release wakeup. Native value-consumer checks pass, actual target smoke fails. Keep explicit authority through actual settlement and target-size changes; automatic/inset compensation must not take over mid-flight. Immediate highlight cancellation and slow metadata are not this trace's cause |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1409,10 +1409,23 @@ is imported. This source pass does not prove every content's real rendering/acti
   October messages. Phase reads `applied`, target AX is absent, and settled screenshot confirms the miss. Repeating the same
   already-loaded target at01:05:51 moves only to early September, still without the target. No file opened/downloaded and no
   message/profile/folder saved. Private screenshots and phase remain under the A39 evidence directory.
-- Source review confirms `applied` is recorded before the offset command. Pending intent is cleared before animation ends;
-  immediate highlight snapshot mutation and later automatic viewport captures are then permitted. The actual causal writer
-  is not yet measured. A bounded opt-in numeric geometry trace is the next diagnostic; do not claim this flow fixed from
-  the helper probe or replace metadata loading based on the current evidence.
+- `8b8d149` (worker `805a07b`) adds opt-in numeric geometry to actual ChatView and renames the misleading pre-command phase
+  to `offset-command`. At most64 samples, reserved settled checks, lazy metric capture, weak exact-request delayed callbacks,
+  serial background JSON writes; no IDs/content exported and no scrolling policy changed. Both-file format and independent
+  immutable review pass. Integration `build-Debug-20261003-011303-7581-26376.log`: PASS10s, zero warnings.
+- Actual source `8b8d149`, PID `8251`, only `-ui-probe-message-navigation`, cold Files target tap01:14:45: window is ready67ms,
+  explicit animated command70ms requests5627.833 from-94.333. Two highlight snapshots finish before motion continues through
+  -51,78.333,289. Automatic capture at115ms sees pending0; automatic restore153ms calls anchor writer154ms, synchronously emits
+  animation-end and rewrites offset to78.333. At10.571s, current target5743.833 remains offscreen, correct mapping/source/window
+  flags all hold. This proves mid-flight automatic compensation interrupts explicit navigation; immediate highlight cancellation
+  is rejected for this run. Which automatic capture caller (self-size versus reconfigure) is not distinguished, and animation-end
+  alone is not successful arrival. Native helper did not exercise this production sequence.
+  Trace, failed settled screenshot and AX check: `.build/ui-probe-evidence/astra-a39-geometry`; no external writes or file opens.
+  Last persisted settled sample is10s; the scheduled25s sample is absent, so do not claim25s diagnostic coverage.
+- Diagnostic-proof documentation build `build-Debug-20261003-011704-11526-27558.log`: PASS6s, zero warnings.
+- Repair boundary: hold explicit navigation authority until measured target settlement; gate automatic and inset/anchor
+  compensation during flight, remeasure estimated cell geometry, and retire authority on drag/new target/latest/source change.
+  Preserve animations, quotes, current source and the existing history/revision contracts. No wholesale timeline or loader rewrite.
 - References: pinned current/pre `ChatControllerNavigateToMessage.swift`342–422,474–507/333–360 distinguishes loaded target
   navigation from cancellable 50-message initial search and target/missing completion. Pinned TDLibKit `getChatHistory`,
   `getMessage`, captured ChatLocation and current history revision admission remain unchanged. No Telegram infrastructure copied.
@@ -1708,9 +1721,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest code `17e3fb4` includes `1b1429f`: warning-free builds and viewport/profile-restoration probes pass (PID `95662`),
-  but actual cold and loaded-target navigation still misses the selected message. A39 remains open; next is numeric actual-scroll
-  diagnosis, not another metadata loader. `b630844` completes A38/profile-restoration native checks (PID `39878`); production
+- Latest code `8b8d149` adds bounded diagnostics to `17e3fb4`/`1b1429f`. Build and independent review pass; actual PID `8251`
+  identifies automatic anchor compensation interrupting explicit animation. A39 remains open; repair authority through settlement.
+  Viewport/profile-restoration native probes at `17e3fb4` pass (PID `95662`) but did not cover this sequence.
+  `b630844` completes A38/profile-restoration native checks (PID `39878`); production
   `97ccea8` also passes media/PiP/gallery regressions and actual scrolled profile foreground (PID `32182`).
   `04c904a` corrected focused prompt baseline passes24 samples (PID `4253`), without a production fix.
   `0608d15` modal presentation fixture correction passes combined probes (PID `97142`).
@@ -1750,7 +1764,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261003-005819-95305-8829.log`,
+  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261003-011303-7581-26376.log`,
+  `build-Debug-20261003-005819-95305-8829.log`,
   `build-Debug-20261003-005409-91096-31077.log`, `build-Debug-20261003-003813-36345-3545.log`,
   `build-Debug-20261003-002923-30429-24207.log`, `build-Debug-20261002-232705-14634-13985.log`,
   `build-Debug-20261002-232350-7050-2496.log`, `build-Debug-20261002-231025-79060-7092.log`,
@@ -1767,7 +1782,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   is integrated as `4185849`/`3290ba4`; A30e folder-flow authority is integrated as `850ccf8`/`b923f19` with native/runtime proof.
   A36 presentation is integrated as `c9254f3`; focused prompt baseline as `d34d012`. A38 `4116257`/`054caab` is integrated
   as `97ccea8`/`b630844`, with bounded native/actual proof above. A39 `4fc6d02`/`f6899a0` is integrated as `1b1429f`/`17e3fb4`;
-  this worker is adding bounded actual-scroll diagnostics after the failed real target smoke.
+  diagnostics `805a07b` is integrated as `8b8d149`. The worker is repairing the measured mid-flight automatic anchor takeover.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
@@ -1784,10 +1799,11 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: measure A39 actual animated target settlement and intervening offset/layout writers, then repair the
-  confirmed cause. Preserve existing history lookup and source/gesture/quote contracts. Repeat cold, loaded and same-PID
-  foreground Files → Open in Chat with target geometry/AX proof. Phase `applied` at `17e3fb4` is pre-command, not completion;
-  this run completed metadata hydration. Sequential metadata waits remain a separate source concern, not this smoke's diagnosis.
+- Exact next slice: fix A39 mid-flight automatic anchor takeover proven by `8b8d149` PID `8251`. Keep explicit target authority
+  through actual settlement and estimated-size changes; fence competing capture/restore and inset compensation, preserve
+  animation and cancel on drag/new target/latest/source change. Repeat cold, loaded and same-PID foreground Files → Open in Chat
+  with target geometry/AX proof. Do not treat animation-end as proof of arrival. Existing history lookup and source/gesture/quote
+  contracts stay; sequential metadata waits remain a separate source concern, not this smoke's diagnosis.
   A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
   A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate.
   A36 child-publisher and actual deleted-title proofs pass; modal fixture correction passes combined probes. A37 complete
