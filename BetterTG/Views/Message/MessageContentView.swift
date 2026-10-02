@@ -44,6 +44,7 @@ final class MessageMediaView: UIView {
             let albumView = AlbumMediaView()
             albumView.configure(
                 messages: visualAlbum,
+                client: client,
                 videoPlaybackOwners: videoPlaybackOwners,
                 onTap: onTap,
             )
@@ -68,7 +69,14 @@ final class MessageMediaView: UIView {
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):
-                if telegramAnimationUsesFFmpeg(animation.animation) {
+                if let owner = videoPlaybackOwners[message.id], owner.matches(message: message.message) {
+                    let inlineView = InlineVideoMediaView()
+                    inlineView.configure(
+                        owner: owner,
+                        size: CGSize(width: animation.animation.width, height: animation.animation.height),
+                    ) { onTap([message.message], message.id) }
+                    view = inlineView
+                } else if telegramAnimationUsesFFmpeg(animation.animation), !animation.isSecret, !animation.hasSpoiler {
                     let animationView = FFmpegAnimatedVideoView()
                     animationView.configure(
                         file: animation.animation.animation,
@@ -85,10 +93,12 @@ final class MessageMediaView: UIView {
                     let fileView = FileMediaPreviewView()
                     fileView.configure(
                         file: animation.animation.animation,
-                        thumbnail: animation.animation.thumbnail,
+                        thumbnail: animation.isSecret || animation.hasSpoiler ? nil : animation.animation.thumbnail,
                         minithumbnail: animation.animation.minithumbnail,
                         size: CGSize(width: animation.animation.width, height: animation.animation.height),
                         showsPlayIcon: true,
+                        usesFileAsThumbnailFallback: false,
+                        client: client,
                     ) { onTap([message.message], message.id) }
                     view = fileView
                 }
@@ -375,6 +385,7 @@ final class AlbumMediaView: UIView, ReusableMediaView {
 
     func configure(
         messages: [Message],
+        client: TDLibClient,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner],
         onTap: @escaping ([Message], Int64) -> Void,
     ) {
@@ -393,6 +404,7 @@ final class AlbumMediaView: UIView, ReusableMediaView {
             let tile = AlbumMediaTileView()
             tile.configure(
                 message: message,
+                client: client,
                 videoPlaybackOwner: videoPlaybackOwners[message.id],
                 onTap: { onTap(messages, message.id) },
             )
@@ -512,19 +524,20 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
 
     func configure(
         message: Message,
+        client: TDLibClient,
         videoPlaybackOwner: GalleryVideoPlaybackOwner?,
         onTap: @escaping () -> Void,
     ) {
         prepareForReuse()
         messageID = message.id
         self.onTap = onTap
-        if let videoPlaybackOwner {
+        if let videoPlaybackOwner, videoPlaybackOwner.matches(message: message) {
             self.videoPlaybackOwner = videoPlaybackOwner
             imageView.isHidden = true
             playIcon.isHidden = true
             videoPlaybackAttachmentToken = videoPlaybackOwner.attach(to: self, context: .inline)
-            accessibilityLabel = "Open video"
-            accessibilityTraits = [.button, .playsSound]
+            accessibilityLabel = videoPlaybackOwner.isAnimation ? "Open animation" : "Open video"
+            accessibilityTraits = videoPlaybackOwner.isAnimation ? .button : [.button, .playsSound]
             return
         }
         imageView.isHidden = false
@@ -543,13 +556,14 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             }
         case .messageAnimation(let animation):
             playIcon.isHidden = false
-            if let thumbnail = animation.animation.thumbnail {
-                imageView.load(file: thumbnail.file, placeholderData: animation.animation.minithumbnail?.data)
-            } else {
+            if !animation.isSecret, !animation.hasSpoiler, let thumbnail = animation.animation.thumbnail {
                 imageView.load(
-                    file: animation.animation.animation,
+                    file: thumbnail.file,
                     placeholderData: animation.animation.minithumbnail?.data,
+                    client: client,
                 )
+            } else {
+                imageView.loadPlaceholder(data: animation.animation.minithumbnail?.data)
             }
         default:
             playIcon.isHidden = true
@@ -664,6 +678,8 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         prepareForReuse()
         messageID = owner.messageID
         self.owner = owner
+        accessibilityLabel = owner.isAnimation ? "Open animation" : "Open video"
+        accessibilityTraits = owner.isAnimation ? .button : [.button, .playsSound]
         self.onTap = onTap
         let displaySize = telegramMediaDisplaySize(source: size)
         widthConstraint.constant = displaySize.width
@@ -762,6 +778,7 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         size: CGSize,
         showsPlayIcon: Bool,
         usesFileAsThumbnailFallback: Bool = true,
+        client: TDLibClient? = nil,
         onTap: @escaping () -> Void,
     ) {
         self.onTap = onTap
@@ -769,7 +786,9 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
         playIcon.isHidden = !showsPlayIcon
-        if let thumbnail {
+        if let client, let thumbnail {
+            imageView.load(file: thumbnail.file, placeholderData: minithumbnail?.data, client: client)
+        } else if let thumbnail {
             imageView.load(file: thumbnail.file, placeholderData: minithumbnail?.data)
         } else if usesFileAsThumbnailFallback {
             imageView.load(file: file, placeholderData: minithumbnail?.data)
@@ -870,6 +889,18 @@ final class TDImageLoadingView: UIImageView {
             guard let self, let downloaded else { return }
             await MainActor.run { self.update(file: downloaded, for: request) }
         }
+    }
+
+    func load(
+        file: File,
+        placeholderData: Data? = nil,
+        client: TDLibClient,
+    ) {
+        guard let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else {
+            loadPlaceholder(data: placeholderData)
+            return
+        }
+        load(file: file, placeholderData: placeholderData, accountID: source.accountID, client: client)
     }
 
     func load(
@@ -1003,11 +1034,13 @@ enum TDMediaPrefetcher {
                 [video.videoNote.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
                     + [(video.videoNote.video, .none)]
             case .messageAnimation(let animation):
-                if telegramAnimationUsesFFmpeg(animation.animation) {
+                if animation.isSecret || animation.hasSpoiler {
+                    []
+                } else if telegramAnimationUsesFFmpeg(animation.animation) {
                     [animation.animation.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
                         + [(animation.animation.animation, .ffmpegVideo)]
                 } else {
-                    [(animation.animation.thumbnail?.file ?? animation.animation.animation, .none)]
+                    [animation.animation.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
                 }
             case .messageSticker(let sticker):
                 [sticker.sticker.thumbnail?.file].compactMap(\.self).map { ($0, .none) }

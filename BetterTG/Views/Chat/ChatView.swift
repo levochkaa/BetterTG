@@ -2160,8 +2160,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func showMedia(_ messages: [Message], selection: Int64) {
         guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent else { return }
-        let transferredOwner = inlineVideoPlaybackOwners[selection]
-        let transferredOwners = messages.compactMap { inlineVideoPlaybackOwners[$0.id] }
+        let transferredOwners = messages.compactMap { message -> GalleryVideoPlaybackOwner? in
+            guard let owner = inlineVideoPlaybackOwners[message.id], owner.matches(message: message) else { return nil }
+            return owner
+        }
+        let transferredOwner = transferredOwners.first { $0.messageID == selection }
         let transitionSource = galleryTransitionTarget(for: selection)
         pauseInlineVideoPlayback(excluding: transferredOwner?.messageID)
         let gallery = MediaGalleryViewController(
@@ -2438,12 +2441,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func inlineVideoPlaybackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
-        guard case .messageVideo(let video) = message.content, !video.isSecret,
+        if let owner = inlineVideoPlaybackOwners[message.id] {
+            if owner.matches(message: message) { return owner }
+            owner.invalidate()
+            inlineVideoPlaybackOwners[message.id] = nil
+        }
+        guard let source = GalleryPlayableMessage(message: message), !source.isSecret,
               let galleryPlaybackContext, galleryPlaybackContext.isCurrent
         else { return nil }
-        if let owner = inlineVideoPlaybackOwners[message.id], !owner.isDeleted {
-            return owner
-        }
         guard let owner = GalleryVideoPlaybackOwner(
             message: message,
             tdlib: tdlib,
@@ -2539,21 +2544,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateInlineVideoPlaybackVisibility() {
         guard presentedViewController == nil, dataSource != nil else { return }
         let visibleRect = CGRect(origin: collectionView.contentOffset, size: collectionView.bounds.size)
-        let activeMessageID = collectionView.indexPathsForVisibleItems
+        let candidates = collectionView.indexPathsForVisibleItems
             .flatMap { indexPath in
                 (collectionView.cellForItem(at: indexPath) as? MessageCell)?
                     .inlineVideoPlaybackCandidates(in: collectionView) ?? []
             }
-            .compactMap { messageID, frame -> (Int64, CGFloat)? in
-                guard inlineVideoPlaybackOwners[messageID] != nil else { return nil }
+            .compactMap { messageID, frame -> InlineMediaPlaybackPolicy.Candidate? in
+                guard let owner = inlineVideoPlaybackOwners[messageID] else { return nil }
                 let intersection = visibleRect.intersection(frame)
                 guard !intersection.isNull, !intersection.isEmpty else { return nil }
-                return (messageID, intersection.width * intersection.height)
+                return .init(
+                    messageID: messageID, visibleArea: intersection.width * intersection.height,
+                    isAnimation: owner.isAnimation,
+                )
             }
-            .max { lhs, rhs in lhs.1 < rhs.1 }?
-            .0
+        let activeMessageIDs = InlineMediaPlaybackPolicy.visibleMessageIDs(candidates)
         for (messageID, owner) in inlineVideoPlaybackOwners where !owner.isAttachedToGallery {
-            owner.setPlaybackVisible(messageID == activeMessageID)
+            owner.setPlaybackVisible(activeMessageIDs.contains(messageID))
         }
     }
 
