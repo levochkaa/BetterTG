@@ -17,15 +17,23 @@ enum MessageContentAction {
 // MARK: - MessagePollInteractionStore
 
 @MainActor final class MessagePollInteractionStore {
+    struct Submission: Equatable {
+        let messageID: Int64
+
+        fileprivate let id: UUID
+    }
+
     struct State {
         let isSubmitting: Bool
         let pendingSelection: Set<Int>
     }
 
     private struct Entry {
-        var isSubmitting: Bool
+        var submission: Submission?
         var pendingSelection: Set<Int>
         let sourceSelection: Set<Int>
+
+        var isSubmitting: Bool { submission != nil }
     }
 
     let changes = PassthroughSubject<Int64, Never>()
@@ -42,7 +50,7 @@ enum MessageContentAction {
         }
         timeoutWorkItems.removeValue(forKey: messageID)?.cancel()
         let entry = Entry(
-            isSubmitting: false,
+            submission: nil,
             pendingSelection: sourceSelection,
             sourceSelection: sourceSelection,
         )
@@ -65,25 +73,35 @@ enum MessageContentAction {
     @discardableResult func beginSubmission(messageID: Int64, sourceSelection: Set<Int>) -> Bool {
         var entry = entry(messageID: messageID, sourceSelection: sourceSelection)
         guard !entry.isSubmitting, entry.pendingSelection != sourceSelection else { return false }
-        entry.isSubmitting = true
+        let submission = Submission(messageID: messageID, id: UUID())
+        entry.submission = submission
         entries[messageID] = entry
-        changes.send(messageID)
 
         let workItem = DispatchWorkItem { [weak self] in
-            self?.submissionTimedOut(messageID: messageID, sourceSelection: sourceSelection)
+            self?.submissionTimedOut(submission)
         }
         timeoutWorkItems.removeValue(forKey: messageID)?.cancel()
         timeoutWorkItems[messageID] = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: workItem)
+        changes.send(messageID)
         return true
     }
 
-    func failSubmission(messageID: Int64) {
-        timeoutWorkItems.removeValue(forKey: messageID)?.cancel()
-        guard var entry = entries[messageID], entry.isSubmitting else { return }
-        entry.isSubmitting = false
-        entries[messageID] = entry
-        changes.send(messageID)
+    func currentSubmission(messageID: Int64) -> Submission? {
+        entries[messageID]?.submission
+    }
+
+    @discardableResult func failSubmission(_ submission: Submission) -> Bool {
+        guard var entry = entries[submission.messageID], entry.submission == submission else { return false }
+        timeoutWorkItems.removeValue(forKey: submission.messageID)?.cancel()
+        entry.submission = nil
+        entries[submission.messageID] = entry
+        changes.send(submission.messageID)
+        return true
+    }
+
+    private func submissionTimedOut(_ submission: Submission) {
+        failSubmission(submission)
     }
 
     private func entry(messageID: Int64, sourceSelection: Set<Int>) -> Entry {
@@ -92,23 +110,75 @@ enum MessageContentAction {
         }
         timeoutWorkItems.removeValue(forKey: messageID)?.cancel()
         return Entry(
-            isSubmitting: false,
+            submission: nil,
             pendingSelection: sourceSelection,
             sourceSelection: sourceSelection,
         )
     }
-
-    private func submissionTimedOut(messageID: Int64, sourceSelection: Set<Int>) {
-        timeoutWorkItems[messageID] = nil
-        guard var entry = entries[messageID],
-              entry.sourceSelection == sourceSelection,
-              entry.isSubmitting
-        else { return }
-        entry.isSubmitting = false
-        entries[messageID] = entry
-        changes.send(messageID)
-    }
 }
+
+#if DEBUG
+    extension MessagePollInteractionStore {
+        static func runDebugSubmissionProbeIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-poll-submission") else { return }
+            let store = MessagePollInteractionStore()
+            var notifications = 0
+            let observer = store.changes.sink { _ in notifications += 1 }
+            var passed = true
+            func require(_ value: Bool) { passed = passed && value }
+            let messageID = Int64(31)
+            let source = Set<Int>()
+            store.setPendingSelection([1], messageID: messageID, sourceSelection: source)
+            require(store.beginSubmission(messageID: messageID, sourceSelection: source))
+            if let first = store.currentSubmission(messageID: messageID),
+               let timeout = store.timeoutWorkItems[messageID]
+            {
+                require(!store.beginSubmission(messageID: messageID, sourceSelection: source))
+                // Run the actual registered deadline before retry, without waiting ten seconds.
+                timeout.perform()
+                require(!store.state(messageID: messageID, sourceSelection: source).isSubmitting)
+                require(store.beginSubmission(messageID: messageID, sourceSelection: source))
+                if let second = store.currentSubmission(messageID: messageID),
+                   let secondTimeout = store.timeoutWorkItems[messageID]
+                {
+                    let previousNotifications = notifications
+                    require(!store.failSubmission(first))
+                    // An already executing deadline may outlive cancellation of its work item.
+                    store.submissionTimedOut(first)
+                    require(store.currentSubmission(messageID: messageID) == second)
+                    require(store.timeoutWorkItems[messageID] === secondTimeout)
+                    require(notifications == previousNotifications)
+                    // Authoritative choice resets local submission, including A→B→A.
+                    require(!store.state(messageID: messageID, sourceSelection: [1]).isSubmitting)
+                    _ = store.state(messageID: messageID, sourceSelection: source)
+                    store.setPendingSelection([2], messageID: messageID, sourceSelection: source)
+                    require(store.beginSubmission(messageID: messageID, sourceSelection: source))
+                    if let third = store.currentSubmission(messageID: messageID) {
+                        require(!store.failSubmission(second))
+                        store.submissionTimedOut(second)
+                        require(store.currentSubmission(messageID: messageID) == third)
+                        require(store.state(messageID: messageID, sourceSelection: source).pendingSelection == [2])
+                        require(store.failSubmission(third))
+                        require(!store.failSubmission(third))
+                        require(store.timeoutWorkItems[messageID] == nil)
+                    } else { passed = false }
+                } else { passed = false }
+            } else { passed = false }
+            withExtendedLifetime(observer) {}
+            let result = passed
+                ? "Poll submission probe passed: production-store/deadline=true; timeout-retry-late-error=fenced; "
+                    + "obsolete-timeout/new-deadline=fenced; authoritative-A-B-A=fenced; duplicate-completion=false; "
+                    + "pending-selection-preserved; stale-notifications=0; ChatVM-wiring=source-reviewed; server-votes=0"
+                : "Poll submission probe failed"
+            if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? Data(result.utf8).write(
+                    to: documents.appendingPathComponent("poll-submission-probe.txt"), options: .atomic,
+                )
+            }
+            log(result)
+        }
+    }
+#endif
 
 // MARK: - MessageSupplementView
 

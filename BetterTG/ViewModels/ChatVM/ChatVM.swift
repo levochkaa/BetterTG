@@ -1119,24 +1119,33 @@ import UIKit
     }
 
     func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
+        guard let submission = pollInteractionStore.currentSubmission(messageID: messageID) else { return }
         guard !isReadOnlyTopic,
               locationContextIsCurrent,
               messages.contains(where: { message in
                   message.id == messageID || message.album.contains(where: { $0.id == messageID })
               })
-        else { return }
+        else {
+            pollInteractionStore.failSubmission(submission)
+            return
+        }
         let client = client
         Task {
             do {
-                guard locationContextIsCurrent else { return }
+                guard pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
+                guard locationContextIsCurrent else {
+                    pollInteractionStore.failSubmission(submission)
+                    return
+                }
                 _ = try await client.setPollAnswer(
                     chatId: chatID,
                     messageId: messageID,
                     optionIds: optionIDs,
                 )
             } catch {
-                log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
-                pollInteractionStore.failSubmission(messageID: messageID)
+                if pollInteractionStore.failSubmission(submission) {
+                    log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
+                }
             }
         }
     }

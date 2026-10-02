@@ -21,6 +21,7 @@ import UIKit
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
             PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()
+            MessagePollInteractionStore.runDebugSubmissionProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             SendDraftRelocationProbe.runDebugProbeIfRequested()
