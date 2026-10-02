@@ -50,11 +50,13 @@ struct VideoPlaybackAttachmentToken: Hashable {
     let frameInWindow: CGRect
     let cornerRadius: CGFloat
     let maskedCorners: CACornerMask
-    let snapshotView: UIView?
 
+    private let capturedSnapshot: UIView?
     private weak var sourceView: UIView?
     private weak var coordinateWindow: UIWindow?
     private let validation: () -> Bool
+
+    var snapshotView: UIView? { validation() ? capturedSnapshot : nil }
 
     var validatedSourceView: UIView? {
         validation() ? sourceView : nil
@@ -67,6 +69,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
         snapshotFactory: (() -> UIView?)? = nil,
         validation: @escaping () -> Bool = { true },
     ) {
+        guard validation() else { return nil }
         sourceView.layoutIfNeeded()
         guard let window = sourceView.window else { return nil }
         let fullFrameInWindow = sourceView.convert(sourceView.bounds, to: window)
@@ -99,9 +102,9 @@ struct VideoPlaybackAttachmentToken: Hashable {
                 let imageView = UIImageView(image: image)
                 imageView.contentMode = .scaleToFill
                 imageView.clipsToBounds = true
-                self.snapshotView = imageView
+                self.capturedSnapshot = imageView
             } else {
-                self.snapshotView = sourceView.resizableSnapshotView(
+                self.capturedSnapshot = sourceView.resizableSnapshotView(
                     from: cropRect,
                     afterScreenUpdates: false,
                     withCapInsets: .zero,
@@ -109,7 +112,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
                     ?? sourceView.snapshotView(afterScreenUpdates: false)
             }
         } else {
-            self.snapshotView = nil
+            self.capturedSnapshot = nil
         }
     }
 
@@ -822,6 +825,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
     fileprivate let playbackContext: MediaGalleryPlaybackContext?
+    fileprivate let mediaRevealSession: MediaRevealSession?
     fileprivate let pictureInPictureCoordinator: GalleryPictureInPictureCoordinator
 
     private var messages: [Message]
@@ -879,6 +883,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var deleteMessagesCancellable: AnyCancellable?
     private var voiceOverCancellable: AnyCancellable?
     private var contentSizeCancellable: AnyCancellable?
+    private var mediaRevealCancellable: AnyCancellable?
+    private var reconcilingMediaRevisions = false
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private lazy var chromeTapGesture: UITapGestureRecognizer = {
         let gesture = UITapGestureRecognizer(target: self, action: #selector(toggleChromeVisibility))
@@ -910,6 +916,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         guard hasCurrentContext, let playbackContext else { return nil }
         return MediaGalleryRestorationSnapshot(
             context: playbackContext,
+            mediaRevealSession: mediaRevealSession,
             totalMessageCount: totalMessageCount,
             routeIsCurrent: contextIsCurrent,
             paginationIsCurrent: paginationIsCurrent,
@@ -955,6 +962,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         actionClient: TDLibClient? = nil,
         sourceLocation: ChatLocation? = nil,
         playbackContext: MediaGalleryPlaybackContext? = nil,
+        mediaRevealSession: MediaRevealSession? = nil,
         pictureInPictureCoordinator: GalleryPictureInPictureCoordinator? = nil,
         transferredPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
         transferredPlaybackOwners: [GalleryVideoPlaybackOwner] = [],
@@ -965,6 +973,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         self.playbackContext = playbackContext ?? actionClient.flatMap { client in
             sourceLocation.flatMap { MediaGalleryPlaybackContext(client: client, location: $0, tdlib: tdlib) }
         }
+        self.mediaRevealSession =
+            if let mediaRevealSession {
+                self.playbackContext.map(mediaRevealSession.context.matches) == true
+                    ? mediaRevealSession
+                    : nil
+            } else {
+                self.playbackContext.map(MediaRevealSession.init)
+            }
         self.pictureInPictureCoordinator = pictureInPictureCoordinator ?? .shared
         self.actionAccountID = sourceLocation?.accountID
         self.actionClient = actionClient
@@ -986,6 +1002,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         self.messages = galleryMessages
         self.totalMessageCount = totalMessageCount.map { max($0, galleryMessages.count) }
         self.selectedIndex = galleryMessages.firstIndex(where: { $0.id == selection }) ?? 0
+        self.mediaRevealSession?.reconcile(galleryMessages, replacingExisting: false)
+        if galleryMessages.indices.contains(selectedIndex) {
+            self.mediaRevealSession?.reveal(galleryMessages[selectedIndex])
+        }
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalPresentationCapturesStatusBarAppearance = true
@@ -998,6 +1018,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                   owner.playbackContext.matches(context),
                   self.messages.contains(where: {
                       owner.matches(message: $0) && context.location.matches(message: $0)
+                          && MediaRevealPermit.allows(
+                              $0,
+                              permit: self.mediaRevealSession?.permit(for: $0),
+                              requiresPermit: true,
+                          )
                   })
             else { continue }
             videoPlaybackOwners[owner.messageID] = owner
@@ -1027,6 +1052,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         observePermanentMessageDeletes()
         observeVoiceOver()
         observeContentSizeCategory()
+        mediaRevealCancellable = mediaRevealSession?.revisionsChanged.sink { [weak self] changed in
+            guard let self, hasCurrentContext, !didReleasePlaybackOwners, !reconcilingMediaRevisions else { return }
+            for id in changed.ids {
+                videoPlaybackOwners.removeValue(forKey: id)?.invalidate()
+            }
+            let revisions = Dictionary(changed.messages.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            updateMessages(messages.map { revisions[$0.id] ?? $0 })
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -1233,7 +1266,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             return
         }
         guard let index = messages.firstIndex(where: {
-            $0.id == owner.messageID && $0.chatId == owner.chatID && playbackContext.location.matches(message: $0)
+            owner.matches(message: $0) && playbackContext.location.matches(message: $0)
         }) else {
             completion(false)
             return
@@ -1253,7 +1286,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             completion(false)
             return
         }
-        cell.configure(message: messages[index], playbackContext: playbackContext, videoPlaybackOwner: owner)
+        configureMediaCell(cell, at: index)
         cell.setPlaybackVisible(true)
         updateCounter()
         bindSelectedCellChrome()
@@ -1288,6 +1321,18 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         let previousIDs = messages.map(\.id)
         let updatedIDs = updatedMessages.map(\.id)
+        let changedMediaIDs = Set(updatedMessages.compactMap { updated -> Int64? in
+            guard let previous = messages.first(where: { $0.id == updated.id }),
+                  MediaRevealSession.Key(message: previous) != MediaRevealSession.Key(message: updated)
+            else { return nil }
+            return updated.id
+        })
+        reconcilingMediaRevisions = true
+        mediaRevealSession?.reconcile(updatedMessages)
+        reconcilingMediaRevisions = false
+        for id in changedMediaIDs {
+            videoPlaybackOwners.removeValue(forKey: id)?.invalidate()
+        }
         if previousIDs == updatedIDs {
             if exportTask != nil || forwardTask != nil || deleteTask != nil,
                let selectedMessageID,
@@ -1301,6 +1346,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             }
             messages = updatedMessages
             if isViewLoaded {
+                for cell in collectionView.visibleCells.compactMap({ $0 as? MediaGalleryCell }) {
+                    guard let index = collectionView.indexPath(for: cell)?.item,
+                          changedMediaIDs.contains(messages[index].id) else { continue }
+                    configureMediaCell(cell, at: index)
+                }
                 updateCounter()
             }
             return
@@ -1317,7 +1367,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             dismiss(animated: true)
             return
         }
-        let appendsOnly = updatedIDs.count > previousIDs.count
+        let appendsOnly = changedMediaIDs.isEmpty && updatedIDs.count > previousIDs.count
             && updatedIDs.starts(with: previousIDs)
         let previousCount = messages.count
         messages = updatedMessages
@@ -1376,6 +1426,24 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         paginationRequestedMessageCount = nil
     }
 
+    #if DEBUG
+        func debugRevealCell(at index: Int) -> MediaGalleryCell {
+            let cell = MediaGalleryCell()
+            configureMediaCell(cell, at: index)
+            return cell
+        }
+
+        func debugRevealSelection(at index: Int) {
+            let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            scrollView.contentOffset.x = CGFloat(index) * 390
+            updateSelection(from: scrollView)
+        }
+
+        var debugRevealRestorationSession: MediaRevealSession? { restorationSnapshot?.mediaRevealSession }
+        func debugRevealMessage(at index: Int) -> Message { messages[index] }
+        func debugRevealOwner(id: Int64) -> GalleryVideoPlaybackOwner? { videoPlaybackOwners[id] }
+    #endif
+
     func updateTotalMessageCount(_ count: Int?) {
         totalMessageCount = count.map { max($0, messages.count) }
         if isViewLoaded {
@@ -1415,7 +1483,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     fileprivate func makeTransitionSnapshot() -> UIView? {
-        guard hasCurrentContext else { return forcedDismissalSnapshot }
+        guard hasCurrentContext else { return nil }
+        if messages.indices.contains(selectedIndex), MediaRevealSession.Key(message: messages[selectedIndex]) != nil {
+            guard mediaRevealSession?.permit(for: messages[selectedIndex])?.isCurrent == true else { return nil }
+        }
         return forcedDismissalSnapshot ?? selectedGalleryCell()?.makeTransitionSnapshot()
     }
 
@@ -1780,6 +1851,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             previousCell.setPlaybackVisible(false)
         }
         selectedIndex = updatedIndex
+        revealSelectedMedia()
         collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0))
             .flatMap { $0 as? MediaGalleryCell }?
             .setPlaybackVisible(shouldPlayItem(at: selectedIndex))
@@ -1852,6 +1924,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         guard hasCurrentContext,
               !didReleasePlaybackOwners
         else { return nil }
+        guard MediaRevealPermit.allows(message, permit: mediaRevealSession?.permit(for: message), requiresPermit: true)
+        else {
+            videoPlaybackOwners.removeValue(forKey: message.id)?.invalidate()
+            return nil
+        }
         if let owner = videoPlaybackOwners[message.id] {
             if owner.matches(message: message) {
                 owner.galleryController = self
@@ -1861,7 +1938,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             videoPlaybackOwners[message.id] = nil
         }
         guard let playbackContext,
-              let owner = GalleryVideoPlaybackOwner(message: message, tdlib: tdlib, playbackContext: playbackContext)
+              let owner = GalleryVideoPlaybackOwner(
+                  message: message, tdlib: tdlib, playbackContext: playbackContext,
+                  revealPermit: mediaRevealSession?.permit(for: message),
+              )
         else { return nil }
         owner.galleryController = self
         videoPlaybackOwners[message.id] = owner
@@ -1900,7 +1980,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let lowerBound = max(messages.startIndex, index - 1)
         let upperBound = min(messages.index(before: messages.endIndex), index + 1)
         let retainedMessageIDs = Set(messages[lowerBound...upperBound].compactMap { message -> Int64? in
-            guard GalleryPlayableMessage(message: message) != nil else { return nil }
+            guard GalleryPlayableMessage(message: message, revealPermit: mediaRevealSession?.permit(for: message)) !=
+                nil
+            else { return nil }
             return message.id
         })
         let evictedMessageIDs = videoPlaybackOwners.compactMap { messageID, owner in
@@ -3569,13 +3651,36 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
             for: indexPath,
         ) as? MediaGalleryCell else { return UICollectionViewCell() }
         guard hasCurrentContext, !didReleasePlaybackOwners else { return cell }
-        let message = messages[indexPath.item]
+        configureMediaCell(cell, at: indexPath.item)
+        return cell
+    }
+
+    private func configureMediaCell(_ cell: MediaGalleryCell, at index: Int) {
+        let message = messages[index]
         cell.configure(
             message: message,
             playbackContext: playbackContext,
+            revealPermit: mediaRevealSession?.permit(for: message),
+            requiresRevealPermit: true,
             videoPlaybackOwner: playbackOwner(for: message),
+            onReveal: { [weak self] in
+                guard let self, selectedMessageID == message.id,
+                      messages.indices.contains(selectedIndex),
+                      MediaRevealSession.Key(message: messages[selectedIndex]) == MediaRevealSession
+                          .Key(message: message)
+                else { return }
+                revealSelectedMedia()
+            },
         )
-        return cell
+        cell.setPlaybackVisible(shouldPlayItem(at: index))
+    }
+
+    private func revealSelectedMedia() {
+        guard hasCurrentContext, messages.indices.contains(selectedIndex),
+              mediaRevealSession?.reveal(messages[selectedIndex]) == true else { return }
+        if let cell = collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? MediaGalleryCell {
+            configureMediaCell(cell, at: selectedIndex)
+        }
     }
 }
 
@@ -4066,6 +4171,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     fileprivate weak var transferCoordinator: GalleryPictureInPictureCoordinator?
 
     private let playbackSource: GalleryPlayableMessage?
+    private var revealPermit: MediaRevealPermit?
 
     // MARK: Private
 
@@ -4117,6 +4223,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
 
     fileprivate var canReturnToPresentation: Bool {
         !isDeleted && !isInvalidated && !pendingInvalidationAfterPictureInPicture && playbackContext.isCurrent
+            && revealPermit?.allowsPixels != false
     }
 
     private var pictureInPictureCoordinator: GalleryPictureInPictureCoordinator {
@@ -4127,14 +4234,17 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         message: Message,
         tdlib: TDLib,
         playbackContext: MediaGalleryPlaybackContext,
+        revealPermit: MediaRevealPermit? = nil,
         deferPlaybackUntilVisible: Bool = false,
     ) {
-        guard let source = GalleryPlayableMessage(message: message) else { return nil }
+        guard let source = GalleryPlayableMessage(message: message, revealPermit: revealPermit),
+              revealPermit?.matches(playbackContext) != false else { return nil }
         guard playbackContext.isCurrent, playbackContext.location.matches(message: message)
         else { return nil }
         self.tdlib = tdlib
         self.playbackContext = playbackContext
         self.playbackSource = source
+        self.revealPermit = revealPermit
         self.chatID = message.chatId
         self.messageID = message.id
         self.allowsPictureInPicture = !source.isSecret && !source.isAnimation
@@ -4157,6 +4267,12 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         configurePictureInPicture()
         observeMessageDeletion()
         observePlaybackAuthority()
+        revealPermit?.revisionChanges
+            .sink { [weak self] in
+                guard let self, self.revealPermit?.allowsPixels == false else { return }
+                invalidate()
+            }
+            .store(in: &tdUpdateCancellables)
     }
 
     #if DEBUG
@@ -4871,14 +4987,15 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             // Legacy owner/PiP probes intentionally create a source-free owner.
             if playbackSource == nil { return true }
         #endif
-        return playbackSource?.identity == GalleryPlayableMessage(message: message)?.identity
+        return playbackSource?.identity == GalleryPlayableMessage(message: message, revealPermit: revealPermit)?
+            .identity
     }
 
     @discardableResult func attach(
         to container: UIView,
         context: VideoPlaybackAttachmentContext = .fullscreen,
     ) -> VideoPlaybackAttachmentToken? {
-        guard playbackContext.isCurrent else {
+        guard canReturnToPresentation else {
             invalidate()
             return nil
         }
@@ -4978,7 +5095,8 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
-        mediaView.makeTransitionSnapshot(contentMode: contentMode)
+        guard canReturnToPresentation else { return nil }
+        return mediaView.makeTransitionSnapshot(contentMode: contentMode)
     }
 
     func detachFromGallery() {
@@ -5661,6 +5779,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
 /// Route callbacks are weak at their source. They do not decide playback authority.
 @MainActor private struct MediaGalleryRestorationSnapshot {
     let context: MediaGalleryPlaybackContext
+    let mediaRevealSession: MediaRevealSession?
     let totalMessageCount: Int?
     let routeIsCurrent: (() -> Bool)?
     let paginationIsCurrent: (() -> Bool)?
@@ -5950,7 +6069,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         owner: GalleryVideoPlaybackOwner,
         request: RestoreRequest,
     ) -> MediaGalleryViewController? {
-        guard requestIsCurrent(request, owner: owner), let snapshot = restorationSnapshot else {
+        guard requestIsCurrent(request, owner: owner), let snapshot = restorationSnapshot,
+              restorationMessages.contains(where: owner.matches(message:))
+        else {
             complete(request, result: false)
             return nil
         }
@@ -5962,6 +6083,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             actionClient: snapshot.context.client,
             sourceLocation: snapshot.context.location,
             playbackContext: snapshot.context,
+            mediaRevealSession: snapshot.mediaRevealSession,
             pictureInPictureCoordinator: self,
             transferredPlaybackOwner: owner,
             transitionSourceProvider: snapshot.transitionSourceProvider,
@@ -6292,6 +6414,7 @@ final class MediaGalleryCell: UICollectionViewCell {
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
     private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
     private var transitionMediaSize: CGSize?
+    private var revealPermit: MediaRevealPermit?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -6311,6 +6434,7 @@ final class MediaGalleryCell: UICollectionViewCell {
         videoPlaybackAttachmentToken = nil
         videoPlaybackOwner = nil
         transitionMediaSize = nil
+        revealPermit = nil
         contentMediaView?.prepareForReuse()
         contentMediaView?.removeFromSuperview()
         contentMediaView = nil
@@ -6336,11 +6460,17 @@ final class MediaGalleryCell: UICollectionViewCell {
 
     func configure(
         message: Message, playbackContext: MediaGalleryPlaybackContext?,
+        revealPermit: MediaRevealPermit? = nil,
+        requiresRevealPermit: Bool = false,
         videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
+        onReveal: (() -> Void)? = nil,
     ) {
         prepareForReuse()
         transitionMediaSize = Self.mediaSize(for: message)
-        if let videoPlaybackOwner, videoPlaybackOwner.matches(message: message) {
+        self.revealPermit = revealPermit
+        let canDisplay = MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: requiresRevealPermit)
+            && (playbackContext.map { revealPermit?.matches($0) != false } ?? false)
+        if canDisplay, let videoPlaybackOwner, videoPlaybackOwner.matches(message: message) {
             self.videoPlaybackOwner = videoPlaybackOwner
             videoPlaybackAttachmentToken = videoPlaybackOwner.attach(
                 to: contentView,
@@ -6349,72 +6479,76 @@ final class MediaGalleryCell: UICollectionViewCell {
             return
         }
         let view: UIView & GalleryMediaView
-        guard let playbackContext, playbackContext.isCurrent, let client = playbackContext.client else { return }
-        switch message.content {
-        case .messagePhoto(let photo):
-            let imageView = ZoomableGalleryImageView()
-            imageView.configure(photo: photo.photo)
-            view = imageView
-        case .messageAnimation(let animation):
-            if telegramAnimationUsesFFmpeg(animation.animation), !animation.isSecret, !animation.hasSpoiler {
-                let animationView = FFmpegAnimatedVideoView(frame: .zero)
-                animationView.configure(
-                    file: animation.animation.animation,
-                    client: client,
-                    thumbnail: animation.animation.thumbnail,
-                    displaySize: nil,
-                    onTap: nil,
-                )
-                view = animationView
-            } else {
-                let player = GalleryFilePlayerView()
-                player.configure(
-                    file: animation.animation.animation,
-                    thumbnail: animation.isSecret || animation.hasSpoiler ? nil : animation.animation.thumbnail,
-                    minithumbnail: animation.animation.minithumbnail,
-                    canPlay: false,
-                    loops: true,
-                    vodRanges: playbackContext.vodRanges,
-                    previewContext: playbackContext,
-                )
-                view = player
+        if !canDisplay {
+            view = MediaConcealmentView(message: message, onTap: onReveal)
+        } else {
+            guard let playbackContext, playbackContext.isCurrent, let client = playbackContext.client else { return }
+            switch message.content {
+            case .messagePhoto(let photo):
+                let imageView = ZoomableGalleryImageView()
+                imageView.configure(photo: photo.photo, client: client)
+                view = imageView
+            case .messageAnimation(let animation):
+                if telegramAnimationUsesFFmpeg(animation.animation) {
+                    let animationView = FFmpegAnimatedVideoView(frame: .zero)
+                    animationView.configure(
+                        file: animation.animation.animation,
+                        client: client,
+                        thumbnail: animation.animation.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = animationView
+                } else {
+                    let player = GalleryFilePlayerView()
+                    player.configure(
+                        file: animation.animation.animation,
+                        thumbnail: animation.animation.thumbnail,
+                        minithumbnail: animation.animation.minithumbnail,
+                        canPlay: false,
+                        loops: true,
+                        vodRanges: playbackContext.vodRanges,
+                        previewContext: playbackContext,
+                    )
+                    view = player
+                }
+            case .messageVideo:
+                view = ZoomableGalleryImageView()
+            case .messageSticker(let sticker):
+                if sticker.sticker.format == .stickerFormatTgs {
+                    let stickerView = TGSStickerView(frame: .zero)
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        client: client,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = stickerView
+                } else if sticker.sticker.format == .stickerFormatWebp {
+                    let stickerView = AnimatedWebPView(frame: .zero)
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        client: client,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = stickerView
+                } else {
+                    let stickerView = FFmpegAnimatedVideoView(frame: .zero)
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        client: client,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = stickerView
+                }
+            default:
+                view = ZoomableGalleryImageView()
             }
-        case .messageVideo:
-            view = ZoomableGalleryImageView()
-        case .messageSticker(let sticker):
-            if sticker.sticker.format == .stickerFormatTgs {
-                let stickerView = TGSStickerView(frame: .zero)
-                stickerView.configure(
-                    file: sticker.sticker.sticker,
-                    client: client,
-                    thumbnail: sticker.sticker.thumbnail,
-                    displaySize: nil,
-                    onTap: nil,
-                )
-                view = stickerView
-            } else if sticker.sticker.format == .stickerFormatWebp {
-                let stickerView = AnimatedWebPView(frame: .zero)
-                stickerView.configure(
-                    file: sticker.sticker.sticker,
-                    client: client,
-                    thumbnail: sticker.sticker.thumbnail,
-                    displaySize: nil,
-                    onTap: nil,
-                )
-                view = stickerView
-            } else {
-                let stickerView = FFmpegAnimatedVideoView(frame: .zero)
-                stickerView.configure(
-                    file: sticker.sticker.sticker,
-                    client: client,
-                    thumbnail: sticker.sticker.thumbnail,
-                    displaySize: nil,
-                    onTap: nil,
-                )
-                view = stickerView
-            }
-        default:
-            view = ZoomableGalleryImageView()
         }
         contentMediaView = view
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -6519,6 +6653,7 @@ final class MediaGalleryCell: UICollectionViewCell {
     }
 
     func makeTransitionSnapshot() -> UIView? {
+        guard revealPermit?.isCurrent != false else { return nil }
         if let videoPlaybackOwner {
             return videoPlaybackOwner.makeTransitionSnapshot(contentMode: .scaleAspectFit)
         }
@@ -6602,8 +6737,8 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(photo: Photo) {
-        imageView.load(photo: photo, preferredSize: .yBox)
+    func configure(photo: Photo, client: TDLibClient) {
+        imageView.load(photo: photo, preferredSize: .yBox, client: client)
     }
 
     func prepareForReuse() {

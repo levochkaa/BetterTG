@@ -346,6 +346,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
               mediaView.window != nil
         else { return nil }
         let generation = mediaTransitionGeneration
+        let contentGeneration = mediaView.transitionGeneration
         guard let sourceView = mediaView.galleryTransitionSourceView(for: messageID) else { return nil }
         return MediaGalleryTransitionTarget(
             messageID: messageID,
@@ -356,7 +357,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             validation: { [weak self, weak sourceView] in
                 guard let self, let sourceView else { return false }
                 return mediaTransitionGeneration == generation
+                    && mediaView.transitionGeneration == contentGeneration
                     && representedGalleryMessageIDs.contains(messageID)
+                    && mediaView.transitionIsCurrent(for: messageID)
                     && mediaView.galleryTransitionSourceView(for: messageID) === sourceView
             },
         )
@@ -368,6 +371,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         highlighted: Bool,
         client: TDLibClient,
         spoilerSource: TdUpdateSource? = nil,
+        mediaRevealSession: MediaRevealSession? = nil,
         pollInteractionStore: MessagePollInteractionStore,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         canAddReactions: Bool,
@@ -486,6 +490,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let hasMedia = mediaView.configure(
             message: message,
             client: client,
+            mediaRevealSession: mediaRevealSession,
             videoPlaybackOwners: videoPlaybackOwners,
         ) { [weak self] messages, selection in
             self?.onMediaTap?(messages, selection)
@@ -567,6 +572,20 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         ]
         let suffix = [hasReactions ? reactionAccessibilityDescription(visibleReactions) : nil, timestampLabel.text]
         var metadataAccessibilityActions = [UIAccessibilityCustomAction]()
+        for (index, source) in message.sourceMessages.enumerated()
+            where !MediaRevealPermit.allows(source, permit: mediaRevealSession?.permit(for: source))
+        {
+            if MediaRevealSession.Key(message: source)?.isSecret == false {
+                metadataAccessibilityActions.append(UIAccessibilityCustomAction(
+                    name: message.sourceMessages.count > 1
+                        ? "Reveal media spoiler \(index + 1)"
+                        : "Reveal media spoiler",
+                ) { _ in
+                    onMediaTap(message.sourceMessages, source.id)
+                    return true
+                })
+            }
+        }
         if let reply = message.replyPresentation {
             if reply.isManualQuote, !message.isReplyQuoteExpanded {
                 metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Expand quoted text") { _ in
@@ -618,7 +637,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         refreshSpoilerAccessibility = { [weak self] in
             guard let self else { return }
-            let content = accessibilityAlbum.isEmpty
+            var content = accessibilityAlbum.isEmpty
                 ?
                 (accessibilityStates.first
                     .map { $0.presentation.accessibilityText(revealed: $0.revealed) } ?? fallbackAccessibilityContent)
@@ -627,6 +646,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                     revealed: self.textSpoilers.states[$0.id]?.revealed == true,
                 ) }
                 .joined(separator: ", ")
+            let concealed = message.sourceMessages.filter {
+                !MediaRevealPermit.allows($0, permit: mediaRevealSession?.permit(for: $0))
+            }
+            if !concealed.isEmpty {
+                // Captions have independent A10 grants; do not project raw media metadata through the cell.
+                let captions = accessibilityStates.map { $0.presentation.accessibilityText(revealed: $0.revealed) }
+                content = (concealed.map {
+                    MediaRevealSession.Key(message: $0)?.isSecret == true ? "Protected media" : "Media spoiler"
+                } + captions).joined(separator: ", ")
+            }
             updateSpoilerAccessibility(
                 content: content,
                 prefix: prefix,
@@ -638,6 +667,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         for state in accessibilityStates {
             state.changes.sink { [weak self] in self?.refreshSpoilerAccessibility?() }.store(in: &spoilerSubscriptions)
         }
+        mediaRevealSession?.revisionsChanged
+            .sink { [weak self] _ in
+                self?.refreshSpoilerAccessibility?()
+            }
+            .store(in: &spoilerSubscriptions)
         refreshSpoilerAccessibility?()
 
         bubbleContentNeedsMeasurement = true

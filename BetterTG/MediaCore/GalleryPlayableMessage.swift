@@ -27,7 +27,8 @@ struct GalleryPlayableMessage {
 
     var isAnimation: Bool { identity.kind == .animation }
 
-    init?(message: Message) {
+    @MainActor init?(message: Message, revealPermit: MediaRevealPermit? = nil) {
+        guard MediaRevealPermit.allows(message, permit: revealPermit) else { return nil }
         let kind: Kind
         switch message.content {
         case .messageVideo(let value):
@@ -41,8 +42,7 @@ struct GalleryPlayableMessage {
             self.isSecret = value.isSecret
             self.startTimestamp = TimeInterval(value.startTimestamp)
         case .messageAnimation(let value):
-            guard !value.isSecret, !value.hasSpoiler,
-                  !telegramAnimationUsesFFmpeg(value.animation) else { return nil }
+            guard !telegramAnimationUsesFFmpeg(value.animation) else { return nil }
             kind = .animation
             self.file = value.animation.animation
             self.thumbnail = value.animation.thumbnail

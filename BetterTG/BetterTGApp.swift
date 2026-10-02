@@ -149,6 +149,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
         #if DEBUG
             MediaGalleryTransitionTarget.runDebugProbeIfRequested(in: window)
+            MediaRevealProbe.runIfRequested(in: window)
             FFmpegSampleBufferRenderer.runDebugProbeIfRequested(in: window)
             TDLibVODFFmpegSampleBufferPlayer.runDebugProbeIfRequested(in: window)
             MessageContentDebugProbe.runIfRequested(in: window)

@@ -97,6 +97,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         location: location,
         tdlib: tdlib,
     )
+    private lazy var mediaRevealSession = galleryPlaybackContext.map(MediaRevealSession.init)
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>!
@@ -368,6 +369,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         settleRestoredViewport()
         if preparedClient == nil { clientPreparationSource = nil }
         retryClientRestoration()
+        // Gallery paging can reveal another album member while the timeline is covered.
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard case .message(let displayedID) = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: displayedID),
+                  message.sourceMessages.contains(where: {
+                      let permit = mediaRevealSession?.permit(for: $0)
+                      return permit?.key.hasSpoiler == true && permit?.allowsPixels == true
+                  }) else { continue }
+            reconfigureMessage(id: message.id)
+        }
         restoreVisibleInlineVideoPlayback()
         if presentationMode == .full {
             chatVM.readAllReactions()
@@ -537,13 +548,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   prefetchTasks[displayedMessageID] == nil
             else { continue }
             let messages = message.album.isEmpty ? [message.message] : message.album
+            mediaRevealSession?.reconcile(messages)
+            let permits = Dictionary(uniqueKeysWithValues: messages.compactMap { item in
+                mediaRevealSession?.permit(for: item).map { (item.id, $0) }
+            })
             let client = chatVM.client
             let generation = UUID()
             let entry = PrefetchTaskEntry(generation: generation)
             prefetchTasks[displayedMessageID] = entry
             entry.task = Task { [weak self] in
                 for item in messages where !Task.isCancelled {
-                    await TDMediaPrefetcher.prefetch(message: item, client: client)
+                    await TDMediaPrefetcher.prefetch(message: item, client: client, revealPermit: permits[item.id])
                 }
                 await MainActor.run {
                     guard self?.prefetchTasks[displayedMessageID]?.generation == generation else { return }
@@ -1317,6 +1332,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     let message = message(for: displayedMessageID)
                 else { return UICollectionViewCell() }
                 let messageSelectable = canSelectMessage(message)
+                mediaRevealSession?.reconcile(message.sourceMessages)
                 cell.configure(
                     message: message,
                     chat: chatVM.customChat,
@@ -1325,6 +1341,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     }),
                     client: chatVM.client,
                     spoilerSource: navigationClientSource,
+                    mediaRevealSession: mediaRevealSession,
                     pollInteractionStore: chatVM.pollInteractionStore,
                     videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
                     canAddReactions: chatVM.canAddReactions,
@@ -1379,6 +1396,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func observeState() {
+        mediaRevealSession?.observeAcceptedMessages(
+            changes: chatVM.messagesDidChange.eraseToAnyPublisher(),
+            current: { [weak chatVM] in chatVM?.messages ?? [] },
+        )
+        .store(in: &cancellables)
+        mediaRevealSession?.revisionsChanged
+            .sink { [weak self] changed in
+                guard let self else { return }
+                for id in changed.ids {
+                    guard let displayedID = chatVM.displayedMessageID(containing: id) else { continue }
+                    prefetchTasks.removeValue(forKey: displayedID)?.task?.cancel()
+                }
+                DispatchQueue.main.async { [weak self] in
+                    for id in changed.ids {
+                        self?.reconfigureMessage(id: id)
+                    }
+                }
+            }
+            .store(in: &cancellables)
         for name in [UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardDidChangeFrameNotification] {
             NotificationCenter.default
                 .publisher(for: name)
@@ -1525,7 +1561,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             message.objectWillChange
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, messageID = message.id] in
-                    DispatchQueue.main.async { self?.reconfigureMessage(id: messageID) }
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
+                        reconfigureMessage(id: messageID)
+                    }
                 }
                 .store(in: &messageCancellables)
         }
@@ -1622,6 +1662,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateSnapshot(animated: Bool) {
         guard isViewLoaded, !clientOwnerRetired else { return }
+        mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
         if deferSnapshotForDeleteTransitionIfNeeded() {
             return
         }
@@ -2181,6 +2222,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func showMedia(_ messages: [Message], selection: Int64) {
         guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent else { return }
+        guard let captured = messages.first(where: { $0.id == selection }),
+              let displayedID = chatVM.displayedMessageID(containing: selection),
+              let current = message(for: displayedID)?.sourceMessages.first(where: { $0.id == selection })
+        else { return }
+        switch mediaRevealSession?.timelineTap(captured: captured, current: current) ?? .rejected {
+        case .rejected:
+            return
+        case .revealed:
+            reconfigureMessage(id: selection)
+            DispatchQueue.main.async { [weak self] in self?.updateInlineVideoPlaybackVisibility() }
+            return
+        case .open:
+            break
+        }
+        let messages = messages.compactMap { captured -> Message? in
+            guard let displayedID = chatVM.displayedMessageID(containing: captured.id) else { return nil }
+            return message(for: displayedID)?.sourceMessages.first(where: { $0.id == captured.id })
+        }
+        mediaRevealSession?.reconcile(messages)
         let transferredOwners = messages.compactMap { message -> GalleryVideoPlaybackOwner? in
             guard let owner = inlineVideoPlaybackOwners[message.id], owner.matches(message: message) else { return nil }
             return owner
@@ -2195,6 +2255,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             actionClient: chatVM.client,
             sourceLocation: location,
             playbackContext: galleryPlaybackContext,
+            mediaRevealSession: mediaRevealSession,
             transferredPlaybackOwner: transferredOwner,
             transferredPlaybackOwners: transferredOwners,
             transitionSource: transitionSource,
@@ -2470,13 +2531,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             owner.invalidate()
             inlineVideoPlaybackOwners[message.id] = nil
         }
-        guard let source = GalleryPlayableMessage(message: message), !source.isSecret,
+        let permit = mediaRevealSession?.permit(for: message)
+        guard MediaRevealPermit.allows(message, permit: permit, requiresPermit: true),
+              let source = GalleryPlayableMessage(message: message, revealPermit: permit), !source.isSecret,
               let galleryPlaybackContext, galleryPlaybackContext.isCurrent
         else { return nil }
         guard let owner = GalleryVideoPlaybackOwner(
             message: message,
             tdlib: tdlib,
             playbackContext: galleryPlaybackContext,
+            revealPermit: permit,
             deferPlaybackUntilVisible: true,
         ) else { return nil }
         owner.onReturnToInline = { [weak self, weak owner] returnedOwner in
