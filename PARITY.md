@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: integrate remaining A23 static-image authority, then bounded secondary chrome A32. A30 ForumTopics recovery has
+Active queue: finish bounded secondary chrome A32 runtime, then A34 folder rebuild ordering. A23 static-image authority and
+pending-membership insertion have integrated probes; remaining live-account and non-position hydration proof stays open. A30 ForumTopics recovery has
 integrated probe and actual same-PID foreground proof below; active search/editors/capture remain open. A33 profile-header sizing has actual-profile
 geometry/screenshot proof at `b97fa9b`. A21 timed
 video-note hold authority has integrated native/UIKit proof; other secret media and view-once playback remain open. A20 profile-grid concealment
@@ -141,7 +142,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | fixed bounded concealment — `05c2b49` gates timeline/album/gallery; `d8f9b36`/`bdd19cd` gate profile-grid thumbnails, revision replacement and snapshots. Actual UIKit/native fixture probes and ordinary own-profile navigation pass. Real spoiler gestures, transport and visual polish remain unverified. Distinct from caption/text spoiler A10 |
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | partial — A20a denies ordinary secret photo/video/animation pixels. `0e4e1e1`/`437d7c7` repair timed video-note per-hold/client/ACK/expiry authority; actual UIKit/native probe passes through `4c3fc5e`. Photo/video/animation hold and immediate/view-once playback remain open; unsupported note forms stay concealed. No real secret content consumed |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | partial bounded repair — `6869382` one-shot geometry authority cancels obsolete automatic restoration after gestures, navigation and newer layout. Policy/Chat/composer probes and ordinary Saved scroll/latest smoke pass. Controlled overlapping diffable/rotation/keyboard/media-resize and prepend-during-drag pixel proof remain unverified |
-| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a`, static-image `ba0e192` and auth `097b488` have bounded authority proofs. `7426478` adds explicit static-image origin and shared demand; actual UIImageView/native regressions and ordinary own-profile smoke pass through fixture correction `b3aa790`. Pending-list insertion has a confirmed same-epoch race; remaining subscribers/order and real multi-account RPC races stay open. Bulk rebuild/settings are tracked separately below |
+| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a`, static-image `ba0e192` and auth `097b488` have bounded authority proofs. `7426478`/`b3aa790` add static-image origin/shared demand with actual UIImageView/native/profile proof. `1cd9ecf` fences pending-list membership; suspended production-helper probe passes. Remaining subscribers/non-position ordering and real multi-account RPC races stay open; bulk rebuild/settings are A34/A35 |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | fixed bounded semantic round trip — `a022017` codec/scoped bridges, `fb15c25` caret refresh and `26d5f48` programmatic marked-input/UIKit undo proof pass. Live IME/keyboard shortcuts, clipboard and server round trips remain unverified. Separate from A10 display concealment |
 | A26 | P1 | Real own-draft reinstall at `d8ed16e` relocates the app data container: `VoiceNoteDraftStore.loadAllDrafts` rejects persisted absolute URLs and deletes the manifest although its Ogg remains. `VideoNoteFileStore.loadAllManifests` has the same absolute-path filter for MP4/thumbnail | fixed in `8519b33` (worker `2e28fad`) — relative managed filenames, strict legacy container rebasing, retained malformed/missing manifests and migration-write fallback. Isolated voice/video relocation/outcome probes and own voice recovery→reinstall→Discard pass; DEBUG fixture correction `5a87726` keeps production validation strict |
@@ -150,7 +151,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
 | A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84` replace authority while retaining bounded route state. Same-PID Saved, Archive search and actual quiescent topic-list foreground smoke pass. Active topic search, already-open editors and active capture remain deferred; full account/notification lifecycle unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
-| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | needs-fix — audit secondary navigation controls against pinned pre-Liquid chrome; preserve full-width blur/safe-area and accessibility. A zero forbidden-marker scan does not prove UIKit's default runtime appearance |
+| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background; native Back remains circular/capsule despite correct public flags. Timing trial `839c26e` has no visible effect and is dropped. Native search islands, Back and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
 | A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
 | A34 | P1 | At `7426478`, `RootVM.updateChatFolders` builds main/custom snapshots, awaits archive hydration, then replaces all folders. Accepted same-epoch unread/draft/message/position events during that await mutate the old objects and are lost on replacement | needs-fix — reconcile accepted events with a pending rebuild before synchronous installation. Source-confirmed schedule, not a runtime reproduction; separate from A23 pending insertion |
 | A35 | P2 | At `7426478`, `RootVM.loadScopeNotificationSettings` collects three sequential reads and finally merges old values over settings accepted from intervening updates | needs-fix — per-scope read/update revision authority; preserve fresh mute settings. Source-confirmed schedule, not a runtime reproduction |
@@ -1297,6 +1298,51 @@ is imported. This source pass does not prove every content's real rendering/acti
   membership through hydration. Pinned TDLib `td_api.tl`10403–10406 requires order0 removal and allows positions through last-message/draft;
   11473–11476 says `getChats` is informational, not an atomic list-state source. Bulk rebuild/settings races remain A34/A35.
 
+### A23g pending chat-list membership — 2026-10-02
+
+- `1cd9ecf` (worker `551707e`) serializes pending hydration by account/client/chat/semantic list and exact destination folder.
+  All four membership entry points share the production helper. Zero order and omitted lists in complete last-message/draft
+  vectors remove rows and revoke pending insertion. A positive update during hydration coalesces into one follow-up read;
+  only the latest intent may append, with its accepted order/pin. Remove→re-add can proceed before the canceled old RPC returns.
+  Old success/nil/error cleanup cannot clear replacement ownership. Source/folder/root-ticket changes fence terminal application.
+- References: pinned TDLib `td_api.tl`10398–10406,10430–10433; `MessagesManager.cpp`33622–33658,27091–27094,27128–27131
+  confirms complete current membership vectors and omitted zero-order lists. Pinned current/pre `ChatListNode.swift`
+  3327–3365 / 3477–3515 serializes accepted list transitions. No Postbox/SignalKit infrastructure copied.
+- Five Swift files formatted together; `build-Debug-20261002-221330-92632-19395.log`: PASS16s, zero warnings. Audit Simulator
+  source `1cd9ecf`, PID `94658`: actual helper/CustomFolder/RootListAuthority probe passes sixteen suspended hydrations:
+  pre-dispatch removal, late success/nil, coalesced order/pin, omission, re-add before old reply, distinct lists/accounts/clients,
+  replaced folder/root ticket, rejection and retry. Root/scoped-update/forum-restoration/classic-navigation regressions also pass.
+- Evidence: `.build/ui-probe-evidence/astra-a23g-primary`; worker `.build/root-chat-insertion-proof/README.md` records its
+  initial DEBUG fixture compile corrections and final clean build. No real account changes or server calls. RootVM notification/RPC
+  wiring is source-reviewed, not exercised by the helper. Pending unread/user/non-position hydration, bulk rebuild A34 and scope
+  notification ordering A35 remain open. This proof establishes membership, not complete latest message/draft payload parity.
+
+### A32 explicit navigation buttons and native Back limitation — 2026-10-02
+
+- `941a90a` (worker `71289be`) uses an app-owned UINavigationBar with ordinary UINavigationControllers at all seven production
+  constructors. Per-instance `hidesSharedBackground` is reapplied to initial/late/replaced buttons and the previous item's native
+  back item. Targets/actions/menu/customView/enabled/delegate remain unchanged. Native Back is not replaced with a custom left action.
+  Existing full-width material appearance gains compact-scroll-edge coverage; no search/safe-area/gesture layout changes.
+- References: pinned pre-Liquid `Display/Source/NavigationBar.swift`1153–1167,1194–1227,1286–1310 and
+  `NavigationButtonNode.swift`299–313; public UIKit26.5 `UIBarButtonItem.h`147–166, `UINavigationItem.h`31–38,154–165.
+  The background flag is not an appearance-proxy property. No Telegram infrastructure/private subview traversal copied.
+- Nine Swift files formatted together; `build-Debug-20261002-220321-68144-21386.log`: PASS16s, zero warnings. PID `76056`:
+  actual offscreen navigation/bar probe, generic client and forum restoration regressions pass. Probe verifies item identity,
+  initial/late/replaced actions, generated/explicit back, native stack methods and all four appearance states, not visible chrome.
+- Production Saved → Profile → Edit, same PID: Save is plain text without its capsule; Back remains circular on Profile and a
+  capsule on Edit. Back returns to Profile and Saved without saving. idb exposes editor navigation as one Group, not separate
+  Back/Save children; coordinates came from screenshots. Long-press returned to Profile; native history-menu behavior is unverified.
+- Diagnostic-only `3a7ac85` (worker `80ad6e8`) records bounded public item flags without titles/IDs/content. Two-file build
+  `build-Debug-20261002-221009-76792-23655.log`: PASS19s, zero warnings. PID `88393`: real attached owned bar, exact previous
+  stack item, `hidesSharedBackground=true`, group0/plain/no custom action before and after layout, but the native Back background remains.
+  This excludes an unconfigured bar/wrong-item explanation; it does not establish a UIKit implementation cause.
+- One-line timing trial `839c26e` (worker `eda9c64`) sets the generated back flag before assignment. One-file format/build
+  `build-Debug-20261002-221603-96136-10079.log`: PASS8s, zero warnings. PID `96492`: headless probe passes; actual Profile/Edit
+  still show the same Back background. The ineffective trial is removed; no private workaround or custom pop action is introduced.
+- Private captures/diagnostics: `.build/ui-probe-evidence/astra-a32-primary`. No profile fields edited/Save tapped/server mutation.
+  Native Back/background/history, interactive cancel, first-frame polish, RTL/dynamic widths/dark mode and native search remain open.
+  Continue independent P1 list ordering while preserving this reproducible public-API limitation.
+
 ### Background Simulator launch — 2026-10-02
 
 - User requested no focus stealing during repeated smoke. `a264c4e` changes the wrapper to `open -g -a Simulator` and syncs
@@ -1351,7 +1397,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `b3aa790`: static-image/shared-demand/profile-grid/scoped-delivery probes pass (PID `70966`), native
+- Latest verified code: `1cd9ecf`: pending membership and Root/scoped/Forum/navigation helper regressions pass (PID `94658`).
+  `941a90a` fixes explicit Save chrome but leaves native Back open; `3a7ac85` gives actual public-state diagnostics. The ineffective
+  timing trial `839c26e` is removed after PID `96492` repeats the same visible Back background.
+  `b3aa790`: static-image/shared-demand/profile-grid/scoped-delivery probes pass (PID `70966`), native
   timed video-note regression passes (PID `53678`). Actual own-profile/avatar/grid/header smoke passes at `7426478` (PID `69030`).
   `a264c4e` preserves desktop focus during wrapper runs. `01a2d84` plus the committed forum smoke helper: actual quiescent topic-list foreground replacement passes
   (PID `54903`); forum/navigation/Root/scoped-update probes pass at `01a2d84` (PID `49689`).
@@ -1374,26 +1423,27 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free integration/follow-up builds: `.build/logs/xcodebuild/build-Debug-20261002-215620-70529-12978.log` and
-  `build-Debug-20261002-215832-37840-40.log`.
+  Warning-free integration/follow-up builds: `.build/logs/xcodebuild/build-Debug-20261002-221330-92632-19395.log` and
+  `build-Debug-20261002-221603-96136-10079.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
   A30b2 controller/history, A23b Chat fences, A10/A25, A23e auth and A21c timed video-note authority are integrated.
   Static-image origin/shared-demand `73bcb04` is integrated as `7426478`, with reviewed fixture correction `b3aa790` and runtime proof.
-  It is implementing only A23g pending-list membership after a bounded same-epoch source audit; A34/A35 are separate queued findings.
+  A23g pending membership is integrated as `1cd9ecf` with actual-helper proof. It is implementing bounded A34 accepted-update
+  projection through rebuild/hydration; A35 scope settings stays separate.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
-  A20b profile-grid concealment and A30d ForumTopics recovery are integrated. It is implementing bounded A32 native navigation-button
-  chrome; no primary integration yet. The SDK's per-item background flag is not an appearance-proxy property; native search remains separate.
+  A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
+  still ignores the configured flag in runtime proof. It is reviewing A23g read-only; no further Back workaround authorized.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: integrate/revalidate bounded A32 navigation-button chrome and A23g pending membership, then A34 rebuild ordering;
+- Exact next slice: review/integrate A34 rebuild/hydration ordering; retain A32 native Back/search and extended runtime matrix;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image live transport/account-switch proof limits and Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
