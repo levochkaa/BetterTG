@@ -1108,6 +1108,17 @@ is imported. This source pass does not prove every content's real rendering/acti
   The first chat screenshot caught the push transition; use the settled/after-scroll/after-idle/returned-latest captures for UI evidence.
   No messages, drafts, account settings or links were changed. Controlled prepend/resize/rotation/keyboard races, programmatic-scroll
   animation overlap and exact pixel-offset instrumentation remain unverified; this is not complete timeline parity.
+- Additional actual keyboard smoke, 2026-10-03 03:41–03:47: installed code `596e895` (documentation HEAD `123cf31`),
+  audit Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone 17 Pro/iOS 26.5, same PID `59144`.
+  Saved Messages was scrolled away from latest and allowed to settle; tapping the empty composer showed the Russian software
+  keyboard, and tapping blank history dismissed it. Two pre-keyboard AX samples and the shown/hidden samples retain the same
+  fully visible row rectangles: privacy-safe label hashes `946a11dcc510` at `(8,139.3333,386,46)` and `5169c6a01ad7` at
+  `(8,229.3333,386,191)`. Composer y moved `796.6667→487.6667→796.6667`, with text length zero throughout.
+  Screenshots inspected: `.build/ui-probe-evidence/astra-a22-keyboard/{scrolled-first,keyboard-shown,keyboard-hidden}.png`.
+  These are AX label hashes, not TD message IDs; this proves only the settled nonlatest empty-composer show/hide sequence.
+  No typing, sends, links or message actions. Interactive dismissal, simultaneous prepend/resize, rotation, send flights and
+  nonempty composer remain unverified. No Swift change was needed for this bounded check.
+  Documentation build `build-Debug-20261003-034905-77575-16672.log`: PASS5s, complete log zero warnings/errors.
 
 ### A23e login authorization authority — 2026-10-02
 
