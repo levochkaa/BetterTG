@@ -32,6 +32,7 @@ import UIKit
             VideoNoteAssetWriter.runDebugProbeIfRequested()
             VideoNoteFinishProbe.runDebugProbeIfRequested()
             VideoNoteSubmissionOwnershipProbe.runDebugProbeIfRequested()
+            VideoNotePreservationProbe.runDebugProbeIfRequested()
             VideoNoteFileStore.runDebugProbeIfRequested()
             VideoNoteSegmentComposer.runDebugProbeIfRequested()
             VideoNoteRecordingDraftStore.runDebugProbeIfRequested()

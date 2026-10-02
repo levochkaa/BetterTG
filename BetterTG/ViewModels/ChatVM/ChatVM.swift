@@ -678,6 +678,7 @@ import UIKit
             }
             let draftKey = self.location.draftKey
             await VoiceRecordingDraftPreservation.wait(for: draftKey)
+            await VideoNoteRecordingPreservation.wait(for: draftKey)
             guard !Task.isCancelled, locationContextIsCurrent else {
                 self.loadingVoiceDraft = false
                 return

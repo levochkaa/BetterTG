@@ -16,6 +16,41 @@ enum VideoNoteCaptureError: Swift.Error {
 
 #if DEBUG
     extension VideoNoteCaptureSession {
+        func installPreservationProbe(
+            output: URL,
+            generation: UUID,
+            beforeFinish: (@Sendable () async -> Void)? = nil,
+            beforeDelivery: (@Sendable () async -> Void)? = nil,
+        ) async throws {
+            _ = try await installDebugRecording(output: output, generation: generation)
+            contextLock.withLock { stateGeneration = generation }
+            probeBeforeFinish = beforeFinish
+            probeBeforeAutomaticDelivery = beforeDelivery
+        }
+
+        func requestAutomaticPreservationProbe() -> Task<Void, Never>? {
+            guard let context = contextLock.withLock({ recordingContext }) else { return nil }
+            return requestAutomaticStop(context)
+        }
+
+        func terminatePreservationProbe() {
+            handleCaptureFailure("Probe lifecycle interruption")
+        }
+
+        func publishPreservationProbeState(_ state: State) {
+            contextLock.withLock { enqueueStateLocked(state, generation: stateGeneration) }
+        }
+
+        func verifyStalePreservationStop(generation: UUID) throws {
+            let rejected = !stopInputPreservingRecording(generation: UUID())
+            let unchanged = contextLock.withLock {
+                recordingContext?.captureGeneration == generation
+                    && recordingContext?.videoFramesEnabled == true
+                    && recordingContext?.audioFramesEnabled == true
+            }
+            try VideoNotePreservationProbe.require(rejected && unchanged, "stale preservation stop mutated replacement")
+        }
+
         @MainActor static func verifyDebugFinishOwnership(directory: URL) async throws {
             let session = VideoNoteCaptureSession()
             let generation = UUID()
@@ -270,6 +305,11 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         case stopping
     }
 
+    struct StateUpdate: Equatable {
+        let generation: UUID?
+        let state: State
+    }
+
     private final class RecordingContext: @unchecked Sendable {
         enum FinishOwner {
             case automatic
@@ -322,12 +362,14 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
 
     let captureSession = AVCaptureSession()
     @MainActor var onAutomaticStop: ((UUID, Result<VideoNoteAsset, Error>) -> Void)?
+    @MainActor var onRecordingTerminated: ((UUID, Error) -> Void)?
 
     private let configurationQueue = DispatchQueue(label: "bettertg.video-note.capture.configuration")
     private let videoOutputQueue = DispatchQueue(label: "bettertg.video-note.capture.video", qos: .userInitiated)
     private let audioOutputQueue = DispatchQueue(label: "bettertg.video-note.capture.audio", qos: .userInitiated)
     private let contextLock = NSLock()
-    private let stateSubject = CurrentValueSubject<State, Never>(.idle)
+    private let stateSubject = CurrentValueSubject<StateUpdate, Never>(.init(generation: nil, state: .idle))
+    private var stateGeneration: UUID?
     private var preparationGeneration: UUID?
     private var activeCaptureGeneration: UUID?
     private var captureEnabled = false
@@ -346,7 +388,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         private var probeBeforeAutomaticDelivery: (@Sendable () async -> Void)?
     #endif
 
-    var statePublisher: AnyPublisher<State, Never> {
+    var statePublisher: AnyPublisher<StateUpdate, Never> {
         stateSubject.removeDuplicates().eraseToAnyPublisher()
     }
 
@@ -394,13 +436,14 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     func prepare(position: Position = .front, generation: UUID) async throws {
         try Task.checkCancellation()
         let displacedRecording = contextLock.withLock { () -> RecordingContext? in
+            stateGeneration = generation
             preparationGeneration = generation
             activeCaptureGeneration = nil
             captureEnabled = false
             pendingRecordingStart = nil
             let context = recordingContext
             recordingContext = nil
-            enqueueStateLocked(.configuring)
+            enqueueStateLocked(.configuring, generation: generation)
             return context
         }
         displacedRecording?.writer.cancel()
@@ -486,7 +529,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                                     captureGeneration: captureGeneration,
                                 )
                                 self.recordingContext = context
-                                self.enqueueStateLocked(.recording(0))
+                                self.enqueueStateLocked(.recording(0), generation: captureGeneration)
                                 return context
                             }
                             guard context != nil else {
@@ -530,14 +573,18 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             pendingRecordingStart = nil
             let context = recordingContext
             recordingContext = nil
-            enqueueStateLocked(captureEnabled ? .ready(position) : .idle)
+            enqueueStateLocked(
+                captureEnabled ? .ready(position) : .idle,
+                generation: context?.captureGeneration ?? stateGeneration,
+            )
             return context
         }
         context?.writer.cancel()
     }
 
     func switchCamera() async throws -> Position {
-        try await withCheckedThrowingContinuation { continuation in
+        let generation = contextLock.withLock { stateGeneration }
+        return try await withCheckedThrowingContinuation { continuation in
             configurationQueue.async { [weak self] in
                 guard let self else {
                     continuation.resume(throwing: CancellationError())
@@ -546,7 +593,8 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 do {
                     let switchContext = try contextLock.withLock {
                         () throws -> (Position, RecordingContext?) in
-                        guard self.captureEnabled,
+                        guard self.stateGeneration == generation,
+                              self.captureEnabled,
                               self.captureSession.isRunning
                         else { throw VideoNoteCaptureError.recordingUnavailable }
                         let context = self.recordingContext
@@ -572,7 +620,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                     configureOutputConnections()
                     switchContext.1?.writer.beginCameraTransition()
                     let isCurrent = contextLock.withLock { () -> Bool in
-                        guard self.captureEnabled else { return false }
+                        guard self.stateGeneration == generation, self.captureEnabled else { return false }
                         if let context = switchContext.1,
                            self.recordingContext === context
                         {
@@ -581,7 +629,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                             context.awaitingFirstVideoAfterSwitch = true
                             context.videoFramesEnabled = true
                         } else if self.recordingContext == nil {
-                            self.enqueueStateLocked(.ready(targetPosition))
+                            self.enqueueStateLocked(.ready(targetPosition), generation: generation)
                         }
                         return true
                     }
@@ -653,6 +701,30 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         terminateCapture(matching: nil)
     }
 
+    /// Stops device work without cancelling a finish already owned by manual/auto stop.
+    func stopInputPreservingRecording(generation: UUID) -> Bool {
+        let ownership = contextLock.withLock { () -> (matched: Bool, hasRecording: Bool) in
+            guard activeCaptureGeneration == generation || preparationGeneration == generation else { return (
+                false,
+                false,
+            ) }
+            preparationGeneration = nil
+            pendingRecordingStart = nil
+            captureEnabled = false
+            recordingContext?.videoFramesEnabled = false
+            recordingContext?.audioFramesEnabled = false
+            return (true, recordingContext?.captureGeneration == generation)
+        }
+        guard ownership.matched else { return false }
+        configurationQueue.async { [weak self] in
+            guard let self, contextLock.withLock({ self.stateGeneration == generation }) else { return }
+            Self.disableTorch(on: videoInput?.device)
+            if captureSession.isRunning { captureSession.stopRunning() }
+            deactivateAudioSession()
+        }
+        return ownership.hasRecording
+    }
+
     func waitForCaptureShutdown() async {
         await withCheckedContinuation { continuation in
             configurationQueue.async {
@@ -689,7 +761,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     private func finishRecording(_ context: RecordingContext) async throws -> VideoNoteAsset {
         let ownsRecording = contextLock.withLock { () -> Bool in
             guard recordingContext === context else { return false }
-            enqueueStateLocked(.stopping)
+            enqueueStateLocked(.stopping, generation: context.captureGeneration)
             return true
         }
         guard ownsRecording else { throw VideoNoteCaptureError.recordingUnavailable }
@@ -725,7 +797,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 guard recordingContext === context else { return false }
                 if context.finishOwner == .manual {
                     recordingContext = nil
-                    if captureEnabled { enqueueStateLocked(.ready(position)) }
+                    if captureEnabled { enqueueStateLocked(.ready(position), generation: context.captureGeneration) }
                 }
                 return true
             }
@@ -763,7 +835,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                   context.startRequestID == requestID
             else { return nil }
             recordingContext = nil
-            enqueueStateLocked(captureEnabled ? .ready(position) : .idle)
+            enqueueStateLocked(captureEnabled ? .ready(position) : .idle, generation: context.captureGeneration)
             return context.writer
         }
         writer?.cancel()
@@ -773,7 +845,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         contextLock.withLock {
             guard recordingContext === context else { return }
             recordingContext = nil
-            enqueueStateLocked(captureEnabled ? .ready(position) : .idle)
+            enqueueStateLocked(captureEnabled ? .ready(position) : .idle, generation: context.captureGeneration)
         }
         context.writer.cancel()
     }
@@ -803,7 +875,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             preparationGeneration = nil
             activeCaptureGeneration = nil
             captureEnabled = false
-            enqueueStateLocked(.failed(message))
+            enqueueStateLocked(.failed(message), generation: generation)
             return true
         }
         if didFail {
@@ -878,7 +950,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                         self.captureEnabled = true
                         self.preparationGeneration = nil
                         self.activeCaptureGeneration = generation
-                        self.enqueueStateLocked(.ready(position))
+                        self.enqueueStateLocked(.ready(position), generation: generation)
                         return true
                     }
                     guard shouldEnable else {
@@ -891,7 +963,10 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                         self.captureEnabled = false
                         self.preparationGeneration = nil
                         self.activeCaptureGeneration = nil
-                        self.enqueueStateLocked(.failed("Couldn’t start the video-note camera."))
+                        self.enqueueStateLocked(
+                            .failed("Couldn’t start the video-note camera."),
+                            generation: generation,
+                        )
                         return true
                     }
                     if ownsPreparation {
@@ -976,7 +1051,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             guard recordingContext === context else { return false }
             recordingContext = nil
             if captureEnabled {
-                enqueueStateLocked(.ready(position))
+                enqueueStateLocked(.ready(position), generation: context.captureGeneration)
             }
             return true
         }
@@ -996,7 +1071,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             pendingRecordingStart = nil
             let context = recordingContext
             recordingContext = nil
-            enqueueStateLocked(.idle)
+            enqueueStateLocked(.idle, generation: generation ?? stateGeneration)
             return (true, context)
         }
         guard result.0 else { return }
@@ -1011,9 +1086,17 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         }
     }
 
-    private func enqueueStateLocked(_ state: State) {
+    private func enqueueStateLocked(_ state: State, generation: UUID?) {
+        let update = StateUpdate(generation: generation, state: state)
         DispatchQueue.main.async { [stateSubject] in
-            stateSubject.send(state)
+            stateSubject.send(update)
+        }
+    }
+
+    private func publishTermination(_ context: RecordingContext?, error: Error) {
+        guard let context else { return }
+        Task { @MainActor [weak self] in
+            self?.onRecordingTerminated?(context.captureGeneration, error)
         }
     }
 
@@ -1053,11 +1136,12 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             pendingRecordingStart = nil
             let context = recordingContext
             recordingContext = nil
-            enqueueStateLocked(.failed(message))
+            enqueueStateLocked(.failed(message), generation: context?.captureGeneration ?? stateGeneration)
             return (true, context)
         }
         guard result.0 else { return }
         result.1?.writer.cancel()
+        publishTermination(result.1, error: CancellationError())
         configurationQueue.async { [weak self] in
             guard let self else { return }
             Self.disableTorch(on: videoInput?.device)
@@ -1075,10 +1159,11 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             activeCaptureGeneration = nil
             pendingRecordingStart = nil
             recordingContext = nil
-            enqueueStateLocked(.failed(message))
+            enqueueStateLocked(.failed(message), generation: context.captureGeneration)
             return true
         }
         context.writer.cancel()
+        publishTermination(context, error: VideoNoteAssetWriterError.writerFailed)
         guard isCurrent else { return }
         configurationQueue.async { [weak self] in
             guard let self else { return }
@@ -1196,7 +1281,7 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
             return
         }
         context.lastPublishedDuration = duration
-        enqueueStateLocked(.recording(duration))
+        enqueueStateLocked(.recording(duration), generation: context.captureGeneration)
         contextLock.unlock()
     }
 
@@ -1221,6 +1306,7 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
                 result = .success(asset)
             } catch {
                 if isExpectedAutomaticStopCancellation(error) {
+                    publishTermination(context, error: error)
                     return
                 }
                 result = .failure(error)

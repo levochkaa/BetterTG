@@ -70,6 +70,8 @@ enum VideoNoteSubmissionResult {
     }
 
     private let captureSession = VideoNoteCaptureSession()
+    private let recordingStore: VideoNoteRecordingDraftStore
+    private var captureFinalization: VideoNoteCaptureFinalization?
     private let previewPlayer = LocalMediaPlayer()
     private let chatID: Int64
     private let draftKey: ChatDraftKey
@@ -132,12 +134,14 @@ enum VideoNoteSubmissionResult {
         replyMessageID: Int64?,
         replyTo: InputMessageReplyTo?,
         sendTopic: MessageTopic?,
+        recordingStore: VideoNoteRecordingDraftStore = .shared,
     ) {
         self.chatID = chatID
         self.draftKey = draftKey
         self.replyMessageID = replyMessageID
         self.replyTo = replyTo
         self.sendTopic = sendTopic
+        self.recordingStore = recordingStore
         super.init(nibName: nil, bundle: nil)
         captureSession.onAutomaticStop = { [weak self] generation, result in
             guard let self else {
@@ -147,6 +151,10 @@ enum VideoNoteSubmissionResult {
                 return
             }
             handleAutomaticStop(result, generation: generation)
+        }
+        captureSession.onRecordingTerminated = { [weak self] generation, error in
+            guard let finalization = self?.captureFinalization, finalization.generation == generation else { return }
+            finalization.fail(error)
         }
         observeCaptureSession()
         observePreviewPlayer()
@@ -200,7 +208,7 @@ enum VideoNoteSubmissionResult {
     }
 
     func beginHolding() async -> Bool {
-        guard !state.isActive else { return false }
+        guard exitDisposition == .none, !didRequestDismiss, !state.isActive else { return false }
         exitDisposition = .none
         recordingDurationBaseline = 0
         return await beginCapture(lockedInitially: false)
@@ -232,7 +240,9 @@ enum VideoNoteSubmissionResult {
     }
 
     func restore(_ draft: VideoNoteRecordingDraft) {
-        guard state == .idle,
+        guard exitDisposition == .none,
+              !didRequestDismiss,
+              state == .idle,
               operationTask == nil,
               draft.destination == draftKey
         else { return }
@@ -269,12 +279,14 @@ enum VideoNoteSubmissionResult {
     }
 
     func cancel() {
+        guard exitDisposition != .preserve else { return }
         if case .sending = state {
             exitDisposition = .discard
             dismissAfterSubmission = true
             return
         }
         exitDisposition = .discard
+        captureFinalization?.discard()
         operationGeneration = UUID()
         cancelOperation()
         thumbnailTask?.cancel()
@@ -285,7 +297,7 @@ enum VideoNoteSubmissionResult {
         releasePreviewAudioSession()
         restoreScreenBrightness()
         if let recordingDraft {
-            Task { await VideoNoteRecordingDraftStore.shared.discard(id: recordingDraft.id) }
+            Task { await recordingStore.discard(id: recordingDraft.id) }
         }
         recordingDraft = nil
         previewThumbnails = []
@@ -382,7 +394,7 @@ enum VideoNoteSubmissionResult {
         startOperation { [weak self] _ in
             guard let self else { return }
             do {
-                let storedDraft = try await VideoNoteRecordingDraftStore.shared.updateTrim(
+                let storedDraft = try await recordingStore.updateTrim(
                     in: canonicalDraft,
                     range: range,
                 )
@@ -424,13 +436,38 @@ enum VideoNoteSubmissionResult {
     }
 
     func teardownForNavigation() {
+        guard exitDisposition == .none else { return }
+        let finalization = captureFinalization
         exitDisposition = .preserve
+        finalization?.preserve()
         operationGeneration = UUID()
-        cancelOperation()
+        // A manual finish or canonical append continues, but cannot publish into this UI.
+        if finalization == nil || finalization?.isComplete == true {
+            cancelOperation()
+        }
         thumbnailTask?.cancel()
         thumbnailTask = nil
-        captureSession.cancelRecording()
-        captureSession.stopCapture()
+        if let finalization, !finalization.isComplete {
+            let hasRecording = captureSession.stopInputPreservingRecording(generation: finalization.generation)
+            if hasRecording {
+                finalization.requestFinish()
+                Task { [self, finalization] in
+                    do {
+                        if let asset = try await captureSession.stopRecording(generation: finalization.generation) {
+                            finalization.accept(asset)
+                        }
+                    } catch {
+                        finalization.fail(error)
+                    }
+                    _ = await finalization.value()
+                }
+            } else if !finalization.finishRequested {
+                finalization.fail(CancellationError())
+                captureSession.stopCapture()
+            }
+        } else {
+            captureSession.stopCapture()
+        }
         previewPlayer.stop()
         releasePreviewAudioSession()
         restoreScreenBrightness()
@@ -445,6 +482,7 @@ enum VideoNoteSubmissionResult {
     private func beginCapture(lockedInitially: Bool) async -> Bool {
         let generation = UUID()
         operationGeneration = generation
+        captureFinalization = makeCaptureFinalization(generation: generation)
         locked = lockedInitially
         state = .preparing
         loadViewIfNeeded()
@@ -473,8 +511,12 @@ enum VideoNoteSubmissionResult {
             UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
             return true
         } catch is CancellationError {
+            if captureFinalization?.generation == generation, captureFinalization?.finishRequested != true {
+                captureFinalization?.fail(CancellationError())
+            }
             return false
         } catch {
+            if captureFinalization?.generation == generation { captureFinalization?.fail(error) }
             guard !Task.isCancelled,
                   operationGeneration == generation,
                   exitDisposition == .none
@@ -631,14 +673,15 @@ enum VideoNoteSubmissionResult {
     private func observeCaptureSession() {
         captureSession.statePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] captureState in
-                guard let self else { return }
-                switch captureState {
+            .sink { [weak self] update in
+                guard let self, update.generation == operationGeneration, exitDisposition == .none else { return }
+                switch update.state {
                 case .configuring:
                     if !state.isActive || state == .preparing {
                         state = .preparing
                     }
                 case .failed(let message):
+                    captureFinalization?.fail(VideoNoteCaptureError.recordingUnavailable)
                     if recordingDurationBaseline > 0,
                        recordingDraft != nil,
                        operationTask == nil
@@ -772,6 +815,8 @@ enum VideoNoteSubmissionResult {
             return
         }
         let generation = operationGeneration
+        let finalization = captureFinalization
+        finalization?.requestFinish()
         finishingCaptureGeneration = generation
         state = .stopping
         startOperation { [weak self] operationID in
@@ -781,11 +826,11 @@ enum VideoNoteSubmissionResult {
                 guard let asset = try await captureSession.stopRecording(generation: generation) else { return }
                 capturedAsset = asset
                 try Task.checkCancellation()
-                guard operationGeneration == generation else {
+                guard operationGeneration == generation || finalization?.isPreserving == true else {
                     try? FileManager.default.removeItem(at: asset.url)
                     return
                 }
-                try await processCapturedAsset(asset, generation: generation)
+                try await processCapturedAsset(asset, generation: generation, finalization: finalization)
                 guard !Task.isCancelled,
                       operationGeneration == generation,
                       self.operationID == operationID
@@ -795,11 +840,13 @@ enum VideoNoteSubmissionResult {
                     submitPreview()
                 }
             } catch is CancellationError {
+                finalization?.fail(CancellationError())
                 if let capturedAsset {
                     try? FileManager.default.removeItem(at: capturedAsset.url)
                 }
                 return
             } catch {
+                finalization?.fail(error)
                 if let capturedAsset {
                     try? FileManager.default.removeItem(at: capturedAsset.url)
                 }
@@ -822,27 +869,18 @@ enum VideoNoteSubmissionResult {
     private func processCapturedAsset(
         _ asset: VideoNoteAsset,
         generation: UUID,
+        finalization: VideoNoteCaptureFinalization?,
     ) async throws {
-        guard asset.duration >= 0.5 else {
+        guard let finalization, finalization.generation == generation else {
             try? FileManager.default.removeItem(at: asset.url)
-            throw VideoNoteRecordingDraftStoreError.invalidAsset
+            throw CancellationError()
         }
-        let draft: VideoNoteRecordingDraft =
-            if let recordingDraft {
-                try await VideoNoteRecordingDraftStore.shared.append(asset, to: recordingDraft)
-            } else {
-                try await VideoNoteRecordingDraftStore.shared.adopt(
-                    asset,
-                    chatID: chatID,
-                    draftKey: draftKey,
-                    replyMessageID: replyMessageID,
-                    replyTo: replyTo,
-                    sendTopic: sendTopic,
-                )
-            }
+        finalization.accept(asset)
+        let draft = try await finalization.value().get()
+        if finalization.isPreserving { return }
         guard operationGeneration == generation else {
             if exitDisposition == .discard {
-                await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
+                await recordingStore.discard(id: draft.id)
             }
             throw CancellationError()
         }
@@ -851,14 +889,21 @@ enum VideoNoteSubmissionResult {
         try await preparePreview(draft: draft, generation: generation)
     }
 
+    private func makeCaptureFinalization(generation: UUID) -> VideoNoteCaptureFinalization {
+        VideoNoteCaptureFinalization(
+            generation: generation, destination: draftKey, baseDraft: recordingDraft,
+            replyMessageID: replyMessageID, replyTo: replyTo, sendTopic: sendTopic, store: recordingStore,
+        )
+    }
+
     private func preparePreview(
         draft: VideoNoteRecordingDraft,
         generation: UUID,
     ) async throws {
-        let composition = try await VideoNoteRecordingDraftStore.shared.composition(for: draft)
+        let composition = try await recordingStore.composition(for: draft)
         guard operationGeneration == generation, exitDisposition == .none else {
             if exitDisposition == .discard {
-                await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
+                await recordingStore.discard(id: draft.id)
             }
             throw CancellationError()
         }
@@ -989,7 +1034,7 @@ enum VideoNoteSubmissionResult {
                     .temporaryDirectory
                     .appendingPathComponent("video-note-send-\(UUID().uuidString).mp4")
                 do {
-                    asset = try await VideoNoteRecordingDraftStore.shared.materialize(
+                    asset = try await recordingStore.materialize(
                         draft,
                         outputURL: outputURL,
                     )
@@ -1006,7 +1051,7 @@ enum VideoNoteSubmissionResult {
                     if dismissAfterSubmission || exitDisposition == .discard {
                         thumbnailTask?.cancel()
                         thumbnailTask = nil
-                        await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
+                        await recordingStore.discard(id: draft.id)
                         recordingDraft = nil
                         previewThumbnails = []
                         previewPlayer.stop()
@@ -1069,7 +1114,7 @@ enum VideoNoteSubmissionResult {
                     if dismissAfterSubmission {
                         thumbnailTask?.cancel()
                         thumbnailTask = nil
-                        await VideoNoteRecordingDraftStore.shared.discard(id: draft.id)
+                        await recordingStore.discard(id: draft.id)
                         recordingDraft = nil
                         previewThumbnails = []
                         previewPlayer.stop()
@@ -1197,19 +1242,29 @@ enum VideoNoteSubmissionResult {
     }
 
     private func handleAutomaticStop(_ result: Result<VideoNoteAsset, Swift.Error>, generation: UUID) {
+        let finalization = captureFinalization
+        if let finalization, finalization.generation == generation, finalization.isPreserving {
+            switch result {
+            case .success(let asset): finalization.accept(asset)
+            case .failure(let error): finalization.fail(error)
+            }
+            return
+        }
         guard acceptAutomaticFinish(generation: generation) else {
             if case .success(let asset) = result {
                 try? FileManager.default.removeItem(at: asset.url)
             }
             return
         }
+        finalization?.requestFinish()
         cancelOperation()
         switch result {
         case .success(let asset):
+            finalization?.accept(asset)
             state = .stopping
             startOperation { [weak self] _ in
                 guard let self else {
-                    try? FileManager.default.removeItem(at: asset.url)
+                    if finalization == nil { try? FileManager.default.removeItem(at: asset.url) }
                     return
                 }
                 do {
@@ -1217,11 +1272,11 @@ enum VideoNoteSubmissionResult {
                     guard operationGeneration == generation, exitDisposition == .none else {
                         throw CancellationError()
                     }
-                    try await processCapturedAsset(asset, generation: generation)
+                    try await processCapturedAsset(asset, generation: generation, finalization: finalization)
                 } catch is CancellationError {
-                    try? FileManager.default.removeItem(at: asset.url)
+                    if finalization == nil { try? FileManager.default.removeItem(at: asset.url) }
                 } catch {
-                    try? FileManager.default.removeItem(at: asset.url)
+                    if finalization == nil { try? FileManager.default.removeItem(at: asset.url) }
                     guard !Task.isCancelled,
                           operationGeneration == generation,
                           exitDisposition == .none
@@ -1237,6 +1292,7 @@ enum VideoNoteSubmissionResult {
                 }
             }
         case .failure(let error):
+            finalization?.fail(error)
             if recordingDurationBaseline > 0, recordingDraft != nil {
                 state = .stopping
                 startOperation { [weak self] _ in
@@ -1579,6 +1635,181 @@ enum VideoNoteSubmissionResult {
 
 #if DEBUG
     extension VideoNoteRecorderViewController {
+        private enum PreservationProbeScenario: String, CaseIterable {
+            case navigation
+            case manualBeforeFinish
+            case automaticBeforeFinish
+            case automaticBeforeDelivery
+            case appendBeforeSave
+            case appendFailure
+            case explicitCancel
+            case navigationThenBackground
+        }
+
+        static func verifyDebugNavigationPreservation(directory: URL) async throws {
+            for scenario in PreservationProbeScenario.allCases {
+                try await verifyDebugNavigationPreservation(scenario, directory: directory)
+            }
+        }
+
+        private static func verifyDebugNavigationPreservation(
+            _ scenario: PreservationProbeScenario,
+            directory: URL,
+        ) async throws {
+            let directory = directory.appendingPathComponent(scenario.rawValue, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let store = VideoNoteRecordingDraftStore(
+                directoryURL: directory.appendingPathComponent("recording-store"), adoptedRecordingOrigins: { [] },
+            )
+            let route = ChatDraftKey(accountID: UUID(), chatID: 29, topic: nil)
+            let sendTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 7))
+            let unrelatedRoutes = [
+                ChatDraftKey(accountID: UUID(), chatID: route.chatID, topic: nil),
+                ChatDraftKey(accountID: route.accountID, chatID: route.chatID + 1, topic: nil),
+                ChatDraftKey(accountID: route.accountID, chatID: route.chatID, topic: sendTopic),
+            ]
+            let usesBase = scenario == .appendBeforeSave || scenario == .appendFailure
+                || scenario == .navigationThenBackground || scenario == .explicitCancel
+            var baseDraft: VideoNoteRecordingDraft?
+            if usesBase {
+                let asset = try await VideoNoteAssetWriter.makeDebugSegment(
+                    outputURL: directory.appendingPathComponent("base.mp4"), duration: 1.1, frameSeed: 3,
+                )
+                baseDraft = try await store.adopt(
+                    asset, chatID: route.chatID, draftKey: route, replyMessageID: 31, replyTo: nil,
+                    sendTopic: sendTopic,
+                )
+            }
+            let recorder = VideoNoteRecorderViewController(
+                chatID: route.chatID, draftKey: route, replyMessageID: 31, replyTo: nil, sendTopic: sendTopic,
+                recordingStore: store,
+            )
+            let generation = recorder.operationGeneration
+            recorder.recordingDraft = baseDraft
+            recorder.recordingDurationBaseline = baseDraft?.totalDuration ?? 0
+            recorder.captureFinalization = recorder.makeCaptureFinalization(generation: generation)
+            guard let finalization = recorder.captureFinalization else {
+                throw VideoNotePreservationProbe.Failure(description: "missing finalization")
+            }
+            recorder.state = .holding(recorder.recordingDurationBaseline + 0.6)
+            var submitCount = 0
+            recorder.onSubmit = { asset, _, _, _, _ in
+                submitCount += 1
+                return .retained(asset, originConsumed: false, message: "unexpected send")
+            }
+            let gate = VideoNoteFinishProbe.Gate()
+            let blocksSave = scenario == .appendBeforeSave || scenario == .appendFailure
+            let blocksDelivery = scenario == .automaticBeforeDelivery
+            if blocksSave { await store.setBeforeCaptureSaveProbe { await gate.wait() } }
+            var beforeFinish: (@Sendable () async -> Void)?
+            var beforeDelivery: (@Sendable () async -> Void)?
+            if !blocksSave, !blocksDelivery { beforeFinish = { await gate.wait() } }
+            if blocksDelivery { beforeDelivery = { await gate.wait() } }
+            defer { Task { await gate.open() } }
+            try await recorder.captureSession.installPreservationProbe(
+                output: directory.appendingPathComponent("capture.mp4"), generation: generation,
+                beforeFinish: beforeFinish,
+                beforeDelivery: beforeDelivery,
+            )
+            try recorder.captureSession.verifyStalePreservationStop(generation: generation)
+            var automaticTask: Task<Void, Never>?
+            switch scenario {
+            case .navigation:
+                recorder.teardownForNavigation()
+            case .appendBeforeSave, .appendFailure, .explicitCancel, .manualBeforeFinish:
+                recorder.finishForSend()
+            case .automaticBeforeDelivery, .automaticBeforeFinish, .navigationThenBackground:
+                automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
+            }
+            let activeOperation = recorder.operationTask
+            await gate.waitUntilEntered()
+            if scenario == .explicitCancel {
+                recorder.cancel()
+                await gate.open()
+                _ = await finalization.value()
+                await activeOperation?.value
+                let drafts = await store.drafts(for: route)
+                try VideoNotePreservationProbe.require(drafts.isEmpty, "explicit cancel retained canonical draft")
+                try VideoNotePreservationProbe.require(
+                    finalization.isDiscarded,
+                    "explicit cancel did not invalidate finalizer",
+                )
+                return
+            }
+            recorder.teardownForNavigation()
+            recorder.teardownForNavigation()
+            var restored: [VideoNoteRecordingDraft]?
+            var unrelatedFinished = false
+            let restoration = Task {
+                await VideoNoteRecordingPreservation.wait(for: route)
+                restored = await store.drafts(for: route)
+            }
+            let unrelated = Task {
+                for unrelatedRoute in unrelatedRoutes {
+                    await VideoNoteRecordingPreservation.wait(for: unrelatedRoute)
+                }
+                unrelatedFinished = true
+            }
+            await unrelated.value
+            try VideoNotePreservationProbe.require(
+                restored == nil && unrelatedFinished,
+                "route barrier missing or crosses account/chat/topic",
+            )
+            // Old recorder actions cannot destroy the canonical owner exposed on reopening.
+            recorder.cancel()
+            recorder.captureSession.publishPreservationProbeState(.recording(14))
+            recorder.captureSession.publishPreservationProbeState(.failed("obsolete"))
+            if scenario == .appendFailure, let baseDraft {
+                _ = try await store.updateTrim(in: baseDraft, range: baseDraft.effectiveRange)
+            }
+            if scenario == .navigationThenBackground {
+                recorder.captureSession.terminatePreservationProbe()
+            }
+            await gate.open()
+            await automaticTask?.value
+            let result = await finalization.value()
+            await restoration.value
+            await recorder.operationTask?.value
+            let failed = scenario == .appendFailure || scenario == .navigationThenBackground
+            switch result {
+            case .success where failed:
+                throw VideoNotePreservationProbe.Failure(description: "\(scenario): expected finalization failure")
+            case .failure where !failed:
+                _ = try result.get()
+            default:
+                break
+            }
+            guard let restored, restored.count == 1, let draft = restored.first else {
+                throw VideoNotePreservationProbe.Failure(description: "\(scenario): missing/duplicate canonical draft")
+            }
+            try VideoNotePreservationProbe.require(
+                draft.destination == route && draft.replyMessageID == 31 && draft.sendTopic == sendTopic,
+                "\(scenario): route/reply/topic changed",
+            )
+            let expectedSegments = usesBase && !failed ? 2 : 1
+            try VideoNotePreservationProbe.require(
+                draft.segments.count == expectedSegments,
+                "\(scenario): wrong segment count",
+            )
+            if let baseDraft {
+                try VideoNotePreservationProbe.require(
+                    draft.id == baseDraft.id && draft.segments.first?.id == baseDraft.segments.first?.id,
+                    "\(scenario): previous canonical draft replaced",
+                )
+            }
+            for segment in draft.segments {
+                _ = try await VideoNoteAssetWriter.validate(url: segment.fileURL, expectedLength: 400)
+            }
+            try VideoNotePreservationProbe.require(
+                recorder.state == .idle && submitCount == 0 && !finalization.isDiscarded,
+                "\(scenario): detached state revived, submitted or stale-cancelled",
+            )
+            try VideoNotePreservationProbe.require(
+                !FileManager.default.fileExists(atPath: directory.appendingPathComponent("capture.mp4").path),
+                "\(scenario): unadopted temporary capture retained",
+            )
+        }
+
         private enum SubmissionProbeScenario: String, CaseIterable {
             case consumed
             case consumedAfterCancel

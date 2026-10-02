@@ -161,10 +161,16 @@ actor VideoNoteRecordingDraftStore {
     private var activeOperationCounts = [UUID: Int]()
     private var cancelledDraftIDs = Set<UUID>()
     private var deferredDiscardURLs = [UUID: [URL]]()
-    private lazy var directoryURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("VideoNoteRecordingDrafts", isDirectory: true)
+    private let directoryURL: URL
+    private let adoptedRecordingOrigins: @Sendable () async throws -> Set<UUID>
 
     #if DEBUG
+        private var beforeCaptureSaveProbe: (@Sendable () async -> Void)?
+
+        func setBeforeCaptureSaveProbe(_ operation: (@Sendable () async -> Void)?) {
+            beforeCaptureSaveProbe = operation
+        }
+
         nonisolated static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains(
                 "-media-probe-video-note-recording-drafts",
@@ -172,6 +178,18 @@ actor VideoNoteRecordingDraftStore {
             Task { await shared.runDebugProbe() }
         }
     #endif
+
+    init(
+        directoryURL: URL? = nil,
+        adoptedRecordingOrigins: @escaping @Sendable () async throws -> Set<UUID> = {
+            try VideoNoteFileStore.shared.recordingDraftOrigins()
+        },
+    ) {
+        self.directoryURL = directoryURL ?? FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VideoNoteRecordingDrafts", isDirectory: true)
+        self.adoptedRecordingOrigins = adoptedRecordingOrigins
+    }
 
     func adopt(
         _ asset: VideoNoteAsset,
@@ -182,6 +200,9 @@ actor VideoNoteRecordingDraftStore {
         sendTopic: MessageTopic? = nil,
     ) async throws -> VideoNoteRecordingDraft {
         let validated = try await VideoNoteAssetWriter.validate(url: asset.url, expectedLength: 400)
+        #if DEBUG
+            await beforeCaptureSaveProbe?()
+        #endif
         try Task.checkCancellation()
         try ensureDirectory()
         guard validated.duration >= 0.5,
@@ -236,6 +257,9 @@ actor VideoNoteRecordingDraftStore {
         to draft: VideoNoteRecordingDraft,
     ) async throws -> VideoNoteRecordingDraft {
         let validated = try await VideoNoteAssetWriter.validate(url: asset.url, expectedLength: 400)
+        #if DEBUG
+            await beforeCaptureSaveProbe?()
+        #endif
         try Task.checkCancellation()
         guard validated.duration >= 0.5,
               !isManagedFile(asset.url)
@@ -386,7 +410,7 @@ actor VideoNoteRecordingDraftStore {
     func drafts(for chatID: Int64) async -> [VideoNoteRecordingDraft] {
         do {
             try ensureDirectory()
-            let adoptedOrigins = try await VideoNoteFileStore.shared.recordingDraftOrigins()
+            let adoptedOrigins = try await adoptedRecordingOrigins()
             var drafts = try loadAllDrafts()
             for draft in drafts where adoptedOrigins.contains(draft.id) {
                 if !discard(id: draft.id) {
@@ -410,7 +434,7 @@ actor VideoNoteRecordingDraftStore {
             try ensureDirectory()
             let shouldMigrateLegacy = migrateLegacy
                 && ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: destination)
-            let adoptedOrigins = try await VideoNoteFileStore.shared.recordingDraftOrigins()
+            let adoptedOrigins = try await adoptedRecordingOrigins()
             var drafts = try loadAllDrafts()
             for draft in drafts where adoptedOrigins.contains(draft.id) {
                 if !discard(id: draft.id) {
