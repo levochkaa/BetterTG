@@ -95,8 +95,10 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A39 actual explicit-message scroll settlement takes precedence over further restoration breadth. The retained
-viewport/layout-owner races are repaired, but real cold and loaded-target navigation still misses the selected message at `17e3fb4`.
+Active queue: A30g quiescent Members/Admins foreground recovery follows bounded A39 repair. At `72d74b0`, the integrated
+`982245f` navigation driver passes cold, loaded and same-PID foreground target checks with actual visible/centered cells.
+A30g source review confirms an open member list causes its parent profile and route to be removed during client replacement.
+A40 removes concealed metadata warnings; A41 repairs the separately observed static-framework cleanup/build race.
 A38 stale shared-media admission has bounded source/native/actual-profile repair proof below. A36 selector presentation and A37
 post-foreground navigation overlap have fresh runtime evidence below. A21 secret-note scene-capture admission now has integrated native/UIKit
 proof below; hardware capture and screenshot prevention remain unverified. A34/A35 now have integrated
@@ -164,7 +166,9 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | needs-fix — measure public bar/safe-area/prompt state before choosing a fix. Data/caret retention passes; no layout-parity claim. Root stack replacement and waiting→ready prompt updates are unproven causes |
 | A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
-| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore becomes eligible during the explicit animation and interrupts it | needs-fix — `1b1429f` retires retained viewport intent; `17e3fb4` fixes final layout-release wakeup. Native value-consumer checks pass, actual target smoke fails. Keep explicit authority through actual settlement and target-size changes; automatic/inset compensation must not take over mid-flight. Immediate highlight cancellation and slow metadata are not this trace's cause |
+| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | fixed bounded target navigation — `6a29431` retains raw target authority; `982245f` adds progress-bounded estimated-height convergence. Native production-driver probe and actual cold/loaded/foreground target checks pass at `72d74b0`. Live quote, album remap, user interruption and rotation remain separate proof limits |
+| A40 | P1 | `6a29431` integration log contains an AppIntents metadata warning for the notification extension; both wrapper output paths concealed this warning | fixed — `eff2876` removes warning filters and unused extension import, skips its inapplicable AppIntents stage. Complete signed/unsigned/final-signed logs are warning-free after A41. Compact-only historical claims are not proof of zero warnings |
+| A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1420,17 +1424,85 @@ is imported. This source pass does not prove every content's real rendering/acti
   flags all hold. This proves mid-flight automatic compensation interrupts explicit navigation; immediate highlight cancellation
   is rejected for this run. Which automatic capture caller (self-size versus reconfigure) is not distinguished, and animation-end
   alone is not successful arrival. Native helper did not exercise this production sequence.
-  Trace, failed settled screenshot and AX check: `.build/ui-probe-evidence/astra-a39-geometry`; no external writes or file opens.
+  Trace, failed settled screenshot and AX check: `.build/ui-probe-evidence/astra-a39-geometry`; no send/edit/delete/export or
+  file open was invoked. Normal read-state side effects of chat navigation are not excluded.
   Last persisted settled sample is10s; the scheduled25s sample is absent, so do not claim25s diagnostic coverage.
 - Diagnostic-proof documentation build `build-Debug-20261003-011704-11526-27558.log`: PASS6s, zero warnings.
 - Repair boundary: hold explicit navigation authority until measured target settlement; gate automatic and inset/anchor
   compensation during flight, remeasure estimated cell geometry, and retire authority on drag/new target/latest/source change.
   Preserve animations, quotes, current source and the existing history/revision contracts. No wholesale timeline or loader rewrite.
+- `6a29431` (worker `1af25c6`) adds the production native-scroll settlement driver and gates compensation until fresh raw
+  membership, current source, mounted visible cell and two stable geometry observations agree. Drag/latest/cover/source/new-target
+  cancellation retires it; quotes/highlight start only on success. Independent immutable review passes. Four-file format0/4.
+  Integration `build-Debug-20261003-014324-25949-6943.log` succeeds13s but has one metadata warning; it is not warning-free (A40).
+- Audit Simulator after user app restart: same audit UDID/runtime, authentication preserved, source `6a29431`, PID `26494`.
+  Native viewport-authority probe passes actual production driver/native animation/estimated UICollectionView plus cancellation,
+  remap, supersession, deferred layout and failure deadline. Full ChatView wiring is checked by the separate real flow below.
+  idb hierarchy/input works; screenshot backend fails, so `simctl io screenshot` supplies pixels without activation or data reset.
+- Actual cold Saved → Profile → Files → old June target at01:46:27 now reaches the message, but phase is `scroll-failed`.
+  Native command50ms→5627.833; native end360ms; corrections404ms→7031.5 and504ms→6854.5. Subsequent UIKit geometry leaves
+  offset6900.333 versus target6854.167 (46.167pt error); target AX/cell are visible through25.152s. No automatic anchor writer
+  interrupts flight. The two-correction limit fails before highlight; cold settlement remains open, not counted as complete.
+- Repeating the already-loaded target at01:49:10 passes `scroll-settled`333ms; target mounted/visible, offset6953 versus
+  desired6953.167, stable10.501s. AX target y387.667/height118 and settled screenshot agree. Evidence:
+  `.build/ui-probe-evidence/astra-a39-settlement/{cold,loaded}`. No send/edit/delete/export/file open; ordinary read-state effects
+  are possible. Next repair is progress-bounded convergence under the existing deadline, not a relaxed visibility-only success test.
+- `982245f` (worker `9eee50d`) permits at most8 final corrections, requires measured residual improvement with only one stalled
+  pass, and retains the2s failure-only deadline. Nonanimated UIKit offset changes keep geometry checking alive. Exact0.75pt,
+  mounted/visible cell and two-frame stability remain mandatory; there is no visibility-only success. Independent review passes.
+  Native probe adds successive real estimated neighboring cells plus explicitly injected residuals; stall/oscillation limits pass.
+- Final audit Simulator source `72d74b0` (includes `982245f`), PID `30616`: expanded viewport-authority probe passes. Actual cold
+  target tap02:02:22 settles572ms after three corrections, offset6808 versus target6808.167. Target AX y387.667/height118 and
+  settled screenshot agree; error-0.167pt remains stable25.297s.
+- Same PID: scrolled Files target y188.667/height52.667 before Home02:05:03. Lifecycle logs confirm ownership released02:05:05.027,
+  restored02:06:01.959, profile replacement accepted02:06:02.647. Files keeps the same row geometry. Open in Chat02:06:57 settles
+  224ms on the fresh client, offset5450.667 versus5450.5, mounted target AX y388/height118, stable25.152s. Repeating the loaded
+  target02:11:15 settles38ms with the same0.167pt error and geometry, stable25.151s.
+  Proof: `.build/ui-probe-evidence/astra-a39-convergence/{cold,foreground,loaded}` plus fresh native report. No sends, file opens,
+  deletes, exports or account resets; ordinary read-state effects remain possible. This closes the measured target defect, not
+  exhaustive quote/album/rotation/gesture parity. A40/A41 below provide final warning-free integration builds.
+- Documentation checkpoint `build-Debug-20261003-021404-33516-4379.log`: PASS5s, complete log zero warnings/errors; prohibited
+  production/dependency marker scan empty, AGENTS/CLAUDE identical. Simulator remains booted and was never activated separately.
 - References: pinned current/pre `ChatControllerNavigateToMessage.swift`342–422,474–507/333–360 distinguishes loaded target
   navigation from cancellable 50-message initial search and target/missing completion. Pinned TDLibKit `getChatHistory`,
   `getMessage`, captured ChatLocation and current history revision admission remain unchanged. No Telegram infrastructure copied.
 - Documentation checkpoint `build-Debug-20261003-010725-3164-28383.log`: PASS5s, zero warnings. AGENTS/CLAUDE remain identical;
   prohibited production/dependency marker scan is empty. The reusable prompt also records background-only Simulator activation.
+
+### A40 complete build-warning visibility — 2026-10-03
+
+- Fix commit: `eff2876`.
+- Full integration log `014324-25949-6943` line264 reports `Metadata extraction skipped. No AppIntents.framework dependency found`
+  for BetterTGNotificationService. `script/build.sh` and its compact formatter hid this category; the formatter also aggregated
+  SwiftFormat warning details. Remove these filters so each warning remains visible, and require complete-log checks in both
+  synchronized instruction files.
+- The notification extension declares no AppIntent/AppShortcut; it uses legacy `Intents`/`UNNotificationServiceExtension`.
+  Remove its unused AppIntents import and set target-only `LM_SKIP_METADATA_EXTRACTION: YES`. Local Xcode26.6 task-producer
+  inspection confirms the native Boolean omits the inapplicable stage, rather than quieting emitted diagnostics. Main-app
+  extraction configuration is unchanged. Restore extraction if extension AppIntent declarations are introduced.
+- Independent six-file review, shell syntax and parser fixtures pass; skipped/disabled metadata, SwiftFormat per-rule and
+  uppercase warning examples remain visible. One-file SwiftFormat0/1; `build-Debug-20261003-015029-27777-31071.log`: PASS5s,
+  full log zero warnings/errors, extension recompiles with no extraction task. The next build `015206-28264-17404` exposes an
+  existing race between `Remove Static TDLib Artifact` and automatic framework copy/sign; A41 repairs it below.
+- Historical full logs explicitly rechecked: A38 `002923`, `003813`, `004329`; A39 `005409`, `005819`; worker `013700` all have
+  zero warnings/errors and successful builds. A39 `010725`, `011303`, `011704` also pass full-log checks. Their claims stand.
+  Other compact-only historical claims remain unverified;
+  no broad retroactive assertion is made. Telegram/TDLib behavior unchanged; no runtime notification delivery proof claimed.
+
+### A41 static artifact cleanup dependency order — 2026-10-03
+
+- Two consecutive builds `015206-28264-17404` and `015425-28980-13074` fail when cleanup deletes TDLibFramework.framework during
+  Xcode's automatic lipo/copy/sign. Failed manifest `5bf934207b9f9cd20ed3f407db54958a` shows the cleanup waits only for the
+  explicit copy-files phase, while SwiftPM's package copy and child signing are independent producers. No dependency or cache
+  reset is warranted.
+- `72d74b0` adds only two XcodeGen `inputFiles`: the embedded static bundle and its `_CodeSignature`. The generated graph
+  now orders copy → child signing → cleanup → unsigned-product-ready → app signing without a cycle. Cleanup still removes only
+  the redundant generated static artifact, recoverable by the next build; package sources/cache and TDLibKitDynamic remain intact.
+- Integrated source includes A39 follow-up `982245f` (worker `9eee50d`); all four outstanding Swift files formatted together0/4.
+  `build-Debug-20261003-015646-29545-22064.log`: PASS7s; `--no-code-signing` log `015734-29820-5419`: PASS4s;
+  final signed `015810-30055-29778`: PASS5s. Complete logs have zero warnings/errors; main-app metadata extraction still runs,
+  extension extraction does not. Final redundant bundle is absent and `codesign --verify --deep --strict` passes.
+  Independent graph/source review and shell warning fixtures pass. Device/archive signing remains unverified.
 
 ### A32 folder Done contrast and A36 title classification — 2026-10-02
 
@@ -1721,8 +1793,14 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest code `8b8d149` adds bounded diagnostics to `17e3fb4`/`1b1429f`. Build and independent review pass; actual PID `8251`
-  identifies automatic anchor compensation interrupting explicit animation. A39 remains open; repair authority through settlement.
+- Latest code `72d74b0` includes A39 `6a29431`/`982245f`, A40 `eff2876` warning visibility and A41 static-cleanup dependency order.
+  Actual PID `30616` passes cold/loaded/foreground target settlement with stable visible cells and retained scrolled Files anchor;
+  expanded native viewport probe passes. A39's measured defect is repaired; live quote/album/rotation interruption remains unverified.
+  Next bounded slice A30g: retain quiescent Members/Admins and exact parent profile through client replacement, revalidate current
+  membership/availability, preserve accepted cursor/anchor, and fence old callbacks. Active tag editor and Save uncertainty are separate.
+  Source proof: profile topmost gate233–239 and removal954–982; member controller immutable client58+ lacks coordinator participation.
+  Current/pre `PeerInfoMembers.swift`136–190/136–188 and305–307/292–294; pinned TDLib member/admin/full-info APIs. No runtime proof yet.
+  Earlier actual PID `8251` identifies automatic anchor compensation interrupting explicit animation.
   Viewport/profile-restoration native probes at `17e3fb4` pass (PID `95662`) but did not cover this sequence.
   `b630844` completes A38/profile-restoration native checks (PID `39878`); production
   `97ccea8` also passes media/PiP/gallery regressions and actual scrolled profile foreground (PID `32182`).
@@ -1764,7 +1842,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261003-011303-7581-26376.log`,
+  Latest full-log-verified warning-free signed integration builds: `.build/logs/xcodebuild/build-Debug-20261003-015810-30055-29778.log`
+  and `015646-29545-22064`; unsigned `015734-29820-5419` also passes. A40 records the rejected nonclean `014324` claim.
+  Earlier integration builds: `.build/logs/xcodebuild/build-Debug-20261003-011303-7581-26376.log`,
   `build-Debug-20261003-005819-95305-8829.log`,
   `build-Debug-20261003-005409-91096-31077.log`, `build-Debug-20261003-003813-36345-3545.log`,
   `build-Debug-20261003-002923-30429-24207.log`, `build-Debug-20261002-232705-14634-13985.log`,
@@ -1782,7 +1862,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   is integrated as `4185849`/`3290ba4`; A30e folder-flow authority is integrated as `850ccf8`/`b923f19` with native/runtime proof.
   A36 presentation is integrated as `c9254f3`; focused prompt baseline as `d34d012`. A38 `4116257`/`054caab` is integrated
   as `97ccea8`/`b630844`, with bounded native/actual proof above. A39 `4fc6d02`/`f6899a0` is integrated as `1b1429f`/`17e3fb4`;
-  diagnostics `805a07b` is integrated as `8b8d149`. The worker is repairing the measured mid-flight automatic anchor takeover.
+  diagnostics `805a07b` is integrated as `8b8d149`, settlement `1af25c6` as `6a29431`, convergence `9eee50d` as `982245f`.
+  Their bounded native/actual proof is above. The worker is beginning the narrow A30g Members/Admins recovery slice.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
