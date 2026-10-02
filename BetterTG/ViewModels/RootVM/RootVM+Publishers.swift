@@ -1,12 +1,22 @@
 // RootVM+Publishers.swift
 
 import Combine
+import Foundation
 import TDLibKitDynamic
 
 extension RootVM {
     func setPublishers() {
+        TDLib.shared
+            .activeClientChanges
+            .sink { [weak self] _ in
+                self?.listAuthority.invalidate()
+            }
+            .store(in: &cancellables)
         nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
             guard let self else { return }
+            listAuthority.invalidate()
+            folderLoadID = nil
+            chatRefreshIDs.removeAll()
             activeAccountID = TDLib.shared.activeAccountID
             loggedIn = TDLib.shared.isActiveAccountReady
             scopeNotificationSettings = [:]
@@ -14,13 +24,11 @@ extension RootVM {
             archive = nil
             currentFolder = nil
         }
-        nc.publisher(&cancellables, for: .updateChatFolders) { [weak self] update in
-            self?.updateChatFolders(update)
-        }
+        observeListUpdate(.updateChatFolders) { $0.updateChatFolders($1) }
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
             guard let self else { return }
-            loggedIn = true
-            loadScopeNotificationSettings()
+            synchronizeAuthorization()
+            if loggedIn { loadScopeNotificationSettings() }
         }
         nc.mergeMany(&cancellables, [
             .authorizationStateClosed,
@@ -30,38 +38,21 @@ extension RootVM {
             .authorizationStateWaitCode,
             .authorizationStateWaitPassword,
         ]) { [weak self] _ in
-            self?.loggedIn = false
+            self?.synchronizeAuthorization()
         }
-        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] update in
-            guard let self else { return }
-            for folder in allFolders {
+        observeListUpdate(.updateChatReadInbox) { owner, update in
+            for folder in owner.allFolders {
                 folder.chats.first(where: { $0.id == update.chatId })?.unreadCount = update.unreadCount
             }
         }
-        nc.publisher(&cancellables, for: .updateNewChat) { [weak self] update in
-            self?.updateNewChat(update)
-        }
-        nc.publisher(&cancellables, for: .updateChatPosition) { [weak self] update in
-            self?.updateChatPosition(update)
-        }
-        nc.publisher(&cancellables, for: .updateChatDraftMessage) { [weak self] update in
-            self?.updateChatDraftMessage(update)
-        }
-        nc.publisher(&cancellables, for: .updateChatLastMessage) { [weak self] update in
-            self?.updateChatLastMessage(update)
-        }
-        nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
-            self?.refreshChat(id: update.chatId)
-        }
-        nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
-            self?.refreshChat(id: update.chatId)
-        }
-        nc.publisher(&cancellables, for: .updateChatAccentColors) { [weak self] update in
-            self?.refreshChat(id: update.chatId)
-        }
-        nc.publisher(&cancellables, for: .updateChatViewAsTopics) { [weak self] update in
-            self?.refreshChat(id: update.chatId)
-        }
+        observeListUpdate(.updateNewChat) { $0.updateNewChat($1) }
+        observeListUpdate(.updateChatPosition) { $0.updateChatPosition($1) }
+        observeListUpdate(.updateChatDraftMessage) { $0.updateChatDraftMessage($1) }
+        observeListUpdate(.updateChatLastMessage) { $0.updateChatLastMessage($1) }
+        observeListUpdate(.updateChatTitle) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatPhoto) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatAccentColors) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatViewAsTopics) { $0.refreshChat(id: $1.chatId) }
         nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
             let update = event.value
             SelectedDocumentFileStore.complete(
@@ -90,39 +81,61 @@ extension RootVM {
                 )
             }
         }
-        nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
-            guard let self else { return }
-            for folder in allFolders {
+        observeListUpdate(.updateUser) { owner, update in
+            for folder in owner.allFolders {
                 for chat in folder.chats where chat.user?.id == update.user.id {
                     chat.updatePrivateUser(update.user)
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateChatNotificationSettings) { [weak self] update in
-            self?.refreshChat(id: update.chatId)
-        }
-        nc.publisher(&cancellables, for: .updateChatIsMarkedAsUnread) { [weak self] update in
-            self?.refreshChat(id: update.chatId)
-        }
-        nc.publisher(&cancellables, for: .updateScopeNotificationSettings) { [weak self] update in
-            guard let self else { return }
-            var updatedSettings = scopeNotificationSettings
+        observeListUpdate(.updateChatNotificationSettings) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateChatIsMarkedAsUnread) { $0.refreshChat(id: $1.chatId) }
+        observeListUpdate(.updateScopeNotificationSettings) { owner, update in
+            var updatedSettings = owner.scopeNotificationSettings
             updatedSettings[update.scope] = update.notificationSettings
-            scopeNotificationSettings = updatedSettings
+            owner.scopeNotificationSettings = updatedSettings
         }
-        nc.publisher(&cancellables, for: .updateUnreadChatCount) { update in
-            FolderUnreadStore.shared.update(update, clientID: td.id)
+        nc.scopedPublisher(&cancellables, for: .updateUnreadChatCount) { [weak self] event in
+            guard let self, acceptsListUpdate(event.source) else { return }
+            FolderUnreadStore.shared.update(event.value, clientID: event.source.clientID)
         }
     }
 
+    private func acceptsListUpdate(_ source: TdUpdateSource) -> Bool {
+        listAuthority.accepts(source, ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource)
+    }
+
+    private func observeListUpdate<Value>(
+        _ notification: TdNotification<Value>,
+        perform: @escaping (RootVM, Value) -> Void,
+    ) {
+        nc.scopedPublisher(&cancellables, for: notification) { [weak self] event in
+            guard let self, acceptsListUpdate(event.source) else { return }
+            perform(self, event.value)
+        }
+    }
+
+    private func synchronizeAuthorization() {
+        // Legacy void auth notifications are wakeups, never authority for the
+        // account that happens to own this root when main-queue delivery occurs.
+        loggedIn = activeAccountID == TDLib.shared.activeAccountID && TDLib.shared.isActiveAccountReady
+    }
+
     func updateChatFolders(_ update: UpdateChatFolders) {
-        let sourceAccountID = activeAccountID
+        guard let (ticket, client) = captureListRequest() else { return }
+        let requestID = UUID()
+        folderLoadID = requestID
         Task { [weak self] in
             guard let self else { return }
-            var newFolders = await update.chatFolders.asyncCompactMap { await self.getCustomFolder(from: $0) }
-            let mainChats = await getCustomChats(for: .chatListMain) ?? []
-            let archiveChats = await getCustomChats(for: .chatListArchive) ?? []
-            guard sourceAccountID == activeAccountID else { return }
+            var newFolders = await update.chatFolders.asyncCompactMap { info -> CustomFolder? in
+                guard self.acceptsListRequest(ticket), self.folderLoadID == requestID else { return nil }
+                return await self.getCustomFolder(from: info, client: client)
+            }
+            guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
+            let mainChats = await getCustomChats(for: .chatListMain, client: client) ?? []
+            guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
+            let archiveChats = await getCustomChats(for: .chatListArchive, client: client) ?? []
+            guard acceptsListRequest(ticket), folderLoadID == requestID else { return }
             let mainFolder = CustomFolder(chats: mainChats, type: .main)
             let archiveFolder = CustomFolder(chats: archiveChats, type: .archive)
             let insertionIndex = min(max(update.mainChatListPosition, 0), newFolders.count)
@@ -177,11 +190,15 @@ extension RootVM {
 
     private func addChatIfNeeded(id: Int64, position: ChatPosition) {
         guard let folder = allFolders.first(where: { $0.chatList == position.list }),
-              !folder.chats.contains(where: { $0.id == id })
+              !folder.chats.contains(where: { $0.id == id }),
+              let (ticket, client) = captureListRequest()
         else { return }
         Task { [weak self, weak folder] in
             guard let self, let folder,
-                  let chat = await getCustomChat(from: id, for: position.list),
+                  acceptsListRequest(ticket),
+                  let chat = await getCustomChat(from: id, for: position.list, client: client),
+                  acceptsListRequest(ticket),
+                  allFolders.contains(where: { $0 === folder }),
                   !folder.chats.contains(where: { $0.id == id })
             else { return }
             folder.chats.append(chat)
@@ -189,8 +206,14 @@ extension RootVM {
     }
 
     private func refreshChat(id: Int64) {
+        guard let (ticket, client) = captureListRequest() else { return }
+        let requestID = UUID()
+        chatRefreshIDs[id] = requestID
         Task { [weak self] in
-            guard let self, let latest = try? await td.getChat(chatId: id) else { return }
+            guard let self, acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
+            defer { if chatRefreshIDs[id] == requestID { chatRefreshIDs[id] = nil } }
+            guard let latest = try? await client.getChat(chatId: id),
+                  acceptsListRequest(ticket), chatRefreshIDs[id] == requestID else { return }
             for folder in allFolders {
                 folder.chats.first(where: { $0.id == id })?.chat = latest
             }

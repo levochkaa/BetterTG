@@ -29,6 +29,9 @@ enum Route {
     @Published var activeAccountID: UUID?
     @Published var scopeNotificationSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
     var cancellables = Set<AnyCancellable>()
+    let listAuthority = RootListAuthority()
+    var folderLoadID: UUID?
+    var chatRefreshIDs = [Int64: UUID]()
 
     @Published var loggedIn = false
 
@@ -66,8 +69,7 @@ enum Route {
     }
 
     func loadScopeNotificationSettings() {
-        let sourceAccountID = activeAccountID
-        let client = td
+        guard let (ticket, client) = captureListRequest() else { return }
         Task { [weak self] in
             guard let self else { return }
             let scopes: [NotificationSettingsScope] = [
@@ -77,25 +79,37 @@ enum Route {
             ]
             var loadedSettings = [NotificationSettingsScope: ScopeNotificationSettings]()
             for scope in scopes {
+                guard acceptsListRequest(ticket) else { return }
                 if let settings = try? await client.getScopeNotificationSettings(scope: scope) {
                     loadedSettings[scope] = settings
                 }
             }
-            guard sourceAccountID == activeAccountID else { return }
+            guard acceptsListRequest(ticket) else { return }
             var mergedSettings = scopeNotificationSettings
             mergedSettings.merge(loadedSettings, uniquingKeysWith: { _, loaded in loaded })
             scopeNotificationSettings = mergedSettings
         }
     }
 
-    func getCustomChat(from id: Int64, for chatList: ChatList) async -> CustomChat? {
-        guard let chat = try? await td.getChat(chatId: id),
-              let position = chat.positions.first(chatList) else { return nil }
-        return await getCustomChat(from: chat, position: position)
+    func captureListRequest() -> (RootListAuthority.Ticket, TDLibClient)? {
+        guard let ticket = listAuthority.capture(
+            ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource,
+        ) else { return nil }
+        let client = td
+        guard client.id == ticket.source.clientID else { return nil }
+        return (ticket, client)
     }
 
-    func getCustomChat(from chat: Chat, position: ChatPosition) async -> CustomChat? {
-        await getCustomChat(from: chat, position: position, client: td)
+    func acceptsListRequest(_ ticket: RootListAuthority.Ticket) -> Bool {
+        !Task.isCancelled && listAuthority.accepts(
+            ticket, ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource,
+        )
+    }
+
+    func getCustomChat(from id: Int64, for chatList: ChatList, client: TDLibClient) async -> CustomChat? {
+        guard let chat = try? await client.getChat(chatId: id),
+              let position = chat.positions.first(chatList) else { return nil }
+        return await getCustomChat(from: chat, position: position, client: client)
     }
 
     func getCustomChatForNavigation(from id: Int64, client: TDLibClient) async -> CustomChat? {
@@ -109,16 +123,16 @@ enum Route {
         return await getCustomChat(from: chat, position: position, client: client)
     }
 
-    func getCustomFolder(from info: ChatFolderInfo) async -> CustomFolder? {
-        guard let folder = try? await td.getChatFolder(chatFolderId: info.id),
-              let chats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)))
+    func getCustomFolder(from info: ChatFolderInfo, client: TDLibClient) async -> CustomFolder? {
+        guard let folder = try? await client.getChatFolder(chatFolderId: info.id),
+              let chats = await getCustomChats(for: .chatListFolder(.init(chatFolderId: info.id)), client: client)
         else { return nil }
         return CustomFolder(chats: chats, type: .folder(info, folder))
     }
 
-    func getCustomChats(for chatList: ChatList) async -> [CustomChat]? {
-        guard let ids = try? await td.getChats(chatList: chatList, limit: 200).chatIds else { return nil }
-        return await ids.asyncCompactMap { await getCustomChat(from: $0, for: chatList) }
+    func getCustomChats(for chatList: ChatList, client: TDLibClient) async -> [CustomChat]? {
+        guard let ids = try? await client.getChats(chatList: chatList, limit: 200).chatIds else { return nil }
+        return await ids.asyncCompactMap { await getCustomChat(from: $0, for: chatList, client: client) }
     }
 
     private func getCustomChat(
