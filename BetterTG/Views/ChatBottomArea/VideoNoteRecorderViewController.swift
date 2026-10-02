@@ -1051,18 +1051,17 @@ enum VideoNoteSubmissionResult {
             }
             switch result {
             case .enqueued:
-                thumbnailTask?.cancel()
-                thumbnailTask = nil
-                ownsCurrentAsset = false
-                currentAsset = nil
-                recordingDraft = nil
-                previewThumbnails = []
-                previewPlayer.stop()
-                releasePreviewAudioSession()
-                state = .idle
-                dismissAnimated()
+                releaseSubmittedPreview()
             case .retained(let asset, let originConsumed, let message):
-                if !originConsumed, let draft {
+                if originConsumed {
+                    // The send store owns retries and deletion after the recording is consumed.
+                    releaseSubmittedPreview()
+                    if !dismissAfterSubmission {
+                        onError?(message)
+                    }
+                    return
+                }
+                if let draft {
                     try? FileManager.default.removeItem(at: asset.url)
                     if let thumbnail {
                         try? FileManager.default.removeItem(at: thumbnail.url)
@@ -1119,6 +1118,19 @@ enum VideoNoteSubmissionResult {
                 onError?(message)
             }
         }
+    }
+
+    private func releaseSubmittedPreview() {
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
+        ownsCurrentAsset = false
+        currentAsset = nil
+        recordingDraft = nil
+        previewThumbnails = []
+        previewPlayer.stop()
+        releasePreviewAudioSession()
+        state = .idle
+        dismissAnimated()
     }
 
     private func makeOutgoingThumbnail(
@@ -1567,6 +1579,173 @@ enum VideoNoteSubmissionResult {
 
 #if DEBUG
     extension VideoNoteRecorderViewController {
+        private enum SubmissionProbeScenario: String, CaseIterable {
+            case consumed
+            case consumedAfterCancel
+            case consumedAfterNavigation
+            case enqueued
+            case unconsumed
+            case unconsumedAfterCancel
+
+            var consumesOrigin: Bool {
+                self != .unconsumed && self != .unconsumedAfterCancel
+            }
+        }
+
+        static func verifyDebugSubmissionOwnership(directory: URL) async throws {
+            for scenario in SubmissionProbeScenario.allCases {
+                try await verifyDebugSubmission(scenario, directory: directory)
+            }
+        }
+
+        private static func verifyDebugSubmission(_ scenario: SubmissionProbeScenario, directory: URL) async throws {
+            let directory = directory.appendingPathComponent(scenario.rawValue, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let store = VideoNoteFileStore(
+                directoryURL: directory.appendingPathComponent("send-store"),
+                legacyBindingAllowed: { _ in false },
+            )
+            let route = ChatDraftKey(accountID: UUID(), chatID: 18, topic: nil)
+            let asset = try await VideoNoteAssetWriter.makeDebugSegment(
+                outputURL: directory.appendingPathComponent("local.mp4"), duration: 1.1, frameSeed: 12,
+            )
+            let gate = VideoNoteSubmissionOwnershipProbe.Gate()
+            let discardFinished = VideoNoteSubmissionOwnershipProbe.Gate()
+            var recorder: VideoNoteRecorderViewController? = VideoNoteRecorderViewController(
+                chatID: route.chatID, draftKey: route, replyMessageID: nil, replyTo: nil, sendTopic: nil,
+            )
+            weak let weakRecorder = recorder
+            var discardCount = 0
+            var errorCount = 0
+            var sendCount = 0
+            var submissionError: Swift.Error?
+            var retainedDraft: VideoNoteSendDraft?
+            recorder?.currentAsset = asset
+            recorder?.ownsCurrentAsset = true
+            recorder?.state = .preview(duration: asset.duration, isPlaying: false, canRecordMore: false)
+            recorder?.onError = { _ in errorCount += 1 }
+            recorder?.onDiscard = { asset in
+                discardCount += 1
+                await store.discardAsset(at: asset.url)
+                await discardFinished.wait()
+            }
+            recorder?.onSubmit = { asset, _, _, _, _ in
+                sendCount += 1
+                let result: VideoNoteSubmissionResult
+                do {
+                    if scenario.consumesOrigin {
+                        let preparation = try await store.adoptAndPrepareEnqueue(
+                            asset, chatID: route.chatID, draftKey: route, originRecordingDraftID: nil,
+                            replyMessageID: nil, replyTo: nil,
+                        )
+                        guard case .ready(let draft) = preparation else {
+                            throw VideoNoteSubmissionOwnershipProbe.Failure(description: "fresh fixture was not ready")
+                        }
+                        if scenario == .enqueued {
+                            retainedDraft = try await store.registerEnqueued(draft, temporaryMessageID: -18).draft
+                            result = .enqueued(messageID: -18)
+                        } else {
+                            let pending = try await store.markPending(draft)
+                            retainedDraft = pending
+                            result = .retained(pending.asset, originConsumed: true, message: "probe retained send")
+                        }
+                    } else {
+                        result = .retained(asset, originConsumed: false, message: "probe local rejection")
+                    }
+                } catch {
+                    submissionError = error
+                    result = .retained(asset, originConsumed: false, message: "probe setup failed")
+                }
+                await gate.wait()
+                return result
+            }
+            recorder?.finishForSend()
+            let submissionTask = recorder?.operationTask
+            await gate.waitUntilEntered()
+            if scenario == .consumedAfterCancel || scenario == .unconsumedAfterCancel {
+                recorder?.cancel()
+            } else if scenario == .consumedAfterNavigation {
+                recorder?.teardownForNavigation()
+                recorder?.operationGeneration = UUID()
+                recorder?.state = .preparing
+            }
+            gate.open()
+            if scenario == .unconsumedAfterCancel {
+                await discardFinished.waitUntilEntered()
+                discardFinished.open()
+            }
+            await submissionTask?.value
+            if let submissionError { throw submissionError }
+            try VideoNoteSubmissionOwnershipProbe.require(sendCount == 1, "\(scenario): duplicate submission")
+
+            if scenario.consumesOrigin {
+                guard let draft = retainedDraft else {
+                    throw VideoNoteSubmissionOwnershipProbe
+                        .Failure(description: "\(scenario): send-store draft missing")
+                }
+                let expectedState: VideoNoteComposerState = scenario == .consumedAfterNavigation ? .preparing : .idle
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    recorder?.state == expectedState && recorder?.currentAsset == nil && recorder?
+                        .ownsCurrentAsset == false,
+                    "\(scenario): obsolete recorder retained ownership or changed successor state",
+                )
+                let expectedErrors = scenario == .consumed ? 1 : 0
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    errorCount == expectedErrors,
+                    "\(scenario): incorrect error publication",
+                )
+                let retry = scenario == .enqueued ? nil : try await store.beginEnqueue(draft)
+                recorder?.cancel()
+                recorder = nil
+                await Task.yield()
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    weakRecorder == nil,
+                    "\(scenario): recorder did not deinitialize",
+                )
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    discardCount == 0,
+                    "\(scenario): recorder discarded transferred asset",
+                )
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    FileManager.default.fileExists(atPath: draft.fileURL.path), "\(scenario): canonical media removed",
+                )
+                let drafts = await store.drafts(for: route)
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    drafts.contains { $0.id == draft.id && $0.removalRequestedAt == nil },
+                    "\(scenario): manifest removed or tombstoned",
+                )
+                if let retry {
+                    let registration = try await store.registerEnqueued(retry, temporaryMessageID: -19)
+                    try VideoNoteSubmissionOwnershipProbe.require(
+                        registration.draft.temporaryMessageID == -19 && registration.outcome == nil,
+                        "\(scenario): retry registration failed after obsolete teardown",
+                    )
+                }
+            } else {
+                if scenario == .unconsumed {
+                    try VideoNoteSubmissionOwnershipProbe.require(
+                        recorder?.currentAsset?.url == asset.url && recorder?.ownsCurrentAsset == true,
+                        "unconsumed result lost local asset ownership",
+                    )
+                    recorder?.cancel()
+                    await discardFinished.waitUntilEntered()
+                    discardFinished.open()
+                }
+                recorder = nil
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    discardCount == 1,
+                    "\(scenario): local asset not discarded once",
+                )
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    !FileManager.default.fileExists(atPath: asset.url.path),
+                    "\(scenario): local cancelled asset remains",
+                )
+                try VideoNoteSubmissionOwnershipProbe.require(
+                    errorCount == (scenario == .unconsumed ? 1 : 0), "\(scenario): unexpected local error count",
+                )
+            }
+        }
+
         static func verifyDebugOperationOwnership() async throws {
             let recorder = VideoNoteRecorderViewController(
                 chatID: 1, draftKey: .init(accountID: UUID(), chatID: 1, topic: nil),
