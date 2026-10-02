@@ -90,6 +90,7 @@ final class ClassicNavigationBar: UINavigationBar {
                 // The previous item's native back item styles the next screen's
                 // back control. A left item with a custom pop action would not.
                 back = UIBarButtonItem(title: backTitle(for: item), style: .plain, target: nil, action: nil)
+                hideSharedBackground(back)
                 generatedBackItems.setObject(back, forKey: item)
                 item.backBarButtonItem = back
             }
