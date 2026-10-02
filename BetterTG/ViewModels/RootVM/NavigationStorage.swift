@@ -3,20 +3,50 @@
 import TDLibKitDynamic
 import UIKit
 
-@MainActor final class NavigationStorage {
+@MainActor final class NavigationStorage: NSObject, UINavigationControllerDelegate {
     // MARK: Internal
 
     static let shared = NavigationStorage()
 
     let navigationController = UINavigationController()
 
+    private var clientRestoration: NavigationClientRestoration?
+
     var viewControllers: [UIViewController] {
         navigationController.viewControllers
     }
 
-    private init() {
+    override private init() {
+        super.init()
         navigationController.navigationBar.prefersLargeTitles = false
         navigationController.navigationBar.isTranslucent = true
+        navigationController.delegate = self
+        self.clientRestoration = NavigationClientRestoration(
+            readiness: TDLib.shared.readyClientChanges,
+            currentSource: { TDLib.shared.activeUpdateSource },
+            stack: { [weak self] in self?.viewControllers ?? [] },
+            canReplace: { [weak self] in
+                guard let navigation = self?.navigationController else { return false }
+                return navigation.transitionCoordinator == nil
+                    && navigation.presentedViewController == nil
+                    && !navigation.viewControllers.contains { $0.presentedViewController != nil }
+            },
+            replace: { [weak self] controllers in
+                self?.navigationController.setViewControllers(controllers, animated: false)
+            },
+        )
+    }
+
+    func retryClientRestoration() {
+        clientRestoration?.retry()
+    }
+
+    func navigationController(
+        _: UINavigationController,
+        didShow _: UIViewController,
+        animated _: Bool,
+    ) {
+        DispatchQueue.main.async { [weak self] in self?.retryClientRestoration() }
     }
 
     @discardableResult func setRoot(_ controller: UIViewController) -> UINavigationController {

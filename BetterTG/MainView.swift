@@ -6,7 +6,15 @@ import UIKit
 
 // MARK: - MainViewController
 
-final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+final class MainViewController: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate,
+    ClientRestorableNavigationEntry
+{
+    struct ClientRestorationState {
+        let searchQuery: String
+        let searchWasFocused: Bool
+        let folderViewports: [Int: ChatListViewportSnapshot]
+    }
+
     // MARK: Private
 
     private let rootVM: RootVM
@@ -37,13 +45,25 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         toSearchOffset: CGFloat,
     )?
     private var folderUnreadStates = [ChatList: FolderUnreadState]()
+    private let isClientRestoration: Bool
+    private var restoresSearchFocus = false
+    private var isRestoringSearchFocus = false
+    private var restorationViewports = [Int: ChatListViewportSnapshot]()
+
+    var navigationClientSource: TdUpdateSource? {
+        actionAuthority.scope(owner: self).source
+    }
 
     private var currentFolderController: FolderViewController? {
         pageController.viewControllers?.first as? FolderViewController
     }
 
-    init(rootVM: RootVM) {
+    init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
+        self.isClientRestoration = restoration != nil
+        self.searchQuery = restoration?.searchQuery ?? ""
+        self.restoresSearchFocus = restoration?.searchWasFocused ?? false
+        self.restorationViewports = restoration?.folderViewports ?? [:]
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -75,7 +95,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .store(in: &cancellables)
         folderUnreadStates = FolderUnreadStore.shared.states(for: actionAuthority.client.id)
         reloadFromState()
-        configureAutomatedSmokeRoute()
+        if !isClientRestoration { configureAutomatedSmokeRoute() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -83,9 +103,39 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if actionAuthority.isCurrent, restoresSearchFocus {
+            restoresSearchFocus = false
+            isRestoringSearchFocus = true
+            customNavigationBar.focusSearch()
+            isRestoringSearchFocus = false
+        }
+        // A modal or interactive navigation transition can defer epoch recovery.
+        DispatchQueue.main.async { NavigationStorage.shared.retryClientRestoration() }
+    }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         updateNavigationBarHeight(contentHeight: currentNavigationContentHeight)
+    }
+
+    func replacementForReadyClient(_ source: TdUpdateSource) -> UIViewController? {
+        guard source == TDLib.shared.activeUpdateSource,
+              source.accountID == navigationClientSource?.accountID,
+              interactiveFolderTransition == nil
+        else { return nil }
+        let state = ClientRestorationState(
+            searchQuery: searchQuery,
+            searchWasFocused: isViewLoaded ? customNavigationBar.isSearchActive : restoresSearchFocus,
+            folderViewports: restorationViewports.merging(
+                Dictionary(uniqueKeysWithValues: folderControllers.map {
+                    ($0.folder.id, $0.clientRestorationViewport())
+                }),
+                uniquingKeysWith: { _, current in current },
+            ),
+        )
+        return MainViewController(rootVM: rootVM, restoration: state)
     }
 
     func pageViewController(
@@ -126,7 +176,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         previousViewControllers: [UIViewController],
         transitionCompleted completed: Bool,
     ) {
-        defer { interactiveFolderTransition = nil }
+        defer {
+            interactiveFolderTransition = nil
+            DispatchQueue.main.async { NavigationStorage.shared.retryClientRestoration() }
+        }
         guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else {
             let previousID = (previousViewControllers.first as? FolderViewController)?.folder.id
             folderPicker.select(id: previousID, animated: true)
@@ -271,6 +324,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureNavigationBar() {
         customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
+        customNavigationBar.restoreSearchQuery(searchQuery)
         customNavigationBar.onQueryChange = { [weak self] query in
             guard let self else { return }
             searchQuery = query
@@ -278,7 +332,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
-            folderControllers.forEach { $0.setSearchActive(active, animated: $0 === self.currentFolderController) }
+            for folderController in folderControllers {
+                folderController.setSearchActive(
+                    active,
+                    animated: !isRestoringSearchFocus && folderController === currentFolderController,
+                    preservingViewport: isRestoringSearchFocus,
+                )
+            }
             if active {
                 customNavigationBar.applyScroll(offset: 0, animated: true)
             }
@@ -347,7 +407,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let newIDs = rootVM.folders.map(\.id)
         customNavigationBar.setLeftButtonHidden(rootVM.archive == nil)
 
-        guard currentIDs != newIDs else {
+        let sameFolderObjects = folderControllers.map(\.folder).elementsEqual(rootVM.folders, by: { $0 === $1 })
+        guard currentIDs != newIDs || !sameFolderObjects else {
             folderControllers.forEach { $0.updateQuery(searchQuery) }
             folderPicker.configure(
                 folders: rootVM.folders,
@@ -357,11 +418,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             return
         }
 
+        for controller in folderControllers {
+            restorationViewports[controller.folder.id] = controller.clientRestorationViewport()
+        }
         folderControllers = rootVM.folders.map { folder in
             let controller = FolderViewController(
                 folder: folder, rootVM: rootVM, showsStandaloneSearch: false, actionAuthority: actionAuthority,
+                restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
             controller.updateQuery(searchQuery)
+            controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
                 guard let self, currentFolderController === controller else { return }

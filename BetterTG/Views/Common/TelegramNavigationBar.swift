@@ -69,6 +69,10 @@ final class TelegramListNavigationBar: UIView {
         searchView.focus()
     }
 
+    func restoreSearchQuery(_ query: String) {
+        searchView.restoreQuery(query)
+    }
+
     func setLeftButtonHidden(_ hidden: Bool) {
         leftButton.isHidden = hidden
     }

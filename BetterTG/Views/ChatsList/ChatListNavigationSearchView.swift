@@ -75,6 +75,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.becomeFirstResponder()
     }
 
+    func restoreQuery(_ query: String) {
+        searchField.text = query
+    }
+
     func textFieldDidBeginEditing(_: UITextField) {
         setActive(true)
     }

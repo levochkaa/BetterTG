@@ -84,6 +84,86 @@ final class ArchiveViewController: UIViewController {
     }
 }
 
+// MARK: - ChatListViewportSnapshot
+
+/// Stable row identity plus its viewport displacement. The fallback preserves
+/// the list position if the row disappeared while TDLib was suspended.
+struct ChatListViewportSnapshot {
+    let chatID: Int64?
+    let rowMinYRelativeToViewport: CGFloat
+    let offsetFromTop: CGFloat
+
+    @MainActor static func capture(
+        tableView: UITableView,
+        chatID: (IndexPath) -> Int64?,
+    ) -> ChatListViewportSnapshot {
+        let first = tableView.indexPathsForVisibleRows?.sorted().first
+        return ChatListViewportSnapshot(
+            chatID: first.flatMap(chatID),
+            rowMinYRelativeToViewport: first.map {
+                tableView.rectForRow(at: $0).minY - tableView.contentOffset.y
+            } ?? 0,
+            offsetFromTop: tableView.contentOffset.y + tableView.adjustedContentInset.top,
+        )
+    }
+
+    @MainActor func restore(
+        tableView: UITableView,
+        indexPath: (Int64) -> IndexPath?,
+    ) {
+        tableView.layoutIfNeeded()
+        let insets = tableView.adjustedContentInset
+        let minimum = -insets.top
+        let maximum = max(minimum, tableView.contentSize.height - tableView.bounds.height + insets.bottom)
+        let requested = chatID.flatMap(indexPath).map {
+            tableView.rectForRow(at: $0).minY - rowMinYRelativeToViewport
+        } ?? (minimum + offsetFromTop)
+        tableView.setContentOffset(
+            CGPoint(x: tableView.contentOffset.x, y: min(max(requested, minimum), maximum)),
+            animated: false,
+        )
+    }
+}
+
+// MARK: - ChatListViewportRestoration
+
+/// A diffable apply may finish after a newer query, another apply, or first layout.
+/// Only the latest completed snapshot may consume a saved viewport, exactly once.
+struct ChatListViewportRestoration {
+    private(set) var pending: ChatListViewportSnapshot?
+
+    private var latestApply: UUID?
+    private var completedApply: UUID?
+
+    var snapshotIsApplied: Bool { latestApply != nil && latestApply == completedApply }
+
+    init(_ snapshot: ChatListViewportSnapshot?) {
+        self.pending = snapshot
+    }
+
+    mutating func beginApply() -> UUID {
+        let token = UUID()
+        latestApply = token
+        completedApply = nil
+        return token
+    }
+
+    mutating func completeApply(_ token: UUID) {
+        guard latestApply == token else { return }
+        completedApply = token
+    }
+
+    mutating func takeForLayout(usable: Bool) -> ChatListViewportSnapshot? {
+        guard snapshotIsApplied, usable else { return nil }
+        defer { pending = nil }
+        return pending
+    }
+
+    mutating func cancel() {
+        pending = nil
+    }
+}
+
 // MARK: - FolderViewController
 
 final class FolderViewController: UITableViewController, UITableViewDataSourcePrefetching {
@@ -106,6 +186,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var searchActive = false
     private var didSetInitialSearchOffset = false
     private var initialSearchScrollOffset = ChatListNavigationSearchView.scrollHeight
+    private var clientViewportRestoration: ChatListViewportRestoration
     private var cancellables = Set<AnyCancellable>()
     private var chatCancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
@@ -137,11 +218,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         rootVM: RootVM,
         showsStandaloneSearch: Bool,
         actionAuthority: ChatListActionAuthority? = nil,
+        restorationViewport: ChatListViewportSnapshot? = nil,
     ) {
         self.folder = folder
         self.rootVM = rootVM
         self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
         self.showsStandaloneSearch = showsStandaloneSearch
+        self.clientViewportRestoration = ChatListViewportRestoration(restorationViewport)
+        if let restorationViewport {
+            self.initialSearchScrollOffset = min(
+                ChatListNavigationSearchView.scrollHeight,
+                max(0, restorationViewport.offsetFromTop),
+            )
+        }
         super.init(style: .plain)
     }
 
@@ -197,18 +286,32 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard !didSetInitialSearchOffset else { return }
+        guard !didSetInitialSearchOffset,
+              clientViewportRestoration.snapshotIsApplied,
+              tableView.bounds.width > 0, tableView.bounds.height > 0,
+              dataSource.snapshot().numberOfItems == 0 || tableView.contentSize.height > 0
+        else { return }
         didSetInitialSearchOffset = true
-        tableView.setContentOffset(
-            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + initialSearchScrollOffset),
-            animated: false,
-        )
-        onSearchScrollOffsetChange?(initialSearchScrollOffset)
+        if let viewport = clientViewportRestoration.takeForLayout(usable: true) {
+            viewport.restore(tableView: tableView) { dataSource.indexPath(for: $0) }
+        } else {
+            tableView.setContentOffset(
+                CGPoint(x: 0, y: -tableView.adjustedContentInset.top + initialSearchScrollOffset),
+                animated: false,
+            )
+        }
+        onSearchScrollOffsetChange?(searchScrollOffset)
     }
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
         onSearchScrollOffsetChange?(searchScrollOffset)
+    }
+
+    override func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === tableView else { return }
+        clientViewportRestoration.cancel()
+        didSetInitialSearchOffset = true
     }
 
     override func scrollViewWillEndDragging(
@@ -230,6 +333,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.deselectRow(at: indexPath, animated: true)
         guard let chatID = dataSource.itemIdentifier(for: indexPath), let chat = chat(for: chatID) else { return }
         NavigationStorage.shared.push(.customChat(chat))
+    }
+
+    func clientRestorationViewport() -> ChatListViewportSnapshot {
+        guard isViewLoaded, didSetInitialSearchOffset else {
+            return clientViewportRestoration.pending ?? ChatListViewportSnapshot(
+                chatID: nil,
+                rowMinYRelativeToViewport: 0,
+                offsetFromTop: initialSearchScrollOffset,
+            )
+        }
+        return .capture(tableView: tableView) { dataSource.itemIdentifier(for: $0) }
     }
 
     func tableView(_: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
@@ -276,6 +390,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     func updateQuery(_ query: String) {
         guard self.query != query else { return }
+        if isViewLoaded {
+            clientViewportRestoration.cancel()
+            didSetInitialSearchOffset = true
+        }
         self.query = query
         updateSnapshot(animated: false)
     }
@@ -289,7 +407,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated)
     }
 
-    func setSearchActive(_ active: Bool, animated: Bool) {
+    func setSearchActive(_ active: Bool, animated: Bool, preservingViewport: Bool = false) {
+        let viewport = preservingViewport ? clientRestorationViewport() : nil
         searchActive = active
         if active {
             initialSearchScrollOffset = 0
@@ -302,7 +421,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             self.tableView.contentInset.top = targetTopInset
             self.tableView.verticalScrollIndicatorInsets.top = targetTopInset
             self.tableView.layoutIfNeeded()
-            self.tableView.contentOffset = CGPoint(x: 0, y: -self.tableView.adjustedContentInset.top)
+            if let viewport {
+                viewport.restore(tableView: self.tableView) { self.dataSource.indexPath(for: $0) }
+            } else {
+                self.tableView.contentOffset = CGPoint(x: 0, y: -self.tableView.adjustedContentInset.top)
+            }
         }
         guard animated else {
             changes()
@@ -394,7 +517,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 snapshot.reconfigureItems(reconfigured)
             }
         }
-        dataSource.apply(snapshot, animatingDifferences: animated)
+        let applyToken = clientViewportRestoration.beginApply()
+        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+            guard let self else { return }
+            clientViewportRestoration.completeApply(applyToken)
+            if !didSetInitialSearchOffset { view.setNeedsLayout() }
+        }
         tableView.backgroundView = filteredChats.isEmpty ? emptyLabel() : nil
     }
 

@@ -60,6 +60,7 @@ final class TDLib: @unchecked Sendable {
     private var cancellables = Set<AnyCancellable>()
     private var mediaUpdates = TDLibMediaUpdateStreams(source: nil)
     private let activeClientChangesSubject = PassthroughSubject<TdUpdateSource, Never>()
+    private let clientReadiness = TDLibClientReadiness()
     private var activeVODRanges: TDLibVODRangeCoordinator?
 
     var activeAccount: TelegramAccount? {
@@ -85,6 +86,14 @@ final class TDLib: @unchecked Sendable {
 
     var activeClientChanges: AnyPublisher<TdUpdateSource, Never> {
         activeClientChangesSubject.eraseToAnyPublisher()
+    }
+
+    var readyClientChanges: AnyPublisher<TdUpdateSource?, Never> {
+        clientReadiness.publisher
+    }
+
+    var activeUpdateSource: TdUpdateSource? {
+        activeClientSnapshot().map { TdUpdateSource(accountID: $0.accountID, clientID: $0.client.id) }
     }
 
     var vodRanges: TDLibVODRangeCoordinator {
@@ -125,6 +134,7 @@ final class TDLib: @unchecked Sendable {
         wantsForegroundOwnership = false
         guard started, !lifecycleSuspended else { return }
         lifecycleSuspended = true
+        if let source = activeUpdateSource { clientReadiness.update(ready: false, source: source) }
         log("TDLib ownership handoff started")
 
         beginOwnershipBackgroundTask()
@@ -327,6 +337,7 @@ final class TDLib: @unchecked Sendable {
             }
         }
         setActiveClient(client)
+        clientReadiness.activate(TdUpdateSource(accountID: accountID, clientID: client.id))
         let mediaUpdates = TDLibMediaUpdateStreams(
             source: TdUpdateSource(accountID: accountID, clientID: client.id),
         )
@@ -366,6 +377,11 @@ final class TDLib: @unchecked Sendable {
                 }
             }
             update(incomingUpdate, source: TdUpdateSource(accountID: accountID, clientID: client.id))
+
+            clientReadiness.update(
+                ready: state == .authorizationStateReady && !lifecycleSuspended,
+                source: TdUpdateSource(accountID: accountID, clientID: client.id),
+            )
 
             switch state {
             case .authorizationStateReady:
