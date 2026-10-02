@@ -122,6 +122,12 @@ import TDLibKitDynamic
         load(reset: false, query: query)
     }
 
+    func topicForOpening(id: Int, rawQuery: String) -> ForumTopic? {
+        let normalized = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard contextIsCurrent, normalized == query, normalized == acceptedQuery else { return nil }
+        return topics.first { $0.info.forumTopicId == id }
+    }
+
     private func load(reset: Bool, query: String) {
         guard contextIsCurrent, !loading || reset else { return }
         if reset {

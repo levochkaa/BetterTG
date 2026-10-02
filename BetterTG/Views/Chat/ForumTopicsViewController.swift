@@ -28,6 +28,7 @@ import UIKit
     private let searchController = UISearchController(searchResultsController: nil)
     private let refreshControl = UIRefreshControl()
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
+    private var snapshotState = ForumTopicsSnapshotState()
     private var cancellables = Set<AnyCancellable>()
     private var targetResolutionTask: Task<Void, Never>?
     private var targetIntent: ForumTopicTargetIntent
@@ -171,6 +172,7 @@ import UIKit
                     targetMessageID: targetMessageID, targetQuote: targetQuote, restoration: state,
                 )
                 retired = true
+                snapshotState.retire()
                 targetIntent.cancel()
                 targetResolutionTask?.cancel()
                 preparationTask?.cancel()
@@ -186,14 +188,16 @@ import UIKit
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let topicID = dataSource.itemIdentifier(for: indexPath),
-              let topic = viewModel.topics.first(where: { $0.info.forumTopicId == topicID })
+        guard snapshotState.canSelect,
+              let topicID = dataSource.itemIdentifier(for: indexPath),
+              snapshotState.topic(id: topicID) != nil,
+              let topic = viewModel.topicForOpening(id: topicID, rawQuery: searchController.searchBar.text ?? "")
         else { return }
         open(topic: topic, targetMessageID: nil, quote: nil)
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if indexPath.row >= max(0, viewModel.topics.count - 5) {
+        if snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
             viewModel.loadMore()
         }
     }
@@ -204,6 +208,7 @@ import UIKit
             && RootVM.shared.activeAccountID == source.accountID && !isBeingDismissed && !isMovingFromParent
             && presentedViewController == nil && transitionCoordinator == nil && !searchController.isActive
             && !tableView.isDragging && !tableView.isDecelerating
+            && !snapshotState.isApplying && !snapshotState.hasPending
             && searchController.searchBar.searchTextField.markedTextRange == nil
     }
 
@@ -288,15 +293,10 @@ import UIKit
         dataSource = UITableViewDiffableDataSource<Section, Int>(
             tableView: tableView,
         ) { [weak self] tableView, indexPath, topicID in
-            guard let self,
-                  let cell = tableView.dequeueReusableCell(
-                      withIdentifier: ForumTopicCell.reuseID,
-                      for: indexPath,
-                  ) as? ForumTopicCell,
-                  let topic = viewModel.topics.first(where: { $0.info.forumTopicId == topicID })
-            else { return UITableViewCell() }
-            cell.configure(topic: topic, client: viewModel.client)
-            return cell
+            ForumTopicCell.dequeue(
+                from: tableView, at: indexPath,
+                topic: self?.snapshotState.topic(id: topicID), client: self?.viewModel.client,
+            )
         }
     }
 
@@ -328,20 +328,37 @@ import UIKit
 
     private func applySnapshot(_ topics: [ForumTopic]) {
         guard !retired else { return }
+        snapshotState.enqueue(topics)
+        drainSnapshot()
+    }
+
+    private func drainSnapshot() {
+        guard !retired, let batch = snapshotState.begin() else { return }
         let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
-        let topicIDs = topics.map(\.info.forumTopicId)
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int>()
         snapshot.appendSections([.topics])
-        snapshot.appendItems(topicIDs)
-        let retainedIDs = topicIDs.filter(previousIDs.contains)
+        snapshot.appendItems(batch.ids)
+        let retainedIDs = batch.ids.filter(previousIDs.contains)
         if !retainedIDs.isEmpty {
             snapshot.reconfigureItems(retainedIDs)
         }
         let token = viewportRestoration.beginApply()
         dataSource.apply(snapshot, animatingDifferences: viewportRestoration.pending == nil) { [weak self] in
-            guard let self, !retired else { return }
+            guard let self, !retired, snapshotState.complete(batch.token) else { return }
             viewportRestoration.completeApply(token)
-            restoreViewportIfNeeded()
+            if snapshotState.hasPending {
+                drainSnapshot()
+            } else {
+                restoreViewportIfNeeded()
+                if view.window != nil, navigationController?.topViewController === self,
+                   tableView.indexPathsForVisibleRows?.contains(where: {
+                       $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
+                   }) == true
+                {
+                    viewModel.loadMore()
+                }
+                retryClientRestoration()
+            }
         }
         updateBackgroundView()
     }
@@ -476,6 +493,15 @@ final class ForumTopicCell: UITableViewCell {
         iconView.prepareForReuse()
     }
 
+    static func dequeue(
+        from tableView: UITableView, at indexPath: IndexPath, topic: ForumTopic?, client: TDLibClient?,
+    ) -> ForumTopicCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: reuseID, for: indexPath) as! ForumTopicCell
+        if let topic, let client { cell.configure(topic: topic, client: client) }
+        else { cell.configureUnavailable() }
+        return cell
+    }
+
     private static func draftPreview(_ content: DraftMessageContent) -> String {
         switch content {
         case .draftMessageContentText(let text):
@@ -498,6 +524,8 @@ final class ForumTopicCell: UITableViewCell {
     }
 
     func configure(topic: ForumTopic, client: TDLibClient) {
+        iconView.isHidden = false
+        selectionStyle = .default
         iconView.configure(info: topic.info, client: client)
         titleLabel.text = topic.info.name
         previewLabel.text =
@@ -545,6 +573,24 @@ final class ForumTopicCell: UITableViewCell {
             .joined(separator: ", ")
         accessibilityIdentifier = "forum-topic-\(topic.info.forumTopicId)"
         accessibilityTraits = [.button]
+    }
+
+    private func configureUnavailable() {
+        iconView.prepareForReuse()
+        iconView.isHidden = true
+        titleLabel.text = "Topic unavailable"
+        previewLabel.text = nil
+        dateLabel.text = nil
+        unreadBadge.text = nil
+        unreadBadge.isHidden = true
+        pinView.isHidden = true
+        closedView.isHidden = true
+        backgroundColor = .systemBackground
+        contentView.backgroundColor = backgroundColor
+        selectionStyle = .none
+        accessibilityLabel = "Topic unavailable"
+        accessibilityIdentifier = nil
+        accessibilityTraits = [.staticText]
     }
 
     private func configureViews() {

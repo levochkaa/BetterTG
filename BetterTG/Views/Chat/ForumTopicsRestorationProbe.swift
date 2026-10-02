@@ -47,7 +47,76 @@
             func path(_ id: Int64) -> IndexPath? { ids.firstIndex(of: id).map { IndexPath(row: $0, section: 0) } }
         }
 
+        /// Native consumer of the production snapshot state and production cell provider.
+        /// A completion hold exposes the interval during which newer VM payloads can arrive.
+        @MainActor private final class SnapshotTable {
+            enum Section { case topics }
+
+            let table = UITableView(frame: CGRect(x: 0, y: 0, width: 390, height: 500), style: .plain)
+            var state = ForumTopicsSnapshotState()
+            var dataSource: UITableViewDiffableDataSource<Section, Int>!
+            var nativeCompleted = false
+            var activeToken: UUID?
+            var providerCalls = 0
+            var omitModel = false
+
+            init(client: TDLibClient) {
+                table.rowHeight = 70
+                table.estimatedRowHeight = 0
+                table.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
+                self
+                    .dataSource = UITableViewDiffableDataSource<
+                        Section,
+                        Int,
+                    >(tableView: table) { [weak self] table, path, id in
+                    self?.providerCalls += 1
+                    return ForumTopicCell.dequeue(
+                        from: table, at: path,
+                        topic: self?.omitModel == true ? nil : self?.state.topic(id: id), client: client,
+                    )
+                }
+            }
+
+            func begin() throws {
+                guard let batch = state.begin() else { throw Failure(description: "snapshot refused to start") }
+                activeToken = batch.token
+                nativeCompleted = false
+                let previous = Set(dataSource.snapshot().itemIdentifiers)
+                var snapshot = NSDiffableDataSourceSnapshot<Section, Int>()
+                snapshot.appendSections([.topics])
+                snapshot.appendItems(batch.ids)
+                snapshot.reconfigureItems(batch.ids.filter(previous.contains))
+                dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in self?.nativeCompleted = true }
+                table.layoutIfNeeded()
+            }
+
+            func finish() throws {
+                guard nativeCompleted, let activeToken, state.complete(activeToken)
+                else { throw Failure(description: "native snapshot did not settle") }
+                self.activeToken = nil
+                table.layoutIfNeeded()
+            }
+        }
+
         static func runDebugProbeIfRequested() {
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-forum-snapshot") {
+                Task { @MainActor in
+                    let result: String
+                    do {
+                        try await verifySnapshotCells()
+                        result = "Forum snapshot probe passed: production-state/serialized/coalesced/outgoing-lifetime=true; "
+                            + "real-UIKit-diffable/production-cell/same-instance-reconfigure=true; "
+                            + "missing-model-clears-content/retire-stale-completion=true; "
+                            + "full-controller/VM-RPC/query-actions/foreground=unverified; server-writes=0"
+                    } catch { result = "Forum snapshot probe failed: \(error)" }
+                    if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                        try? Data(result.utf8).write(
+                            to: directory.appendingPathComponent("forum-snapshot-probe.txt"), options: .atomic,
+                        )
+                    }
+                    log(result)
+                }
+            }
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-forum-restoration") else { return }
             let result: String
             do {
@@ -73,6 +142,93 @@
 
         private static func require(_ value: Bool, _ message: String) throws {
             guard value else { throw Failure(description: message) }
+        }
+
+        private static func verifySnapshotCells() async throws {
+            let host = SnapshotTable(client: TDLib.shared.activeClient)
+            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
+            else { throw Failure(description: "no scene for native diffable table") }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIViewController()
+            window.rootViewController = controller
+            controller.view.addSubview(host.table)
+            host.table.frame = controller.view.bounds
+            host.table.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            window.isHidden = false
+            controller.view.layoutIfNeeded()
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+            }
+            func awaitNative() async throws {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+                while !host.nativeCompleted, ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                try require(host.nativeCompleted, "native diffable completion timed out")
+            }
+            func named(_ id: Int, _ name: String) -> ForumTopic {
+                topic(id: id, name: name)
+            }
+            host.state.enqueue([named(1, "A"), named(2, "B")])
+            try host.begin()
+            try await awaitNative()
+            try host.finish()
+            guard let original = host.table.cellForRow(at: IndexPath(row: 0, section: 0)) as? ForumTopicCell
+            else { throw Failure(description: "initial production cell was not materialized") }
+
+            // The latest VM would already omit A. The queued snapshot still owns A-prime.
+            host.state.enqueue([named(1, "A-prime"), named(2, "B")])
+            try host.begin()
+            host.state.enqueue([named(2, "B")])
+            host.state.enqueue([named(2, "B-prime"), named(3, "C")])
+            try require(host.state.begin() == nil && !host.state.canSelect, "overlapping apply or tap was admitted")
+            try require(host.state.topic(id: 1)?.info.name == "A-prime", "pending VM payload replaced active models")
+            try await awaitNative()
+            try require(
+                host.table.cellForRow(at: IndexPath(row: 0, section: 0)) === original,
+                "reconfigure replaced the existing cell",
+            )
+            try require(
+                original.accessibilityLabel?.hasPrefix("A-prime,") == true,
+                "cell used a different model generation",
+            )
+            try host.finish()
+            try require(host.state.hasPending && !host.state.canSelect, "pending payload enabled stale selection")
+            try host.begin()
+            try require(host.state.topic(id: 1) != nil, "outgoing row was pruned before UIKit completion")
+            try await awaitNative()
+            try host.finish()
+            try require(
+                host.state.displayedIDs == [2, 3] && host.state.topic(id: 1) == nil
+                            && host.state.topic(id: 2)?.info.name == "B-prime" && host.state.canSelect,
+                "coalesced result or outgoing cleanup is incorrect",
+            )
+
+            // Defensive missing-model path must also preserve dequeue identity and clear old pixels/AX.
+            let remaining = host.table.cellForRow(at: IndexPath(row: 0, section: 0))
+            host.omitModel = true
+            host.state.enqueue([named(2, "B-prime"), named(3, "C")])
+            try host.begin()
+            try await awaitNative()
+            try host.finish()
+            try require(
+                host.table.cellForRow(at: IndexPath(row: 0, section: 0)) === remaining
+                            && remaining?.accessibilityLabel == "Topic unavailable"
+                            && remaining?.accessibilityIdentifier == nil
+                    && remaining?.selectionStyle == UITableViewCell.SelectionStyle.none,
+                "missing model replaced the cell or retained its old action/content",
+            )
+            host.state.enqueue([named(3, "C")])
+            try host.begin()
+            guard let obsolete = host.activeToken else { throw Failure(description: "missing completion identity") }
+            host.state.retire()
+            try await awaitNative()
+            try require(
+                !host.state.complete(obsolete) && host.state.topic(id: 3) == nil
+                            && !host.state.canSelect && host.providerCalls >= 4,
+                "retired completion revived snapshot state",
+            )
         }
 
         private static func seed(
@@ -260,7 +416,7 @@
             try require(gate.takeForLayout(usable: true) == nil, "user drag failed to cancel pending restore")
         }
 
-        private static func topic(id: Int) -> ForumTopic {
+        private static func topic(id: Int, name: String = "Swift") -> ForumTopic {
             ForumTopic(
                 draftMessage: nil,
                 info: .init(
@@ -274,7 +430,7 @@
                     isHidden: false,
                     isNameImplicit: false,
                     isOutgoing: false,
-                    name: "Swift",
+                    name: name,
                 ),
                 isPinned: false, lastMessage: nil, lastReadInboxMessageId: 0, lastReadOutboxMessageId: 0,
                 notificationSettings: .init(
