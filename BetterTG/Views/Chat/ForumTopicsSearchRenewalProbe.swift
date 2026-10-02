@@ -92,7 +92,7 @@ import UIKit
         let window: UIWindow
         weak var previousKey: UIWindow?
 
-        init(actor: Int64? = 70) throws {
+        init(actor: Int64? = 70, covered: Bool = false) throws {
             self.owner = try Owner(actor: actor)
             guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
             else { throw Failure(description: "missing window scene") }
@@ -104,7 +104,9 @@ import UIKit
                 environment: owner.environment,
             )
             self.navigation = UINavigationController(rootViewController: UIViewController())
-            navigation.setViewControllers([navigation.viewControllers[0], controller], animated: false)
+            var stack = [navigation.viewControllers[0], controller]
+            if covered { stack.append(UIViewController()) }
+            navigation.setViewControllers(stack, animated: false)
             self.window = UIWindow(windowScene: scene)
             window.rootViewController = navigation
             window.makeKeyAndVisible()
@@ -151,12 +153,14 @@ import UIKit
                 try await verifyRenewal()
                 try await verifyUnknownActor(departFirst: false)
                 try await verifyUnknownActor(departFirst: true)
+                try await verifyUnloadedFailure()
                 try await verifyRevocation(actor: false)
                 try await verifyRevocation(actor: true)
                 result = "Forum active search probe passed: actual-controller/field/table/native-snapshot=true; "
                     + "binding-renewal/latest-query/UTF16-selection/focus/active-unfocused=true; "
                     + "snapshot-lifetime/queued-old-publishers/second-epoch/late-metadata/Ready-gap=true; "
                     + "IME/foreign-modal/explicit-Retry/stale-control/pop/account-actor-ABA/initial-unknown-actor=true; "
+                    + "unloaded-failure-visible-Retry=true; "
                     + "transport/server-filter/keyboard-animation/foreground=unverified; RPC/global-account-writes=0"
             } catch { result = "Forum active search probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -294,6 +298,50 @@ import UIKit
         f.owner.finish(108)
         try await until("actual pop lifecycle retirement") { controller.probeRetired }
         try require(controller.navigationClientSource?.clientID == 107, "late metadata renewed popped controller")
+    }
+
+    private static func verifyUnloadedFailure() async throws {
+        let f = try Fixture(covered: true)
+        defer { f.close() }
+        let controller = f.controller
+        try require(!controller.isViewLoaded, "retained parent unexpectedly loaded its view")
+        f.owner.move(102)
+        // The production coordinator prepares retained entries even below a child.
+        _ = controller.prepareReplacementForReadyClient(f.owner.source)
+        try await until("unloaded parent metadata") { f.owner.pending[102] != nil }
+        f.owner.finish(102, success: false)
+        try await until("unloaded parent failure") { controller.probeFailure }
+        try require(!controller.isViewLoaded, "metadata failure forced hidden parent view loading")
+        f.navigation.popViewController(animated: false)
+        try await until("Back exposes retained failure") {
+            controller.isViewLoaded && controller.probeTable.backgroundView is UIButton
+        }
+        let count = f.owner.reads.count
+        controller.probeRetryEvent()
+        await events()
+        try require(
+            f.owner.reads.count == count && controller.probeFailure,
+            "unloaded failure replayed without explicit Retry",
+        )
+        (controller.probeTable.backgroundView as? UIButton)?.sendActions(for: .touchUpInside)
+        try require(!controller.probeFailure, "visible unloaded-owner Retry did not clear matching failure")
+        _ = controller.prepareReplacementForReadyClient(f.owner.source)
+        try await until("explicit unloaded-owner retry") { f.owner.pending[102] != nil }
+        f.owner.finish(102)
+        try await until("unloaded-owner fresh preparation") { controller.probePrepared }
+        let coordinator = NavigationClientRestoration(
+            readiness: f.owner.ready.eraseToAnyPublisher(), currentSource: { f.owner.source },
+            stack: { f.navigation.viewControllers }, canReplace: { true },
+            replace: { f.navigation.setViewControllers($0, animated: false) },
+        )
+        coordinator.retry()
+        guard let replacement = f.navigation.topViewController as? ForumTopicsViewController,
+              replacement !== controller
+              else { throw Failure(description: "explicit retry failed quiescent replacement plan") }
+        try require(
+            replacement.navigationClientSource?.clientID == 102 && controller.probeRetired,
+            "quiescent retry returned stale owner",
+        )
     }
 
     private static func verifyUnknownActor(departFirst: Bool) async throws {
