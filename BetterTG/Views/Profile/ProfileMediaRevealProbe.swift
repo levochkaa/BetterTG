@@ -87,11 +87,7 @@ import UIKit
         host.isHidden = true
         window.addSubview(host)
         defer { host.removeFromSuperview() }
-        let imageOrigin = TDImageOrigin(
-            source: f.identity.source, backend: .init(download: { _ in nil }, cancel: { _ in }),
-            demand: AnimatedFileDemand(center: NotificationCenter()), currentSource: { f.identity.source },
-            changes: f.identity.changes.eraseToAnyPublisher(),
-        )
+        var imageOrigin = thumbnailOrigin(for: f)
         var loads = [Int64]()
         let cells = messages.enumerated().map { index, message in
             let cell = SharedMediaGridCell(frame: CGRect(x: index * 120, y: 0, width: 110, height: 110))
@@ -189,6 +185,7 @@ import UIKit
         try require(!cells[2].debugHasRawImage && loads == [2, 3, 2], "old client cell resumed download")
 
         let other = try await fixture(url: url)
+        imageOrigin = thumbnailOrigin(for: other)
         other.session.reconcile(messages)
         cells[2].configure(message: messages[2], context: other.context, permit: f.session.permit(for: messages[2]))
         try require(cells[2].debugHasCover && loads == [2, 3, 2], "foreign session capability admitted")
@@ -202,6 +199,7 @@ import UIKit
         cells[2].configure(message: messages[2], context: f.context, permit: epochPermit)
         try require(cells[2].debugHasCover && !cells[2].debugHasRawImage, "current foreign permit admitted")
         let epoch = try await fixture(url: url, accountID: other.identity.source.accountID, clientID: 313)
+        imageOrigin = thumbnailOrigin(for: epoch)
         epoch.session.reconcile(messages)
         cells[2].configure(message: messages[2], context: epoch.context, permit: epochPermit)
         try require(cells[2].debugHasCover && !cells[2].debugHasRawImage, "replacement-client capability admitted")
@@ -236,6 +234,14 @@ import UIKit
         try require(
             firstDownloads.isEmpty && otherDownloads.isEmpty && epochDownloads.isEmpty,
             "probe unexpectedly started VOD transport",
+        )
+    }
+
+    private static func thumbnailOrigin(for fixture: Fixture) -> TDImageOrigin {
+        TDImageOrigin(
+            source: fixture.identity.source, backend: .init(download: { _ in nil }, cancel: { _ in }),
+            demand: AnimatedFileDemand(center: NotificationCenter()), currentSource: { fixture.identity.source },
+            changes: fixture.identity.changes.eraseToAnyPublisher(),
         )
     }
 
