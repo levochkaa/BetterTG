@@ -1,6 +1,7 @@
 // FFmpegAnimatedVideo.swift
 
 import Combine
+import Dispatch
 import FFmpegBridge
 import Foundation
 import QuartzCore
@@ -204,27 +205,57 @@ enum FFmpegVideoRepository {
 actor FFmpegVideoFrameDecoder {
     // MARK: Private
 
+    private nonisolated let worker = DispatchSerialQueue(label: "BetterTG.animation-decoder", qos: .userInitiated)
+    private let path: String
     private let width: Int
     private let height: Int
-    private let decoder: OpaquePointer
+    private var decoder: OpaquePointer?
     private var decodedIndex = -1
     private var observedFrameCount: Int?
 
-    init?(asset: FFmpegVideoAsset) {
-        self.width = Int(asset.size.width)
-        self.height = Int(asset.size.height)
-        guard let decoder = createFFmpegVideoDecoder(path: asset.path) else { return nil }
-        self.decoder = decoder
-    }
-
-    deinit {
-        BetterTGFFmpegVideoDecoderDestroy(decoder)
-    }
+    #if DEBUG
+        private var probe: FFmpegAnimationWorkerProbe?
+    #endif
 
     // MARK: Internal
 
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        worker.asUnownedSerialExecutor()
+    }
+
+    init(asset: FFmpegVideoAsset) {
+        self.path = asset.path
+        self.width = Int(asset.size.width)
+        self.height = Int(asset.size.height)
+    }
+
+    isolated deinit {
+        if let decoder {
+            dispatchPrecondition(condition: .onQueue(worker))
+            BetterTGFFmpegVideoDecoderDestroy(decoder)
+            #if DEBUG
+                probe?.record("destroy")
+            #endif
+        }
+    }
+
+    func prepare() -> Bool {
+        dispatchPrecondition(condition: .onQueue(worker))
+        guard !Task.isCancelled else { return false }
+        if decoder != nil { return true }
+        guard let decoder = createFFmpegVideoDecoder(path: path) else { return false }
+        self.decoder = decoder
+        #if DEBUG
+            probe?.record("create")
+            probe?.holdSetupIfRequested()
+        #endif
+        guard !Task.isCancelled else { return false }
+        return true
+    }
+
     func frame(at requestedIndex: Int) -> FFmpegDecodedVideoFrame? {
-        guard requestedIndex >= 0 else { return nil }
+        dispatchPrecondition(condition: .onQueue(worker))
+        guard !Task.isCancelled, requestedIndex >= 0, let decoder else { return nil }
         var targetIndex = observedFrameCount.map { requestedIndex % $0 } ?? requestedIndex
         if targetIndex <= decodedIndex {
             guard reset() else { return nil }
@@ -249,6 +280,9 @@ actor FFmpegVideoFrameDecoder {
                     &hasAlpha,
                 )
             }
+            #if DEBUG
+                probe?.record("read")
+            #endif
 
             if result == 0 {
                 let frameCount = decodedIndex + 1
@@ -277,8 +311,17 @@ actor FFmpegVideoFrameDecoder {
         return nil
     }
 
+    #if DEBUG
+        fileprivate func observe(with probe: FFmpegAnimationWorkerProbe) {
+            self.probe = probe
+        }
+    #endif
+
     private func reset() -> Bool {
-        guard BetterTGFFmpegVideoDecoderReset(decoder) != 0 else { return false }
+        guard let decoder, BetterTGFFmpegVideoDecoderReset(decoder) != 0 else { return false }
+        #if DEBUG
+            probe?.record("reset")
+        #endif
         decodedIndex = -1
         return true
     }
@@ -308,7 +351,14 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     private var downloadTask: Task<Void, Never>?
     private var assetTask: Task<Void, Never>?
     private var decodeTask: Task<Void, Never>?
+    private var decoderSetupTask: Task<Void, Never>?
+    private var configurationGeneration = UUID()
+    private var decoderSetupGeneration = UUID()
     private var fileCancellable: AnyCancellable?
+
+    #if DEBUG
+        private var decoderProbe: FFmpegAnimationWorkerProbe?
+    #endif
 
     private var playbackEnabled: Bool {
         UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
@@ -351,6 +401,9 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     deinit {
         displayLink?.invalidate()
+        decoderSetupTask?.cancel()
+        decodeTask?.cancel()
+        assetTask?.cancel()
     }
 
     override func didMoveToWindow() {
@@ -397,6 +450,10 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     func prepareForReuse() {
         let fileID = representedFileID
+        configurationGeneration = UUID()
+        decoderSetupGeneration = UUID()
+        decoderSetupTask?.cancel()
+        decoderSetupTask = nil
         representedFileID = nil
         loadedPath = nil
         asset = nil
@@ -451,12 +508,18 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
         loadedPath = file.local.path
         let fileID = file.id
+        let generation = configurationGeneration
         assetTask?.cancel()
         assetTask = Task { [weak self] in
             let asset = await FFmpegVideoRepository.asset(at: file.local.path)
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, self.representedFileID == fileID else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.configurationGeneration == generation,
+                      self.representedFileID == fileID,
+                      self.loadedPath == file.local.path
+                else { return }
                 self.show(asset: asset, path: file.local.path)
             }
         }
@@ -471,7 +534,6 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         }
 
         self.asset = asset
-        decoder = FFmpegVideoFrameDecoder(asset: asset)
         if let firstFrame = asset.firstFrame {
             frameView.image = firstFrame
             frameView.isHidden = false
@@ -480,11 +542,41 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
             onFirstFrameReady = nil
         }
         loadedPath = path
+        prepareDecoder(asset: asset, path: path)
+    }
+
+    private func prepareDecoder(asset: FFmpegVideoAsset, path: String) {
+        decoderSetupTask?.cancel()
+        stopDisplayLink()
+        decoder = nil
+        let generation = UUID()
+        decoderSetupGeneration = generation
+        let preparedDecoder = FFmpegVideoFrameDecoder(asset: asset)
+        #if DEBUG
+            let probe = decoderProbe
+        #endif
+        decoderSetupTask = Task { [weak self] in
+            #if DEBUG
+                if let probe { await preparedDecoder.observe(with: probe) }
+            #endif
+            let ready = await preparedDecoder.prepare()
+            guard !Task.isCancelled,
+                  let self,
+                  decoderSetupGeneration == generation,
+                  loadedPath == path,
+                  self.asset === asset
+            else { return }
+            decoderSetupTask = nil
+            guard ready else { return }
+            decoder = preparedDecoder
+            updatePlayback()
+        }
         updatePlayback()
     }
 
     private func updatePlayback() {
-        let shouldPlay = playbackVisible && window != nil && playbackEnabled && (asset?.frameCount ?? 0) > 1
+        let shouldPlay = playbackVisible && window != nil && playbackEnabled
+            && decoder != nil && (asset?.frameCount ?? 0) > 1
         if shouldPlay {
             startDisplayLink()
         } else {
@@ -527,11 +619,17 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
         requestedFrameIndex = index
         guard decodeTask == nil, let decoder else { return }
+        let generation = configurationGeneration
         decodeTask = Task { [weak self] in
             let frame = await decoder.frame(at: index)
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, self.loadedPath == path else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.configurationGeneration == generation,
+                      self.loadedPath == path,
+                      self.decoder === decoder
+                else { return }
                 if let frame {
                     if let frameCount = frame.observedFrameCount {
                         self.asset?.update(frameCount: frameCount)
@@ -611,3 +709,136 @@ func telegramVideoUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
     return ffmpegMimeTypes.contains(normalizedMimeType)
         || ffmpegExtensions.contains(fileExtension)
 }
+
+#if DEBUG
+    /// Records native operations only; the C handle never leaves its actor executor.
+    fileprivate final class FFmpegAnimationWorkerProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private let setupGate = DispatchSemaphore(value: 0)
+        private let holdsSetup: Bool
+        private var events = [String]()
+        private var ranOnMain = false
+
+        init(holdsSetup: Bool = false) {
+            self.holdsSetup = holdsSetup
+        }
+
+        func record(_ event: String) {
+            lock.lock()
+            events.append(event)
+            ranOnMain = ranOnMain || Thread.isMainThread
+            lock.unlock()
+        }
+
+        func snapshot() -> (events: [String], ranOnMain: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (events, ranOnMain)
+        }
+
+        func holdSetupIfRequested() {
+            guard holdsSetup else { return }
+            record("setup-held")
+            if setupGate.wait(timeout: .now() + 5) == .timedOut {
+                record("setup-timeout")
+            }
+        }
+
+        func releaseSetup() {
+            setupGate.signal()
+        }
+    }
+
+    extension FFmpegAnimatedVideoView {
+        @MainActor static func runDebugProbeIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-media-probe-animation-worker") else { return }
+            Task { await runAnimationWorkerProbe() }
+        }
+    }
+
+    private extension FFmpegAnimatedVideoView {
+        enum WorkerProbeError: Swift.Error {
+            case asset, setup, frame, timeout, lifecycle, staleSetup
+        }
+
+        @MainActor static func runAnimationWorkerProbe() async {
+            let fixtureURL = FileManager.default
+.temporaryDirectory
+                .appendingPathComponent("bettertg-animation-worker-\(UUID().uuidString).webm")
+            let resultURL = FileManager.default
+.urls(for: .documentDirectory, in: .userDomainMask)
+                .first?
+.appendingPathComponent("animation-worker-probe.txt")
+            defer { try? FileManager.default.removeItem(at: fixtureURL) }
+            let heldProbe = FFmpegAnimationWorkerProbe(holdsSetup: true)
+            defer { heldProbe.releaseSetup() }
+            let result: String
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try FFmpegVODProbeFixture.write(to: fixtureURL)
+                }.value
+                guard let asset = await FFmpegVideoRepository.asset(at: fixtureURL.path) else {
+                    throw WorkerProbeError.asset
+                }
+                let lifecycleProbe = FFmpegAnimationWorkerProbe()
+                var worker: FFmpegVideoFrameDecoder? = FFmpegVideoFrameDecoder(asset: asset)
+                await worker?.observe(with: lifecycleProbe)
+                guard await worker?.prepare() == true else { throw WorkerProbeError.setup }
+                guard await worker?.frame(at: 2) != nil,
+                      await worker?.frame(at: 1) != nil
+                else { throw WorkerProbeError.frame }
+                // Release the last owner on main; native destruction must still use the worker.
+                worker = nil
+                try await waitForWorkerProbe { lifecycleProbe.snapshot().events.contains("destroy") }
+
+                let view = FFmpegAnimatedVideoView()
+                view.decoderProbe = heldProbe
+                view.show(asset: asset, path: asset.path)
+                try await waitForWorkerProbe { heldProbe.snapshot().events.contains("setup-held") }
+                view.prepareForReuse()
+
+                let replacementProbe = FFmpegAnimationWorkerProbe()
+                view.decoderProbe = replacementProbe
+                view.show(asset: asset, path: asset.path)
+                try await waitForWorkerProbe { view.decoder != nil }
+                let replacementID = view.decoder.map(ObjectIdentifier.init)
+                heldProbe.releaseSetup()
+                try await waitForWorkerProbe { heldProbe.snapshot().events.contains("destroy") }
+                guard view.decoder.map(ObjectIdentifier.init) == replacementID,
+                      view.frameView.image != nil,
+                      !view.frameView.isHidden
+                else { throw WorkerProbeError.staleSetup }
+                view.prepareForReuse()
+                try await waitForWorkerProbe { replacementProbe.snapshot().events.contains("destroy") }
+
+                let lifecycle = lifecycleProbe.snapshot()
+                let held = heldProbe.snapshot()
+                let replacement = replacementProbe.snapshot()
+                guard !lifecycle.ranOnMain, !held.ranOnMain, !replacement.ranOnMain,
+                      lifecycle.events.filter({ $0 == "create" }).count == 1,
+                      lifecycle.events.contains("read"), lifecycle.events.contains("reset"),
+                      lifecycle.events.filter({ $0 == "destroy" }).count == 1,
+                      held.events.filter({ $0 == "destroy" }).count == 1,
+                      !held.events.contains("setup-timeout"),
+                      replacement.events.filter({ $0 == "destroy" }).count == 1
+                else { throw WorkerProbeError.lifecycle }
+                result = "Animation worker probe: create/read/reset/destroy-off-main=true, "
+                    + "main-release-worker-destroy=true, delayed-setup-cancel=true, "
+                    + "same-path-reuse-fenced=true, replacement-ready=true, first-frame-preserved=true, "
+                    + "exactly-once-teardown=true, native-reads=\(lifecycle.events.filter { $0 == "read" }.count)"
+            } catch {
+                result = "Animation worker probe failed: \(error)"
+            }
+            if let resultURL { try? Data(result.utf8).write(to: resultURL, options: .atomic) }
+            log(result)
+        }
+
+        @MainActor static func waitForWorkerProbe(_ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(4))
+            while !condition() {
+                guard ContinuousClock.now < deadline else { throw WorkerProbeError.timeout }
+                try await Task<Never, Never>.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+#endif
