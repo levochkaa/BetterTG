@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A30b2 quiescent Chat foreground recovery, A15b2 voice lifecycle and A06 shared animated-file demand.
+Active queue: A30b2 quiescent Chat foreground recovery, A15b2 voice lifecycle and A08 animated-video timing.
 A30a root lists, A30b1 composer-transfer foundation and A16/A17 video ownership have bounded integrated proofs below;
 the foundation does not enable Chat restoration or close all lifecycle gaps.
 A26 relocation and A29 frozen list mutations have integrated bounded proofs below; A29 cold-launch folder navigation also passes.
@@ -115,7 +115,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | fixed in `3005369`: deduplicate complete identical snapshots while preserving every pause transport command; settled feedback, seek/rate/EOF/offline/retry probes passed |
 | A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | fixed by `83103ba`, `14a01c5`, `ef8f4ba` — explicit video-main end, estimated-versus-final duration authority and verified EOF/watchdog teardown; native and integrated decoder/controller probes pass, including under/overestimated metadata. Cold large-file partial-range proof remains separate |
 | A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | fixed bounded source/transport — `128ada2` freezes requests and scopes delivery/decode; `6e5b287` requires originating clients through every animated consumer and custom-emoji fetch, clears reused thumbnails. Isolated transport/native/PiP regressions pass; real multi-account sticker playback unverified. A06 shared cancellation remains open |
-| A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | needs-fix: account/client-scoped file demand leases covering visible consumers and prefetch |
+| A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | fixed bounded animated demand — `09fa140` shares account/client/file leases across TGS/WebP/WebM views and animated prefetch; last-owner cancellation/reacquisition and queued terminal updates pass isolated production-pool probes. Static `.none` prefetch and VOD-range arbitration remain separate; actual TDLib/view scheduling is unverified |
 | A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | fixed in `3917128`: native-free init, worker-isolated prepare/read/reset/deinit and setup/reuse fences; actual native-operation thread/lifecycle probe passed before and after integration |
 | A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | needs-fix: PTS/duration scheduling and decoder EOF, separately bounded cache |
 | A09 | P1 | Apple-container `messageAnimation` routes to static `FileMediaPreviewView`; only fullscreen owns playback | needs-fix: account-scoped inline AVFoundation animation loop with visibility/reuse/cancel contracts |
@@ -841,6 +841,30 @@ is imported. This source pass does not prove every content's real rendering/acti
   one-shot pixel anchor, then start freshness. Raw unresolved reply/forward dependencies, A22 scroll interaction epochs and other
   secondary-route restoration remain open. This phase is production wiring, not a complete A30 claim.
 
+### A06 animated-file demand — 2026-10-02
+
+- `09fa140` replaces per-view transport cancellation with `AnimatedFileDemand`, keyed by originating account UUID, client ID and
+  file ID. TGS/WebP/WebM views and animated prefetch acquire the same whole-file demand. Releasing one view or cancelled prefetch
+  cannot cancel another registered consumer. The last release cancels only the pending download through its captured client.
+  A replacement starts after the previous cancellation reply; a not-yet-cancelled start can instead be shared. Completed files,
+  released owners and failed prefetch waiters leave no retained pool entries after their last lease. No cache/storage schema change.
+- Scoped `updateFile` revisions outrank delayed initial-state RPC replies. Review caught queued terminal updates being dropped
+  while cancellation was scheduled but not yet issued. The final code distinguishes scheduled/in-flight cancellation and replays
+  both completed and inactive-failure state when cancellation is abandoned. Those exact races are now explicit regressions.
+- References: pinned current/pre `FetchManagerImpl/Sources/FetchManagerImpl.swift` 779–823 (episode-scoped priority/reference
+  acquisition and release), adapted without Telegram infrastructure. TDLibKit `downloadFile(offset:0,limit:0,synchronous:false)`
+  plus accepted `updateFile` and `cancelDownloadFile(onlyIfPending:true)`. Shared animated demand uses priority 2; static `.none`
+  prefetch remains at priority 1. VOD range ownership is deliberately separate: different offset/limit would supersede a TD request.
+- Five Swift files formatted together. Final build `.build/logs/xcodebuild/build-Debug-20261002-185806-60504-4167.log` passes in
+  6s, zero warnings. Initial DEBUG-only actor-isolation compile failure was corrected before this build. Audit Simulator
+  `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone 17 Pro / iOS 26.5, installed source `09fa140`, PID `60930`:
+  `-media-probe-animation-demand`, `-media-probe-animation-authority` and `-ui-probe-chat-restoration-state` all pass. Results:
+  `.build/ui-probe-evidence/astra-a06-primary`. Parent and independent delta reviews completed, including the terminal-race repair.
+- Demand tests run actual production pool/request code with isolated suspended transport and notifications: duplicate visible
+  owners, deinit, cancelled prefetch, pending start reuse, delayed cancel/reacquire, queued completion/failure, stale initial reply,
+  client replacement, pre-start cancellation, completed cache and explicit retry. No server calls or user stores. Actual three-view
+  decode callbacks/TDLib scheduler, nonanimated downloads and cross-arbitration with VOD ranges are not established by these probes.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -880,12 +904,13 @@ is imported. This source pass does not prove every content's real rendering/acti
   A31 `b7de6ee` has poll-attempt/deadline ownership proof; no server votes or delayed live RPC proof.
   A15a navigation joins pass through `d34eeb3`; A30b2 history/import helpers `6aa7ce4` and Root A23a `e1d295e` pass bounded probes.
   A05a/b and A15b1 have bounded source/transport/native proofs; shared production history revisions pass at `da59789`.
-  Voice background A15b2, Chat/secondary-route A30b2, remaining A23, text A10/A25 and other queued findings remain open.
+  A06 shared animated demand has bounded transport proof at `09fa140`. Voice background A15b2, Chat/secondary-route A30b2,
+  remaining A23, text A10/A25 and other queued findings remain open.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `da59789`, including A05a/b animation origins, A15b1 video lifecycle and A30b2 shared production revisions;
-  history/Chat/Root/poll/animation probes pass (PID `41056`). Production Main search/focus smoke belongs to `df9eb7a`.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-183613-37316-13873.log`.
+- Latest verified code: `09fa140`, adding shared animated-file demand to the `da59789` baseline. Demand/source/history probes pass
+  (PID `60930`); earlier Chat/Root/poll regression results remain at `da59789` (PID `41056`). Production Main search/focus smoke
+  belongs to `df9eb7a`. Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-185806-60504-4167.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
@@ -900,7 +925,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
 - Exact next slices: quiescent Chat activation with anchor/focus and controller import/modal/paste guards; voice A15b2.
-  Primary continues A06 shared download demand after A05a/b source-bound animation repairs. Verify the normal production timeline
+  A06 bounded animated demand is integrated; A08 timing is next for MediaCore. Verify the normal production timeline
   affected by history revisions before claiming restoration complete.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
   process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
