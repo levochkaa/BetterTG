@@ -133,7 +133,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A19 | P1 | `GalleryPictureInPictureCoordinator.presentRestoredGallery` retains messages/owner but rebuilds gallery with mutable shared `tdlib` only, omitting original `actionClient`, `sourceLocation` and `contextIsCurrent`; restore has no account/client guard, and dismissed PiP ownership survives context teardown | fixed in `d8ed16e` (worker `1ea2594`) — frozen account/client/chat/topic/ranges/delete authority, route callbacks and same-tab pagination, every-activation revocation, bounded exactly-once restoration. Isolated context and existing owner probes pass; actual system PiP and action transport remain unverified |
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | needs-fix — per-message/account reveal state, concealed snapshots/preview/AX and playback gating across single/album/reuse/fullscreen transitions; distinct from caption/text spoiler A10 |
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | needs-fix — secret photo/video/animation blur and hold-only presentation, captured-context open/expiry acknowledgment, release/cancel/background teardown and export/transition protection. Existing inline video/PiP/export rejection does not prove secret-media viewing semantics |
-| A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | needs-fix — preserve structural layout deltas without rewinding user scroll; invalidate obsolete automatic restoration by interaction/layout generation, distinguish explicit navigation, and verify prepend/edit/media resize/keyboard while dragging and overlapping snapshots. Self-sizing's separate fresh-scroll guard does not cover these paths |
+| A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | partial bounded repair — `6869382` one-shot geometry authority cancels obsolete automatic restoration after gestures, navigation and newer layout. Policy/Chat/composer probes and ordinary Saved scroll/latest smoke pass. Controlled overlapping diffable/rotation/keyboard/media-resize and prepend-during-drag pixel proof remain unverified |
 | A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a` use frozen update/read authority. Static-image `ba0e192` rejects foreign/unscoped file updates after main delivery. Auth, remaining subscribers/static-image origin propagation, same-epoch ordering and real multi-account RPC races remain open |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | fixed bounded semantic round trip — `a022017` codec and scoped bridges, `fb15c25` caret refresh exposed by first UIKit runtime. Edit/draft/restoration and typing probes pass; live IME/undo, clipboard and server round trips remain unverified. Separate from A10 display concealment |
@@ -1054,6 +1054,28 @@ is imported. This source pass does not prove every content's real rendering/acti
   source `26d5f48`, PID `94652`: `marked-model-feedback=true; UIKit-undo-redo=true`; restoration/text-spoiler regressions pass.
   This is programmatic UITextInput/undo proof, not a live software-keyboard, dictation, CJK suggestion or keyboard-shortcut test.
 
+### A22 delayed viewport authority — 2026-10-02
+
+- `6869382` binds automatic latest/anchor compensation to a one-shot geometry ticket. Structural snapshot, single/bulk reconfigure,
+  rotation, deferred self-sizing and reply-quote expansion consume only the newest current ticket. Capture and completion both
+  reject active tracking/drag/deceleration; gesture invalidation remains effective after scrolling ends. Explicit message/latest
+  navigation retires old automatic tickets. Revoked Chat ownership cannot restore an old viewport.
+- Quote expansion resolves the stable item ID after apply, not its captured index path. Independent inset/highlight changes retire
+  pending compensation; inset work caused by a completion's own synchronous layout stays in that compensation. Initial inset pinning
+  no longer overrides active scrolling. Existing message IDs, history/cursors, send transitions and A30 restored-viewport contract remain.
+- Reference: pinned pre-Liquid `TelegramUI/Sources/ChatHistoryListNode.swift` 4229–4238 stationary-item transactions;
+  `Display/Source/ListView.swift` 297–304 tracking state,2124–2194 deferred geometry,3180 tracking-aware inset repair.
+  No upstream UI infrastructure copied; no TDLib schema/API changes. Independent four-file source review found no introduced blocker.
+- All four changed Swift files formatted together; final `build-Debug-20261002-201821-1578-13580.log`: PASS8s, zero warnings.
+  Audit Simulator source `6869382`, PID `2570`: `-ui-probe-viewport-authority`, Chat state, composer restoration/entities pass.
+  Policy probe verifies stale/repeated ticket rejection, current scroll/context gates, 1,000 superseding revisions and fresh work after
+  invalidation. It does not exercise UICollectionView diffable completion timing or emulate a real drag.
+- Actual own Saved Messages opens, scrolls to earlier history, stays at that settled position across later observation and returns to
+  latest using its visible button; composer remains available. Screenshots and probe outputs: `.build/ui-probe-evidence/astra-a22-primary`.
+  The first chat screenshot caught the push transition; use the settled/after-scroll/after-idle/returned-latest captures for UI evidence.
+  No messages, drafts, account settings or links were changed. Controlled prepend/resize/rotation/keyboard races, programmatic-scroll
+  animation overlap and exact pixel-offset instrumentation remain unverified; this is not complete timeline parity.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -1099,7 +1121,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `26d5f48`: marked-input model feedback and actual UIKit undo/redo pass (PID `94652`), with restoration/spoiler regressions.
+- Latest verified code: `6869382`: viewport policy, Chat state and composer regressions pass (PID `2570`); ordinary Saved scroll/latest smoke passes.
+  `26d5f48`: marked-input model feedback and actual UIKit undo/redo pass (PID `94652`), with restoration/spoiler regressions.
   `fb15c25`: semantic composer, edit/restoration, text-spoiler and scoped-update regressions pass (PID `92214`).
   Static-image observer/source regression passes at `ba0e192` (PID `89171`).
   `e9b536b`: native inline animation, gallery-owner and PiP-context regressions pass (PIDs `83851`/`84406`/`84924`).
@@ -1107,7 +1130,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-200757-94069-19293.log`.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-201821-1578-13580.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
@@ -1121,7 +1144,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: A23 auth authority, A20 media concealment on the shared owner path, and A22 delayed viewport restoration.
+- Exact next slices: integrate/revalidate A23 auth authority and A20 media concealment on the shared owner path;
+  retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image origin/shared-demand gaps and Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
   process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
