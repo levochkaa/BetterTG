@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A08 animated-video timing and A10 text spoilers, then A09 inline animation and A20 media concealment.
+Active queue: A09 inline animation, remaining A23 delivery authority and A25 entity round trip, then A20 media concealment.
+A08 timing and A10 text spoilers now have integrated native/UIKit probes; A10's first runtime failure is fixed separately below.
 A30b2 now enables quiescent Chat foreground recovery with bounded real-chat smoke; A15b2 voice lifecycle has native isolated proof.
 A30a root lists, A30b1 composer-transfer foundation and A16/A17 video ownership retain their bounded proofs below;
 ForumTopics, Archive, already-open editors, active capture and full OS/server lifecycle coverage remain separate.
@@ -118,9 +119,9 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | fixed bounded source/transport — `128ada2` freezes requests and scopes delivery/decode; `6e5b287` requires originating clients through every animated consumer and custom-emoji fetch, clears reused thumbnails. Isolated transport/native/PiP regressions pass; real multi-account sticker playback unverified. A06 has its separate shared-demand repair |
 | A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | fixed bounded animated demand — `09fa140` shares account/client/file leases across TGS/WebP/WebM views and animated prefetch; last-owner cancellation/reacquisition and queued terminal updates pass isolated production-pool probes. Static `.none` prefetch and VOD-range arbitration remain separate; actual TDLib/view scheduling is unverified |
 | A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | fixed in `3917128`: native-free init, worker-isolated prepare/read/reset/deinit and setup/reuse fences; actual native-operation thread/lifecycle probe passed before and after integration |
-| A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | needs-fix: PTS/duration scheduling and decoder EOF, separately bounded cache |
+| A08 | P1 | FFmpeg animation indexes use capped 30 FPS and at most 600 estimated frames while decoder returns every source frame; 60 FPS and long animations never reach real EOF, variable-duration GIF timing is lost | fixed bounded timing — `863de36` uses native PTS/actual EOF, coalesced off-main bounded scan and first-frame fallback. Pinned iOS VFR/120/660-frame/metadata/cancellation probes and A07 regression pass; real media/performance remain unverified |
 | A09 | P1 | Apple-container `messageAnimation` routes to static `FileMediaPreviewView`; only fullscreen owns playback | needs-fix: account-scoped inline AVFoundation animation loop with visibility/reuse/cancel contracts |
-| A10 | P1 | `Utils/Text.swift` spoiler formatting only adds background color; `MessageTextView.configure` retains visible text/custom emoji and exposes unredacted text through accessibility | needs-fix — primary source check confirmed; add hidden/revealed text and overlay/AX contracts, distinct from the already implemented gallery-caption spoiler path |
+| A10 | P1 | `Utils/Text.swift` spoiler formatting only adds background color; `MessageTextView.configure` retains visible text/custom emoji and exposes unredacted text through accessibility | fixed bounded text concealment — `2bf7428` shares scoped body/album/AX reveal and concealed reply/summary projection; `10b23c5` repairs surrogate validation exposed by first runtime. UIKit glyph/AX/state probes pass; actual emoji/album/live UI and separate media A20 remain unverified |
 | A11 | P1 | `ChatView.viewDidDisappear` → `ChatBottomArea.cancelActiveRecordingGesture` → `ChatVM.cancelVoiceRecording` deletes the saved preview/WAV on Back because preview keeps `recordingVoiceNote == true`; permission loss uses the same teardown | fixed in `909215a` — preserve on teardown, wait for route-owned persistence and invalidate old UI intents; Simulator preview/trim Back→reopen→relaunch, active-recording Back and explicit Delete passed; live rights mutation/reply fixture remain unverified |
 | A12 | P1 | Voice and video coordinators derive outcome destination from the delivered message topic, but an all-messages draft owns `destination.topic == nil` with separate `sendTopic`; store lookups require exact route equality before and after enqueue registration. Both `loadOutcome` helpers also fall back to any draft outcome when the exact temporary-ID record is absent | fixed in `847b838` (worker `2ccdb9b`) — separate delivery key, unique candidate, route+delivery enqueue gates and exact temporary-ID journal consumption. Isolated real-store early/late, all-messages, wrong-ID, ambiguity and relaunch probe passed. Pre-registration crash retains unresolved ownership; automatic recovery remains open |
 | A13 | P1 | Voice and video coordinators read current active account after `NotificationCenter.publisher` defers delivery to main; an account switch between posting and delivery can attribute A's outcome/delete to B with colliding IDs | fixed in `c356513` (worker `1eb9d23`) — immutable accepted-update source through generated dispatcher; 15 outcome/delete subscribers migrated, including document cleanup; isolated production-transport probe passed. This does not fix callbacks dropped before publication, A12 correlation or A18 media streams |
@@ -920,6 +921,49 @@ is imported. This source pass does not prove every content's real rendering/acti
   It neither instantiates a real ChatVM nor emits OS audio notifications/server RPCs. Real microphone/interruption/process suspension,
   ChatVM's suspended network preflight and actual accepted send remain unverified; this does not close those runtime gaps.
 
+### A08 actual animation timeline — 2026-10-02
+
+- `863de36` (worker `25c412d`) replaces nominal capped FPS/count with native decoded PTS and actual EOF. Binary search selects
+  frames; missing/backward/duplicate timestamps fall back to the previous decoded end. The last decoded duration determines loop
+  end. Native non-EOF read errors no longer count as EOF. Existing pixel-read missing-PTS zero behavior is preserved.
+- Timing-only scan is coalesced by full path/inode/size/mtime through weak ownership, runs off-main, checks cancellation around
+  native reads, and publishes only a complete index. Bounds: 65,536 frames / 512KiB charged to existing asset cache, 10s between
+  native calls. One native call cannot be interrupted by that deadline. Last-waiter cancellation serializes native teardown and
+  restart; primary review added cancellation recheck at continuation registration and a deterministic regression for that race.
+  Failed/over-budget scans retain the first-frame fallback; pixel cache limits are unchanged. Device energy/latency remain unmeasured.
+- References: pinned current/pre `MediaPlayer/Sources/SoftwareVideoSource.swift` 213–227 and
+  `AnimatedStickerNode/Sources/VideoStickerFrameSource.swift` 343–351,409–420. This does not claim Telegram renders at uncapped
+  nominal 60FPS. TDLib animated-file demand/API is unchanged. Native EOF is not universal truncated-container integrity proof.
+- Primary 14-file integration SwiftFormat, build `.build/logs/xcodebuild/build-Debug-20261002-193037-75193-27184.log`: PASS16s,
+  zero warnings. Audit Simulator source `2bf7428`, PID `75703`: `-media-probe-animation-timing` passes real pinned-iOS decode
+  of VFR4-frame GIF, 120-frame60FPS and 660-frame22s WebM, nonzero origin, one frame and zero/under/over metadata duration;
+  actual last/first pixel frames, EOF wrap, bounded-index fallback, shared cancellation/restart and pre-registration cancellation.
+  A06 demand/authority pass. Separate launch source `10b23c5`, PID `78753`: A07 worker create/read/reset/destroy/reuse probe passes.
+- Proof: `.build/ui-probe-evidence/astra-a08-primary`; worker host-native FFmpeg9.0.2 evidence remains separately labelled in
+  `astra-a08-worker`. No real sticker feed/TDLib download/UI playback/performance claim; no user stores or server writes.
+
+### A10 text, caption and accessibility spoilers — 2026-10-02
+
+- `2bf7428` (worker `f5c69bd`) adds display-only concealment. Immutable account/client/chat/source-message and exact formatted
+  payload own cell-lifetime revelation; edit/reuse/source replacement invalidates callbacks. Hidden glyph/link/code/custom-emoji
+  ranges stay concealed, first tap reveals, second may activate. Non-actionable bold/italic no longer swallows a later link action.
+  Actual glyph hit testing excludes padding/status. Hidden custom emoji is not requested; generation checks fence old first frames.
+- Body and audio/document album captions share the reveal contract, with independent member states. Parent and text-view AX use
+  redacted labels; text-view value is explicitly empty. Reply/quote previews stay concealed while retaining navigation/expand.
+  Chat summaries redact only the formatted segment, preserving attachment prefixes. Draft/write values and global formatter unchanged.
+- The first integrated iOS probe failed on a split surrogate: `Range(NSRange,in:)` accepted an inner UTF-16 index. `10b23c5`
+  validates start/end scalar boundaries explicitly, rejects overflow and split pairs, retains valid combining-scalar ranges, and
+  fails malformed spoilers closed across nonempty text. Both split-start/end and valid full-emoji/combining cases now pass. The
+  initial failing result is retained; a warning-free build alone did not catch it.
+- References: pinned current/pre `ChatMessageTextBubbleContentNode.swift` 177–188,1202–1205 / 197–206,1119–1121;
+  `InteractiveTextNodeWithEntities.swift` 350; `ChatMessageReplyInfoNode.swift` 486,503,880–891 / 458,475,801. TDLib pinned
+  `FormattedText/TextEntity` uses UTF-16 ranges; source models and send contracts remain intact. A20 media concealment is separate.
+- Final two-file SwiftFormat + build `.build/logs/xcodebuild/build-Debug-20261002-193330-78095-31536.log`: PASS9s, zero warnings.
+  Audit Simulator source `10b23c5`, PID `78753`, `-ui-probe-text-spoilers`: PASS actual UIKit glyph layout/action dispatch,
+  unchanged reveal geometry, parent/child AX, reply/quote/summary, independent state/reuse/source gates and emoji admission.
+  Proof `.build/ui-probe-evidence/astra-a10-primary`; worker notes separate. Actual emoji decoding, full album layout and live
+  spoiler-message touch/VoiceOver smoke remain unverified. URL/clipboard actions were captured, not executed; no server writes.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -961,28 +1005,28 @@ is imported. This source pass does not prove every content's real rendering/acti
   A05a/b and A15b1 have bounded source/transport/native proofs; shared production history revisions pass at `da59789`.
   A06 shared animated demand has bounded transport proof at `09fa140`; A15b2 voice lifecycle passes at `fe5de21`.
   Quiescent Chat A30b2 is active at `494bf56`/`9495f0a` with bounded actual-chat smoke. Secondary routes, remaining A23,
-  text A10/A25 and other queued findings remain open.
+  A25 and other queued findings remain open. A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `9495f0a`, adding quiescent Chat controller restoration and voice lifecycle to the A06 baseline. Chat state,
-  composer foundation and voice lifecycle/finalization probes pass (PID `71481`); A06 demand/source also pass on combined `fe5de21`.
-  Actual Chat modal/background/Done restoration passes; earlier Root/poll proofs remain at `da59789` and Main search/focus at `df9eb7a`.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-192208-71024-31859.log`.
+- Latest verified code: `10b23c5`: A08 native timing, A10 UIKit spoilers and A07 worker regression pass (PIDs `75703`/`78753`).
+  A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
+  proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-193330-78095-31536.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
 - The protected auxiliary `astra-animation-worker/BetterTG` worktree produced integrated A04/A18/A19/A26/A30a/A30b1/terminal plans;
-  A30b2 controller/history and A23b Chat update-delivery fences are integrated; its A10 text-spoiler worker result awaits integration.
+  A30b2 controller/history, A23b Chat fences and A10 are integrated; A25 semantic entity round-trip planning is next there.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
-  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2; its A08 timing result awaits integration.
+  `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08; A09 inline animation is underway.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slices: integrate A08 native timing and A10 text spoilers, run their actual native/UIKit probes and affected regressions;
-  then A09 inline Apple-container animation and A20 media concealment. Retain Chat's untested nonempty composer/import/keyboard cases.
+- Exact next slices: A09 inline Apple-container animation, remaining A23 subscriber fences and A25 semantic entity round trip;
+  then A20 media concealment on the shared owner path. Retain Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
   process-death preservation are not established by static source. Preserve the bounded A15a proof and its failed initial fixture evidence.
   The full A30 transaction
