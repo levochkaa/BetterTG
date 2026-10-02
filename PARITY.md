@@ -97,7 +97,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 Active queue: A30g quiescent Members/Admins foreground recovery follows bounded A39 repair. At `72d74b0`, the integrated
 `982245f` navigation driver passes cold, loaded and same-PID foreground target checks with actual visible/centered cells.
-A30g source review confirms an open member list causes its parent profile and route to be removed during client replacement.
+A30g source review and actual same-PID basic-group smoke confirm an open member list loses its parent profile and route during client replacement.
 A40 removes concealed metadata warnings; A41 repairs the separately observed static-framework cleanup/build race.
 A38 stale shared-media admission has bounded source/native/actual-profile repair proof below. A36 selector presentation and A37
 post-foreground navigation overlap have fresh runtime evidence below. A21 secret-note scene-capture admission now has integrated native/UIKit
@@ -157,7 +157,8 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | fixed in `b0db39f` (worker `1a78906`) — shared effective capability, fresh appearance hydration and scoped rights updates; captured actor/account/client plus fresh `getChat`/`getChatMember` before each title/description write. Integrated 25-case policy and delayed-request probe passes; live profile permission/save behavior remains unverified |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | fixed in `9cdc6b0` — invalidate request identity before tab cancellation; success/error/cancellation may clear busy state or publish only after consuming their exact registration. Token regression passes A→B→A, obsolete cancellation, retry and duplicate delivery; actual suspended controller/RPC race remains unverified |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
-| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84`; folder flows `850ccf8`/`b923f19`; profile editor `1e072ca`; quiescent profile `c68c1c2` plus A38 `97ccea8`. Bounded native and same-PID foreground proof below; A39 explicit target navigation remains open. Active topic search/capture and full account/notification lifecycle remain unverified |
+| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84`; folder flows `850ccf8`/`b923f19`; profile editor `1e072ca`; quiescent profile `c68c1c2` plus A38 `97ccea8`. Bounded native and same-PID foreground proof below; A39 has bounded repair proof. A30g Members/Admins, active topic search/capture and full account/notification lifecycle remain open |
+| A30g | P1 | At `72d74b0`, Profile only retains itself while topmost; an open Members/Admins child keeps the old client and lacks restoration participation. Actual basic-group Members → Home → foreground drops both routes to Chat in the same PID | needs-fix — bounded quiescent member/admin route and exact-parent retention; transfer IDs/geometry only, read current permissions/membership, reject stale callbacks. Active tag editor and dispatched Save are separate |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background. `3983b48` removes ineffective synthetic Back/title tracking; native nil-item policy and actual Profile/Edit/Back pass, but Back remains circular. `1b89dbd` makes folder selector/order Done plain text; selector pixels/action and native gates pass. Native search islands and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
 | A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
@@ -1391,6 +1392,28 @@ is imported. This source pass does not prove every content's real rendering/acti
   No Telegram infrastructure copied. Repeated live races, newly arrived head messages, rich UI, rotation/Dynamic Type and
   system PiP remain separate limits.
 
+### A30g member/admin route recovery — 2026-10-03
+
+- Baseline `72d74b0` (documentation HEAD `59ca5a9`): profile topmost gate233–239 and removal954–982 discard the
+  profile suffix while its Members/Admins child is visible. The child retains an immutable old client and does not participate
+  in navigation restoration. This is distinct from the already-supported ordinary profile editor.
+- Actual audit Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone17Pro/iOS26.5, PID `30616`: existing basic group →
+  Profile → Members shows three rows at y116/189.333/262.667, each73.333pt. Home02:19:29 releases TDLib ownership02:19:30.327;
+  foreground02:23:52.455 restores it. Settled hierarchy and screenshot show Chat, with Members and Profile removed; PID stays30616.
+  Private pixels are under `.build/ui-probe-evidence/astra-a30g-baseline`. No tag/editor/save/send/delete/export action occurred;
+  normal chat-read side effects remain possible. idb supplies input/hierarchy; `simctl io screenshot` supplies pixels because the
+  idb screenshot backend is unavailable. The Simulator window was not activated or shut down.
+- Bounded repair contract: retain only a quiescent exact adjacent Profile/Members stack through same-account Ready; transfer
+  accepted member IDs, raw cursor and row geometry/anchor, never old TDLib member objects or action authority. Re-read current
+  availability and membership with bounded page demand; fence account/actor/client/attempt and late callbacks. Preserve raw
+  server order/pagination and fresh tag preflight. Active tag editor, Save uncertainty, modal and active gestures stay separate.
+- References: pinned current/pre `TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoMembers.swift`
+  136–190/136–188 and305–307/292–294 retains account-owned accepted state/loading/pages. TDLibKit `1.5.2-tdlib-1.8.66-022d6020`,
+  TDLib `022d6020`: `getBasicGroupFullInfo`, `getChatAdministrators`, `getSupergroupMembers`. No Telegram infrastructure copied.
+  Implementation/probe/after-fix runtime proof is pending.
+- Baseline documentation validation `build-Debug-20261003-022901-39675-31468.log`: PASS5s; complete log has zero warnings/errors.
+  No Swift change in this checkpoint.
+
 ### A39 explicit target navigation — 2026-10-03
 
 - `1b1429f` (worker `4fc6d02`) retires retained viewport intent when accepting explicit navigation, consults the current
@@ -1799,7 +1822,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   Next bounded slice A30g: retain quiescent Members/Admins and exact parent profile through client replacement, revalidate current
   membership/availability, preserve accepted cursor/anchor, and fence old callbacks. Active tag editor and Save uncertainty are separate.
   Source proof: profile topmost gate233–239 and removal954–982; member controller immutable client58+ lacks coordinator participation.
-  Current/pre `PeerInfoMembers.swift`136–190/136–188 and305–307/292–294; pinned TDLib member/admin/full-info APIs. No runtime proof yet.
+  Current/pre `PeerInfoMembers.swift`136–190/136–188 and305–307/292–294; pinned TDLib member/admin/full-info APIs.
+  Baseline same-PID Members foreground loss is runtime-confirmed above; after-fix proof is pending.
   Earlier actual PID `8251` identifies automatic anchor compensation interrupting explicit animation.
   Viewport/profile-restoration native probes at `17e3fb4` pass (PID `95662`) but did not cover this sequence.
   `b630844` completes A38/profile-restoration native checks (PID `39878`); production
@@ -1880,11 +1904,12 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: fix A39 mid-flight automatic anchor takeover proven by `8b8d149` PID `8251`. Keep explicit target authority
-  through actual settlement and estimated-size changes; fence competing capture/restore and inset compensation, preserve
-  animation and cancel on drag/new target/latest/source change. Repeat cold, loaded and same-PID foreground Files → Open in Chat
-  with target geometry/AX proof. Do not treat animation-end as proof of arrival. Existing history lookup and source/gesture/quote
-  contracts stay; sequential metadata waits remain a separate source concern, not this smoke's diagnosis.
+- Exact current slice: A30g quiescent Members/Admins restoration and exact-parent retention, with current-client permission/
+  membership revalidation, raw cursor and member-ID/pixel anchor. Same-PID baseline failure is confirmed; integrate only reviewed,
+  warning-free worker code, run native regressions and repeat actual Members/Admins foreground/Back flows. Next candidate is
+  active ForumTopics search recovery, which still has both controller and global presented-search restoration gates.
+  A39 mid-flight takeover and estimated-height convergence now pass bounded cold/loaded/foreground target checks at `72d74b0`;
+  live quote/album/rotation/user-interruption coverage and sequential metadata waits remain separate limits.
   A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
   A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate.
   A36 child-publisher and actual deleted-title proofs pass; modal fixture correction passes combined probes. A37 complete
