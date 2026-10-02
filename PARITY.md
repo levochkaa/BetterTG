@@ -134,7 +134,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | needs-fix — per-message/account reveal state, concealed snapshots/preview/AX and playback gating across single/album/reuse/fullscreen transitions; distinct from caption/text spoiler A10 |
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | needs-fix — secret photo/video/animation blur and hold-only presentation, captured-context open/expiry acknowledgment, release/cancel/background teardown and export/transition protection. Existing inline video/PiP/export rejection does not prove secret-media viewing semantics |
 | A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | needs-fix — preserve structural layout deltas without rewinding user scroll; invalidate obsolete automatic restoration by interaction/layout generation, distinguish explicit navigation, and verify prepend/edit/media resize/keyboard while dragging and overlapping snapshots. Self-sizing's separate fresh-scroll guard does not cover these paths |
-| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e` freezes update/read authority; Chat `df9eb7a` fences 20 typed subscribers and five asynchronous hydration paths. Bounded probes pass. Remaining subscribers, same-epoch ordering and real multi-account RPC races remain open |
+| A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a` use frozen update/read authority. Eight topic subscriptions and queued read starts are fenced; scoped actual-topic transport regression passes. Auth/static-image and remaining subscribers, same-epoch ordering and real multi-account RPC races remain open |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | needs-fix — semantic attributed-string round trip with UTF-16 ranges, independent formatting and entity payloads; separate from spoiler concealment A10 |
 | A26 | P1 | Real own-draft reinstall at `d8ed16e` relocates the app data container: `VoiceNoteDraftStore.loadAllDrafts` rejects persisted absolute URLs and deletes the manifest although its Ogg remains. `VideoNoteFileStore.loadAllManifests` has the same absolute-path filter for MP4/thumbnail | fixed in `8519b33` (worker `2e28fad`) — relative managed filenames, strict legacy container rebasing, retained malformed/missing manifests and migration-write fallback. Isolated voice/video relocation/outcome probes and own voice recovery→reinstall→Discard pass; DEBUG fixture correction `5a87726` keeps production validation strict |
@@ -964,6 +964,24 @@ is imported. This source pass does not prove every content's real rendering/acti
   Proof `.build/ui-probe-evidence/astra-a10-primary`; worker notes separate. Actual emoji decoding, full album layout and live
   spoiler-message touch/VoiceOver smoke remain unverified. URL/clipboard actions were captured, not executed; no server writes.
 
+### A23c forum-topic delivery — 2026-10-02
+
+- `78f0f8a` routes all eight ForumTopicsVM typed subscriptions through the existing `ChatUpdateDeliveryAuthority`. Queued old
+  account/client updates cannot mutate current same-ID topic info or start a current-client refresh; unscoped events are rejected.
+  Captured chat/topic and current-owner gates remain. Pagination/topic read starts now recheck context before issuing the captured
+  RPC; existing post-await generation/context guards remain. No UI, cursor semantics, query order or storage format changes.
+- References: current/pre `ChatListUI/Sources/Node/ChatListNode.swift` immutable account context at 1216/1213 and
+  `chatListViewForLocation(...account:context.account...)` at 1934/1939. TDLib pinned `ForumTopicInfo` and generated
+  updateForumTopicInfo/updateForumTopic/message content/edit/delete/send models, `getForumTopics/getForumTopic`.
+- Two Swift files formatted together; `.build/logs/xcodebuild/build-Debug-20261002-193919-80905-8514.log`: PASS8s, zero warnings.
+  Audit Simulator source `78f0f8a`, PID `81496`: expanded `-ui-probe-chat-update-delivery` passes actual generated topic-info
+  dispatcher plus production observer admission for queued A→B, colliding chat/topic IDs, replacement client, missing source,
+  another chat and retired owner. Root authority, text spoilers and Chat restoration-state regressions pass in
+  `.build/ui-probe-evidence/astra-a23-forum-primary`.
+- Probe isolates subscribers/owners; it does not construct ForumTopicsVM, send server mutations or switch real accounts.
+  Actual topic-list UI and delayed server RPC ordering are unverified. Auth/static-image subscribers, same-epoch read ordering
+  and A30 ForumTopics route replacement remain separate work.
+
 ## Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
@@ -1008,10 +1026,11 @@ is imported. This source pass does not prove every content's real rendering/acti
   A25 and other queued findings remain open. A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `10b23c5`: A08 native timing, A10 UIKit spoilers and A07 worker regression pass (PIDs `75703`/`78753`).
+- Latest verified code: `78f0f8a`: A23 forum-topic scoped delivery plus Root/Chat-state/spoiler regressions pass (PID `81496`).
+  A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-193330-78095-31536.log`.
+  Warning-free build: `.build/logs/xcodebuild/build-Debug-20261002-193919-80905-8514.log`.
   Production/dependency scan over `project.yml`, `BetterTG`,
   `BetterTGNotificationService` and `Packages` has no VLC, SwiftUI/hosting/representable or Liquid Glass markers.
   The prompt/document delta received an independent read-only review. Neither clean build nor this marker scan closes the audit.
