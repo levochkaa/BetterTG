@@ -1451,15 +1451,25 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
-    func invalidateForContextChange(completion: @escaping () -> Void) {
+    func invalidateForContextChange(revokePlaybackContext: Bool = true, completion: @escaping () -> Void) {
         cancelExport()
         cancelForward()
         cancelDelete()
         cancelOpenInChat()
         contextWasInvalidated = true
         if let playbackContext {
-            playbackContext.revoke()
-            pictureInPictureCoordinator.contextWasRevoked(playbackContext)
+            if revokePlaybackContext { playbackContext.revoke() }
+            pictureInPictureCoordinator.contextWasRevoked(playbackContext, revokeContext: revokePlaybackContext)
+        }
+        // A content refresh must not leave an old still/caption visible during dismissal.
+        if !revokePlaybackContext {
+            collectionView.visibleCells.compactMap { $0 as? MediaGalleryCell }.forEach { $0.prepareForReuse() }
+            captionView.isHidden = true
+            for owner in videoPlaybackOwners.values {
+                owner.onReturnToInline = nil
+                owner.setPlaybackVisible(false)
+                owner.invalidate()
+            }
         }
         contextInvalidationCompletion = completion
         onRequestMoreMessages = nil
@@ -5931,9 +5941,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         if activeOwner === owner, let request = restoreRequest { complete(request, result: false) }
     }
 
-    func contextWasRevoked(_ context: MediaGalleryPlaybackContext) {
+    func contextWasRevoked(_ context: MediaGalleryPlaybackContext, revokeContext: Bool = true) {
         guard let owner = activeOwner, owner.playbackContext.hasSameIdentity(as: context) else { return }
-        revoke(owner: owner)
+        revoke(owner: owner, revokeContext: revokeContext)
     }
 
     private func beginRestore(
@@ -5978,10 +5988,10 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         revoke(owner: owner)
     }
 
-    private func revoke(owner: GalleryVideoPlaybackOwner) {
+    private func revoke(owner: GalleryVideoPlaybackOwner, revokeContext: Bool = true) {
         guard activeOwner === owner, !contextWasInvalidated else { return }
         contextWasInvalidated = true
-        owner.playbackContext.revoke()
+        if revokeContext { owner.playbackContext.revoke() }
         restorationMessages.removeAll()
         restorationSnapshot = nil
         if let request = restoreRequest { complete(request, result: false) }

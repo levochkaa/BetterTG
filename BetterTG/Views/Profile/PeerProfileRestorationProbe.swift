@@ -155,6 +155,7 @@ import UIKit
     }
 
     static func runIfRequested() {
+        PeerProfileSharedRefreshProbe.runIfRequested()
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-profile-restoration") else { return }
         Task {
             let result: String
@@ -164,11 +165,13 @@ import UIKit
                 try verifyPageSettlement()
                 try verifyIdentity()
                 try await verifyCoordinator()
+                try await PeerProfileSharedRefreshProbe.verify()
                 result = "Profile restoration probe passed: production-seed/tab/page/cursor/metadata=true; "
                     + "account/actor/chat/topic-isolation=true; success/error-settled/cancel-stale-resume=true; "
                     + "actual-UICollectionView/stable-message/header-resize/prepend/empty/drag/layout=true; "
                     + "production-coordinator/metadata/identity/owner-membership/repeated-rollover=true; "
                     + "late-metadata/replacement/child/detached-owner/predispatch-cancel=fenced; "
+                    + PeerProfileSharedRefreshProbe.coverage + "; "
                     + "navigation-entries=value-only; actual-PeerProfile/ChatVM/TDLib/foreground=unverified; "
                     + "server-reads/writes=0"
             } catch {

@@ -129,8 +129,10 @@ ClientRestorableNavigationEntry {
     private var permissionTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var historyRequest = PeerProfileHistoryRequest()
-    private var messageRefreshTasks = [Int64: Task<Void, Never>]()
-    private var messageRefreshGenerations = [Int64: UUID]()
+    private var sharedMessageRefresh: PeerProfileSharedMessageRefresh?
+    private var sharedSnapshotScheduled = false
+    private var sharedViewportGeneration = UInt64.zero
+    private var sharedCellReadiness = [Int64: Bool]()
     private var oldestMessageID: Int64?
     private var hasMore = true
     private var historyError: String?
@@ -291,7 +293,6 @@ ClientRestorableNavigationEntry {
         chatMetadataTask?.cancel()
         permissionTask?.cancel()
         historyTask?.cancel()
-        messageRefreshTasks.values.forEach { $0.cancel() }
     }
 
     override func viewDidLoad() {
@@ -301,6 +302,7 @@ ClientRestorableNavigationEntry {
         configureHeader()
         configureCollectionView()
         configureDataSource()
+        configureSharedMessageRefresh()
         observeAccount()
         loadProfileInfo()
         if restoration != nil {
@@ -326,6 +328,7 @@ ClientRestorableNavigationEntry {
             handleAccountChange()
             return
         }
+        resumeSharedHistoryIfNeeded()
         // Gallery selection grants only the members actually opened in this profile route.
         for cell in collectionView.visibleCells.compactMap({ $0 as? SharedMediaGridCell }) {
             cell.refreshRevealState()
@@ -335,6 +338,7 @@ ClientRestorableNavigationEntry {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        sharedMessageRefresh?.stop()
         metadataPreparation.cancel()
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
@@ -374,8 +378,10 @@ ClientRestorableNavigationEntry {
     }
 
     func scrollViewWillBeginDragging(_: UIScrollView) {
+        sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
         restoredViewport = nil
+        sharedMessageRefresh?.start()
         if hadPendingViewport, restoration?.shouldResumePage == true { loadMore() }
     }
 
@@ -415,7 +421,7 @@ ClientRestorableNavigationEntry {
                 avatarGalleryRequestID = nil
                 avatarHistoryRequestID = nil
                 avatarReconciliationRequestID = nil
-                messageRefreshTasks.values.forEach { $0.cancel() }
+                sharedMessageRefresh?.stop()
                 cancellables.removeAll()
                 avatarView.prepareForReuse()
                 collectionView.visibleCells.compactMap { $0 as? SharedMediaGridCell }.forEach { $0.pauseLoading() }
@@ -431,11 +437,14 @@ ClientRestorableNavigationEntry {
         guard let id = dataSource.itemIdentifier(for: indexPath),
               let message = messagesByID[id]
         else { return }
-        if currentSharedTab == .media {
-            openMediaGallery(selectedMessage: message)
-            return
+        let performed = sharedMessageRefresh?.perform(id: id) {
+            if currentSharedTab == .media {
+                openMediaGallery(selectedMessage: message)
+            } else {
+                onOpenMessage?(message.id)
+            }
         }
-        onOpenMessage?(message.id)
+        if performed != true { sharedMessageRefresh?.retry() }
     }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -466,6 +475,7 @@ ClientRestorableNavigationEntry {
         guard restoredSnapshotApplied, profileHeaderView.bounds.height > 0, let viewport = restoredViewport,
               viewport.restore(collectionView, indexPath: { dataSource.indexPath(for: $0) }) else { return }
         restoredViewport = nil
+        sharedMessageRefresh?.start()
         if restoration?.shouldResumePage == true { loadMore() }
     }
 
@@ -659,6 +669,10 @@ ClientRestorableNavigationEntry {
             forCellWithReuseIdentifier: SharedMediaGridCell.reuseIdentifier,
         )
         collectionView.register(SharedMediaRowCell.self, forCellWithReuseIdentifier: SharedMediaRowCell.reuseIdentifier)
+        collectionView.register(
+            SharedMediaPendingCell.self,
+            forCellWithReuseIdentifier: SharedMediaPendingCell.reuseIdentifier,
+        )
         view.addSubview(collectionView)
         collectionView.addSubview(profileHeaderView)
         NSLayoutConstraint.activate([
@@ -736,6 +750,21 @@ ClientRestorableNavigationEntry {
             collectionView: collectionView,
         ) { [weak self] collectionView, indexPath, id in
             guard let self, let message = messagesByID[id] else { return UICollectionViewCell() }
+            guard sharedMessageRefresh?.allows(id) == true else {
+                let state = sharedMessageRefresh?.state(for: id) ?? .loading
+                if currentSharedTab != .media {
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: SharedMediaRowCell.reuseIdentifier, for: indexPath,
+                    ) as? SharedMediaRowCell
+                    cell?.configurePending(state: state)
+                    return cell ?? UICollectionViewCell()
+                }
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SharedMediaPendingCell.reuseIdentifier, for: indexPath,
+                ) as? SharedMediaPendingCell
+                cell?.configure(state: state)
+                return cell ?? UICollectionViewCell()
+            }
             if currentSharedTab == .media {
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SharedMediaGridCell.reuseIdentifier,
@@ -759,9 +788,11 @@ ClientRestorableNavigationEntry {
 
     private func openMediaGallery(selectedMessage: Message) {
         guard contextIsCurrent, presentedViewController == nil,
+              sharedMessageRefresh?.allows(selectedMessage.id) == true,
               let mediaPlaybackContext, mediaPlaybackContext.isCurrent else { return }
         let messages = sortedSharedMessages.filter { message in
-            switch message.content {
+            guard sharedMessageRefresh?.allows(message.id) == true else { return false }
+            return switch message.content {
             case .messagePhoto, .messageVideo:
                 true
             default:
@@ -807,7 +838,8 @@ ClientRestorableNavigationEntry {
         gallery.onGalleryRestored = { [weak self] restoredGallery in
             guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
             activeMediaGallery = restoredGallery
-            restoredGallery.updateMessages(sortedSharedMessages)
+            restoredGallery
+                .updateMessages(sortedSharedMessages.filter { self.sharedMessageRefresh?.allows($0.id) == true })
             restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
         }
         activeMediaGallery = gallery
@@ -815,13 +847,13 @@ ClientRestorableNavigationEntry {
     }
 
     private func mediaTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
-        guard contextIsCurrent, let message = messagesByID[messageID],
+        guard contextIsCurrent, sharedMessageRefresh?.allows(messageID) == true, let message = messagesByID[messageID],
               let indexPath = dataSource.indexPath(for: messageID),
               let cell = collectionView.cellForItem(at: indexPath) as? SharedMediaGridCell
         else { return nil }
         cell.refreshRevealState()
         return cell.transitionTarget(for: messageID) { [weak self, weak cell] in
-            guard let self, let cell, contextIsCurrent,
+            guard let self, let cell, contextIsCurrent, sharedMessageRefresh?.allows(messageID) == true,
                   let currentIndexPath = dataSource.indexPath(for: messageID),
                   let current = messagesByID[messageID],
                   MediaRevealSession.Key(message: current) == MediaRevealSession.Key(message: message)
@@ -847,6 +879,16 @@ ClientRestorableNavigationEntry {
                 guard let self else { return }
                 restorationIdentity.readySource = source
                 if source == nil { metadataPreparation.cancel() }
+                if source == restorationIdentity.origin {
+                    if sharedMessageRefresh == nil { configureSharedMessageRefresh() }
+                    resumeSharedHistoryIfNeeded()
+                } else {
+                    sharedMessageRefresh?.stop()
+                    sharedMessageRefresh = nil
+                    historyTask?.cancel()
+                    historyTask = nil
+                    revokeSharedMessages(Set(messagesByID.keys))
+                }
                 retryClientRestoration()
             }
             .store(in: &cancellables)
@@ -890,38 +932,23 @@ ClientRestorableNavigationEntry {
         nc.publisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] update in
             self?.handleSupergroupFullInfoUpdate(update)
         }
-        nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
-            self?.refreshSharedMessage(id: update.messageId, chatID: update.chatId)
+        nc.scopedPublisher(&cancellables, for: .updateMessageContent) { [weak self] event in
+            self?.sharedMessageRefresh?.invalidate(
+                id: event.value.messageId,
+                chatID: event.value.chatId,
+                source: event.source,
+            )
         }
-        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
-            self?.refreshSharedMessage(id: update.messageId, chatID: update.chatId)
+        nc.scopedPublisher(&cancellables, for: .updateMessageEdited) { [weak self] event in
+            self?.sharedMessageRefresh?.invalidate(
+                id: event.value.messageId,
+                chatID: event.value.chatId,
+                source: event.source,
+            )
         }
-        TDLib.shared
-            .deleteMessageUpdates
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] update in
-                guard let self,
-                      contextIsCurrent,
-                      !update.fromCache,
-                      update.isPermanent,
-                      update.chatId == customChat.id
-                else { return }
-                let deletedIDs = Set(update.messageIds)
-                let previousCount = messagesByID.count
-                messagesByID = messagesByID.filter { !deletedIDs.contains($0.key) }
-                guard messagesByID.count != previousCount else { return }
-                if let sharedTotalMessageCount {
-                    self.sharedTotalMessageCount = max(
-                        messagesByID.count,
-                        sharedTotalMessageCount - (previousCount - messagesByID.count),
-                    )
-                }
-                if let oldestMessageID, deletedIDs.contains(oldestMessageID) {
-                    self.oldestMessageID = sortedSharedMessages.last?.id
-                }
-                applySnapshot()
-            }
-            .store(in: &cancellables)
+        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
+            self?.sharedMessageRefresh?.delete(event.value, source: event.source)
+        }
     }
 
     private func handleAccountChange() {
@@ -1328,45 +1355,81 @@ ClientRestorableNavigationEntry {
         managementActionStack.isHidden = managementActionStack.arrangedSubviews.allSatisfy(\.isHidden)
     }
 
-    private func refreshSharedMessage(id: Int64, chatID: Int64) {
-        guard contextIsCurrent,
-              chatID == customChat.id,
-              messagesByID[id] != nil
-        else { return }
-        messageRefreshTasks[id]?.cancel()
-        let generation = UUID()
-        messageRefreshGenerations[id] = generation
-        let requestedTab = currentSharedTab
-        messageRefreshTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let message = try await client.getMessage(chatId: customChat.id, messageId: id)
-                guard messageRefreshGenerations[id] == generation else { return }
-                guard !Task.isCancelled,
-                      contextIsCurrent,
-                      currentSharedTab == requestedTab
-                else {
-                    finishMessageRefresh(id: id, generation: generation)
-                    return
+    private func configureSharedMessageRefresh() {
+        sharedMessageRefresh?.stop()
+        let source = restorationIdentity.origin
+        let tab = currentSharedTab
+        let client = client
+        let chatID = customChat.id
+        let refresh = PeerProfileSharedMessageRefresh(
+            source: source,
+            location: ChatLocation(accountID: accountID, chatID: chatID, clientID: client.id, topic: topic),
+            tab: tab, seedIDs: sortedSharedMessages.map(\.id),
+            visibleIDs: [restoredViewport?.messageID].compactMap(\.self),
+            accepts: { [weak self] in
+                guard let self else { return false }
+                return contextIsCurrent && restorationIdentity.readySource == source
+                    && TDLib.shared.activeAccount?.userID == accountUserID && currentSharedTab == tab
+                    && chatListActionOwnerIsAttached
+            },
+            canStart: { [weak self] in self?.restoredViewport == nil },
+            read: { try await client.getMessage(chatId: chatID, messageId: $0) },
+        )
+        refresh.onChange = { [weak self, weak refresh] change in
+            guard let self, let refresh, sharedMessageRefresh === refresh else { return }
+            switch change {
+            case .quarantine(let ids): revokeSharedMessages(ids)
+            case .message(let message): messagesByID[message.id] = message
+            case .remove(let id):
+                if messagesByID.removeValue(forKey: id) != nil, let total = sharedTotalMessageCount {
+                    sharedTotalMessageCount = max(messagesByID.count, total - 1)
                 }
-                messagesByID[id] =
-                    if let topic, message.topicId != topic {
-                        nil
-                    } else {
-                        message
-                    }
-                finishMessageRefresh(id: id, generation: generation)
-                applySnapshot()
-            } catch {
-                finishMessageRefresh(id: id, generation: generation)
+            case .retry: break
             }
+            scheduleSharedSnapshot()
         }
+        sharedMessageRefresh = refresh
     }
 
-    private func finishMessageRefresh(id: Int64, generation: UUID) {
-        guard messageRefreshGenerations[id] == generation else { return }
-        messageRefreshGenerations[id] = nil
-        messageRefreshTasks[id] = nil
+    private func resumeSharedHistoryIfNeeded() {
+        sharedMessageRefresh?.resume(
+            needsPage: messagesByID.isEmpty || historyRequest.needsResume,
+            hasError: historyError != nil,
+            loadPage: { loadMore() },
+        )
+    }
+
+    private func revokeSharedMessages(_ ids: Set<Int64>) {
+        guard !ids.isEmpty else { return }
+        mediaRevealSession?.revoke(messageIDs: ids)
+        // Revoked permits cannot escape through retained PiP or a transition snapshot.
+        if let mediaPlaybackContext {
+            GalleryPictureInPictureCoordinator.shared.contextWasRevoked(mediaPlaybackContext, revokeContext: false)
+        }
+        if let gallery = activeMediaGallery {
+            activeMediaGallery = nil
+            gallery.invalidateForContextChange(revokePlaybackContext: false, completion: {})
+        }
+        for path in collectionView.indexPathsForVisibleItems {
+            guard let id = dataSource.itemIdentifier(for: path), ids.contains(id),
+                  let cell = collectionView.cellForItem(at: path) else { continue }
+            cell.prepareForReuse()
+            cell.contentView.isHidden = true
+            cell.accessibilityElementsHidden = true
+            cell.accessibilityLabel = "Loading message…"
+        }
+        scheduleSharedSnapshot()
+    }
+
+    private func scheduleSharedSnapshot() {
+        guard !sharedSnapshotScheduled else { return }
+        sharedSnapshotScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            sharedSnapshotScheduled = false
+            guard !clientOwnerRetired, isViewLoaded else { return }
+            applySnapshot(animated: false)
+        }
     }
 
     private func loadProfileInfo() {
@@ -1421,13 +1484,22 @@ ClientRestorableNavigationEntry {
     }
 
     private func loadMore() {
-        guard restoredViewport == nil, historyTask == nil, hasMore, contextIsCurrent else { return }
+        guard restoredViewport == nil, historyTask == nil, hasMore, contextIsCurrent,
+              let refresh = sharedMessageRefresh, let readToken = refresh.beginPage() else { return }
         let fromMessageID = oldestMessageID ?? 0
         let requestedTab = currentSharedTab
         let requestID = historyRequest.begin()
         historyError = nil
         historyTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                refresh.finishPage()
+                return
+            }
+            guard !Task.isCancelled, refresh.canRead, sharedMessageRefresh === refresh else {
+                if historyRequest.finish(requestID) { historyTask = nil }
+                refresh.finishPage()
+                return
+            }
             do {
                 let result = try await client.searchChatMessages(
                     chatId: customChat.id,
@@ -1440,18 +1512,19 @@ ClientRestorableNavigationEntry {
                     topicId: topic,
                 )
                 guard !Task.isCancelled,
-                      contextIsCurrent,
-                      currentSharedTab == requestedTab
+                      contextIsCurrent, refresh.canRead,
+                      currentSharedTab == requestedTab, sharedMessageRefresh === refresh
                 else {
-                    if historyRequest.finish(requestID) { historyTask = nil }
+                    if historyRequest.finish(requestID) {
+                        historyTask = nil
+                        refresh.finishPage()
+                    }
                     return
                 }
                 guard historyRequest.finish(requestID, settled: true) else { return }
                 let messages = result.messages
                 let nextCursor = messages.last?.id
-                for message in messages {
-                    messagesByID[message.id] = message
-                }
+                refresh.acceptPage(messages, token: readToken).install(into: &messagesByID)
                 sharedTotalMessageCount = max(messagesByID.count, result.totalCount)
                 oldestMessageID = nextCursor
                 hasMore = !messages.isEmpty && (fromMessageID == 0 || nextCursor != fromMessageID)
@@ -1460,17 +1533,20 @@ ClientRestorableNavigationEntry {
                 applySnapshot()
             } catch is CancellationError {
                 guard historyRequest.finish(requestID) else { return }
+                refresh.finishPage()
                 historyTask = nil
-                guard contextIsCurrent, currentSharedTab == requestedTab else { return }
+                guard contextIsCurrent, currentSharedTab == requestedTab,
+                      sharedMessageRefresh === refresh else { return }
                 applySnapshot()
             } catch {
                 guard historyRequest.finish(
                     requestID,
-                    settled: !Task.isCancelled && contextIsCurrent && currentSharedTab == requestedTab,
+                    settled: !Task.isCancelled && refresh.canRead && sharedMessageRefresh === refresh,
                 )
                 else { return }
+                refresh.finishPage()
                 historyTask = nil
-                guard !Task.isCancelled, contextIsCurrent, currentSharedTab == requestedTab else { return }
+                guard !Task.isCancelled, refresh.canRead, sharedMessageRefresh === refresh else { return }
                 historyError = "Couldn't load shared \(requestedTab.title.lowercased())."
                 activeMediaGallery?.allowMoreMessagesRetry()
                 applySnapshot()
@@ -1484,17 +1560,37 @@ ClientRestorableNavigationEntry {
     private func applySnapshot(animated: Bool = true, completion: (() -> Void)? = nil) {
         let messages = sortedSharedMessages
         // Revoke accepted same-ID revisions before either grid cells or the gallery can use old pixels.
-        mediaRevealSession?.reconcile(messages)
+        let admitted = messages.filter { sharedMessageRefresh?.allows($0.id) == true }
+        mediaRevealSession?.reconcile(admitted)
         let existingIDs = Set(dataSource.snapshot().itemIdentifiers)
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.messages])
         snapshot.appendItems(messages.map(\.id))
-        if currentSharedTab == .media {
-            snapshot.reconfigureItems(messages.map(\.id).filter(existingIDs.contains))
+        let readiness = Dictionary(uniqueKeysWithValues: messages.map { (
+            $0.id,
+            sharedMessageRefresh?.allows($0.id) == true,
+        ) })
+        let existing = messages.map(\.id).filter(existingIDs.contains)
+        let changedKinds = currentSharedTab == .media
+            ? existing.filter { sharedCellReadiness[$0] != readiness[$0] }
+            : []
+        snapshot.reloadItems(changedKinds)
+        snapshot.reconfigureItems(existing.filter { !changedKinds.contains($0) })
+        sharedCellReadiness = readiness
+        let viewport = restoredViewport == nil
+            ? PeerProfileViewport.capture(collectionView, messageID: { dataSource.itemIdentifier(for: $0) })
+            : nil
+        sharedViewportGeneration &+= 1
+        let generation = sharedViewportGeneration
+        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+            guard let self, !clientOwnerRetired else { return }
+            if sharedViewportGeneration == generation, let viewport {
+                _ = viewport.restore(collectionView, indexPath: { self.dataSource.indexPath(for: $0) })
+            }
+            completion?()
         }
-        dataSource.apply(snapshot, animatingDifferences: animated, completion: completion)
         if currentSharedTab == .media {
-            activeMediaGallery?.updateMessages(messages)
+            activeMediaGallery?.updateMessages(admitted)
             activeMediaGallery?.updateTotalMessageCount(sharedTotalMessageCount)
         }
         guard messages.isEmpty else {
@@ -1830,18 +1926,18 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func tabChanged() {
+        sharedViewportGeneration &+= 1
         restoredViewport = nil
         historyRequest.invalidate()
         historyTask?.cancel()
         historyTask = nil
-        messageRefreshTasks.values.forEach { $0.cancel() }
-        messageRefreshTasks = [:]
-        messageRefreshGenerations = [:]
+        sharedMessageRefresh?.stop()
         messagesByID = [:]
         oldestMessageID = nil
         hasMore = true
         historyError = nil
         sharedTotalMessageCount = nil
+        configureSharedMessageRefresh()
         collectionView.collectionViewLayout.invalidateLayout()
         loadMore()
     }
@@ -1914,6 +2010,7 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func retrySharedMedia() {
+        sharedMessageRefresh?.retry()
         loadMore()
     }
 
@@ -1992,6 +2089,8 @@ final class SharedMediaGridCell: UICollectionViewCell {
     }
 
     func configure(message: Message, context: MediaGalleryPlaybackContext?, permit: MediaRevealPermit?) {
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
         subscriptions.removeAll()
         representedMessage = message
         self.context = context
@@ -2127,9 +2226,47 @@ final class SharedMediaGridCell: UICollectionViewCell {
     }
 }
 
+// MARK: - SharedMediaPendingCell
+
+/// Actual loading/error state. No seed text, thumbnail, file or reveal capability enters this cell.
+final class SharedMediaPendingCell: UICollectionViewCell {
+    static let reuseIdentifier = "SharedMediaPendingCell"
+
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.backgroundColor = .secondarySystemBackground
+        contentView.clipsToBounds = true
+        label.font = .preferredFont(forTextStyle: .footnote)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 2
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    func configure(state: PeerProfileSharedMessageRefresh.State) {
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
+        label.text = state == .retry ? "Couldn't refresh.\nTap to retry" : "Loading message…"
+        isAccessibilityElement = true
+        accessibilityLabel = label.text
+        accessibilityTraits = state == .retry ? .button : .staticText
+    }
+}
+
 // MARK: - SharedMediaRowCell
 
-private final class SharedMediaRowCell: UICollectionViewCell {
+final class SharedMediaRowCell: UICollectionViewCell {
     static let reuseIdentifier = "SharedMediaRowCell"
 
     private let iconView = UIImageView()
@@ -2167,7 +2304,20 @@ private final class SharedMediaRowCell: UICollectionViewCell {
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
+    func configurePending(state: PeerProfileSharedMessageRefresh.State) {
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
+        titleLabel.text = state == .retry ? "Couldn't refresh" : "Loading message…"
+        subtitleLabel.text = state == .retry ? "Tap to retry" : " "
+        iconView.image = UIImage(systemName: state == .retry ? "arrow.clockwise" : "clock")
+        isAccessibilityElement = true
+        accessibilityTraits = state == .retry ? .button : .staticText
+        accessibilityLabel = state == .retry ? "Couldn't refresh. Tap to retry" : "Loading message…"
+    }
+
     func configure(message: Message) {
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
         let presentation = MessageContentPresentation.make(message)
         titleLabel.text = presentation.summary
         subtitleLabel.text = profileDateString(message.date)

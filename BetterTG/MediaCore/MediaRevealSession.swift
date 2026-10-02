@@ -100,6 +100,15 @@ import UIKit
         return MediaRevealPermit(session: self, key: key)
     }
 
+    /// No revision event: the caller must synchronously clear its cells and
+    /// gallery/PiP owners before scheduling a read. Only fresh admission may reconcile again.
+    func revoke(messageIDs: Set<Int64>) {
+        for id in messageIDs {
+            latest[id] = nil
+            revealed[id] = nil
+        }
+    }
+
     @discardableResult func reveal(_ message: Message) -> Bool {
         guard let key = Key(message: message), current(key), !key.isSecret, key.hasSpoiler,
               revealed[key.messageID] != key else { return false }
