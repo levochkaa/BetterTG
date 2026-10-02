@@ -967,6 +967,9 @@ private enum PeerProfileMemberTagError: LocalizedError {
                 #if DEBUG
                     recordEditorLayout(phase: "state")
                     DispatchQueue.main.async { [weak self] in self?.recordEditorLayout(phase: "after-state") }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        self?.recordEditorLayout(phase: "settled-state")
+                    }
                 #endif
             }
             .store(in: &cancellables)
