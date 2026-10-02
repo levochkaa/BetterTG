@@ -99,9 +99,6 @@
         }
 
         static func runDebugProbeIfRequested() {
-            ForwardForumTopicsSnapshotProbe.runIfRequested()
-            ForumTopicsUpdatesProbe.runIfRequested()
-            ForumTopicsSearchRenewalProbe.runIfRequested()
             if ProcessInfo.processInfo.arguments.contains("-ui-probe-forum-snapshot") {
                 Task { @MainActor in
                     let result: String
@@ -445,6 +442,34 @@
             gate.completeApply(gate.beginApply())
             gate.cancel()
             try require(gate.takeForLayout(usable: true) == nil, "user drag failed to cancel pending restore")
+        }
+
+        private static func topic(id: Int, name: String = "Swift") -> ForumTopic {
+            ForumTopic(
+                draftMessage: nil,
+                info: .init(
+                    chatId: 7,
+                    creationDate: 1,
+                    creatorId: .messageSenderUser(.init(userId: 1)),
+                    forumTopicId: id,
+                    icon: .init(color: 0x4A9EF1, customEmojiId: 0),
+                    isClosed: false,
+                    isGeneral: false,
+                    isHidden: false,
+                    isNameImplicit: false,
+                    isOutgoing: false,
+                    name: name,
+                ),
+                isPinned: false, lastMessage: nil, lastReadInboxMessageId: 0, lastReadOutboxMessageId: 0,
+                notificationSettings: .init(
+                    disableMentionNotifications: false, disablePinnedMessageNotifications: false, muteFor: 0,
+                    muteStories: false, showPreview: true, showStoryPoster: true, soundId: 0, storySoundId: 0,
+                    useDefaultDisableMentionNotifications: true, useDefaultDisablePinnedMessageNotifications: true,
+                    useDefaultMuteFor: true, useDefaultMuteStories: true, useDefaultShowPreview: true,
+                    useDefaultShowStoryPoster: true, useDefaultSound: true, useDefaultStorySound: true,
+                ),
+                order: 10, unreadCount: 0, unreadMentionCount: 0, unreadPollVoteCount: 0, unreadReactionCount: 0,
+            )
         }
     }
 #endif

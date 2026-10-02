@@ -210,9 +210,11 @@ import UIKit
                 )
                 retired = true
                 snapshotState.retire()
-                retireModel()
-                cancelPreparation()
-                ownershipCancellables.removeAll()
+                targetIntent.cancel()
+                targetResolutionTask?.cancel()
+                preparationTask?.cancel()
+                cancellables.removeAll()
+                viewModel.retire()
                 #if DEBUG
                 log("ForumTopics client restoration: replacement accepted")
                 #endif
@@ -232,7 +234,7 @@ import UIKit
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if contextIsCurrent, snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
+        if snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
             viewModel.loadMore()
         }
     }
@@ -257,7 +259,7 @@ import UIKit
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
         canRenewIdentity(source)
             && presentedViewController == nil && transitionCoordinator == nil && !searchController.isActive
-            && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
+            && !tableView.isDragging && !tableView.isDecelerating
             && !snapshotState.isApplying && !snapshotState.hasPending
             && searchController.searchBar.searchTextField.markedTextRange == nil
     }
@@ -496,7 +498,7 @@ import UIKit
         ) { [weak self] tableView, indexPath, topicID in
             ForumTopicCell.dequeue(
                 from: tableView, at: indexPath,
-                topic: self?.snapshotState.topic(id: topicID), client: self?.snapshotState.client(id: topicID),
+                topic: self?.snapshotState.topic(id: topicID), client: self?.viewModel.client,
             )
         }
     }
@@ -532,7 +534,7 @@ import UIKit
 
     private func applySnapshot(_ topics: [ForumTopic], client: TDLibClient) {
         guard !retired else { return }
-        snapshotState.enqueue(topics, client: client)
+        snapshotState.enqueue(topics)
         drainSnapshot()
     }
 
@@ -550,15 +552,21 @@ import UIKit
         let model = viewModel
         let binding = bindingID
         dataSource.apply(snapshot, animatingDifferences: viewportRestoration.pending == nil) { [weak self] in
-            let finish: () -> Void = { [weak self] in
-                self?.completeSnapshot(batch.token, viewportToken: token, model: model, binding: binding)
+            guard let self, !retired, snapshotState.complete(batch.token) else { return }
+            viewportRestoration.completeApply(token)
+            if snapshotState.hasPending {
+                drainSnapshot()
+            } else {
+                restoreViewportIfNeeded()
+                if view.window != nil, navigationController?.topViewController === self,
+                   tableView.indexPathsForVisibleRows?.contains(where: {
+                       $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
+                   }) == true
+                {
+                    viewModel.loadMore()
+                }
+                retryClientRestoration()
             }
-            #if DEBUG
-            if let hold = self?.probeSnapshotCompletion { hold(finish)
-            return
-            }
-            #endif
-            finish()
         }
         updateBackgroundView()
     }
