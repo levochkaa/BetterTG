@@ -32,6 +32,7 @@ import UIKit
     var probeCurrent: Bool { contextIsCurrent }
     var probeRetired: Bool { retired }
     var probePrepared: Bool { preparedClient != nil }
+    var probeActor: Int64? { actorID }
     var probePages: ForumTopicsRestorationState { restorationState().pages }
     func probeRetryEvent() { retryClientRestoration() }
     #endif
@@ -40,7 +41,7 @@ import UIKit
     private var bindingID = UUID()
     private var boundSource: TdUpdateSource?
     private let environment: ForumTopicsClientEnvironment
-    private let actorID: Int64?
+    private var actorID: Int64?
     private var readySource: TdUpdateSource?
     private var identityRevoked = false
     private let targetMessageID: Int64?
@@ -77,7 +78,7 @@ import UIKit
 
     private var contextIsCurrent: Bool {
         guard let source = navigationClientSource else { return false }
-        return routeIsRetained && !identityRevoked && actorID != nil && actorID == environment.currentActor()
+        return routeIsRetained && !identityRevoked && (actorID == nil || actorID == environment.currentActor())
             && source == environment.currentSource() && source == readySource
             && environment.currentAccount() == viewModel.location.accountID
     }
@@ -381,6 +382,7 @@ import UIKit
             .sink { [weak self] source in
                 guard let self else { return }
                 readySource = source
+                observeIdentity(environment.currentSource())
                 if source == nil { cancelPreparation(clearFailure: false) }
                 if contextIsCurrent, isViewLoaded {
                     viewModel.search(searchController.searchBar.text ?? "")
@@ -392,10 +394,7 @@ import UIKit
     }
 
     private func receiveOwnership(_ source: TdUpdateSource?) {
-        let actor = environment.currentActor()
-        if source?.accountID != viewModel.location.accountID
-            || environment.currentAccount() != viewModel.location.accountID
-            || actor != nil && actor != actorID { identityRevoked = true }
+        observeIdentity(source)
         cancelPreparation(clearFailure: source != preparationFailure?.source)
         if !contextIsCurrent {
             targetIntent.cancel()
@@ -404,6 +403,21 @@ import UIKit
             refreshControl.endRefreshing()
         }
         retryClientRestoration()
+    }
+
+    private func observeIdentity(_ source: TdUpdateSource?) {
+        let actor = environment.currentActor()
+        if source?.accountID != viewModel.location.accountID
+            || environment.currentAccount() != viewModel.location.accountID
+            || actorID != nil && actor != nil && actor != actorID
+            || actorID == nil && source != boundSource { identityRevoked = true }
+        // Before identity is known the binding cannot renew, so boundSource is
+        // still the original epoch. Never learn an actor from its replacement.
+        if !identityRevoked, actorID == nil, source == boundSource,
+           source == readySource, source == environment.currentSource()
+        {
+            actorID = actor
+        }
     }
 
     private func retryClientRestoration() {
