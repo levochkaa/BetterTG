@@ -633,18 +633,9 @@ static int BetterTGFFmpegPlaybackOpen(BetterTGFFmpegPlaybackJob *job) {
         );
     job->videoHasExplicitEnd = videoHasExplicitEnd;
     job->audioHasExplicitEnd = audioHasExplicitEnd;
-    if (videoHasExplicitEnd || audioHasExplicitEnd) {
-        double explicitEnd = 0.0;
-        if (videoHasExplicitEnd) {
-            explicitEnd = fmax(explicitEnd, job->videoEndTime);
-        }
-        if (audioHasExplicitEnd) {
-            explicitEnd = fmax(explicitEnd, job->audioEndTime);
-        }
-        job->duration = explicitEnd;
-    } else {
-        job->duration = fmax(job->duration, fmax(job->videoEndTime, job->audioEndTime));
-    }
+    // Telegram directFetch uses video ?? audio as its main track. A longer
+    // audio stream must not extend a video item's seek or playback timeline.
+    job->duration = job->videoStreamIndex >= 0 ? job->videoEndTime : job->audioEndTime;
     job->packet = av_packet_alloc();
     if (job->packet == NULL) {
         return AVERROR(ENOMEM);
@@ -824,11 +815,13 @@ static int BetterTGFFmpegPlaybackEmitAudio(
     }
 
     int endFrame = outputFrames;
-    const double callbackUpperBound = job->preservesWindowTail && job->audioHasExplicitEnd
-        ? job->audioEndTime
+    double callbackUpperBound = job->preservesWindowTail
+        ? (job->audioHasExplicitEnd ? job->audioEndTime : DBL_MAX)
         : targetTime;
-    if ((!job->preservesWindowTail || job->audioHasExplicitEnd) &&
-        frameEnd > callbackUpperBound) {
+    if (job->videoHasExplicitEnd) {
+        callbackUpperBound = fmin(callbackUpperBound, job->videoEndTime);
+    }
+    if (frameEnd > callbackUpperBound) {
         const double retained = ceil(
             (callbackUpperBound - presentationTime) * BETTERTG_PLAYBACK_AUDIO_SAMPLE_RATE
         );
@@ -1256,7 +1249,12 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
     if (job->duration > 0.0 && seekTime > job->duration) {
         seekTime = job->duration;
     }
-    const double targetTime = seekTime + decodeDuration;
+    const double explicitMainEnd = job->videoStreamIndex >= 0
+        ? (job->videoHasExplicitEnd ? job->videoEndTime : 0.0)
+        : (job->audioHasExplicitEnd ? job->audioEndTime : 0.0);
+    const double targetTime = explicitMainEnd > 0.0
+        ? fmin(seekTime + decodeDuration, explicitMainEnd)
+        : seekTime + decodeDuration;
     const double callbackSeekTime = isContinuation ? 0.0 : seekTime;
     if (!isContinuation) {
         job->videoDecodedTo = seekTime;
@@ -1270,6 +1268,12 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
         if (isPersistent) {
             job->persistentSessionStarted = 1;
         }
+    }
+
+    if (explicitMainEnd > 0.0 && seekTime >= explicitMainEnd) {
+        job->ended = 1;
+        job->lastTargetTime = explicitMainEnd;
+        return 1;
     }
 
     if (!isContinuation && seekTime > 0.0) {
@@ -1322,10 +1326,17 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
     const double videoTargetTime = job->videoHasExplicitEnd
         ? fmin(targetTime, job->videoEndTime)
         : targetTime;
-    const double videoEndTolerance = job->videoHasExplicitEnd &&
-        videoTargetTime >= job->videoEndTime - 0.001
-        ? fmax(0.001, job->videoFrameRate > 0.0 ? 1.0 / job->videoFrameRate : 0.05)
-        : 0.0;
+    const int videoEndsBeforeAudio = job->videoHasExplicitEnd && job->audioStreamIndex >= 0 &&
+        (!job->audioHasExplicitEnd || job->audioEndTime > job->videoEndTime + 0.001);
+    const int reachesMainEndBeforeAudio = videoEndsBeforeAudio &&
+        targetTime >= job->videoEndTime - 0.001;
+    // Unlike a container-EOF drain, a main-track cut must receive the final
+    // video frame before flushing; a whole-frame tolerance would omit it.
+    const double videoEndTolerance = reachesMainEndBeforeAudio
+        ? 0.001
+        : (job->videoHasExplicitEnd && videoTargetTime >= job->videoEndTime - 0.001
+            ? fmax(0.001, job->videoFrameRate > 0.0 ? 1.0 / job->videoFrameRate : 0.05)
+            : 0.0);
     const double audioEndTolerance = job->audioHasExplicitEnd &&
         audioTargetTime >= job->audioEndTime - 0.001
         ? 0.125
@@ -1345,9 +1356,9 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
         job->videoHasExplicitEnd ? job->videoEndTime : 0.0,
         job->audioHasExplicitEnd ? job->audioEndTime : 0.0
     );
-    const int shouldDrainToEOF = allStreamsHaveExplicitEnd
+    const int shouldDrainToEOF = !reachesMainEndBeforeAudio && (allStreamsHaveExplicitEnd
         ? knownExplicitEnd > 0.0 && targetTime >= knownExplicitEnd - 0.001
-        : job->duration > 0.0 && targetTime >= job->duration - 0.001;
+        : job->duration > 0.0 && targetTime >= job->duration - 0.001);
 
     if (!videoRequired && job->videoHasExplicitEnd && seekTime >= job->videoEndTime) {
         job->videoExhausted = 1;
@@ -1386,8 +1397,9 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
         const int audioDone = !audioRequired ||
             job->audioExhausted || job->audioDecodedTo >= audioCompletionTarget;
         if (videoDone && audioDone && !shouldDrainToEOF) {
-            if (audioRequired && job->audioHasExplicitEnd &&
-                targetTime >= job->audioEndTime - 0.001 && !job->audioExhausted) {
+            if (audioRequired && !job->audioExhausted &&
+                (reachesMainEndBeforeAudio ||
+                 (job->audioHasExplicitEnd && targetTime >= job->audioEndTime - 0.001))) {
                 result = BetterTGFFmpegPlaybackFinishTrack(
                     job,
                     0,
@@ -1409,6 +1421,9 @@ static int BetterTGFFmpegPlaybackJobRunInternal(
                 if (result <= 0) {
                     return result;
                 }
+            }
+            if (reachesMainEndBeforeAudio) {
+                job->ended = 1;
             }
             break;
         }

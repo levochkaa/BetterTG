@@ -195,8 +195,12 @@ import UIKit
 
     #if DEBUG
         @MainActor static func runDebugProbeIfRequested(in window: UIWindow) {
-            guard ProcessInfo.processInfo.arguments.contains("-media-probe-vod-ffmpeg-controller") else { return }
-            Task { @MainActor in await runDebugProbe(in: window) }
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("-media-probe-vod-ffmpeg-controller") {
+                Task { @MainActor in await runDebugProbe(in: window) }
+            } else if arguments.contains("-media-probe-vod-main-track") {
+                Task { @MainActor in await runMainTrackProbe(in: window) }
+            }
         }
     #endif
 
@@ -533,12 +537,12 @@ import UIKit
         #if DEBUG
             debugDecoderSummaries.append(summary)
         #endif
-        let decodedEnd = max(summary.videoDecodedTo, summary.audioDecodedTo)
-        let decodedDuration = max(summary.duration, decodedEnd)
+        let decodedEnd = summary.videoDecodedTo
+        let decodedDuration = summary.duration > 0 ? summary.duration : decodedEnd
         if decodedDuration.isFinite, decodedDuration > 0 {
-            durationSubject.send(max(durationSubject.value, decodedDuration))
+            durationSubject.send(decodedDuration)
         }
-        terminalEnd = max(terminalEnd, max(decodedEnd, durationSubject.value))
+        terminalEnd = durationSubject.value > 0 ? durationSubject.value : decodedEnd
         if summary.isEnded {
             inputEnded = true
             audioWatchdogTask?.cancel()
@@ -700,15 +704,14 @@ import UIKit
         else { return }
         metadataOperationGeneration = operation
         if metadata.duration.isFinite, metadata.duration > 0 {
-            durationSubject.send(max(durationSubject.value, metadata.duration))
-            terminalEnd = max(terminalEnd, metadata.duration)
+            durationSubject.send(metadata.duration)
+            terminalEnd = metadata.duration
         }
         timelineOrigin = metadata.timelineOrigin
         audioStartTime = metadata.audioStartTime
         audioEndTime = metadata.audioEndTime
         videoStartTime = metadata.videoStartTime
         videoEndTime = metadata.videoEndTime
-        terminalEnd = max(terminalEnd, max(metadata.videoEndTime, metadata.audioEndTime))
         let effectiveDuration = durationSubject.value
         if effectiveDuration > 0, timeSubject.value > effectiveDuration {
             let completion = pendingSeekCompletion?.value
@@ -727,7 +730,7 @@ import UIKit
             bufferedRangesSubject.send([])
             return
         }
-        let end = sourceBufferedEnd()
+        let end = normalized(time: sourceBufferedEnd())
         guard end > bufferStart else {
             bufferedRangesSubject.send([])
             return
@@ -765,7 +768,7 @@ import UIKit
         if sourceLookaheadEnded {
             return true
         }
-        let knownEnd = max(durationSubject.value, max(videoEndTime, audioEndTime))
+        let knownEnd = durationSubject.value
         return knownEnd > 0 && sourceBufferedEnd() >= knownEnd - Self.endTolerance
     }
 
@@ -803,8 +806,9 @@ import UIKit
         let rawBufferedAhead = max(0, rawBufferedEnd - current)
         let sourceEnd = sourceBufferedEnd()
         let sourceBufferedAhead = max(0, sourceEnd - current)
-        let streamEnd = max(snapshot.videoAcceptedUntil, snapshot.audioAcceptedUntil)
-        let end = max(terminalEnd, max(durationSubject.value, streamEnd))
+        let end = durationSubject.value > 0
+            ? durationSubject.value
+            : max(terminalEnd, snapshot.videoAcceptedUntil)
         if inputEnded,
            snapshot.videoInputIsFinished,
            snapshot.audioInputIsFinished,
@@ -814,7 +818,7 @@ import UIKit
             cancelBufferingTransition()
             renderer.pause()
             timeSubject.send(end)
-            durationSubject.send(max(durationSubject.value, end))
+            durationSubject.send(end)
             isPlaybackRequested = false
             stateSubject.send(.ended)
             streamingStatusSubject.send(.ready)
@@ -963,6 +967,7 @@ import UIKit
             && audioEndTime > audioStartTime
             && time >= audioStartTime - Self.endTolerance
             && time < audioEndTime - Self.endTolerance
+            && (duration <= 0 || time < duration - Self.endTolerance)
     }
 
     private func cancelBufferingTransition() {
@@ -1275,6 +1280,7 @@ import UIKit
                 let offlineDownloads = await offlineBackend.downloadCalls
                 let clampDownloads = await clampBackend.downloadCalls
                 let allDownloads = downloads + cancelDownloads + offlineDownloads + clampDownloads
+                let mainTrackProof = try await verifyMainTrackTimeline(in: window)
 
                 guard deferredDownload,
                       originNormalized,
@@ -1317,7 +1323,7 @@ import UIKit
                     + "pending-fifo=\(maximumPendingPacketCount)/\(maximumPendingPacketBytes), "
                     + "seek-first-pts>=1=true, eof-ended=true, no-loop=true, "
                     + "offline=true, retry=true, seek-clamp=true, renderer-errors=0, finite-downloads=true, "
-                    + "full-downloads=0, cleanup=true"
+                    + "full-downloads=0, cleanup=true; \(mainTrackProof)"
             } catch {
                 failure = error
                 result = "VOD FFmpeg controller probe failed: \(error)"
@@ -1333,6 +1339,127 @@ import UIKit
             log(result)
             if failure != nil {
                 assertionFailure(result)
+            }
+        }
+
+        @MainActor static func runMainTrackProbe(in window: UIWindow) async {
+            let result: String
+            do {
+                result = try await "VOD main-track probe: \(verifyMainTrackTimeline(in: window))"
+            } catch {
+                result = "VOD main-track probe failed: \(error)"
+            }
+            if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? Data(result.utf8).write(
+                    to: directory.appendingPathComponent("vod-main-track-probe.txt"),
+                    options: .atomic,
+                )
+            }
+            log(result)
+        }
+
+        @MainActor static func verifyMainTrackTimeline(in window: UIWindow) async throws -> String {
+            let fixtureURL = FileManager.default
+.temporaryDirectory
+                .appendingPathComponent("bettertg-vod-main-track-\(UUID().uuidString).webm")
+            defer { try? FileManager.default.removeItem(at: fixtureURL) }
+            try FFmpegVODShortVideoProbeFixture.write(to: fixtureURL)
+            let fixtureData = try Data(contentsOf: fixtureURL)
+            let checksum = SHA256.hash(data: fixtureData).map { String(format: "%02x", $0) }.joined()
+            guard checksum == FFmpegVODShortVideoProbeFixture.sha256 else {
+                throw Failure.decoding("Short-video fixture checksum mismatch")
+            }
+            let size = Int64(fixtureData.count)
+            let network = TDLibVODProbeNetwork(available: true)
+            let backend = TDLibVODProbeBackend(fileURL: fixtureURL, fileSize: size, network: network)
+            await backend.setAutoFulfill(true)
+            let coordinator = TDLibVODRangeCoordinator(
+                accountID: "probe-vod-main-track",
+                client: backend.client,
+                requestTimeout: .seconds(2),
+            )
+            var activePlayer: TDLibVODFFmpegSampleBufferPlayer?
+            do {
+                let player = await TDLibVODFFmpegSampleBufferPlayer(
+                    lease: coordinator.acquire(file: backend.file(expectedSize: size)),
+                    decodeWindowDuration: 0.731,
+                )
+                activePlayer = player
+                player.surfaceView.frame = CGRect(x: 8, y: window.safeAreaInsets.top + 8, width: 192, height: 108)
+                player.surfaceView.isUserInteractionEnabled = false
+                window.addSubview(player.surfaceView)
+                let recorder = ProbeRecorder(player: player)
+                player.setMuted(true)
+                player.setPlaybackVisible(true)
+                player.prepare(autoplay: true)
+                try await waitUntil { player.state == .ended || player.failureSubject.value != nil }
+                let snapshot = player.renderer.snapshot()
+                let summaries = player.debugDecoderSummaries
+                let naturalEnd = player.state == .ended
+                    && player.failureSubject.value == nil
+                    && recorder.states.contains(.playing)
+                    && abs(player.duration - 2) < 0.01
+                    && abs(player.currentTime - 2) < 0.01
+                    && player.audioEndTime > 10
+                    && abs(player.videoEndTime - 2) < 0.01
+                    && abs(snapshot.videoAcceptedUntil - 2) < 0.001
+                    && abs(snapshot.audioAcceptedUntil - 2) < 0.001
+                    && summaries.count >= 2
+                    && Set(summaries.map(\.sessionID)).count == 1
+                    && summaries.allSatisfy { $0.openCount == 1 && $0.explicitSeekCount == 0 }
+                    && summaries.last?.isEnded == true
+                    && summaries.last?.videoFrameCount == 20
+                    && summaries.allSatisfy {
+                        $0.maximumPendingPacketCount <= 4096
+                            && $0.maximumPendingPacketBytes <= 32 * 1024 * 1024
+                    }
+                guard naturalEnd else {
+                    throw Failure.decoding(
+                        "Short video natural end: state=\(player.state), time=\(player.currentTime), "
+                        + "duration=\(player.duration), snapshot=\(snapshot), summaries=\(summaries)",
+                    )
+                }
+                var seekCompletions = 0
+                player.seek(to: 6) { seekCompletions += 1 }
+                try await waitUntil {
+                    seekCompletions == 1 && player.state == .ended || player.failureSubject.value != nil
+                }
+                guard seekCompletions == 1, player.state == .ended,
+                      player.failureSubject.value == nil, abs(player.currentTime - 2) < 0.01,
+                      abs(player.duration - 2) < 0.01
+                else { throw Failure.decoding("Known-duration seek did not clamp to video end") }
+                await player.close()
+                player.surfaceView.removeFromSuperview()
+
+                let initialSeekPlayer = await TDLibVODFFmpegSampleBufferPlayer(
+                    lease: coordinator.acquire(file: backend.file(expectedSize: size)),
+                )
+                activePlayer = initialSeekPlayer
+                initialSeekPlayer.setPlaybackVisible(true)
+                initialSeekPlayer.prepare(autoplay: true, initialTime: 6)
+                try await waitUntil {
+                    initialSeekPlayer.state == .ended || initialSeekPlayer.failureSubject.value != nil
+                }
+                guard initialSeekPlayer.state == .ended, initialSeekPlayer.failureSubject.value == nil,
+                      abs(initialSeekPlayer.duration - 2) < 0.01,
+                      abs(initialSeekPlayer.currentTime - 2) < 0.01
+                else { throw Failure.decoding("Initial unknown-duration seek did not clamp to video end") }
+                await initialSeekPlayer.close()
+                activePlayer = nil
+                let downloads = await backend.downloadCalls
+                guard downloads.allSatisfy({ !$0.isFullDownload }) else {
+                    throw Failure.decoding("Main-track probe requested a full download")
+                }
+                return "main-track=video, fixture-sha256=\(checksum), video=2s/audio=10.008s, "
+                    + "natural-end=2s, video-frames=20, audio-tail-clipped=true, "
+                    + "known-seek6->2=true, initial-seek6->2=true, persistent-session=true, "
+                    + "bounded-queues=true, finite-downloads=true, cleanup=true"
+            } catch {
+                if let activePlayer {
+                    await activePlayer.close()
+                    activePlayer.surfaceView.removeFromSuperview()
+                }
+                throw error
             }
         }
 

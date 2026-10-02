@@ -156,7 +156,8 @@ int BetterTGFFmpegPlaybackJobRun(
 
 // Starts one persistent decode session. Later Continue calls extend its
 // internal absolute horizon without reopening or flushing decoder state.
-// Crossing frames are emitted whole. Run/Start/Continue/Destroy are serialized;
+// Crossing frames are emitted whole except at the main video-or-audio track end.
+// Run/Start/Continue/Destroy are serialized;
 // Cancel is terminal and may be called from another thread.
 int BetterTGFFmpegPlaybackJobStartPersistent(
     BetterTGFFmpegPlaybackJob *job,
