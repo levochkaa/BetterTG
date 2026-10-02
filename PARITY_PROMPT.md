@@ -48,7 +48,7 @@ Timeline: stable IDs и anchor messageId+pixelOffset; pagination без прыж
 
 До 2 subagents одновременно. Read-only аудит возвращает findings с доказательствами, без бессмысленных build/commit. Feature/fix — в отдельном worktree; каждый implementation-agent форматирует, делает warning-free build и focused commit. Primary проверяет diff, cherry-pick только проверенного результата и проверяет интеграцию. Один владелец simulator/device-сессии. Не spawn при недостаточном budget; перед остановкой заверши либо безопасно зафиксируй/откати начатую работу агентов.
 
-Сначала correctness/breadth/logic, затем polish. Smoke через ./build.sh run+device-interaction/idb; проверяй production flows, а probes используй для конкретных инвариантов. Simulator не доказывает hardware camera или активный system PiP. Успешный probe с последующим crash приложения не равен успешному app-flow smoke. Blockers обходи независимой работой, сохраняя честные ограничения proof и пользовательские данные.
+Сначала correctness/breadth/logic, затем polish. Smoke через ./build.sh run+device-interaction/idb; проверяй production flows, а probes используй для конкретных инвариантов. Запускай Simulator без перехвата фокуса и не активируй его отдельно. Simulator не доказывает hardware camera или активный system PiP. Успешный probe с последующим crash приложения не равен успешному app-flow smoke. Blockers обходи независимой работой, сохраняя честные ограничения proof и пользовательские данные.
 
 Не завершай goal только из-за завершённого аудита, успешного build или лимита, пока есть полезный выполнимый gap и пользователь не попросил остановиться. При запросе остановки сохрани незавершённый scope и выставь доступный статус паузы; не объявляй всю parity достигнутой.
 

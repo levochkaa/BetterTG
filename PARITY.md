@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A39 explicit message navigation versus retained Chat viewport restoration takes precedence over further restoration breadth.
+Active queue: A39 actual explicit-message scroll settlement takes precedence over further restoration breadth. The retained
+viewport/layout-owner races are repaired, but real cold and loaded-target navigation still misses the selected message at `17e3fb4`.
 A38 stale shared-media admission has bounded source/native/actual-profile repair proof below. A36 selector presentation and A37
 post-foreground navigation overlap have fresh runtime evidence below. A21 secret-note scene-capture admission now has integrated native/UIKit
 proof below; hardware capture and screenshot prevention remain unverified. A34/A35 now have integrated
@@ -163,7 +164,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | needs-fix — measure public bar/safe-area/prompt state before choosing a fix. Data/caret retention passes; no layout-parity claim. Root stack replacement and waiting→ready prompt updates are unproven causes |
 | A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
-| A39 | P1 | At `97ccea8`, `ChatView.scrollToMessage` revokes ordinary geometry authority but leaves restoredViewport pending. A fresh Chat covered by Profile can restore its old latest/anchor after explicit target navigation; a snapshot that captured restoringClient also skips a later pending target. Actual post-foreground Files tap pops to Chat but remains at latest instead of the selected old message | needs-fix — source-confirmed conflict; exact runtime ordering not instrumented. Explicit navigation must supersede retained restoration, including delayed diffable completions, while preserving source/client and user-gesture fences. Existing unloaded-target fetch is present; do not replace it with duplicate history infrastructure |
+| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold and repeated loaded Files navigation still misses the selected old message despite phase `applied`; that marker precedes animated offset application and immediate highlight reconfiguration | needs-fix — `1b1429f` retires retained viewport intent; `17e3fb4` fixes final layout-release wakeup. Native value-consumer checks pass, actual target smoke fails. Instrument real offset/target geometry and subsequent writers before changing animation. Existing history lookup completed in this run; do not attribute this failure to metadata hydration |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1386,6 +1387,38 @@ is imported. This source pass does not prove every content's real rendering/acti
   No Telegram infrastructure copied. Repeated live races, newly arrived head messages, rich UI, rotation/Dynamic Type and
   system PiP remain separate limits.
 
+### A39 explicit target navigation — 2026-10-03
+
+- `1b1429f` (worker `4fc6d02`) retires retained viewport intent when accepting explicit navigation, consults the current
+  snapshot marker, and holds target/quote until snapshot, layout, window and source are valid. Pending navigation fences
+  initial/latest compensation; gestures, supersession, source revocation and failed admission retain their cancellation rules.
+  Initial positioning is synchronous; navigation in an initialized Chat remains animated. Existing ChatVM history logic is
+  unchanged apart from opt-in content-free phase diagnostics. Three-file format; integration
+  `build-Debug-20261003-005409-91096-31077.log`: PASS31s, zero warnings.
+- Independent review found a final-release wakeup missing from rotation and a loaded fast-path bypass. `17e3fb4` (worker
+  `f6899a0`) pairs all nine layout owners through one release helper and retries pending navigation after the last external
+  release. Explicit scroll's own release does not recurse into unavailable layout. Delta review is clean; three-file format,
+  `build-Debug-20261003-005819-95305-8829.log`: PASS9s, zero warnings.
+- Source `17e3fb4`, audit Simulator PID `95662`: viewport-authority and complete profile-restoration/A38 probes pass.
+  Navigation fixtures use the actual ticket/viewport/release helpers and real UICollectionView/diffable layout, but a
+  value-only consumer, not full ChatView/ChatVM or system rotation. They do not test the production animated-scroll/highlight
+  sequence. Reports: `.build/ui-probe-evidence/astra-a39-primary`.
+- Cold control at `b630844`, PID `39878`, without Home/client rollover already failed to reach the same old Files target
+  after about70s (`astra-a38-settled-primary/cold-target-settled.png`). The observed failure is not specific to restoration.
+  At `17e3fb4`, PID `95662`, fresh Saved → Profile → Files → older June document at01:03:16 also returns to latest September/
+  October messages. Phase reads `applied`, target AX is absent, and settled screenshot confirms the miss. Repeating the same
+  already-loaded target at01:05:51 moves only to early September, still without the target. No file opened/downloaded and no
+  message/profile/folder saved. Private screenshots and phase remain under the A39 evidence directory.
+- Source review confirms `applied` is recorded before the offset command. Pending intent is cleared before animation ends;
+  immediate highlight snapshot mutation and later automatic viewport captures are then permitted. The actual causal writer
+  is not yet measured. A bounded opt-in numeric geometry trace is the next diagnostic; do not claim this flow fixed from
+  the helper probe or replace metadata loading based on the current evidence.
+- References: pinned current/pre `ChatControllerNavigateToMessage.swift`342–422,474–507/333–360 distinguishes loaded target
+  navigation from cancellable 50-message initial search and target/missing completion. Pinned TDLibKit `getChatHistory`,
+  `getMessage`, captured ChatLocation and current history revision admission remain unchanged. No Telegram infrastructure copied.
+- Documentation checkpoint `build-Debug-20261003-010725-3164-28383.log`: PASS5s, zero warnings. AGENTS/CLAUDE remain identical;
+  prohibited production/dependency marker scan is empty. The reusable prompt also records background-only Simulator activation.
+
 ### A32 folder Done contrast and A36 title classification — 2026-10-02
 
 - `1b89dbd` (worker `7a46acb`) changes only selector/order Done factories to titled `.plain` items, retaining actions,
@@ -1675,8 +1708,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `b630844` completes A38/profile-restoration native checks (PID `39878`); production `97ccea8`
-  also passes media/PiP/gallery regressions and actual scrolled profile foreground (PID `32182`). A39 target navigation is next.
+- Latest code `17e3fb4` includes `1b1429f`: warning-free builds and viewport/profile-restoration probes pass (PID `95662`),
+  but actual cold and loaded-target navigation still misses the selected message. A39 remains open; next is numeric actual-scroll
+  diagnosis, not another metadata loader. `b630844` completes A38/profile-restoration native checks (PID `39878`); production
+  `97ccea8` also passes media/PiP/gallery regressions and actual scrolled profile foreground (PID `32182`).
   `04c904a` corrected focused prompt baseline passes24 samples (PID `4253`), without a production fix.
   `0608d15` modal presentation fixture correction passes combined probes (PID `97142`).
   `f70cd58` child membership has native proof (PID `88865`); combined-probe modal timing is separately tracked. `c68c1c2` profile route/tab/Search smoke passes
@@ -1715,7 +1750,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261003-003813-36345-3545.log`,
+  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261003-005819-95305-8829.log`,
+  `build-Debug-20261003-005409-91096-31077.log`, `build-Debug-20261003-003813-36345-3545.log`,
   `build-Debug-20261003-002923-30429-24207.log`, `build-Debug-20261002-232705-14634-13985.log`,
   `build-Debug-20261002-232350-7050-2496.log`, `build-Debug-20261002-231025-79060-7092.log`,
   `build-Debug-20261002-230359-64579-5399.log`, `build-Debug-20261002-225546-56715-10303.log`,
@@ -1730,7 +1766,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A23g pending membership is integrated as `1cd9ecf` with actual-helper proof. A34 accepted-update projection/refresh retirement
   is integrated as `4185849`/`3290ba4`; A30e folder-flow authority is integrated as `850ccf8`/`b923f19` with native/runtime proof.
   A36 presentation is integrated as `c9254f3`; focused prompt baseline as `d34d012`. A38 `4116257`/`054caab` is integrated
-  as `97ccea8`/`b630844`, with bounded native/actual proof above. This worker is repairing A39 explicit target navigation.
+  as `97ccea8`/`b630844`, with bounded native/actual proof above. A39 `4fc6d02`/`f6899a0` is integrated as `1b1429f`/`17e3fb4`;
+  this worker is adding bounded actual-scroll diagnostics after the failed real target smoke.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
@@ -1747,10 +1784,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: close A39 explicit target navigation versus one-shot retained Chat restoration. Preserve existing unloaded
-  history lookup, source/gesture/quote contracts; account for delayed diffable completion and initial-scroll compensation.
-  Probe loaded/unloaded target races, then repeat actual post-foreground Files → Open in Chat. Existing sequential metadata
-  hydration can delay lookup; the observed failed target is not yet attributed solely to the restoration race.
+- Exact next slice: measure A39 actual animated target settlement and intervening offset/layout writers, then repair the
+  confirmed cause. Preserve existing history lookup and source/gesture/quote contracts. Repeat cold, loaded and same-PID
+  foreground Files → Open in Chat with target geometry/AX proof. Phase `applied` at `17e3fb4` is pre-command, not completion;
+  this run completed metadata hydration. Sequential metadata waits remain a separate source concern, not this smoke's diagnosis.
   A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
   A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate.
   A36 child-publisher and actual deleted-title proofs pass; modal fixture correction passes combined probes. A37 complete
