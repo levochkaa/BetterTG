@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A38 P1 stale shared-media admission introduced by A30f2 takes precedence over further restoration breadth. A36 selector presentation and A37
+Active queue: A39 explicit message navigation versus retained Chat viewport restoration takes precedence over further restoration breadth.
+A38 stale shared-media admission has bounded source/native/actual-profile repair proof below. A36 selector presentation and A37
 post-foreground navigation overlap have fresh runtime evidence below. A21 secret-note scene-capture admission now has integrated native/UIKit
 proof below; hardware capture and screenshot prevention remain unverified. A34/A35 now have integrated
 ordering/ownership probes; delayed live RootVM RPC remains unverified. A32 cleanup preserves native Back
@@ -153,15 +154,16 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A27 | P1 | `peerProfileCanChangeInfo` only accepts creator/admin, so eligible group members with `Chat.permissions.canChangeInfo` cannot open or save Edit; restricted-member permissions are also ignored | fixed in `b0db39f` (worker `1a78906`) — shared effective capability, fresh appearance hydration and scoped rights updates; captured actor/account/client plus fresh `getChat`/`getChatMember` before each title/description write. Integrated 25-case policy and delayed-request probe passes; live profile permission/save behavior remains unverified |
 | A28 | P2 | `PeerProfileViewController.loadMore` catches without a request-generation fence; A→B→A lets the first A's late error clear the newer A `historyTask` and display a stale error. TDLib continuation is not canceled by task cancellation | fixed in `9cdc6b0` — invalidate request identity before tab cancellation; success/error/cancellation may clear busy state or publish only after consuming their exact registration. Token regression passes A→B→A, obsolete cancellation, retry and duplicate delivery; actual suspended controller/RPC race remains unverified |
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
-| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84`; folder flows `850ccf8`/`b923f19`; profile editor `1e072ca`. Bounded native probes and same-PID foreground smoke pass below. Quiescent profile recovery is next; active topic search/capture and full account/notification lifecycle remain unverified |
+| A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84`; folder flows `850ccf8`/`b923f19`; profile editor `1e072ca`; quiescent profile `c68c1c2` plus A38 `97ccea8`. Bounded native and same-PID foreground proof below; A39 explicit target navigation remains open. Active topic search/capture and full account/notification lifecycle remain unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background. `3983b48` removes ineffective synthetic Back/title tracking; native nil-item policy and actual Profile/Edit/Back pass, but Back remains circular. `1b89dbd` makes folder selector/order Done plain text; selector pixels/action and native gates pass. Native search islands and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
 | A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
 | A34 | P1 | At `7426478`, `RootVM.updateChatFolders` builds main/custom snapshots, awaits archive hydration, then replaces all folders. Accepted same-epoch unread/draft/message/position events during that await mutate the old objects and are lost on replacement | fixed bounded observed fields — `4185849` reconciles newer accepted deltas across raw/peer/list reads and final insertion; `3290ba4` retires superseded refresh projections immediately. Actual reducer/insertion suspended probes pass. RootVM transport wiring is source-reviewed; unobserved fields/group updates and delayed live RPC remain open |
 | A35 | P2 | At `7426478`, `RootVM.loadScopeNotificationSettings` collects three sequential reads and finally merges old values over settings accepted from intervening updates | fixed in `67c9470` — per-scope request revisions reserved before dispatch, accepted-update revocation and immediate response publication. Actual loader suspended-read probe passes overlapping loads, late success/failure, source/epoch/cancel and value retention; real mute-badge race is unverified |
-| A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | partial — `c9254f3` fixes selector title/subtitle/search/sort and scoped existing-candidate refresh; primary build passes, runtime pending. Independent review confirms a pre-existing child-folder membership publication gap; append/remove/same-ID replacement needs a separate repair |
+| A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | needs-fix — measure public bar/safe-area/prompt state before choosing a fix. Data/caret retention passes; no layout-parity claim. Root stack replacement and waiting→ready prompt updates are unproven causes |
-| A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | needs-fix — independently confirmed by two source reviewers. Quarantine every seed ID until captured current-client read; scoped revisions/tombstones must also fence live refresh and pagination. Retain IDs/viewport/raw cursor, not stale pixel/action authority. Native route proof does not close this finding |
+| A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
+| A39 | P1 | At `97ccea8`, `ChatView.scrollToMessage` revokes ordinary geometry authority but leaves restoredViewport pending. A fresh Chat covered by Profile can restore its old latest/anchor after explicit target navigation; a snapshot that captured restoringClient also skips a later pending target. Actual post-foreground Files tap pops to Chat but remains at latest instead of the selected old message | needs-fix — source-confirmed conflict; exact runtime ordering not instrumented. Explicit navigation must supersede retained restoration, including delayed diffable completions, while preserving source/client and user-gesture fences. Existing unloaded-target fetch is present; do not replace it with duplicate history infrastructure |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1345,6 +1347,45 @@ is imported. This source pass does not prove every content's real rendering/acti
   all unverified pixel/AX/action paths, preserve raw pagination and viewport; permanent deletion and newer partial updates
   must defeat delayed getMessage/search pages. Errors remain retryable, not fabricated deletion. No ChatVM/Root rewrite.
 
+### A38 shared-message revalidation — 2026-10-03
+
+- `97ccea8` (worker `4116257`) reuses the profile-owned four-read history ledger. Every seed retains only ID/order/viewport;
+  content, AX, file demand, transitions and actions await current-client admission. Scoped content/edit/delete updates revoke
+  permits and visible consumers before async reads. Page admission shares revisions/tombstones and preserves unresolved IDs
+  as actual loading/Retry rows; raw cursor remains server-page-derived. Exact404 `Not Found` removes; other errors and unknown
+  RichMessage membership remain retryable. Attachment/Ready/anchor settlement resumes initial work; predispatch rejection
+  consumes its exact request registration. No ChatVM/Root rewrite or new secret viewer.
+- Gallery/PiP consumers are invalidated without revoking the profile's shared playback context. Default context teardown for
+  other callers is unchanged. Independent immutable delta review found no further confirmed blocker. Active AVKit stop/layer
+  latency is not proven by a Simulator helper. Six-file format; integration
+  `build-Debug-20261003-002923-30429-24207.log`: PASS31s, zero warnings.
+- Source `97ccea8`, PID `31005`: standalone shared-refresh probe passes actual ledger/adapter, four-read/visible priority,
+  suspended delete/spoiler/page races, exact404/offline/permission/unknown-filter Retry, source/actor/topic/tab/root attachment,
+  actual cell geometry/diffable anchor, permit and non-vacuous late transition rejection. Seed raw loads0; accepted loads1;
+  new spoiler adds0. Full controller RPC/bootstrap and gallery/PiP teardown are source-reviewed, not injected by this fixture.
+- The next standalone profile-restoration run, PID `31305`, failed `error disappeared or auto-spun`: its new error check
+  resumed a read then assumed delivery after40ms. `b630844` (worker `054caab`) replaces all such delays with bounded semantic
+  state and actual driver completion; one-RPC/state assertions remain. DEBUG-only handle, defer cleanup, independent review.
+  Initial failure is preserved in `.build/ui-probe-evidence/astra-a38-primary/profile-restoration-probe.txt`.
+  `build-Debug-20261003-003813-36345-3545.log`: PASS11s, zero warnings. A prior attempt stopped in clang metadata output
+  (`003415-34099-21928`); a sample showed blocked pipe write. Only that owned build was interrupted; retry needed no cache
+  removal, toolchain or Simulator reset. Source `b630844`, PID `39878`: complete profile-restoration plus explicit A38 checks pass.
+  Fresh result: `.build/ui-probe-evidence/astra-a38-settled-primary/profile-restoration-probe.txt`.
+- Regressions at `97ccea8`: profile-grid concealment, general media reveal and PiP context pass PID `31707`;
+  native/FFmpeg gallery-owner, continuity, stop/cancel and sample-buffer PiP factory pass PID `32182` (system PiP unsupported).
+- Actual source `97ccea8`, PID `32182`: Saved → Profile initially populates Media/Files. Scroll Files, Home→app icon;
+  ownership released00:35:34, restored00:35:56, profile replacement accepted00:35:56.658. Settled first full row remains
+  y151/height52.667 with the same following rows, confirming this scrolled anchor and nondefault tab survive revalidation.
+  No file/gallery opened and no message/profile/folder saved. Selecting an older row returns to the fresh Chat but does not
+  reach the target after settlement; tracked separately as A39, not counted as successful Open in Chat. Private screenshots
+  and reports stay under `.build/ui-probe-evidence/astra-a38-primary`; peer names/IDs/file names are not copied into this ledger.
+- References: pinned current/pre `PeerInfoVisualMediaPaneNode.swift`1769,1795–1847/1703,1720–1766 uses account-owned reactive
+  message/placeholder state; `PeerInfoPaneContainerNode.swift`923–950/1209–1236 retains selection. Pinned TDLib `td_api.tl`
+  10318–10326,10583–10587,11397–11400,11710–11724; `Requests.cpp`592–606 and `Td.cpp`1400–1401 define exact absent-message
+  error; `MessageContent.cpp`6479+,6537–6538 and `WebPageBlock.cpp`2613–2617,2727–2731 define rich media filter uncertainty.
+  No Telegram infrastructure copied. Repeated live races, newly arrived head messages, rich UI, rotation/Dynamic Type and
+  system PiP remain separate limits.
+
 ### A32 folder Done contrast and A36 title classification — 2026-10-02
 
 - `1b89dbd` (worker `7a46acb`) changes only selector/order Done factories to titled `.plain` items, retaining actions,
@@ -1406,6 +1447,11 @@ is imported. This source pass does not prove every content's real rendering/acti
   selection loss or final-baseline failure; nine waiting samples have bar116/safe150/field170. No forced layout or production
   invalidation added. Private proof `.build/ui-probe-evidence/astra-a37-complete-primary`. Original actual clipping remains
   open/intermittent; this isolated baseline does not establish its cause or prove real foreground/painted-pixel behavior.
+- Actual delayed diagnostic at `97ccea8`, PID `32182`, with `-ui-diagnose-profile-editor-layout`: focus first own-profile
+  field without editing, Home00:39:11→foreground00:39:45. Immediate samples show bar150/safe116/field136, but all three
+  delayed settled samples return116/116/136 with first responder retained. Settled screenshot is clean; Back exits without
+  Save or an agent-authored draft. `.build/ui-probe-evidence/astra-a37-delayed-primary` contains the bounded geometry JSON
+  and pixels. This confirms transient geometry in this run, not the cause or repair of the earlier persistent clipping.
 
 ### A33 definite profile-header text width — 2026-10-02
 
@@ -1629,10 +1675,12 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified code: `04c904a` corrected focused prompt baseline passes24 samples (PID `4253`), without a production fix.
+- Latest verified code: `b630844` completes A38/profile-restoration native checks (PID `39878`); production `97ccea8`
+  also passes media/PiP/gallery regressions and actual scrolled profile foreground (PID `32182`). A39 target navigation is next.
+  `04c904a` corrected focused prompt baseline passes24 samples (PID `4253`), without a production fix.
   `0608d15` modal presentation fixture correction passes combined probes (PID `97142`).
   `f70cd58` child membership has native proof (PID `88865`); combined-probe modal timing is separately tracked. `c68c1c2` profile route/tab/Search smoke passes
-  (PID `68772`), but introduced A38 stale-media admission is a P1 handoff blocker. A36 presentation native/actual proof passes.
+  (PID `68772`); introduced A38 stale-media admission is repaired by `97ccea8`. A36 presentation native/actual proof passes.
   `c9254f3` A36 presentation has a warning-free integration build. `9c0816b` A30f2
   prerequisites have native proof (PID `56662`), not activation proof. A37 repeat settled screenshots are clean; cause remains open.
   `1b89dbd` Done native/actual-selector proof passes (PID `29718`); A30f1 `1e072ca` actual editor
@@ -1667,7 +1715,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08 native timing, A10 UIKit spoilers and A07 worker regression pass at `10b23c5` (PIDs `75703`/`78753`).
   A06 demand/source and voice-preservation regression pass on combined `2bf7428`. Earlier Chat/composer and voice lifecycle/finalization
   proofs remain at `9495f0a` (PID `71481`), including actual Chat modal/background/Done; Root/poll at `da59789`, Main at `df9eb7a`.
-  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261002-232705-14634-13985.log`,
+  Latest warning-free integration builds: `.build/logs/xcodebuild/build-Debug-20261003-003813-36345-3545.log`,
+  `build-Debug-20261003-002923-30429-24207.log`, `build-Debug-20261002-232705-14634-13985.log`,
   `build-Debug-20261002-232350-7050-2496.log`, `build-Debug-20261002-231025-79060-7092.log`,
   `build-Debug-20261002-230359-64579-5399.log`, `build-Debug-20261002-225546-56715-10303.log`,
   `build-Debug-20261002-224502-40819-31807.log` and
@@ -1680,7 +1729,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   Static-image origin/shared-demand `73bcb04` is integrated as `7426478`, with reviewed fixture correction `b3aa790` and runtime proof.
   A23g pending membership is integrated as `1cd9ecf` with actual-helper proof. A34 accepted-update projection/refresh retirement
   is integrated as `4185849`/`3290ba4`; A30e folder-flow authority is integrated as `850ccf8`/`b923f19` with native/runtime proof.
-  A36 presentation is integrated as `c9254f3`; focused prompt baseline as `d34d012`. This worker is repairing A38 media admission.
+  A36 presentation is integrated as `c9254f3`; focused prompt baseline as `d34d012`. A38 `4116257`/`054caab` is integrated
+  as `97ccea8`/`b630844`, with bounded native/actual proof above. This worker is repairing A39 explicit target navigation.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
@@ -1689,18 +1739,22 @@ is imported. This source pass does not prove every content's real rendering/acti
   A21d secret-note recording/mirroring admission is integrated as `fd98d02`/`f45869b`; photo and immediate/view-once remain denied.
   Profile-editor repair is integrated as `1e072ca`. A30f2 prerequisite is integrated as `9c0816b`; activation `35adb4d`
   is integrated as `c68c1c2` with bounded route proof and introduced A38 finding. Child membership is integrated as `f70cd58`.
-  Focused-prompt measurement correction is integrated as `04c904a` with native proof. This worker independently reviews A38.
+  Focused-prompt measurement correction is integrated as `04c904a` with native proof. This worker independently reviewed A38
+  and its DEBUG settlement correction, then source-confirmed A39; it has no uncommitted implementation delta.
   Parent owns idb; Simulators remain booted.
   Do not force-delete protected worktrees. Historical A07 worker proofs remain in the primary checkout.
 - Initial documentation-only validation at `6b417da`: `./build.sh build` passed without warnings on Xcode 26.6; log
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: close A38 stale-media admission before further restoration breadth. Integrate/review the bounded profile
-  quarantine/revalidation repair, run negative race probes and repeat actual profile foreground. A30f2 route proof alone is insufficient.
-  A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate. In parallel, finish bounded
-  A36 child-publisher and actual deleted-title proofs pass; modal fixture settlement correction passes combined probes. Diagnose A37 with complete settled phase samples
-  and focused retained-stack baseline before any production navigation rewrite.
+- Exact next slice: close A39 explicit target navigation versus one-shot retained Chat restoration. Preserve existing unloaded
+  history lookup, source/gesture/quote contracts; account for delayed diffable completion and initial-scroll compensation.
+  Probe loaded/unloaded target races, then repeat actual post-foreground Files → Open in Chat. Existing sequential metadata
+  hydration can delay lookup; the observed failed target is not yet attributed solely to the restoration race.
+  A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
+  A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate.
+  A36 child-publisher and actual deleted-title proofs pass; modal fixture correction passes combined probes. A37 complete
+  focused baseline and actual delayed settled geometry are clean; retain the original intermittent failure and avoid speculative rewrite.
   Retain A32 native Back/search and extended runtime matrix;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image live transport/account-switch proof limits and Chat's untested nonempty composer/import/keyboard cases.
