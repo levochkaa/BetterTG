@@ -26,11 +26,13 @@
                 do {
                     try await verify()
                     try await verifyForumTopicDelivery()
+                    try await verifyStaticImageDelivery()
                     result = "Chat update delivery probe passed: production-observer/scoped-source=true; "
                         + "queued-old-client/account-collision/unscoped-rejected=true; "
                         + "post-hydration-client/account/retired-owner/route-fences=true; "
                         + "current-delivery-and-legacy-transport-preserved=true; "
                         + "forum-topic-info/scoped-queued-collision=true; "
+                        + "static-image/scoped-file-delivery=true; "
                         + "same-epoch-message-ordering-not-covered; server-reads/sends/account-stores=0"
                 } catch {
                     result = "Chat update delivery probe failed: \(error)"
@@ -226,6 +228,69 @@
             post("retired B", source: replacementB)
             await drainMainQueue()
             try require(owners[2].received == ["replacement B"], "retired forum owner received info")
+        }
+
+        private static func verifyStaticImageDelivery() async throws {
+            let center = NotificationCenter()
+            let sourceA = TdUpdateSource(accountID: UUID(), clientID: 71)
+            let sourceB = TdUpdateSource(accountID: UUID(), clientID: 81)
+            let replacementB = TdUpdateSource(accountID: sourceB.accountID, clientID: 82)
+            var current: TdUpdateSource? = sourceA
+            var oldValues = [Int]()
+            var newValues = [Int]()
+            let first = TDImageLoadingView.fileUpdates(
+                source: sourceA, fileID: 7, center: center, currentSource: { current },
+            )
+.sink { oldValues.append($0.id) }
+            let second = TDImageLoadingView.fileUpdates(
+                source: sourceB, fileID: 7, center: center, currentSource: { current },
+            )
+.sink { newValues.append($0.id) }
+            defer { first.cancel()
+            second.cancel()
+            }
+            func post(source: TdUpdateSource?, id: Int = 7) {
+                let file = File(
+                    expectedSize: 0, id: id,
+                    local: .init(
+                        canBeDeleted: false,
+                        canBeDownloaded: true,
+                        downloadOffset: 0,
+                        downloadedPrefixSize: 0,
+                        downloadedSize: 0,
+                        isDownloadingActive: false,
+                        isDownloadingCompleted: false,
+                        path: "",
+                    ),
+                    remote: .init(
+                        id: "",
+                        isUploadingActive: false,
+                        isUploadingCompleted: true,
+                        uniqueId: "",
+                        uploadedSize: 0,
+                    ),
+                    size: 0,
+                )
+                update(.updateFile(.init(file: file)), source: source, notificationCenter: center)
+            }
+            post(source: sourceA)
+            current = sourceB
+            post(source: sourceA)
+            post(source: nil)
+            post(source: sourceB, id: 8)
+            post(source: sourceB)
+            await drainMainQueue()
+            try require(oldValues.isEmpty && newValues == [7], "static image accepted foreign/unscoped/file update")
+            post(source: sourceB)
+            current = replacementB
+            post(source: replacementB)
+            await drainMainQueue()
+            try require(oldValues.isEmpty && newValues == [7], "static image accepted retired-client update")
+            current = sourceB
+            second.cancel()
+            post(source: sourceB)
+            await drainMainQueue()
+            try require(newValues == [7], "cancelled static-image subscription delivered")
         }
 
         private static func drainMainQueue() async {

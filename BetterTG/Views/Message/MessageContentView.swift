@@ -846,6 +846,20 @@ final class TDImageLoadingView: UIImageView {
     private var cancellable: AnyCancellable?
     private var maximumPixelSize = 1280
 
+    static func fileUpdates(
+        source: TdUpdateSource,
+        fileID: Int,
+        center: NotificationCenter = nc,
+        currentSource: @escaping () -> TdUpdateSource? = { TDLib.shared.activeUpdateSource },
+    ) -> AnyPublisher<File, Never> {
+        center.publisher(for: TdNotification<UpdateFile>.updateFile.name)
+            .compactMap { TdScopedUpdate<UpdateFile>(notification: $0) }
+            .receive(on: DispatchQueue.main)
+            .filter { $0.source == source && currentSource() == source && $0.value.file.id == fileID }
+            .map(\.value.file)
+            .eraseToAnyPublisher()
+    }
+
     func load(photo: Photo, preferredSize: PhotoSizeType) {
         let placeholderData = photo.minithumbnail?.data
         guard let size = photo.sizes.getSize(preferredSize) ?? photo.sizes.first else {
@@ -858,8 +872,12 @@ final class TDImageLoadingView: UIImageView {
     func load(file: File, placeholderData: Data? = nil, maximumPixelSize: Int = 1280) {
         cancel()
         let client = td
+        guard let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else {
+            image = placeholderData.flatMap(UIImage.init(data:))
+            return
+        }
         let request = RequestIdentity(
-            accountID: TDLib.shared.activeAccountID,
+            accountID: source.accountID,
             clientID: client.id,
             fileID: file.id,
             generation: UUID(),
@@ -874,10 +892,8 @@ final class TDImageLoadingView: UIImageView {
             return
         }
         update(file: file, for: request)
-        cancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == file.id }
-            .sink { [weak self] update in self?.update(file: update.file, for: request) }
+        cancellable = Self.fileUpdates(source: source, fileID: file.id)
+            .sink { [weak self] file in self?.update(file: file, for: request) }
         downloadTask = Task { [weak self] in
             let downloaded = try? await client.downloadFile(
                 fileId: file.id,
