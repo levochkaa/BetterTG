@@ -94,7 +94,7 @@
                     + "cold/duplicate/stale-ready=true; A1-A2-A3=true; other-account-untouched=true; "
                     + "changed-stack/newer-epoch-fenced=true; deferred-entry/transition-retry=true; retained-chat-identity=true; "
                     + "prepared-plan/file-ownership=true; bounded-multi-entry-drain=true; deferred-first-skipped=true; "
-                    + "terminal-install/reentrant-ready=true; Chat-navigation-not-enabled; "
+                    + "terminal-install/reentrant-ready=true; controller-navigation-not-exercised-by-this-probe; "
                     + "production-UIKit-viewport-capture/restore=true; prepend/missing/clamp=true; "
                     + "delayed-diffable-gate/layout/query/drag=true; "
                     + "query-restoration=true; real-Main/foreground/keyboard-runtime=unverified; server-writes=0"

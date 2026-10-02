@@ -762,6 +762,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         didPerformInitialScroll = true
         restoredComposerState = nil
+        #if DEBUG
+            log("Chat client restoration: viewport settled; fresh history starts")
+        #endif
         chatVM.beginRestoredHistoryRefresh()
     }
 
@@ -2639,6 +2642,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         picker.onEmoji = { [weak chatVM] emoji in
             chatVM?.appendComposerEmoji(emoji)
         }
+        picker.onDismiss = { [weak self] in self?.retryClientRestoration() }
         picker.onSticker = { [weak self, weak picker, weak chatVM] sticker in
             picker?.navigationController?.dismiss(animated: true) {
                 self?.retryClientRestoration()

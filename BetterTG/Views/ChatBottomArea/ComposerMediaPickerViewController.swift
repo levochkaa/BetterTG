@@ -29,6 +29,7 @@ UISearchBarDelegate {
             .map(String.init)
 
     var onAnimation: ((Animation) -> Void)?
+    var onDismiss: (() -> Void)?
     var onEmoji: ((String) -> Void)?
     var onSticker: ((Sticker) -> Void)?
 
@@ -91,7 +92,7 @@ UISearchBarDelegate {
         guard contextIsCurrent,
               let item = dataSource.itemIdentifier(for: indexPath)
         else {
-            dismiss(animated: true)
+            dismissPicker()
             return
         }
         switch item {
@@ -298,7 +299,11 @@ UISearchBarDelegate {
     }
 
     @objc private func donePressed() {
-        dismiss(animated: true)
+        dismissPicker()
+    }
+
+    private func dismissPicker() {
+        dismiss(animated: true, completion: onDismiss)
     }
 }
 

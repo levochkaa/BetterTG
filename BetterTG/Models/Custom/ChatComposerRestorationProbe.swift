@@ -59,7 +59,7 @@
                     + "attributed-compose/edit/reply-quote/attachment-IDs=true; mutable-message-detached=true; "
                     + "busy/changed/cancelled/repeated/reentrant-transfer-fenced=true; "
                     + "old-deinit-file/media-cleanup=0; new-owner-cleanup-once=true; "
-                    + "ChatVM-seed-before-server-draft=source-reviewed; Chat-navigation-not-enabled; server-sends=0"
+                    + "ChatVM-seed-before-server-draft=source-reviewed; controller-navigation-not-exercised-by-this-probe; server-sends=0"
             } catch {
                 result = "Composer restoration foundation probe failed: \(error)"
             }
