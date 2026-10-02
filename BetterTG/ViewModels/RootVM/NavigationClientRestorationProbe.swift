@@ -13,6 +13,7 @@
             let navigationClientSource: TdUpdateSource?
             let payload: MainViewController.ClientRestorationState
             var beforeReplacement: (() -> Void)?
+            var replacementAllowed = true
             var replacementCount = 0
 
             init(source: TdUpdateSource, payload: MainViewController.ClientRestorationState) {
@@ -26,6 +27,7 @@
             }
 
             func replacementForReadyClient(_ source: TdUpdateSource) -> UIViewController? {
+                guard replacementAllowed else { return nil }
                 replacementCount += 1
                 beforeReplacement?()
                 return Entry(source: source, payload: payload)
@@ -56,7 +58,7 @@
                 try verifySearchQuery()
                 result = "Client restoration probe passed: production-readiness/coordinator=true; "
                     + "cold/duplicate/stale-ready=true; A1-A2-A3=true; other-account-untouched=true; "
-                    + "changed-stack/newer-epoch-fenced=true; deferred-retry=true; retained-chat-identity=true; "
+                    + "changed-stack/newer-epoch-fenced=true; deferred-entry/transition-retry=true; retained-chat-identity=true; "
                     + "production-UIKit-viewport-capture/restore=true; prepend/missing/clamp=true; "
                     + "delayed-diffable-gate/layout/query/drag=true; "
                     + "query-restoration=true; real-Main/foreground/keyboard-runtime=unverified; server-writes=0"
@@ -112,8 +114,11 @@
             readiness.activate(a2)
             readiness.update(ready: true, source: a1)
             try require(replacements == 0, "stale Ready restored a closed client")
+            original.replacementAllowed = false
             readiness.update(ready: true, source: a2)
             readiness.update(ready: true, source: a2)
+            try require(replacements == 0, "entry waiting for its model was replaced")
+            original.replacementAllowed = true
             coordinator.retry()
             guard let restored = controllers.first as? Entry
                 else { throw Failure(description: "missing restored Main") }

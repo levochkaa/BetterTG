@@ -83,7 +83,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
-                DispatchQueue.main.async { self?.reloadFromState() }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    reloadFromState()
+                    NavigationStorage.shared.retryClientRestoration()
+                }
             }
             .store(in: &cancellables)
         FolderUnreadStore.shared
@@ -123,6 +127,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     func replacementForReadyClient(_ source: TdUpdateSource) -> UIViewController? {
         guard source == TDLib.shared.activeUpdateSource,
               source.accountID == navigationClientSource?.accountID,
+              source.accountID == rootVM.activeAccountID,
               interactiveFolderTransition == nil
         else { return nil }
         let state = ClientRestorationState(
