@@ -61,6 +61,7 @@ import UIKit
     private let customChat: CustomChat
     private let isSelfProfile: Bool
     private let topic: MessageTopic?
+    private var infoPermission: PeerProfileInfoPermissionState
     private var currentChatTitle: String
     private var currentChatPhotoInfo: ChatPhotoInfo?
     private var currentUserProfilePhoto: ProfilePhoto?
@@ -116,6 +117,7 @@ import UIKit
     private var avatarReconciliationTask: Task<Void, Never>?
     private var avatarReconciliationRequestID: UUID?
     private var chatMetadataTask: Task<Void, Never>?
+    private var permissionTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var messageRefreshTasks = [Int64: Task<Void, Never>]()
     private var messageRefreshGenerations = [Int64: UUID]()
@@ -212,6 +214,11 @@ import UIKit
         self.topic = topic
         self.client = client
         self.accountID = accountID
+        self.infoPermission = PeerProfileInfoPermissionState(
+            source: TdUpdateSource(accountID: accountID, clientID: client.id),
+            chatID: customChat.id, chatType: customChat.chat.type, permissions: customChat.chat.permissions,
+            status: customChat.group?.status ?? customChat.supergroup?.status,
+        )
         let accountUserID = TDLib.shared.activeAccountID == accountID ? TDLib.shared.activeAccount?.userID : nil
         self.accountUserID = accountUserID
         self.isSelfProfile = accountUserID.map { customChat.user?.id == $0 } == true
@@ -232,6 +239,7 @@ import UIKit
         avatarHistoryTask?.cancel()
         avatarReconciliationTask?.cancel()
         chatMetadataTask?.cancel()
+        permissionTask?.cancel()
         historyTask?.cancel()
         messageRefreshTasks.values.forEach { $0.cancel() }
     }
@@ -252,6 +260,7 @@ import UIKit
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
+        refreshInfoPermission()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -620,11 +629,17 @@ import UIKit
         nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
             self?.handleUserUpdate(update)
         }
-        nc.publisher(&cancellables, for: .updateBasicGroup) { [weak self] update in
-            self?.handleBasicGroupUpdate(update)
+        nc.scopedPublisher(&cancellables, for: .updateChatPermissions) { [weak self] event in
+            guard let self, contextIsCurrent,
+                  infoPermission.updatePermissions(event.value, source: event.source)
+            else { return }
+            scheduleMetadataRender()
         }
-        nc.publisher(&cancellables, for: .updateSupergroup) { [weak self] update in
-            self?.handleSupergroupUpdate(update)
+        nc.scopedPublisher(&cancellables, for: .updateBasicGroup) { [weak self] event in
+            self?.handleBasicGroupUpdate(event.value, source: event.source)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateSupergroup) { [weak self] event in
+            self?.handleSupergroupUpdate(event.value, source: event.source)
         }
         nc.publisher(&cancellables, for: .updateUserFullInfo) { [weak self] update in
             self?.handleUserFullInfoUpdate(update)
@@ -742,15 +757,27 @@ import UIKit
         loadProfileInfo()
     }
 
-    private func handleBasicGroupUpdate(_ update: UpdateBasicGroup) {
-        guard contextIsCurrent, update.basicGroup.id == customChat.group?.id else { return }
+    private func handleBasicGroupUpdate(_ update: UpdateBasicGroup, source: TdUpdateSource) {
+        guard contextIsCurrent, update.basicGroup.id == customChat.group?.id,
+              infoPermission.updateStatus(
+                  update.basicGroup.status,
+                  chatType: .chatTypeBasicGroup(.init(basicGroupId: update.basicGroup.id)), source: source,
+              )
+        else { return }
         customChat.type = .group(update.basicGroup)
         currentStatusText = "\(update.basicGroup.memberCount) members"
         scheduleMetadataRender()
     }
 
-    private func handleSupergroupUpdate(_ update: UpdateSupergroup) {
-        guard contextIsCurrent, update.supergroup.id == customChat.supergroup?.id else { return }
+    private func handleSupergroupUpdate(_ update: UpdateSupergroup, source: TdUpdateSource) {
+        guard contextIsCurrent, update.supergroup.id == customChat.supergroup?.id,
+              infoPermission.updateStatus(
+                  update.supergroup.status,
+                  chatType: .chatTypeSupergroup(.init(
+                      isChannel: update.supergroup.isChannel, supergroupId: update.supergroup.id,
+                  )), source: source,
+              )
+        else { return }
         customChat.type = .supergroup(update.supergroup)
         currentStatusText =
             if update.supergroup.memberCount > 0 {
@@ -809,6 +836,35 @@ import UIKit
                 : nil,
             photo: update.supergroupFullInfo.photo,
         )
+    }
+
+    private func refreshInfoPermission() {
+        guard contextIsCurrent, let accountUserID else { return }
+        switch infoPermission.chatType {
+        case .chatTypeBasicGroup, .chatTypeSupergroup: break
+        case .chatTypePrivate, .chatTypeSecret: return
+        }
+        let authorization = PeerProfileInfoEditAuthorization.live(
+            accountID: accountID, actorUserID: accountUserID, chatID: customChat.id, client: client,
+        )
+        let revision = infoPermission.revision
+        permissionTask?.cancel()
+        permissionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await authorization.loadSnapshot()
+                guard !Task.isCancelled, contextIsCurrent else { return }
+                infoPermission.refresh(
+                    chatID: snapshot.chatID, chatType: snapshot.chatType, permissions: snapshot.permissions,
+                    status: snapshot.status, ifRevision: revision,
+                )
+                permissionTask = nil
+                scheduleMetadataRender()
+            } catch {
+                guard !Task.isCancelled, contextIsCurrent else { return }
+                permissionTask = nil
+            }
+        }
     }
 
     private func refreshChatMetadata() {
@@ -1018,7 +1074,7 @@ import UIKit
             if let user = customChat.user {
                 user.id != accountUserID
             } else {
-                !peerProfileCanChangeInfo(status: customChat.group?.status ?? customChat.supergroup?.status)
+                !infoPermission.canChangeInfo
             }
         managementActionStack.isHidden = managementActionStack.arrangedSubviews.allSatisfy(\.isHidden)
     }
@@ -1574,8 +1630,7 @@ import UIKit
                 bio: currentBioText,
             )
         } else {
-            guard peerProfileCanChangeInfo(status: customChat.group?.status ?? customChat.supergroup?.status)
-            else { return }
+            guard infoPermission.canChangeInfo else { return }
             mode = .chat(
                 chatID: customChat.id,
                 title: currentChatTitle,

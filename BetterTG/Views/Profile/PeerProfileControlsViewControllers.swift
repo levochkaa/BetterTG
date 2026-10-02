@@ -4,20 +4,6 @@ import Combine
 import TDLibKitDynamic
 import UIKit
 
-// MARK: - Shared permission
-
-func peerProfileCanChangeInfo(status: ChatMemberStatus?) -> Bool {
-    switch status {
-    case .chatMemberStatusCreator:
-        true
-    case .chatMemberStatusAdministrator(let administrator):
-        administrator.rights.canChangeInfo
-    case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
-         .chatMemberStatusRestricted, nil:
-        false
-    }
-}
-
 // MARK: - PeerProfileMembersViewController
 
 @MainActor final class PeerProfileMembersViewController: UITableViewController {
@@ -1060,12 +1046,12 @@ private enum PeerProfileMemberTagError: LocalizedError {
             guard let self else { return }
             do {
                 _ = try await performSave(first: first, second: second, detail: detail)
-                guard contextIsCurrent else { return }
+                guard !Task.isCancelled, contextIsCurrent else { return }
                 saveTask = nil
                 navigationItem.rightBarButtonItem?.isEnabled = true
                 _ = navigationController?.popViewController(animated: true)
             } catch {
-                guard contextIsCurrent else { return }
+                guard !Task.isCancelled, contextIsCurrent else { return }
                 saveTask = nil
                 navigationItem.rightBarButtonItem?.isEnabled = true
                 showError(error.localizedDescription)
@@ -1107,19 +1093,14 @@ private enum PeerProfileMemberTagError: LocalizedError {
                   TDLib.shared.activeAccount?.userID == accountUserID,
                   contextIsCurrent
             else { throw PeerProfileEditError.permissionChanged }
-            let member = try await client.getChatMember(
-                chatId: chatID,
-                memberId: .messageSenderUser(.init(userId: accountUserID)),
+            let authorization = PeerProfileInfoEditAuthorization.live(
+                accountID: accountID, actorUserID: accountUserID, chatID: chatID, client: client,
             )
-            guard TDLib.shared.activeAccount?.userID == accountUserID,
-                  contextIsCurrent,
-                  peerProfileCanChangeInfo(status: member.status)
-            else {
-                throw PeerProfileEditError.permissionChanged
-            }
             var changed = false
             if first != persistedFirst {
-                _ = try await client.setChatTitle(chatId: chatID, title: first)
+                _ = try await authorization.perform {
+                    try await client.setChatTitle(chatId: chatID, title: first)
+                }
                 persistedFirst = first
                 changed = true
             }
@@ -1128,7 +1109,9 @@ private enum PeerProfileMemberTagError: LocalizedError {
             else { throw PeerProfileEditError.permissionChanged }
             if detail != persistedDetail {
                 do {
-                    _ = try await client.setChatDescription(chatId: chatID, description: detail)
+                    _ = try await authorization.perform {
+                        try await client.setChatDescription(chatId: chatID, description: detail)
+                    }
                     persistedDetail = detail
                     changed = true
                 } catch where changed {
@@ -1149,7 +1132,7 @@ private enum PeerProfileMemberTagError: LocalizedError {
 
 // MARK: - PeerProfileEditError
 
-private enum PeerProfileEditError: LocalizedError {
+enum PeerProfileEditError: LocalizedError {
     case partialSuccess(String)
     case permissionChanged
 
