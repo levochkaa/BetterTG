@@ -6,22 +6,21 @@ import TDLibKitDynamic
 
 extension ChatVM {
     func setPublishers() {
-        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] update in
+        observeCurrentUpdate(.updateChatReadInbox) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             customChat.unreadCount = update.unreadCount
         }
-        nc.publisher(&cancellables, for: .updateNewMessage) { [weak self] update in
+        observeCurrentUpdate(.updateNewMessage) { [weak self] update, authority in
             guard let self,
                   locationContextIsCurrent,
                   location.matches(message: update.message)
             else { return }
-            updateNewMessage(update)
+            updateNewMessage(update, authority: authority)
         }
-        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
-            guard let self, locationContextIsCurrent, event.source.matches(location) else { return }
-            let update = event.value
+        observeCurrentUpdate(.updateDeleteMessages) { [weak self] update, authority in
+            guard let self else { return }
             if update.chatId == customChat.id {
-                updateDeleteMessages(update)
+                updateDeleteMessages(update, authority: authority)
                 if !update.fromCache,
                    update.isPermanent,
                    supportsPinnedMessages,
@@ -33,15 +32,15 @@ extension ChatVM {
                 }
             }
             guard !update.fromCache else { return }
-            refreshReferencedMetadata(chatID: update.chatId, messageIDs: Set(update.messageIds))
+            refreshReferencedMetadata(chatID: update.chatId, messageIDs: Set(update.messageIds), authority: authority)
             if update.isPermanent {
                 invalidateDeletedForwardTargets(chatID: update.chatId, messageIDs: Set(update.messageIds))
             }
         }
-        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
+        observeCurrentUpdate(.updateMessageEdited) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             if update.chatId == customChat.id {
-                updateMessageEdited(update)
+                updateMessageEdited(update, authority: authority)
                 if TDLib.shared.activeAccountID == accountID,
                    TDLib.shared.activeClient.id == client.id,
                    pinnedMessage?.id == update.messageId
@@ -49,12 +48,12 @@ extension ChatVM {
                     refreshPinnedMessages()
                 }
             }
-            refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
+            refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId], authority: authority)
         }
-        nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
+        observeCurrentUpdate(.updateMessageContent) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             if update.chatId == customChat.id {
-                refreshMessage(id: update.messageId)
+                refreshMessage(id: update.messageId, authority: authority)
                 if TDLib.shared.activeAccountID == accountID,
                    TDLib.shared.activeClient.id == client.id,
                    pinnedMessage?.id == update.messageId
@@ -62,9 +61,9 @@ extension ChatVM {
                     refreshPinnedMessages()
                 }
             }
-            refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId])
+            refreshReferencedMetadata(chatID: update.chatId, messageIDs: [update.messageId], authority: authority)
         }
-        nc.publisher(&cancellables, for: .updateMessageInteractionInfo) { [weak self] update in
+        observeCurrentUpdate(.updateMessageInteractionInfo) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id,
@@ -72,7 +71,7 @@ extension ChatVM {
             else { return }
             message.reactions = update.interactionInfo?.reactions
         }
-        nc.publisher(&cancellables, for: .updateMessageUnreadReactions) { [weak self] update in
+        observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id,
@@ -80,28 +79,28 @@ extension ChatVM {
             else { return }
             message.unreadReactions = update.unreadReactions
         }
-        nc.publisher(&cancellables, for: .updateMessageIsPinned) { [weak self] update in
+        observeCurrentUpdate(.updateMessageIsPinned) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
             applyPinnedMessageUpdate(messageID: update.messageId, isPinned: update.isPinned)
         }
-        nc.publisher(&cancellables, for: .updateChatPermissions) { [weak self] update in
+        observeCurrentUpdate(.updateChatPermissions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
             updateChatPermissions(update.permissions)
         }
-        nc.publisher(&cancellables, for: .updateChatAvailableReactions) { [weak self] update in
+        observeCurrentUpdate(.updateChatAvailableReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
             updateAvailableReactions(update.availableReactions)
         }
-        nc.publisher(&cancellables, for: .updateSupergroup) { [weak self] update in
+        observeCurrentUpdate(.updateSupergroup) { [weak self] update, _ in
             guard let self,
                   locationContextIsCurrent,
                   update.supergroup.id == customChat.supergroup?.id
@@ -109,14 +108,14 @@ extension ChatVM {
             customChat.type = .supergroup(update.supergroup)
             objectWillChange.send()
         }
-        nc.publisher(&cancellables, for: .updateForumTopicInfo) { [weak self] update in
+        observeCurrentUpdate(.updateForumTopicInfo) { [weak self] update, _ in
             guard let self,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
             updateForumTopicInfo(update.info)
         }
-        nc.publisher(&cancellables, for: .updateForumTopic) { [weak self] update in
+        observeCurrentUpdate(.updateForumTopic) { [weak self] update, _ in
             guard let self,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id,
@@ -125,23 +124,19 @@ extension ChatVM {
             else { return }
             loadForumTopic()
         }
-        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] event in
-            let update = event.value
+        observeCurrentUpdate(.updateMessageSendSucceeded) { [weak self] update, authority in
             guard let self,
                   locationContextIsCurrent,
-                  event.source.matches(location),
                   location.matches(message: update.message)
             else { return }
-            updateMessageSendSucceeded(update)
+            updateMessageSendSucceeded(update, authority: authority)
         }
-        nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { [weak self] event in
-            let update = event.value
+        observeCurrentUpdate(.updateMessageSendFailed) { [weak self] update, authority in
             guard let self,
                   locationContextIsCurrent,
-                  event.source.matches(location),
                   location.matches(message: update.message)
             else { return }
-            updateMessageSendFailed(update)
+            updateMessageSendFailed(update, authority: authority)
         }
         nc.publisher(&cancellables, for: .voiceNoteDraftResolved) { [weak self] notification in
             guard let self,
@@ -166,11 +161,11 @@ extension ChatVM {
             else { return }
             handleVideoNoteDraftResolution(resolution)
         }
-        nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
+        observeCurrentUpdate(.updateUserStatus) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }
             onlineStatus = getOnlineStatus(from: update.status)
         }
-        nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
+        observeCurrentUpdate(.updateUser) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.update(user: update.user)
             for message in messages {
@@ -178,19 +173,19 @@ extension ChatVM {
                     message.senderUser = update.user
                 }
             }
-            refreshReferencedMetadata(userID: update.user.id)
+            refreshReferencedMetadata(userID: update.user.id, authority: authority)
         }
-        nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
+        observeCurrentUpdate(.updateChatTitle) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.invalidateChat(id: update.chatId)
-            refreshReferencedMetadata(chatID: update.chatId)
+            refreshReferencedMetadata(chatID: update.chatId, authority: authority)
         }
-        nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
+        observeCurrentUpdate(.updateChatPhoto) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.invalidateChat(id: update.chatId)
-            refreshReferencedMetadata(chatID: update.chatId)
+            refreshReferencedMetadata(chatID: update.chatId, authority: authority)
         }
-        nc.publisher(&cancellables, for: .updateChatAction) { [weak self] update in
+        observeCurrentUpdate(.updateChatAction) { [weak self] update, _ in
             guard let self,
                   locationContextIsCurrent,
                   update.chatId == customChat.id,
@@ -200,6 +195,26 @@ extension ChatVM {
             else { return }
             updateChatAction(update)
         }
+    }
+
+    private func observeCurrentUpdate<Value>(
+        _ notification: TdNotification<Value>,
+        perform: @escaping (Value, ChatUpdateDeliveryAuthority) -> Void,
+    ) {
+        ChatUpdateDeliveryAuthority.observe(
+            notification, center: nc, subscriptions: &cancellables, location: location,
+            currentLocation: { [weak self] in self?.location },
+            currentSource: { TDLib.shared.activeUpdateSource },
+            ownerIsCurrent: { [weak self] in self?.locationContextIsCurrent == true },
+            perform: perform,
+        )
+    }
+
+    private func acceptsUpdate(_ authority: ChatUpdateDeliveryAuthority) -> Bool {
+        !Task.isCancelled && authority.permits(
+            currentLocation: location, currentSource: TDLib.shared.activeUpdateSource,
+            ownerIsCurrent: locationContextIsCurrent,
+        )
     }
 
     func updateChatAction(_ update: UpdateChatAction) {
@@ -223,30 +238,36 @@ extension ChatVM {
             }
     }
 
-    func updateMessageSendSucceeded(_ update: UpdateMessageSendSucceeded) {
+    private func updateMessageSendSucceeded(
+        _ update: UpdateMessageSendSucceeded,
+        authority: ChatUpdateDeliveryAuthority,
+    ) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         releaseOutgoingDocumentFile(messageID: update.oldMessageId)
-        Task {
-            let replacement = await self.getCustomMessage(from: update.message)
-            await main {
-                self.replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
-            }
+        Task { [weak self] in
+            guard let self, acceptsUpdate(authority) else { return }
+            let replacement = await getCustomMessage(from: update.message)
+            guard acceptsUpdate(authority) else { return }
+            replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
         }
     }
 
-    func updateMessageSendFailed(_ update: UpdateMessageSendFailed) {
+    private func updateMessageSendFailed(
+        _ update: UpdateMessageSendFailed,
+        authority: ChatUpdateDeliveryAuthority,
+    ) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         replaceOutgoingDocumentMessageID(old: update.oldMessageId, new: update.message.id)
-        Task {
-            let replacement = await self.getCustomMessage(from: update.message)
-            await main {
-                replacement.sendFailed = true
-                self.replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
-            }
+        Task { [weak self] in
+            guard let self, acceptsUpdate(authority) else { return }
+            let replacement = await getCustomMessage(from: update.message)
+            guard acceptsUpdate(authority) else { return }
+            replacement.sendFailed = true
+            replaceSourceMessage(oldID: update.oldMessageId, with: replacement)
         }
     }
 
-    func updateDeleteMessages(_ update: UpdateDeleteMessages) {
+    private func updateDeleteMessages(_ update: UpdateDeleteMessages, authority: ChatUpdateDeliveryAuthority) {
         guard !update.fromCache, update.isPermanent else { return }
         bufferPotentialVoiceMessageDeletions(update.messageIds)
         handlePotentialVideoMessageDeletions(update.messageIds)
@@ -280,48 +301,55 @@ extension ChatVM {
             }
             return message
         }
-        promotedRepresentativeIDs.forEach { refreshMessage(id: $0) }
+        promotedRepresentativeIDs.forEach { refreshMessage(id: $0, authority: authority) }
     }
 
-    func updateNewMessage(_ update: UpdateNewMessage) {
-        Task {
-            let customMessage = await self.getCustomMessage(from: update.message)
-            await main {
-                self.mergeIncomingMessages([customMessage])
-            }
+    private func updateNewMessage(_ update: UpdateNewMessage, authority: ChatUpdateDeliveryAuthority) {
+        Task { [weak self] in
+            guard let self, acceptsUpdate(authority) else { return }
+            let customMessage = await getCustomMessage(from: update.message)
+            guard acceptsUpdate(authority) else { return }
+            mergeIncomingMessages([customMessage])
         }
     }
 
-    func updateMessageEdited(_ update: UpdateMessageEdited) {
-        refreshMessage(id: update.messageId)
+    private func updateMessageEdited(_ update: UpdateMessageEdited, authority: ChatUpdateDeliveryAuthority) {
+        refreshMessage(id: update.messageId, authority: authority)
     }
 
-    private func refreshMessage(id: Int64) {
-        Task {
-            let replacement = await getCustomMessage(fromId: id)
-            if let replacement {
-                replaceSourceMessage(oldID: id, with: replacement)
-            }
+    private func refreshMessage(id: Int64, authority: ChatUpdateDeliveryAuthority) {
+        Task { [weak self] in
+            guard let self, acceptsUpdate(authority) else { return }
+            guard let message = try? await client.getMessage(chatId: chatID, messageId: id),
+                  acceptsUpdate(authority), location.matches(message: message)
+            else { return }
+            let replacement = await getCustomMessage(from: message)
+            guard acceptsUpdate(authority) else { return }
+            replaceSourceMessage(oldID: id, with: replacement)
         }
     }
 
-    private func refreshReferencedMetadata(chatID: Int64, messageIDs: Set<Int64>) {
+    private func refreshReferencedMetadata(
+        chatID: Int64,
+        messageIDs: Set<Int64>,
+        authority: ChatUpdateDeliveryAuthority,
+    ) {
         let candidates = messages.filter { message in
             guard let reply = message.replyPresentation else { return false }
             return reply.targetChatID == chatID
                 && reply.targetMessageID.map(messageIDs.contains) == true
         }
         for message in candidates {
-            refreshMetadata(for: message)
+            refreshMetadata(for: message, authority: authority)
         }
     }
 
-    private func refreshReferencedMetadata(userID: Int64) {
+    private func refreshReferencedMetadata(userID: Int64, authority: ChatUpdateDeliveryAuthority) {
         for message in messages {
             let refreshReply = message.replyPresentation?.referencedUserID == userID
             let refreshForward = message.forwardPresentation?.referencedUserIDs.contains(userID) == true
             if refreshReply || refreshForward {
-                refreshMetadata(for: message)
+                refreshMetadata(for: message, authority: authority)
             }
         }
     }
@@ -337,22 +365,22 @@ extension ChatVM {
         }
     }
 
-    private func refreshReferencedMetadata(chatID: Int64) {
+    private func refreshReferencedMetadata(chatID: Int64, authority: ChatUpdateDeliveryAuthority) {
         for message in messages {
             let refreshReply = message.replyPresentation?.referencedChatID == chatID
                 || message.replyPresentation?.targetChatID == chatID
             let refreshForward = message.forwardPresentation?.referencedChatIDs.contains(chatID) == true
             if refreshReply || refreshForward {
-                refreshMetadata(for: message)
+                refreshMetadata(for: message, authority: authority)
             }
         }
     }
 
-    private func refreshMetadata(for message: CustomMessage) {
+    private func refreshMetadata(for message: CustomMessage, authority: ChatUpdateDeliveryAuthority) {
         let generation = UUID()
         metadataRefreshGenerations[message.id] = generation
         Task { [weak self, weak message] in
-            guard let self, let message else { return }
+            guard let self, let message, acceptsUpdate(authority) else { return }
             let previousForward = message.forwardPresentation
             async let replyPresentation = metadataResolver.replyPresentation(for: message.message)
             async let forwardPresentation = metadataResolver.forwardPresentation(for: message.message.forwardInfo)
@@ -366,7 +394,7 @@ extension ChatVM {
             {
                 resolvedForward = resolvedForward?.removingNavigationTarget()
             }
-            guard metadataRefreshGenerations[message.id] == generation,
+            guard acceptsUpdate(authority), metadataRefreshGenerations[message.id] == generation,
                   messages.contains(where: { $0 === message })
             else { return }
             message.replyPresentation = resolvedReply
