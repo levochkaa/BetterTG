@@ -49,7 +49,7 @@ struct VideoNoteSendDraft: Codable, ChatDraftSendScoped {
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
     var sendTopic: MessageTopic? = nil
-    let thumbnailFileURL: URL?
+    var thumbnailFileURL: URL?
     let thumbnailHeight: Int?
     let thumbnailWidth: Int?
     var temporaryMessageID: Int64?
@@ -122,6 +122,8 @@ actor VideoNoteFileStore {
     private var registrationOwnedDraftIDs = Set<UUID>()
     private let directoryURL: URL
     private let legacyBindingAllowed: @Sendable (ChatDraftKey) -> Bool
+    private let writeManifest: @Sendable (Data, URL) throws -> Void
+    private let discardRecordingDraft: (@Sendable (UUID) async -> Bool)?
 
     init(
         directoryURL: URL? = nil,
@@ -129,10 +131,23 @@ actor VideoNoteFileStore {
             ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: $0)
         },
     ) {
+        self.init(directoryURL: directoryURL, legacyBindingAllowed: legacyBindingAllowed, discardRecordingDraft: nil)
+    }
+
+    init(
+        directoryURL: URL?,
+        legacyBindingAllowed: @escaping @Sendable (ChatDraftKey) -> Bool,
+        writeManifest: @escaping @Sendable (Data, URL) throws -> Void = { data, url in
+            try data.write(to: url, options: .atomic)
+        },
+        discardRecordingDraft: (@Sendable (UUID) async -> Bool)?,
+    ) {
         self.directoryURL = directoryURL ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("VideoNoteDrafts", isDirectory: true)
         self.legacyBindingAllowed = legacyBindingAllowed
+        self.writeManifest = writeManifest
+        self.discardRecordingDraft = discardRecordingDraft
     }
 
     #if DEBUG
@@ -604,7 +619,12 @@ actor VideoNoteFileStore {
         var originWasRemoved = true
         if let originID {
             removingOriginCounts[originID, default: 0] += 1
-            originWasRemoved = await VideoNoteRecordingDraftStore.shared.discard(id: originID)
+            originWasRemoved =
+                if let discardRecordingDraft {
+                    await discardRecordingDraft(originID)
+                } else {
+                    await VideoNoteRecordingDraftStore.shared.discard(id: originID)
+                }
         }
         let removed = originWasRemoved && removeFiles(for: removalDraft)
         removingDraftIDs.remove(draft.id)
@@ -696,7 +716,7 @@ actor VideoNoteFileStore {
     }
 
     private func isManagedFile(_ url: URL) -> Bool {
-        url.standardizedFileURL.path.hasPrefix(directoryURL.standardizedFileURL.path + "/")
+        SendDraftFileReference.isSafeManagedFile(url, directory: directoryURL)
     }
 
     private func discardUnmanagedThumbnailInput(_ thumbnail: VideoNoteInputThumbnailAsset?) {
@@ -747,16 +767,38 @@ actor VideoNoteFileStore {
     }
 
     private func saveManifest(_ draft: VideoNoteSendDraft) throws {
-        guard isManagedFile(draft.fileURL),
-              draft.thumbnailFileURL.map(isManagedFile) ?? true
-        else {
-            throw VideoNoteFileStoreError.unmanagedFile(
-                draft.fileURL.standardizedFileURL.path(percentEncoded: false),
-                root: directoryURL.standardizedFileURL.path(percentEncoded: false),
+        var manifest = draft
+        manifest.fileURL = try SendDraftFileReference.relative(
+            draft.fileURL, id: draft.id, kind: .video, directory: directoryURL, allowMissing: true,
+        )
+        if let thumbnail = draft.thumbnailFileURL {
+            manifest.thumbnailFileURL = try SendDraftFileReference.relative(
+                thumbnail, id: draft.id, kind: .videoThumbnail, directory: directoryURL, allowMissing: true,
             )
         }
-        let data = try JSONEncoder().encode(draft)
-        try data.write(to: manifestURL(for: draft.id), options: .atomic)
+        try writeManifest(JSONEncoder().encode(manifest), manifestURL(for: draft.id))
+    }
+
+    private func loadManifest(id: UUID) -> VideoNoteSendDraft? {
+        let url = manifestURL(for: id)
+        guard SendDraftFileReference.isSafeManagedFile(url, directory: directoryURL),
+              let data = try? Data(contentsOf: url),
+              var draft = try? JSONDecoder().decode(VideoNoteSendDraft.self, from: data),
+              draft.id == id,
+              let fileURL = SendDraftFileReference.resolve(
+                  draft.fileURL, id: id, kind: .video, directory: directoryURL, allowMissing: true,
+              )
+        else { return nil }
+        let needsMigration = draft.fileURL.isFileURL || draft.thumbnailFileURL?.isFileURL == true
+        draft.fileURL = fileURL
+        if let thumbnail = draft.thumbnailFileURL {
+            guard let resolved = SendDraftFileReference.resolve(
+                thumbnail, id: id, kind: .videoThumbnail, directory: directoryURL, allowMissing: true,
+            ) else { return nil }
+            draft.thumbnailFileURL = resolved
+        }
+        if needsMigration { try? saveManifest(draft) }
+        return draft
     }
 
     private func loadAllManifests() throws -> [VideoNoteSendDraft] {
@@ -768,13 +810,9 @@ actor VideoNoteFileStore {
         )
         return files.compactMap { url in
             guard url.pathExtension == "json",
-                  UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil,
-                  let data = try? Data(contentsOf: url),
-                  let draft = try? JSONDecoder().decode(VideoNoteSendDraft.self, from: data),
-                  isManagedFile(draft.fileURL),
-                  draft.thumbnailFileURL.map(isManagedFile) ?? true
+                  let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
             else { return nil }
-            return draft
+            return loadManifest(id: id)
         }
     }
 
@@ -882,6 +920,7 @@ actor VideoNoteFileStore {
         ) else { return }
         let cutoff = Foundation.Date().addingTimeInterval(-24 * 60 * 60)
         for file in files where ["jpg", "mp4"].contains(file.pathExtension) && !referencedURLs.contains(file) {
+            guard !SendDraftFileReference.hasRetainedManifest(for: file, directory: directoryURL) else { continue }
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             if modified.map({ $0 < cutoff }) ?? true {
                 try? fileManager.removeItem(at: file)

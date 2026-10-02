@@ -123,6 +123,7 @@ actor VoiceNoteDraftStore {
     private var finalizations = [UUID: VoiceNoteFinalizationLease]()
     private let directoryURL: URL
     private let legacyBindingAllowed: @Sendable (ChatDraftKey) -> Bool
+    private let writeManifest: @Sendable (Data, URL) throws -> Void
 
     init(
         directoryURL: URL? = nil,
@@ -130,10 +131,21 @@ actor VoiceNoteDraftStore {
             ChatDraftLegacyMigrationPolicy.canBindLegacyDrafts(to: $0)
         },
     ) {
+        self.init(directoryURL: directoryURL, legacyBindingAllowed: legacyBindingAllowed, writeManifest: { data, url in
+            try data.write(to: url, options: .atomic)
+        })
+    }
+
+    init(
+        directoryURL: URL?,
+        legacyBindingAllowed: @escaping @Sendable (ChatDraftKey) -> Bool,
+        writeManifest: @escaping @Sendable (Data, URL) throws -> Void,
+    ) {
         self.directoryURL = directoryURL ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("VoiceNoteDrafts", isDirectory: true)
         self.legacyBindingAllowed = legacyBindingAllowed
+        self.writeManifest = writeManifest
     }
 
     func adopt(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
@@ -528,12 +540,18 @@ actor VoiceNoteDraftStore {
     }
 
     private func loadCanonicalDraft(id: UUID) -> VoiceNoteSendDraft? {
-        guard let data = try? Data(contentsOf: manifestURL(for: id)),
-              let draft = try? JSONDecoder().decode(VoiceNoteSendDraft.self, from: data),
+        let manifestURL = manifestURL(for: id)
+        guard SendDraftFileReference.isSafeManagedFile(manifestURL, directory: directoryURL),
+              let data = try? Data(contentsOf: manifestURL),
+              var draft = try? JSONDecoder().decode(VoiceNoteSendDraft.self, from: data),
               draft.id == id,
-              isManagedFile(draft.fileURL),
-              fileManager.fileExists(atPath: draft.fileURL.path)
+              let fileURL = SendDraftFileReference.resolve(
+                  draft.fileURL, id: id, kind: .voice(encoded: draft.isEncoded), directory: directoryURL,
+              )
         else { return nil }
+        let needsMigration = draft.fileURL.isFileURL
+        draft.fileURL = fileURL
+        if needsMigration { try? save(draft) }
         return draft
     }
 
@@ -584,8 +602,7 @@ actor VoiceNoteDraftStore {
     }
 
     private func isManagedFile(_ url: URL) -> Bool {
-        let rootPath = directoryURL.standardizedFileURL.path + "/"
-        return url.standardizedFileURL.path.hasPrefix(rootPath)
+        SendDraftFileReference.isSafeManagedFile(url, directory: directoryURL)
     }
 
     private func manifestURL(for id: UUID) -> URL {
@@ -676,11 +693,11 @@ actor VoiceNoteDraftStore {
     }
 
     private func save(_ draft: VoiceNoteSendDraft) throws {
-        guard isManagedFile(draft.fileURL), fileManager.fileExists(atPath: draft.fileURL.path) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let data = try JSONEncoder().encode(draft)
-        try data.write(to: manifestURL(for: draft.id), options: .atomic)
+        var manifest = draft
+        manifest.fileURL = try SendDraftFileReference.relative(
+            draft.fileURL, id: draft.id, kind: .voice(encoded: draft.isEncoded), directory: directoryURL,
+        )
+        try writeManifest(JSONEncoder().encode(manifest), manifestURL(for: draft.id))
     }
 
     private func loadAllDrafts() throws -> [VoiceNoteSendDraft] {
@@ -692,18 +709,11 @@ actor VoiceNoteDraftStore {
         )
         return files.compactMap { url in
             guard url.pathExtension == "json",
-                  UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil
+                  let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
             else { return nil }
-            guard
-                let data = try? Data(contentsOf: url),
-                let draft = try? JSONDecoder().decode(VoiceNoteSendDraft.self, from: data),
-                isManagedFile(draft.fileURL),
-                fileManager.fileExists(atPath: draft.fileURL.path)
-            else {
-                try? fileManager.removeItem(at: url)
-                return nil
-            }
-            return draft
+            // Missing, malformed or temporarily unreadable drafts remain on disk
+            // for recovery. A sandbox move is never grounds for deletion.
+            return loadCanonicalDraft(id: id)
         }
     }
 
@@ -715,6 +725,7 @@ actor VoiceNoteDraftStore {
         ) else { return }
         let cutoff = Foundation.Date().addingTimeInterval(-24 * 60 * 60)
         for file in files where ["wav", "ogg"].contains(file.pathExtension) && !referencedURLs.contains(file) {
+            guard !SendDraftFileReference.hasRetainedManifest(for: file, directory: directoryURL) else { continue }
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             if modified.map({ $0 < cutoff }) ?? true {
                 try? fileManager.removeItem(at: file)

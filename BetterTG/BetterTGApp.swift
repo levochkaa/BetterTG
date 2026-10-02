@@ -18,6 +18,7 @@ import UIKit
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
             ChatComposerEditProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
+            SendDraftRelocationProbe.runDebugProbeIfRequested()
             TDLibMediaUpdateStreamsProbe.runDebugProbeIfRequested()
             GalleryPictureInPictureCoordinator.runDebugProbeIfRequested()
             VoiceNoteCodec.runDebugProbeIfRequested()
