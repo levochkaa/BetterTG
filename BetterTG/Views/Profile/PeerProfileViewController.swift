@@ -70,6 +70,7 @@ ClientRestorableNavigationEntry {
     private var preparedMetadata: (TdUpdateSource, CustomChat)?
     private var clientOwnerRetired = false
     private let editorRetention = PeerProfileEditorRetention()
+    private weak var membersChild: PeerProfileMembersViewController?
     private var infoPermission: PeerProfileInfoPermissionState
     private var currentChatTitle: String
     private var currentChatPhotoInfo: ChatPhotoInfo?
@@ -233,7 +234,10 @@ ClientRestorableNavigationEntry {
     private var canWaitForClientRestoration: Bool {
         !clientOwnerRetired && !restorationIdentity.revoked && accountUserID != nil
             && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeAccount?.userID == accountUserID
-            && chatListActionOwnerIsAttached && navigationController?.topViewController === self
+            && chatListActionOwnerIsAttached
+            && (navigationController?.topViewController === self || membersChild?.canRetain(
+                parent: self, accountID: accountID, actorID: accountUserID, chatID: customChat.id,
+            ) == true)
             && presentedViewController == nil && activeMediaGallery == nil && activeAvatarGallery == nil
             && avatarGalleryTask == nil && !isPresentingTelegramContextMenu
     }
@@ -408,6 +412,16 @@ ClientRestorableNavigationEntry {
                       restorationHost(state: state, source: source) === host,
                       let replacement = host.makeProfile(customChat: preparedMetadata.1, restoration: state)
                 else { return nil }
+                if let membersChild, navigationController?.topViewController === membersChild {
+                    guard membersChild.canRetain(
+                        parent: self,
+                        accountID: accountID,
+                        actorID: accountUserID,
+                        chatID: customChat.id,
+                    ),
+                        membersChild.transferParent(from: self, to: replacement) else { return nil }
+                    replacement.membersChild = membersChild
+                }
                 clientOwnerRetired = true
                 metadataPreparation.cancel()
                 historyRequest.invalidate()
@@ -469,6 +483,26 @@ ClientRestorableNavigationEntry {
             .bottom
         guard scrollView.contentSize.height - visibleBottom < 160 else { return }
         loadMore()
+    }
+
+    func canRestoreMembers(_ child: PeerProfileMembersViewController, source: TdUpdateSource) -> Bool {
+        contextIsCurrent && navigationClientSource == source && membersChild === child
+            && child.canRetain(parent: self, accountID: accountID, actorID: accountUserID, chatID: customChat.id)
+    }
+
+    func makeRestoredMembers(
+        _ child: PeerProfileMembersViewController, state: PeerProfileMembersRestorationState, source: TdUpdateSource,
+    ) -> PeerProfileMembersViewController? {
+        guard canRestoreMembers(child, source: source), state.source.accountID == accountID,
+              state.actorID == accountUserID, state.chatID == customChat.id,
+              let memberSource = membersSource(administrators: state.administrators) else { return nil }
+        let replacement = PeerProfileMembersViewController(
+            accountID: accountID, accountUserID: accountUserID, client: client,
+            source: memberSource, title: profileTitle(), restoration: state,
+        )
+        replacement.attach(to: self)
+        membersChild = replacement
+        return replacement
     }
 
     private func restoreViewportIfNeeded() {
@@ -1948,38 +1982,43 @@ ClientRestorableNavigationEntry {
 
     @objc private func membersPressed() {
         guard contextIsCurrent else { return }
-        let source: PeerProfileMembersViewController.Source
+        if case .supergroup = customChat.type, !currentSupergroupCanGetMembers { return }
+        guard let source = membersSource(administrators: false) else { return }
+        pushMembers(source)
+    }
+
+    private func membersSource(administrators: Bool) -> PeerProfileMembersViewController.Source? {
         switch customChat.type {
         case .group(let group):
-            source = .basicGroup(chatID: customChat.id, id: group.id, members: currentBasicGroupMembers)
-        case .supergroup(let group) where currentSupergroupCanGetMembers:
-            source = .supergroup(chatID: customChat.id, id: group.id)
-        case .bot, .supergroup, .user:
-            return
+            administrators
+                ? .administrators(chatID: customChat.id, group: .basic(group.id))
+                : .basicGroup(chatID: customChat.id, id: group.id)
+        case .supergroup(let group):
+            administrators
+                ? .administrators(chatID: customChat.id, group: .supergroup(group.id))
+                : .supergroup(chatID: customChat.id, id: group.id)
+        case .bot, .user:
+            nil
         }
-        navigationController?.pushViewController(PeerProfileMembersViewController(
+    }
+
+    private func pushMembers(_ source: PeerProfileMembersViewController.Source) {
+        let child = PeerProfileMembersViewController(
             accountID: accountID,
             accountUserID: accountUserID,
             client: client,
             source: source,
             title: profileTitle(),
-        ), animated: true)
+        )
+        child.attach(to: self)
+        membersChild = child
+        navigationController?.pushViewController(child, animated: true)
     }
 
     @objc private func administratorsPressed() {
         guard contextIsCurrent else { return }
-        switch customChat.type {
-        case .group, .supergroup:
-            navigationController?.pushViewController(PeerProfileMembersViewController(
-                accountID: accountID,
-                accountUserID: accountUserID,
-                client: client,
-                source: .administrators(chatID: customChat.id),
-                title: profileTitle(),
-            ), animated: true)
-        case .bot, .user:
-            return
-        }
+        guard let source = membersSource(administrators: true) else { return }
+        pushMembers(source)
     }
 
     @objc private func editPressed() {

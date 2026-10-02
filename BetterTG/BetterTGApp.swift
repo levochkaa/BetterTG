@@ -33,6 +33,7 @@ import UIKit
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
             PeerProfileEditSessionProbe.runIfRequested()
             PeerProfileRestorationProbe.runIfRequested()
+            PeerProfileMembersRestorationProbe.runIfRequested()
             PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()
             MessagePollInteractionStore.runDebugSubmissionProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()

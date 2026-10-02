@@ -6,16 +6,26 @@ import UIKit
 
 // MARK: - PeerProfileMembersViewController
 
-@MainActor final class PeerProfileMembersViewController: UITableViewController {
+@MainActor final class PeerProfileMembersViewController: UITableViewController, ClientRestorableNavigationEntry {
     enum Source {
-        case administrators(chatID: Int64)
-        case basicGroup(chatID: Int64, id: Int64, members: [ChatMember])
+        case administrators(chatID: Int64, group: Group)
+        case basicGroup(chatID: Int64, id: Int64)
         case supergroup(chatID: Int64, id: Int64)
+
+        enum Group: Equatable { case basic(Int64), supergroup(Int64) }
 
         var chatID: Int64 {
             switch self {
-            case .administrators(let chatID), .basicGroup(let chatID, _, _), .supergroup(let chatID, _):
+            case .administrators(let chatID, _), .basicGroup(let chatID, _), .supergroup(let chatID, _):
                 chatID
+            }
+        }
+
+        var group: Group {
+            switch self {
+            case .administrators(_, let group): group
+            case .basicGroup(_, let id): .basic(id)
+            case .supergroup(_, let id): .supergroup(id)
             }
         }
     }
@@ -31,25 +41,8 @@ import UIKit
         let role: String
     }
 
-    private struct TableAnchor {
-        let id: MemberID
-        let offset: CGFloat
-    }
-
-    private enum MemberID: Hashable {
-        case chat(Int64)
-        case user(Int64)
-
-        init(_ sender: MessageSender) {
-            self =
-                switch sender {
-                case .messageSenderChat(let sender):
-                    .chat(sender.chatId)
-                case .messageSenderUser(let sender):
-                    .user(sender.userId)
-                }
-        }
-    }
+    private typealias MemberID = PeerProfileMemberID
+    private typealias TableAnchor = PeerProfileMemberAnchor
 
     private enum Section {
         case members
@@ -59,7 +52,20 @@ import UIKit
     private let accountUserID: Int64?
     private let client: TDLibClient
     private let source: Source
-    private var basicGroupMembers: [ChatMember]
+    private var identity: PeerProfileRestorationIdentity
+    private let parentBinding = PeerProfileMembersParentBinding()
+    private var retired = false
+    private var retentionDenied = false
+    private var revalidation = PeerProfileMembersRevalidation()
+    private var retainedHeights = [MemberID: CGFloat]()
+    private var loadError: String?
+    private var checkedAvailability = false
+    private var quarantinedForClientChange = false
+    private var basicMembersRevision = PeerProfileMembersRevision<[ChatMember]>()
+    private var memberAvailabilityRevision = PeerProfileMembersRevision<Bool>()
+    private var basicGroupRevision = PeerProfileMembersRevision<BasicGroup>()
+    private var supergroupRevision = PeerProfileMembersRevision<Supergroup>()
+    private var permissionsRevision = PeerProfileMembersRevision<ChatPermissions>()
     private var rows = [MemberID: Row]()
     private var seeds = [MemberID: Seed]()
     private var orderedIDs = [MemberID]()
@@ -77,9 +83,25 @@ import UIKit
     private var snapshotApplyPending = false
     private var cancellables = Set<AnyCancellable>()
     private var dataSource: UITableViewDiffableDataSource<Section, MemberID>!
+    #if DEBUG
+    private var isRestorationProbe = false
+    #endif
+
+    var navigationClientSource: TdUpdateSource? { identity.origin }
 
     private var contextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
+        !retired && !identity.revoked && TDLib.shared.activeAccountID == accountID
+            && TDLib.shared.activeClient.id == client.id && TDLib.shared.activeAccount?.userID == accountUserID
+    }
+
+    private var readOwnerIsCurrent: Bool {
+        contextIsCurrent && identity.readySource == identity.origin && chatListActionOwnerIsAttached
+            && navigationController?.viewControllers.contains(where: { $0 === self }) == true
+    }
+
+    private var isQuiescent: Bool {
+        tagPreparationTask == nil && presentedViewController == nil && !isPresentingTelegramContextMenu
+            && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
     }
 
     private var listNoun: String {
@@ -89,17 +111,30 @@ import UIKit
         }
     }
 
-    init(accountID: UUID, accountUserID: Int64?, client: TDLibClient, source: Source, title: String) {
+    init(
+        accountID: UUID,
+        accountUserID: Int64?,
+        client: TDLibClient,
+        source: Source,
+        title: String,
+        restoration: PeerProfileMembersRestorationState? = nil,
+    ) {
         self.accountID = accountID
         self.accountUserID = accountUserID
         self.client = client
         self.source = source
-        self.basicGroupMembers =
-            if case .basicGroup(_, _, let members) = source {
-                members
-            } else {
-                []
-            }
+        self.identity = .init(origin: .init(accountID: accountID, clientID: client.id), actorID: accountUserID)
+        if let restoration, restoration.source.accountID == accountID,
+           restoration.actorID == accountUserID, restoration.chatID == source.chatID
+        {
+            self.orderedIDs = restoration.ids
+            self.retainedHeights = restoration.heights
+            self.rawOffset = restoration.rawOffset
+            self.totalCount = restoration.total
+            self.hasMore = restoration.hasMore
+            self.pendingAnchor = restoration.anchor
+            revalidation.begin(ids: restoration.ids, rawOffset: restoration.rawOffset)
+        }
         super.init(style: .plain)
         self.title =
             switch source {
@@ -125,36 +160,80 @@ import UIKit
         tableView.estimatedRowHeight = 58
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "member")
         configureDataSource()
+        #if DEBUG
+        if isRestorationProbe { applySnapshot()
+        return
+        }
+        #endif
+        TDLib.shared
+            .activeClientChanges
+            .sink { [weak self] source in
+                guard let self else { return }
+                identity.observe(source: source, actorID: TDLib.shared.activeAccount?.userID)
+                if !contextIsCurrent { invalidateForContextChange() }
+                retryClientRestoration()
+            }
+            .store(in: &cancellables)
+        TDLib.shared
+            .readyClientChanges
+            .sink { [weak self] source in
+                guard let self else { return }
+                identity.readySource = source
+                if source != identity.origin { invalidateForContextChange() }
+                else { resumeLoadingIfNeeded() }
+                retryClientRestoration()
+            }
+            .store(in: &cancellables)
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
-            guard let self, !contextIsCurrent else { return }
-            invalidateForContextChange()
+            guard let self else { return }
+            identity.observe(source: TDLib.shared.activeUpdateSource, actorID: TDLib.shared.activeAccount?.userID)
+            if !contextIsCurrent { invalidateForContextChange() }
         }
-        nc.publisher(&cancellables, for: .updateChatMember) { [weak self] update in
-            guard let self, contextIsCurrent, update.chatId == source.chatID else { return }
+        nc.scopedPublisher(&cancellables, for: .updateChatMember) { [weak self] event in
+            guard let self, contextIsCurrent, event.source == identity.origin,
+                  event.value.chatId == source.chatID else { return }
             scheduleReload()
         }
-        nc.publisher(&cancellables, for: .updateBasicGroupFullInfo) { [weak self] update in
+        nc.scopedPublisher(&cancellables, for: .updateBasicGroupFullInfo) { [weak self] event in
             guard let self,
-                  contextIsCurrent,
-                  case .basicGroup(_, let groupID, _) = source,
-                  update.basicGroupId == groupID
+                  contextIsCurrent, event.source == identity.origin,
+                  case .basic(let groupID) = source.group,
+                  event.value.basicGroupId == groupID,
+                  basicMembersRevision.observe(event.value.basicGroupFullInfo.members)
             else { return }
-            basicGroupMembers = update.basicGroupFullInfo.members
             scheduleReload()
         }
-        nc.publisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] update in
+        nc.scopedPublisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] event in
             guard let self,
-                  contextIsCurrent,
-                  case .supergroup(_, let groupID) = source,
-                  update.supergroupId == groupID
+                  contextIsCurrent, event.source == identity.origin,
+                  case .supergroup(let groupID) = source.group,
+                  event.value.supergroupId == groupID
             else { return }
-            guard update.supergroupFullInfo.canGetMembers else {
-                _ = navigationController?.popViewController(animated: true)
+            if case .supergroup = source, !event.value.supergroupFullInfo.canGetMembers {
+                leaveUnavailableList()
                 return
             }
+            if memberAvailabilityRevision.observe(event.value.supergroupFullInfo.canGetMembers) { scheduleReload() }
+        }
+        nc.scopedPublisher(&cancellables, for: .updateBasicGroup) { [weak self] event in
+            guard let self, contextIsCurrent, event.source == identity.origin,
+                  source.group == .basic(event.value.basicGroup.id),
+                  basicGroupRevision.observe(event.value.basicGroup) else { return }
             scheduleReload()
         }
-        loadMore()
+        nc.scopedPublisher(&cancellables, for: .updateSupergroup) { [weak self] event in
+            guard let self, contextIsCurrent, event.source == identity.origin,
+                  source.group == .supergroup(event.value.supergroup.id),
+                  supergroupRevision.observe(event.value.supergroup) else { return }
+            scheduleReload()
+        }
+        nc.scopedPublisher(&cancellables, for: .updateChatPermissions) { [weak self] event in
+            guard let self, contextIsCurrent, event.source == identity.origin,
+                  event.value.chatId == source.chatID,
+                  permissionsRevision.observe(event.value.permissions) else { return }
+            scheduleReload()
+        }
+        applySnapshot()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -162,11 +241,47 @@ import UIKit
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        restorePendingAnchor()
+        resumeLoadingIfNeeded()
+        retryClientRestoration()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        restorePendingAnchor()
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent == nil { retireReads() }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if navigationController?.viewControllers.contains(where: { $0 === self }) != true { retireReads() }
+    }
+
+    override func scrollViewWillBeginDragging(_: UIScrollView) { pendingAnchor = nil }
+    override func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { resumeLoadingIfNeeded()
+            retryClientRestoration()
+        }
+    }
+
+    override func scrollViewDidEndDecelerating(_: UIScrollView) { resumeLoadingIfNeeded()
+        retryClientRestoration()
+    }
+
     override func tableView(
         _: UITableView,
         willDisplay _: UITableViewCell,
         forRowAt indexPath: IndexPath,
     ) {
+        if revalidation.active { resumeLoadingIfNeeded()
+            return
+        }
         guard indexPath.row >= max(0, orderedIDs.count - 10) else { return }
         loadMore()
     }
@@ -219,6 +334,12 @@ import UIKit
         }
     }
 
+    override func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard let id = dataSource.itemIdentifier(for: indexPath), rows[id] == nil,
+              let height = retainedHeights[id] else { return UITableView.automaticDimension }
+        return height
+    }
+
     private static func seed(for member: ChatMember) -> Seed {
         Seed(id: MemberID(member.memberId), role: role(for: member))
     }
@@ -250,14 +371,56 @@ import UIKit
         }
     }
 
+    func attach(to parent: PeerProfileViewController) { parentBinding.attach(parent) }
+
+    func canRetain(parent: PeerProfileViewController, accountID: UUID, actorID: Int64?, chatID: Int64) -> Bool {
+        !retired && !retentionDenied && !identity.revoked && accountUserID != nil
+            && self.accountID == accountID && accountUserID == actorID && source.chatID == chatID
+            && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeAccount?.userID == actorID
+            && parentBinding.contains(self, parent: parent) && isQuiescent
+    }
+
+    func transferParent(from parent: PeerProfileViewController, to replacement: PeerProfileViewController) -> Bool {
+        parentBinding.transfer(self, from: parent, to: replacement)
+    }
+
+    func prepareReplacementForReadyClient(_ next: TdUpdateSource) -> PreparedClientNavigationReplacement? {
+        guard let parent = parentBinding.parent as? PeerProfileViewController,
+              canRestore(next, parent: parent) else { return nil }
+        return PreparedClientNavigationReplacement(preflight: { [weak self, weak parent] in
+            guard let self, let parent else { return false }
+            return canRestore(next, parent: parent)
+        }, commit: { [self, weak parent] in
+            guard let parent, canRestore(next, parent: parent), let actorID = accountUserID,
+                  let replacement = parent.makeRestoredMembers(self, state: PeerProfileMembersRestorationState(
+                      source: identity.origin, actorID: actorID, chatID: source.chatID,
+                      administrators: {
+                          if case .administrators = source {
+                              true
+                          } else {
+                              false
+                          }
+                      }(),
+                      ids: orderedIDs, heights: retainedHeights, rawOffset: rawOffset,
+                      total: totalCount, hasMore: hasMore, anchor: pendingAnchor ?? captureAnchor(),
+                  ), source: next) else { return nil }
+            retireReads()
+            return replacement
+        })
+    }
+
     private func configureDataSource() {
         dataSource = UITableViewDiffableDataSource<
             Section,
             MemberID,
         >(tableView: tableView) { [weak self] tableView, indexPath, id in
-            guard let self, let row = rows[id] else { return UITableViewCell() }
+            guard let self else { return UITableViewCell() }
             let cell = tableView.dequeueReusableCell(withIdentifier: "member", for: indexPath)
             var content = cell.defaultContentConfiguration()
+            guard let row = rows[id] else {
+                PeerProfileMemberPlaceholder.configure(cell, retrying: loadError != nil)
+                return cell
+            }
             content.text = row.title
             content.secondaryText = row.role
             content.textProperties.font = .preferredFont(forTextStyle: .body)
@@ -277,23 +440,36 @@ import UIKit
             cell.isAccessibilityElement = true
             cell.accessibilityLabel = row.accessibilityLabel
             cell.accessibilityHint = canInspectTag ? "Shows member tag controls" : nil
+            cell.accessibilityTraits = canInspectTag ? .button : .staticText
             return cell
         }
     }
 
     private func loadMore() {
-        guard loadTask == nil, hasMore, contextIsCurrent else { return }
+        guard loadTask == nil, hasMore || revalidation.active, loadError == nil,
+              contextIsCurrent, identity.readySource == identity.origin,
+              chatListActionOwnerIsAttached, navigationController?.topViewController === self else { return }
         let generation = loadGeneration
+        let pageOffset = revalidation.active ? revalidation.cursor : rawOffset
         tableView.tableFooterView = nil
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
+                if !checkedAvailability, case .supergroup(_, let id) = source {
+                    let info = try await client.getSupergroupFullInfo(supergroupId: id)
+                    guard !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
+                    guard info.canGetMembers else { leaveUnavailableList()
+                        return
+                    }
+                    _ = memberAvailabilityRevision.observe(info.canGetMembers)
+                }
+                checkedAvailability = true
                 let page: [Seed]
                 let pageRawCount: Int
                 let nextTotalCount: Int
                 let nextHasMore: Bool
                 switch source {
-                case .administrators(let chatID):
+                case .administrators(let chatID, _):
                     let result = try await client.getChatAdministrators(chatId: chatID)
                     page = result.administrators.map { administrator in
                         let role =
@@ -312,14 +488,11 @@ import UIKit
                     pageRawCount = page.count
                     nextTotalCount = page.count
                     nextHasMore = false
-                case .basicGroup(_, let id, _):
-                    let members: [ChatMember]
-                    if !basicGroupMembers.isEmpty {
-                        members = basicGroupMembers
-                    } else {
-                        let info = try await client.getBasicGroupFullInfo(basicGroupId: id)
-                        members = info.members
-                    }
+                case .basicGroup(_, let id):
+                    let info = try await client.getBasicGroupFullInfo(basicGroupId: id)
+                    guard !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
+                    _ = basicMembersRevision.observe(info.members)
+                    let members = info.members
                     page = members.map(Self.seed(for:))
                     pageRawCount = members.count
                     nextTotalCount = members.count
@@ -328,27 +501,37 @@ import UIKit
                     let result = try await client.getSupergroupMembers(
                         filter: nil,
                         limit: 100,
-                        offset: rawOffset,
+                        offset: pageOffset,
                         supergroupId: id,
                     )
                     page = result.members.map(Self.seed(for:))
                     pageRawCount = result.members.count
-                    nextTotalCount = max(result.totalCount, rawOffset + pageRawCount)
-                    nextHasMore = !result.members.isEmpty && rawOffset + pageRawCount < nextTotalCount
+                    nextTotalCount = max(result.totalCount, pageOffset + pageRawCount)
+                    nextHasMore = !result.members.isEmpty && pageOffset + pageRawCount < nextTotalCount
                 }
                 guard !Task.isCancelled,
-                      contextIsCurrent,
+                      readOwnerIsCurrent,
                       loadGeneration == generation
                 else { return }
-                rawOffset += pageRawCount
+                if revalidation.active {
+                    preserveAnchor()
+                    orderedIDs = revalidation.admit(ids: page.map(\.id), rawCount: pageRawCount, hasMore: nextHasMore)
+                    if !revalidation.active {
+                        rawOffset = revalidation.cursor
+                        let acceptedIDs = Set(orderedIDs)
+                        rows = rows.filter { acceptedIDs.contains($0.key) }
+                        seeds = seeds.filter { acceptedIDs.contains($0.key) }
+                    }
+                } else { rawOffset += pageRawCount }
                 totalCount = nextTotalCount
                 hasMore = nextHasMore
                 append(page)
                 loadTask = nil
                 updateEmptyState()
             } catch {
-                guard contextIsCurrent, loadGeneration == generation else { return }
+                guard !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
                 loadTask = nil
+                loadError = error.localizedDescription
                 showRetry(error.localizedDescription)
             }
         }
@@ -359,7 +542,7 @@ import UIKit
         for seed in page {
             let id = seed.id
             if rows[id] == nil {
-                orderedIDs.append(id)
+                if !orderedIDs.contains(id) { orderedIDs.append(id) }
                 newSeeds.append(seed)
                 rows[id] = fallbackRow(seed)
             } else if let row = rows[id] {
@@ -376,6 +559,9 @@ import UIKit
     }
 
     private func enqueueResolution(_ newSeeds: [Seed]) {
+        #if DEBUG
+        guard !isRestorationProbe else { return }
+        #endif
         pendingResolutionIDs.append(contentsOf: newSeeds.map(\.id))
         guard resolutionTask == nil, !pendingResolutionIDs.isEmpty else { return }
         let generation = loadGeneration
@@ -386,7 +572,7 @@ import UIKit
                 let id = pendingResolutionIDs.removeFirst()
                 guard let seed = seeds[id] else { continue }
                 let row = await resolve(seed)
-                guard contextIsCurrent, loadGeneration == generation else { return }
+                guard !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
                 rows[id] = row
                 resolvedIDs.append(id)
                 if resolvedIDs.count == 16 {
@@ -441,6 +627,7 @@ import UIKit
     }
 
     private func applySnapshot() {
+        preserveAnchor()
         snapshotApplyPending = true
         drainSnapshotApply()
     }
@@ -458,10 +645,13 @@ import UIKit
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 snapshotApplyInProgress = false
+                guard !retired else { return }
                 if !snapshotApplyPending {
                     restorePendingAnchor()
                 }
                 drainSnapshotApply()
+                resumeLoadingIfNeeded()
+                retryClientRestoration()
             }
         }
     }
@@ -473,6 +663,7 @@ import UIKit
         button.titleLabel?.numberOfLines = 0
         button.titleLabel?.textAlignment = .center
         button.addAction(UIAction { [weak self] _ in
+            self?.loadError = nil
             self?.tableView.tableFooterView = nil
             self?.loadMore()
         }, for: .touchUpInside)
@@ -493,15 +684,22 @@ import UIKit
     }
 
     private func scheduleReload() {
+        beginRevalidation()
         reloadTask?.cancel()
         reloadTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(180))
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
-            resetAndReload()
+            reloadTask = nil
+            resumeLoadingIfNeeded()
         }
     }
 
     private func invalidateForContextChange() {
+        if !isQuiescent { retentionDenied = true }
+        if !quarantinedForClientChange {
+            quarantinedForClientChange = true
+            beginRevalidation()
+        }
         loadTask?.cancel()
         resolutionTask?.cancel()
         reloadTask?.cancel()
@@ -511,6 +709,7 @@ import UIKit
         reloadTask = nil
         tagPreparationTask = nil
         tableView.isUserInteractionEnabled = false
+        navigationItem.prompt = identity.revoked ? "This account is no longer active." : "Reconnecting…"
     }
 
     private func presentTagError(_ error: Swift.Error) {
@@ -522,8 +721,13 @@ import UIKit
         present(alert, animated: true)
     }
 
-    private func resetAndReload() {
-        pendingAnchor = captureAnchor()
+    private func beginRevalidation() {
+        preserveAnchor()
+        for path in tableView.indexPathsForVisibleRows ?? [] {
+            if let id = dataSource.itemIdentifier(for: path), rows[id] != nil {
+                retainedHeights[id] = tableView.rectForRow(at: path).height
+            }
+        }
         loadGeneration &+= 1
         loadTask?.cancel()
         resolutionTask?.cancel()
@@ -532,39 +736,198 @@ import UIKit
         pendingResolutionIDs.removeAll()
         rows.removeAll()
         seeds.removeAll()
-        orderedIDs.removeAll()
-        rawOffset = 0
-        totalCount = 0
-        hasMore = true
+        tableView.visibleCells.forEach { PeerProfileMemberPlaceholder.configure($0, retrying: false) }
+        revalidation.begin(ids: orderedIDs, rawOffset: rawOffset)
+        checkedAvailability = false
+        loadError = nil
         tableView.tableFooterView = nil
         tableView.backgroundView = nil
         applySnapshot()
-        loadMore()
+    }
+
+    private func preserveAnchor() {
+        if pendingAnchor == nil, !tableView.isTracking, !tableView.isDragging, !tableView.isDecelerating {
+            pendingAnchor = captureAnchor()
+        }
+    }
+
+    private func resumeLoadingIfNeeded() {
+        #if DEBUG
+        guard !isRestorationProbe else { return }
+        #endif
+        guard !retired, isViewLoaded, view.window != nil, pendingAnchor == nil,
+              !snapshotApplyInProgress, reloadTask == nil, loadError == nil,
+              contextIsCurrent, identity.readySource == identity.origin else { return }
+        tableView.isUserInteractionEnabled = true
+        quarantinedForClientChange = false
+        navigationItem.prompt = nil
+        let visible = (tableView.indexPathsForVisibleRows ?? []).compactMap { dataSource.itemIdentifier(for: $0) }
+        if revalidation.hasDemand(visibleIDs: visible) || orderedIDs.isEmpty { loadMore() }
+    }
+
+    private func leaveUnavailableList() {
+        invalidateForContextChange()
+        retireReads()
+        guard navigationController?.topViewController === self else { return }
+        navigationController?.popViewController(animated: false)
+    }
+
+    private func retireReads() {
+        guard !retired else { return }
+        retired = true
+        loadGeneration &+= 1
+        loadTask?.cancel()
+        resolutionTask?.cancel()
+        reloadTask?.cancel()
+        tagPreparationTask?.cancel()
+        loadTask = nil
+        resolutionTask = nil
+        reloadTask = nil
+        tagPreparationTask = nil
+        pendingResolutionIDs.removeAll()
+        cancellables.removeAll()
+    }
+
+    private func retryClientRestoration() {
+        guard !contextIsCurrent, !retired, !identity.revoked else { return }
+        NavigationStorage.shared.retryClientRestoration()
+    }
+
+    private func canRestore(_ next: TdUpdateSource, parent: PeerProfileViewController) -> Bool {
+        canRetain(parent: parent, accountID: accountID, actorID: accountUserID, chatID: source.chatID)
+            && identity.accepts(
+                next,
+                current: TDLib.shared.activeUpdateSource,
+                actorID: TDLib.shared.activeAccount?.userID,
+            )
+            && parent.canRestoreMembers(self, source: next) && transitionCoordinator == nil && !snapshotApplyInProgress
     }
 
     private func captureAnchor() -> TableAnchor? {
-        guard let indexPath = tableView.indexPathsForVisibleRows?.sorted().first,
-              let id = dataSource.itemIdentifier(for: indexPath)
-        else { return nil }
-        let rowFrame = tableView.rectForRow(at: indexPath)
-        return TableAnchor(id: id, offset: rowFrame.minY - tableView.contentOffset.y)
+        TableAnchor.capture(tableView, id: { dataSource.itemIdentifier(for: $0) })
     }
 
     private func restorePendingAnchor() {
-        guard let anchor = pendingAnchor,
-              let indexPath = dataSource.indexPath(for: anchor.id)
-        else { return }
-        tableView.layoutIfNeeded()
-        let targetY = tableView.rectForRow(at: indexPath).minY - anchor.offset
-        let minimumY = -tableView.adjustedContentInset.top
-        let maximumY = max(
-            minimumY,
-            tableView.contentSize.height - tableView.bounds.height + tableView.adjustedContentInset.bottom,
-        )
-        tableView.setContentOffset(CGPoint(x: 0, y: min(maximumY, max(minimumY, targetY))), animated: false)
+        guard !retired, isViewLoaded, view.window != nil, tableView.bounds.height > 0,
+              !snapshotApplyInProgress, !tableView.isTracking, !tableView.isDragging, !tableView.isDecelerating,
+              let anchor = pendingAnchor else { return }
+        guard let indexPath = dataSource.indexPath(for: anchor.id) else {
+            if !revalidation.active { pendingAnchor = nil }
+            return
+        }
+        anchor.restore(tableView, path: indexPath)
         pendingAnchor = nil
     }
 }
+
+#if DEBUG
+extension PeerProfileMembersViewController {
+    /// Exercises the actual table, snapshot, quarantine and removal paths without
+    /// installing subscriptions or issuing TDLib requests in the isolated window.
+    static func verifyRestorationRendering(scene: UIWindowScene) async throws {
+        let account = UUID()
+        let client = TDLib.shared.activeClient
+        let old = PeerProfileMembersViewController(
+            accountID: account,
+            accountUserID: 77,
+            client: client,
+            source: .basicGroup(chatID: 8, id: 9),
+            title: "Probe",
+        )
+        old.isRestorationProbe = true
+        old.orderedIDs = (1...60).map { .user(Int64($0)) }
+        old.rawOffset = 60
+        old.totalCount = 120
+        for (index, id) in old.orderedIDs.enumerated() {
+            let title = String(repeating: "Accepted member ", count: index % 3 + 1)
+            old.rows[id] = Row(accessibilityLabel: "\(title), OLD ROLE", role: "OLD ROLE", title: title)
+        }
+        let parent = UIViewController()
+        let navigation = UINavigationController()
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
+        navigation.setViewControllers([parent, old], animated: false)
+        window.rootViewController = navigation
+        window.isHidden = false
+        defer { window.isHidden = true
+        window.rootViewController = nil
+        }
+        old.parentBinding.attach(parent)
+        navigation.view.layoutIfNeeded()
+        try await PeerProfileMembersRestorationProbe.until("initial member snapshot") {
+            !old.snapshotApplyInProgress && !old.tableView.visibleCells.isEmpty
+        }
+        old.tableView.setContentOffset(CGPoint(x: 0, y: 1157), animated: false)
+        old.tableView.layoutIfNeeded()
+        guard let anchor = old.captureAnchor()
+            else { throw PeerProfileMembersRestorationProbe.Failure(description: "missing member anchor") }
+        old.invalidateForContextChange()
+        try PeerProfileMembersRestorationProbe.require(old.tableView.visibleCells.allSatisfy {
+            $0.accessibilityLabel == "Updating member…" && $0.accessibilityHint == nil && $0.accessoryType == .none
+        }, "stale visible roles/actions survived quarantine")
+        let heights = old.retainedHeights
+        old.invalidateForContextChange()
+        try PeerProfileMembersRestorationProbe.require(
+            old.retainedHeights == heights,
+            "repeat quarantine recaptured placeholder geometry",
+        )
+        try await PeerProfileMembersRestorationProbe
+            .until("quarantine snapshot") { !old.snapshotApplyInProgress && !old.snapshotApplyPending }
+        let state = PeerProfileMembersRestorationState(
+            source: old.identity.origin,
+            actorID: 77,
+            chatID: 8,
+            administrators: false,
+            ids: old.orderedIDs,
+            heights: heights,
+            rawOffset: old.rawOffset,
+            total: old.totalCount,
+            hasMore: true,
+            anchor: anchor,
+        )
+        let fresh = PeerProfileMembersViewController(
+            accountID: account,
+            accountUserID: 77,
+            client: client,
+            source: .basicGroup(chatID: 8, id: 9),
+            title: "Probe",
+            restoration: state,
+        )
+        fresh.isRestorationProbe = true
+        fresh.parentBinding.attach(parent)
+        navigation.setViewControllers([parent, fresh], animated: false)
+        navigation.view.layoutIfNeeded()
+        try await PeerProfileMembersRestorationProbe.until("restored member snapshot") {
+            !fresh.snapshotApplyInProgress && fresh.pendingAnchor == nil && !fresh.tableView.visibleCells.isEmpty
+        }
+        guard let restored = fresh.captureAnchor()
+            else { throw PeerProfileMembersRestorationProbe.Failure(description: "missing restored anchor") }
+        try PeerProfileMembersRestorationProbe.require(
+            old.retired && fresh.rows.isEmpty && fresh.rawOffset == 60
+            && restored.id == anchor.id && abs(restored.offset - anchor.offset) < 0.75,
+            "restored member identity/pixels/cursor or retired owner failed",
+        )
+        let page = Array(fresh.orderedIDs.prefix(5))
+        fresh.orderedIDs = fresh.revalidation.admit(ids: page, rawCount: 5, hasMore: true)
+        fresh.append(page.map { Seed(id: $0, role: "FRESH ROLE") })
+        try await PeerProfileMembersRestorationProbe.until("fresh partial snapshot") { !fresh.snapshotApplyInProgress }
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.rows.count == 5 && fresh.revalidation.cursor == 5
+            && fresh.rawOffset == 60 && fresh.revalidation.quarantined.count == 55,
+            "partial page restored stale authority or skipped raw cursor",
+        )
+        let pending = Task<Void, Never> { try? await Task.sleep(for: .seconds(5)) }
+        fresh.loadTask = pending
+        let generation = fresh.loadGeneration
+        navigation.popViewController(animated: false)
+        try PeerProfileMembersRestorationProbe.require(
+            fresh.retired && pending.isCancelled && fresh.loadTask == nil
+            && fresh.loadGeneration != generation && !fresh.parentBinding.contains(fresh, parent: parent),
+            "actual pop kept read lifetime/parent authority",
+        )
+    }
+}
+#endif
 
 // MARK: - PeerProfileMemberTagAuthority
 
