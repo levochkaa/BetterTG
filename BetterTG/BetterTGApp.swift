@@ -20,6 +20,7 @@ import UIKit
             ComposerTextProbe.runDebugProbeIfRequested()
             ChatComposerRestorationProbe.runDebugProbeIfRequested()
             ChatClientRestorationProbe.runDebugProbeIfRequested()
+            ChatViewportRestorationProbe.runDebugProbeIfRequested()
             MessageTextSpoilerProbe.runDebugProbeIfRequested()
             ChatUpdateDeliveryProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()

@@ -69,6 +69,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let minYRelativeToViewport: CGFloat
     }
 
+    private struct AutomaticViewportRestoration {
+        let ticket: ChatViewportRestorationAuthority.Ticket
+        let keepsLatest: Bool
+        let anchor: SnapshotAnchor?
+    }
+
     private struct PendingComposerSendTransition {
         let kind: ComposerSendTransitionKind
         var messageIDs = [Int64]()
@@ -152,8 +158,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var selectionCapabilityTask: Task<Void, Never>?
     private var selectionCapabilityGeneration: UUID?
     private var timelineLayoutMutationDepth = 0
-    private var pendingSelfSizingAnchor: SnapshotAnchor?
-    private var pendingSelfSizingKeepsLatest = false
+    private var viewportCompletionLayoutDepth = 0
+    private var viewportRestorationAuthority = ChatViewportRestorationAuthority()
+    private var pendingSelfSizingRestoration: AutomaticViewportRestoration?
     private var selfSizingAnchorRestoreScheduled = false
     private var pendingComposerSendTransitions = [UUID: PendingComposerSendTransition]()
     private var activeComposerSendAnimations = 0
@@ -237,6 +244,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private var routeIsRetained: Bool {
         !clientOwnerRetired && navigationController?.viewControllers.contains(where: { $0 === self }) == true
+    }
+
+    private var userIsScrollingTimeline: Bool {
+        collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
     }
 
     convenience init(
@@ -389,13 +400,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         to size: CGSize,
         with coordinator: any UIViewControllerTransitionCoordinator,
     ) {
-        let userIsScrolling = collectionView.isTracking
-            || collectionView.isDragging
-            || collectionView.isDecelerating
-        let keepLatest = didPerformInitialScroll && !userIsScrolling && isNearLatest
-        let anchor = didPerformInitialScroll && !userIsScrolling && !keepLatest
-            ? captureSnapshotAnchor()
-            : nil
+        let restoration = captureAutomaticViewportRestoration(allowInitial: false)
         timelineLayoutMutationDepth += 1
         super.viewWillTransition(to: size, with: coordinator)
         coordinator.animate(alongsideTransition: { [weak self] _ in
@@ -403,12 +408,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }) { [weak self] _ in
             guard let self else { return }
             defer { timelineLayoutMutationDepth -= 1 }
-            collectionView.layoutIfNeeded()
-            if keepLatest {
-                pinToLatestEdge(animated: false)
-            } else if let anchor {
-                restoreSnapshotAnchor(anchor)
-            }
+            layoutForViewportCompletion()
+            restoreAutomaticViewport(restoration)
         }
     }
 
@@ -421,11 +422,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
+        if userIsScrollingTimeline { viewportRestorationAuthority.invalidate() }
         updateScrollToLatestButtonVisibility(animated: true)
         updateInlineVideoPlaybackVisibility()
     }
 
-    func scrollViewWillBeginDragging(_: UIScrollView) { abandonRestoredViewport() }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === collectionView else { return }
+        viewportRestorationAuthority.invalidate()
+        abandonRestoredViewport()
+    }
+
     func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate { retryClientRestoration() }
     }
@@ -1628,9 +1635,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 updateMessageSelectionChrome(reconfigureIDs: [])
             }
         }
-        let shouldKeepLatestVisible = !didPerformInitialScroll || isNearLatest
         let restoringClient = restoredViewport?.pending == true
-        let anchor = shouldKeepLatestVisible ? nil : captureSnapshotAnchor()
+        let restoration = captureAutomaticViewportRestoration()
         let itemIDs = ChatTimelineProjection.items(
             messages: chatVM.messages,
             includesTopicHeaders: chatVM.isAllMessagesForum,
@@ -1656,7 +1662,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 settleRestoredViewport()
                 retryClientRestoration()
             }
-            collectionView.layoutIfNeeded()
+            layoutForViewportCompletion()
+            guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
             if restoringClient {
                 if restoredViewport?.pending == true { restoredViewport?.snapshotApplied = true }
                 return
@@ -1672,10 +1679,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     quote: quote,
                     quoteTargetMessageID: quoteTargetMessageID,
                 )
-            } else if shouldKeepLatestVisible {
-                scrollToLatestMessage(animated: false)
-            } else if let anchor {
-                restoreSnapshotAnchor(anchor)
+            } else {
+                restoreAutomaticViewport(restoration)
             }
             performPendingComposerSendTransitions()
             didPerformInitialScroll = true
@@ -1876,6 +1881,41 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
     }
 
+    private func captureAutomaticViewportRestoration(
+        allowInitial: Bool = true,
+        ensuringLayout: Bool = true,
+    ) -> AutomaticViewportRestoration? {
+        if ensuringLayout { collectionView.layoutIfNeeded() }
+        let ticket = viewportRestorationAuthority.begin()
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent, !userIsScrollingTimeline,
+              allowInitial || didPerformInitialScroll else { return nil }
+        let keepsLatest = !didPerformInitialScroll || isNearLatest
+        return AutomaticViewportRestoration(
+            ticket: ticket,
+            keepsLatest: keepsLatest,
+            anchor: keepsLatest ? nil : captureSnapshotAnchor(ensuringLayout: false),
+        )
+    }
+
+    private func restoreAutomaticViewport(_ restoration: AutomaticViewportRestoration?) {
+        guard let restoration, viewportRestorationAuthority.consume(
+            restoration.ticket,
+            contextIsCurrent: !clientOwnerRetired && chatVM.locationContextIsCurrent,
+            userIsScrolling: userIsScrollingTimeline,
+        ) else { return }
+        if restoration.keepsLatest {
+            pinToLatestEdge(animated: false)
+        } else if let anchor = restoration.anchor {
+            restoreSnapshotAnchor(anchor)
+        }
+    }
+
+    private func layoutForViewportCompletion() {
+        viewportCompletionLayoutDepth += 1
+        defer { viewportCompletionLayoutDepth -= 1 }
+        collectionView.layoutIfNeeded()
+    }
+
     private func restoreSnapshotAnchor(_ anchor: SnapshotAnchor) {
         guard let indexPath = dataSource.indexPath(for: anchor.itemID),
               let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)
@@ -1904,25 +1944,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               timelineLayoutMutationDepth == 0,
               !userIsScrolling
         else { return }
-        if isNearLatest {
-            pendingSelfSizingKeepsLatest = true
-        } else if pendingSelfSizingAnchor == nil {
-            pendingSelfSizingAnchor = captureSnapshotAnchor(ensuringLayout: false)
-        }
         guard !selfSizingAnchorRestoreScheduled else { return }
+        pendingSelfSizingRestoration = captureAutomaticViewportRestoration(
+            allowInitial: false, ensuringLayout: false,
+        )
         selfSizingAnchorRestoreScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard timelineLayoutMutationDepth == 0 else {
-                pendingSelfSizingAnchor = nil
-                pendingSelfSizingKeepsLatest = false
+                pendingSelfSizingRestoration = nil
                 selfSizingAnchorRestoreScheduled = false
                 return
             }
-            let anchor = pendingSelfSizingAnchor
-            let keepLatest = pendingSelfSizingKeepsLatest
-            pendingSelfSizingAnchor = nil
-            pendingSelfSizingKeepsLatest = false
+            let restoration = pendingSelfSizingRestoration
+            pendingSelfSizingRestoration = nil
             selfSizingAnchorRestoreScheduled = false
             let userIsScrolling = collectionView.isTracking
                 || collectionView.isDragging
@@ -1930,12 +1965,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard !userIsScrolling else { return }
             timelineLayoutMutationDepth += 1
             defer { timelineLayoutMutationDepth -= 1 }
-            collectionView.layoutIfNeeded()
-            if keepLatest {
-                pinToLatestEdge(animated: false)
-            } else if let anchor {
-                restoreSnapshotAnchor(anchor)
-            }
+            layoutForViewportCompletion()
+            restoreAutomaticViewport(restoration)
         }
     }
 
@@ -1947,22 +1978,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let itemID = ChatTimelineItemID.message(displayedID)
         var snapshot = dataSource.snapshot()
         guard snapshot.indexOfItem(itemID) != nil else { return }
-        let userIsScrolling = collectionView.isTracking
-            || collectionView.isDragging
-            || collectionView.isDecelerating
-        let keepLatest = !userIsScrolling && isNearLatest
-        let anchor = !userIsScrolling && !keepLatest ? captureSnapshotAnchor() : nil
+        let restoration = captureAutomaticViewportRestoration()
         snapshot.reconfigureItems([itemID])
         timelineLayoutMutationDepth += 1
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
             defer { timelineLayoutMutationDepth -= 1 }
-            collectionView.layoutIfNeeded()
-            if keepLatest {
-                pinToLatestEdge(animated: false)
-            } else if let anchor {
-                restoreSnapshotAnchor(anchor)
-            }
+            layoutForViewportCompletion()
+            restoreAutomaticViewport(restoration)
         }
     }
 
@@ -1978,6 +2001,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         guard !presentIdentifiers.isEmpty else { return }
         snapshot.reconfigureItems(presentIdentifiers)
+        viewportRestorationAuthority.invalidate()
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
@@ -2014,8 +2038,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || abs(collectionView.contentInset.bottom - updatedInsets.bottom) > 0.5
         else { return }
 
+        // Inset changes caused by this completion's own layout are part of its
+        // compensation. Independent keyboard/layout changes retire older work.
+        if viewportCompletionLayoutDepth == 0 { viewportRestorationAuthority.invalidate() }
         let userIsScrolling = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
-        let keepLatestVisible = !didPerformInitialScroll || (!userIsScrolling && isNearLatest)
+        let keepLatestVisible = !userIsScrolling && (!didPerformInitialScroll || isNearLatest)
         let previousOffset = collectionView.contentOffset
         let anchor = !userIsScrolling && !keepLatestVisible ? captureSnapshotAnchor() : nil
         timelineLayoutMutationDepth += 1
@@ -2034,20 +2061,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func invalidateSelfSizingLayoutPreservingAnchor() {
         guard isViewLoaded, didPerformInitialScroll else { return }
-        let userIsScrolling = collectionView.isTracking
-            || collectionView.isDragging
-            || collectionView.isDecelerating
-        let keepLatest = !userIsScrolling && isNearLatest
-        let anchor = !userIsScrolling && !keepLatest ? captureSnapshotAnchor() : nil
+        let restoration = captureAutomaticViewportRestoration(allowInitial: false)
         timelineLayoutMutationDepth += 1
         defer { timelineLayoutMutationDepth -= 1 }
         collectionView.collectionViewLayout.invalidateLayout()
-        collectionView.layoutIfNeeded()
-        if keepLatest {
-            pinToLatestEdge(animated: false)
-        } else if let anchor {
-            restoreSnapshotAnchor(anchor)
-        }
+        layoutForViewportCompletion()
+        restoreAutomaticViewport(restoration)
     }
 
     private func updateComposerFloatingState(_ keyboardAttached: Bool) {
@@ -2063,6 +2082,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToMessage(id: Int64, quote: MessageQuoteHighlight? = nil) {
+        viewportRestorationAuthority.invalidate()
         messageNavigationTask?.cancel()
         messageNavigationTask = nil
         pendingQuoteDestination = nil
@@ -2096,6 +2116,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         quote: MessageQuoteHighlight? = nil,
         quoteTargetMessageID: Int64? = nil,
     ) {
+        viewportRestorationAuthority.invalidate()
         let itemID = ChatTimelineItemID.message(id)
         guard let indexPath = dataSource.indexPath(for: itemID) else {
             pendingScrollMessageID = id
@@ -2372,7 +2393,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         collectionView.layoutIfNeeded()
         let oldFrame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame
-        let oldOffset = collectionView.contentOffset
+        let ticket = viewportRestorationAuthority.begin()
+        let restoration = (userIsScrollingTimeline ? nil : oldFrame).map {
+            AutomaticViewportRestoration(
+                ticket: ticket, keepsLatest: false,
+                anchor: SnapshotAnchor(
+                    itemID: itemID,
+                    minYRelativeToViewport: $0.minY - collectionView.contentOffset.y,
+                ),
+            )
+        }
         message.isReplyQuoteExpanded = true
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems([itemID])
@@ -2381,14 +2411,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 guard let self else { return }
                 defer { timelineLayoutMutationDepth -= 1 }
-                collectionView.layoutIfNeeded()
-                guard let oldFrame,
-                      let newFrame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame
-                else { return }
-                collectionView.setContentOffset(
-                    CGPoint(x: oldOffset.x, y: oldOffset.y + newFrame.minY - oldFrame.minY),
-                    animated: false,
-                )
+                layoutForViewportCompletion()
+                restoreAutomaticViewport(restoration)
             }
         }
     }
@@ -2570,6 +2594,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func scrollToLatestMessage(animated: Bool) {
+        viewportRestorationAuthority.invalidate()
         guard dataSource.snapshot().numberOfItems > 0 else { return }
         pinToLatestEdge(animated: animated)
     }
@@ -3360,22 +3385,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .map(ChatTimelineItemID.message)
             .filter { snapshot.indexOfItem($0) != nil }
         guard !existing.isEmpty else { return }
-        let userIsScrolling = collectionView.isTracking
-            || collectionView.isDragging
-            || collectionView.isDecelerating
-        let keepLatest = !userIsScrolling && isNearLatest
-        let anchor = !userIsScrolling && !keepLatest ? captureSnapshotAnchor() : nil
+        let restoration = captureAutomaticViewportRestoration()
         snapshot.reconfigureItems(existing)
         timelineLayoutMutationDepth += 1
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
             defer { timelineLayoutMutationDepth -= 1 }
-            collectionView.layoutIfNeeded()
-            if keepLatest {
-                pinToLatestEdge(animated: false)
-            } else if let anchor {
-                restoreSnapshotAnchor(anchor)
-            }
+            layoutForViewportCompletion()
+            restoreAutomaticViewport(restoration)
         }
     }
 
