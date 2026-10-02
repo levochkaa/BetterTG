@@ -19,6 +19,12 @@
             }
         }
 
+        @MainActor private final class FolderModel: ObservableObject {
+            @Published var folders: [CustomFolder]
+
+            init(_ folders: [CustomFolder]) { self.folders = folders }
+        }
+
         @MainActor private final class Fixture {
             let first = TdUpdateSource(accountID: UUID(), clientID: 801)
             let changes = PassthroughSubject<TdUpdateSource, Never>()
@@ -26,7 +32,7 @@
             var ready = CurrentValueSubject<TdUpdateSource?, Never>(nil)
             var current: TdUpdateSource?
             var ownerAccount: UUID?
-            var folders: [CustomFolder]
+            let folderModel: FolderModel
             var writes = [(TdUpdateSource, FolderFlowSession.Mutation)]()
             var gate: Gate?
             var fail = false
@@ -36,7 +42,8 @@
                 initialSource: first, currentSource: { [weak self] in self?.current },
                 ownerAccount: { [weak self] in self?.ownerAccount },
                 readiness: ready.eraseToAnyPublisher(), clientChanges: changes.eraseToAnyPublisher(),
-                modelChanges: modelChanges.eraseToAnyPublisher(),
+                modelChanges: modelChanges.merge(with: folderModel.objectWillChange.receive(on: DispatchQueue.main))
+                    .eraseToAnyPublisher(),
                 folders: { [weak self] in self?.folders ?? [] },
                 allFolders: { [weak self] in self?.folders ?? [] },
                 resolve: { [weak self] source in
@@ -50,6 +57,11 @@
                 },
             )
 
+            var folders: [CustomFolder] {
+                get { folderModel.folders }
+                set { folderModel.folders = newValue }
+            }
+
             init() throws {
                 guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
                     throw Failure(description: "no attached window scene")
@@ -61,7 +73,7 @@
                     .init(isPinned: false, list: .chatListMain, order: .init(1), source: nil),
                     title: "Fixture Chat",
                 )]
-                self.folders = [CustomFolder(chats: [], type: .main), folder]
+                self.folderModel = FolderModel([CustomFolder(chats: [], type: .main), folder])
                 self.current = first
                 self.ownerAccount = first.accountID
                 ready.send(first)
@@ -106,6 +118,7 @@
                     try await verifyEditorAndSelector()
                     try verifySelectorPresentation()
                     try await verifySelectorPresentationUpdates()
+                    try await verifySelectorMembershipUpdates()
                     try await verifyListAndOrder()
                     try await verifyMutationBoundaries()
                     try await verifyControllerMembership()
@@ -118,6 +131,8 @@
                         + "selector-order-done-text/plain-style/AX/action/disabled-readiness=true; "
                         + "selector-deleted/unknown/contact/fallback/sort/search/reuse/selection/scoped-updates=true; "
                         + "unread-last-position/shuffled-input=no-presentation-reload; equal-title-order=stable; "
+                        + "actual-child-publishers/append/remove/same-ID-replacement/retired-subscriptions=true; "
+                        + "child-source/detach-fences=true; membership-manual-wakeup=none; "
                         + "dispatched-create-edit-reorder-delete=uncertain; account-A-B-A=revoked; "
                         + "RootVM/native-client/real-foreground/keyboard=unverified; server-calls=0"
                 } catch {
@@ -394,6 +409,109 @@
             try press(picker)
             try require(completions == 0 && fixture.writes.isEmpty, "detached updated selector completed")
             fixture.navigation.view.removeFromSuperview()
+        }
+
+        private static func verifySelectorMembershipUpdates() async throws {
+            let fixture = try Fixture()
+            defer { fixture.close() }
+            let folder = fixture.folders[1]
+            let alpha = pickerChat(id: 301, title: "Alpha")
+            let beta = pickerChat(id: 302, title: "Beta")
+            let charlie = pickerChat(id: 303, title: "Charlie")
+            folder.chats = [alpha, charlie]
+            var selected: Set<Int64>?
+            let picker = ChatFolderChatSelectionViewController(
+                session: fixture.session, title: "Membership", selectedChatIDs: [301],
+            ) { _, ids in
+                selected = ids
+                return true
+            }
+            fixture.show(picker)
+            search(picker, "a")
+            // No modelChanges.send: these are the same child publishers RootChatInsertion mutates.
+            folder.chats.append(beta)
+            try await until({
+                rows(picker).map { $0.textLabel?.text } == ["Alpha", "Beta", "Charlie"]
+            }, "child append did not reach selector")
+            picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 1, section: 0))
+            folder.chats.removeAll { $0.id == alpha.id }
+            try await until({
+                rows(picker).map { $0.textLabel?.text } == ["Beta", "Charlie"]
+            }, "child remove did not reach selector")
+
+            let sameID = pickerChat(id: 302, title: "Beta")
+            let identityReloads = picker.candidatePresentationReloadsForProbe
+            folder.chats = [charlie, sameID]
+            try await Task.sleep(for: .milliseconds(50))
+            try require(
+                picker.candidatePresentationReloadsForProbe == identityReloads,
+                "equal presentation identity replacement reloaded table",
+            )
+            beta.chat = pickerChat(id: 302, title: "Obsolete").chat
+            try await Task.sleep(for: .milliseconds(50))
+            try require(
+                rows(picker).map { $0.textLabel?.text } == ["Beta", "Charlie"],
+                "retired same-ID object remained bound",
+            )
+            sameID.chat = pickerChat(id: 302, title: "Bravo").chat
+            try await until({
+                picker.tableView.layoutIfNeeded()
+                let row = picker.tableView.cellForRow(at: IndexPath(row: 0, section: 0))
+                return row?.textLabel?.text == "Bravo" && row?.accessoryType == .checkmark
+            }, "replacement object publisher or selected ID was lost")
+            let unchangedReloads = picker.candidatePresentationReloadsForProbe
+            fixture.folders[0].chats = [sameID]
+            folder.chats.reverse()
+            try await Task.sleep(for: .milliseconds(50))
+            try require(
+                picker.candidatePresentationReloadsForProbe == unchangedReloads,
+                "duplicate membership or child reorder reloaded table",
+            )
+
+            let freshObject = pickerChat(id: 302, title: "Bravo")
+            let freshFolder = CustomFolder(chats: [freshObject], type: .main)
+            // Real @Published root replacement, not a manual model wakeup.
+            fixture.folders = [freshFolder]
+            try await until(
+                { rows(picker).map { $0.textLabel?.text } == ["Bravo"] },
+                "root replacement missed selector",
+            )
+            let retiredReloads = picker.candidatePresentationReloadsForProbe
+            folder.chats.append(pickerChat(id: 306, title: "Retired child"))
+            sameID.chat = pickerChat(id: 302, title: "Retired object").chat
+            try await Task.sleep(for: .milliseconds(50))
+            try require(
+                picker.candidatePresentationReloadsForProbe == retiredReloads
+                    && rows(picker).map { $0.textLabel?.text } == ["Bravo"],
+                "retired folder/object subscription survived root replacement",
+            )
+            freshFolder.chats.append(pickerChat(id: 304, title: "Delta"))
+            try await until({ rows(picker).count == 2 }, "new folder child subscription missing")
+            fixture.ready.send(nil)
+            freshFolder.chats.append(pickerChat(id: 305, title: "Gamma"))
+            try await Task.sleep(for: .milliseconds(50))
+            try require(rows(picker).count == 2, "waiting source admitted child membership")
+            _ = fixture.replace(clientID: 841)
+            try require(
+                rows(picker).map { $0.textLabel?.text } == ["Bravo", "Delta", "Gamma"],
+                "new source did not reconcile retained membership/query",
+            )
+            freshFolder.chats.removeAll { $0.id == 304 }
+            try await until({ rows(picker).count == 2 }, "new source failed to bind child publisher")
+            fixture.window.rootViewController = UIViewController()
+            fixture.window.addSubview(fixture.navigation.view)
+            freshFolder.chats.removeAll()
+            try await Task.sleep(for: .milliseconds(50))
+            try require(rows(picker).count == 2, "detached selector accepted child membership")
+            try press(picker)
+            try require(selected == nil && fixture.writes.isEmpty, "detached selector completed")
+            fixture.navigation.view.removeFromSuperview()
+            fixture.navigation.setViewControllers([fixture.navigation.viewControllers[0]], animated: false)
+            fixture.window.rootViewController = fixture.navigation
+            fixture.show(picker)
+            try require(rows(picker).isEmpty, "reattached selector kept detached membership")
+            try press(picker)
+            try require(selected == [301, 302] && fixture.writes.isEmpty, "membership lost selected IDs or wrote RPC")
         }
 
         private static func verifyEditorAndSelector() async throws {

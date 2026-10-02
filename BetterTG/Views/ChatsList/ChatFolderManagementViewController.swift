@@ -452,6 +452,7 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
     private var sessionObservation: AnyCancellable?
     private let onDone: (ChatFolderChatSelectionViewController, Set<Int64>) -> Bool
     private var candidateObservation: AnyCancellable?
+    private var candidateFolderObservation: AnyCancellable?
     private var candidateGeneration = UUID()
     private var candidatePresentation = [Int64: CandidatePresentation]()
     private var candidateOrder = [Int64]()
@@ -581,13 +582,21 @@ final class ChatFolderChatSelectionViewController: UITableViewController, UISear
 
     private func reloadCandidates() {
         guard session.isCurrent else { return }
+        let folders = session.allFolders
         var seen = Set<Int64>()
-        chats = session.allFolders
+        chats = folders
             .flatMap(\.chats)
             .filter { seen.insert($0.id).inserted }
         let generation = UUID()
         candidateGeneration = generation
         let scope = session.scope(owner: self)
+        candidateFolderObservation = Publishers.MergeMany(folders.map(\.objectWillChange))
+            .receive(on: DispatchQueue.main)
+            .throttle(for: .milliseconds(16), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] in
+                guard let self, candidateGeneration == generation, scope.isCurrent else { return }
+                reloadCandidates()
+            }
         candidateObservation = Publishers.MergeMany(chats.map(\.objectWillChange))
             .receive(on: DispatchQueue.main)
             .throttle(for: .milliseconds(16), scheduler: DispatchQueue.main, latest: true)
