@@ -119,6 +119,10 @@ import UIKit
 
     var metadataRefreshGenerations = [Int64: UUID]()
 
+    private var voiceFinalizationGeneration = UInt64.zero
+    private var voiceDraftRefreshGeneration = UInt64.zero
+    @Published private var pendingVoiceDraftIsFinalizing = false
+
     private let chatOpenLease: ChatOpenLease
     private var currentChatPermissions: ChatPermissions
 
@@ -323,7 +327,7 @@ import UIKit
     }
 
     var canRetryPendingVoiceNote: Bool {
-        guard let pendingVoiceNote,
+        guard !pendingVoiceDraftIsFinalizing, let pendingVoiceNote,
               (try? resolveFrozenMediaSendContext(
                   for: .voiceNote,
                   destination: pendingVoiceNote.destination,
@@ -2830,26 +2834,68 @@ import UIKit
     }
 
     func discardPendingVoiceNote() {
-        voiceFinalizeTask?.cancel()
+        guard let discardedDraft = pendingVoiceNote else { return }
+        voiceFinalizationGeneration &+= 1
+        let generation = voiceFinalizationGeneration
+        let finalization = voiceFinalizeTask
+        finalization?.cancel()
         voiceFinalizeTask = nil
-        finalizingVoiceNote = false
-        let discardedDraft = pendingVoiceNote
-        if let discardedDraft {
-            cancelVoiceSendTransition(for: discardedDraft.id)
-        }
+        finalizingVoiceNote = finalization != nil
+        cancelVoiceSendTransition(for: discardedDraft.id)
         let discardedReply = pendingVoiceReplyMessage
-        pendingVoiceNote = nil
-        pendingVoiceReplyMessage = nil
         voiceRetryAvailabilityTask?.cancel()
-        hasPendingVoiceNote = false
         voiceNoteErrorMessage = nil
-        restoreReplyIfNeeded(from: discardedDraft, knownReply: discardedReply)
         Task { [weak self] in
-            if let discardedDraft {
-                await VoiceNoteDraftStore.shared.remove(discardedDraft)
+            // Cancelling a detached native encode does not stop its file access.
+            // Join this VM's worker before asking the canonical owner to discard.
+            await finalization?.value
+            let removed = await VoiceNoteDraftStore.shared.remove(discardedDraft)
+            guard let self, voiceFinalizationGeneration == generation,
+                  pendingVoiceNote?.id == discardedDraft.id
+            else { return }
+            finalizingVoiceNote = false
+            guard removed else {
+                await refreshPendingVoiceDraft(id: discardedDraft.id)
+                guard voiceFinalizationGeneration == generation else { return }
+                if pendingVoiceNote?.id == discardedDraft.id {
+                    voiceNoteErrorMessage = "This voice message is still being prepared or sent. Its file was kept."
+                }
+                return
             }
-            await self?.promoteNextPendingVoiceDraft()
-            try? await self?.tdSendChatAction(.chatActionCancel)
+            pendingVoiceNote = nil
+            pendingVoiceReplyMessage = nil
+            pendingVoiceDraftIsFinalizing = false
+            hasPendingVoiceNote = false
+            restoreReplyIfNeeded(from: discardedDraft, knownReply: discardedReply)
+            await promoteNextPendingVoiceDraft()
+            guard voiceFinalizationGeneration == generation else { return }
+            try? await tdSendChatAction(.chatActionCancel)
+        }
+    }
+
+    func refreshPendingVoiceDraft(id: UUID) async {
+        guard pendingVoiceNote?.id == id, !finalizingVoiceNote else { return }
+        let generation = voiceFinalizationGeneration
+        voiceDraftRefreshGeneration &+= 1
+        let refreshGeneration = voiceDraftRefreshGeneration
+        let status = await VoiceNoteDraftStore.shared.status(id: id, destination: location.draftKey)
+        guard pendingVoiceNote?.id == id, !finalizingVoiceNote,
+              voiceFinalizationGeneration == generation,
+              voiceDraftRefreshGeneration == refreshGeneration, locationContextIsCurrent
+        else { return }
+        pendingVoiceDraftIsFinalizing = status.isFinalizing
+        if let draft = status.draft, draft.temporaryMessageID == nil {
+            pendingVoiceNote = draft
+            hasPendingVoiceNote = true
+        } else {
+            if let draft = status.draft, let id = draft.temporaryMessageID {
+                outgoingVoiceNotes[id] = draft
+            }
+            pendingVoiceNote = nil
+            pendingVoiceReplyMessage = nil
+            hasPendingVoiceNote = false
+            pendingVoiceDraftIsFinalizing = false
+            await promoteNextPendingVoiceDraft()
         }
     }
 
@@ -4194,7 +4240,11 @@ import UIKit
         timerCount = max(timerCount, voiceRecordingTimerBaseline + recorderTime)
     }
 
-    private func sendMessageVoiceNote(fileURL: URL, draft: VoiceNoteSendDraft) async throws -> Message {
+    private func sendMessageVoiceNote(
+        fileURL: URL,
+        draft: VoiceNoteSendDraft,
+        onRequestStart: () -> Void,
+    ) async throws -> Message {
         let context = try resolveFrozenMediaSendContext(
             for: .voiceNote,
             destination: draft.destination,
@@ -4202,6 +4252,8 @@ import UIKit
             replyTo: draft.replyTo,
         )
         try await validateStoredReply(draft.replyTo, in: context)
+        try Task.checkCancellation()
+        onRequestStart()
         let message = try await client.sendMessage(
             chatId: context.chatID,
             inputMessageContent: .inputMessageVoiceNote(
@@ -4220,9 +4272,6 @@ import UIKit
             replyTo: draft.replyTo,
             topicId: context.destinationTopic,
         )
-        guard context.matches(message: message) else {
-            throw ChatSendContextError.unexpectedDestination
-        }
         _ = try? await cancelChatAction(in: context)
         return message
     }
@@ -4233,28 +4282,53 @@ import UIKit
     ) {
         guard var draft = pendingVoiceNote else { return }
         voiceFinalizeTask?.cancel()
+        voiceFinalizationGeneration &+= 1
+        let generation = voiceFinalizationGeneration
         voiceRetryAvailabilityTask?.cancel()
         finalizingVoiceNote = true
         hasPendingVoiceNote = false
         voiceNoteErrorMessage = nil
         voiceFinalizeTask = Task { [weak self] in
             guard let self else { return }
+            var finalization: VoiceNoteFinalizationLease?
+            var didStartSend = false
+            var registeringMessageID: Int64?
             defer {
-                bufferedDeletedMessageIDs.removeAll()
-                finalizingVoiceNote = false
-                voiceFinalizeTask = nil
+                if let registeringMessageID { registeringVoiceMessageIDs.remove(registeringMessageID) }
+                if voiceFinalizationGeneration == generation {
+                    bufferedDeletedMessageIDs.removeAll()
+                    finalizingVoiceNote = false
+                    voiceFinalizeTask = nil
+                    if let id = pendingVoiceNote?.id {
+                        Task { [weak self] in await self?.refreshPendingVoiceDraft(id: id) }
+                    }
+                }
             }
             do {
-                draft = try await VoiceNoteDraftStore.shared.adopt(draft)
+                let claim = try await VoiceNoteDraftStore.shared.claimFinalization(draft)
+                finalization = claim.lease
+                draft = claim.draft
+                try Task.checkCancellation()
+                guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                 pendingVoiceNote = draft
                 if !draft.isEncoded {
                     let sourceURL = draft.fileURL
                     let encodedURL = try await VoiceNoteCodec.encodeOggOpus(from: sourceURL)
+                    defer { try? FileManager.default.removeItem(at: encodedURL) }
                     try Task.checkCancellation()
-                    draft = try await VoiceNoteDraftStore.shared.replaceFile(in: draft, with: encodedURL)
+                    guard voiceFinalizationGeneration == generation else { throw CancellationError() }
+                    draft = try await VoiceNoteDraftStore.shared.replaceFile(
+                        in: draft, with: encodedURL, finalization: claim.lease,
+                    )
+                    try Task.checkCancellation()
+                    guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                     pendingVoiceNote = draft
                 }
                 guard sendWhenReady else {
+                    await VoiceNoteDraftStore.shared.finishFinalization(claim.lease)
+                    finalization = nil
+                    try Task.checkCancellation()
+                    guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                     cancelVoiceSendTransition(for: draft.id)
                     activatePendingVoiceDraft(draft)
                     voiceNoteErrorMessage = pendingMessage ?? "Voice recording stopped before it could be sent."
@@ -4275,13 +4349,18 @@ import UIKit
                     .chatActionUploadingVoiceNote(.init(progress: 0)),
                     in: activeSendContext,
                 )
-                draft = try await VoiceNoteDraftStore.shared.beginEnqueue(draft)
+                try Task.checkCancellation()
+                guard voiceFinalizationGeneration == generation else { throw CancellationError() }
+                draft = try await VoiceNoteDraftStore.shared.beginEnqueue(draft, finalization: claim.lease)
+                try Task.checkCancellation()
+                guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                 pendingVoiceNote = draft
                 let message: Message
                 if let failedSendState = draft.failedSendState {
                     guard failedSendState.canRetryNow else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
+                    didStartSend = true
                     let resentMessages = try await client.resendMessages(
                         chatId: chatID,
                         messageIds: [failedSendState.messageID],
@@ -4291,25 +4370,40 @@ import UIKit
                     guard let resentMessage = resentMessages.messages?.first else {
                         throw VoiceNoteFailure.resendUnavailable
                     }
-                    guard activeSendContext.matches(message: resentMessage)
-                    else { throw ChatSendContextError.unexpectedDestination }
                     message = resentMessage
                     draft.failedSendState = nil
                 } else {
-                    message = try await sendMessageVoiceNote(fileURL: draft.fileURL, draft: draft)
+                    message = try await sendMessageVoiceNote(fileURL: draft.fileURL, draft: draft) {
+                        didStartSend = true
+                    }
                 }
+                // UI cancellation cannot revoke a send already accepted by TDLib.
+                // Register its actual ID before any generation/cancellation return.
                 draft.temporaryMessageID = message.id
                 registeringVoiceMessageIDs.insert(message.id)
+                registeringMessageID = message.id
                 var registration: VoiceNoteEnqueueRegistration?
                 do {
                     registration = try await VoiceNoteDraftStore.shared.registerEnqueued(
                         draft,
                         temporaryMessageID: message.id,
+                        finalization: claim.lease,
                     )
+                    finalization = nil
                 } catch {
                     log("Voice note enqueue persistence failed: \(error)")
-                    voiceNoteErrorMessage = "The voice message was queued, but local retry state couldn’t be saved."
+                    if voiceFinalizationGeneration == generation {
+                        voiceNoteErrorMessage = "The voice message was queued, but local retry state couldn’t be saved."
+                    }
                 }
+                if let finalization {
+                    await VoiceNoteDraftStore.shared.finishFinalization(finalization)
+                }
+                finalization = nil
+                guard activeSendContext.matches(message: message) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
+                guard voiceFinalizationGeneration == generation, !Task.isCancelled else { return }
                 var deletionResolution: VoiceNoteDraftResolution?
                 if bufferedDeletedMessageIDs.remove(message.id) != nil {
                     deletionResolution = try? await VoiceNoteDraftStore.shared.handleMessageDeleted(
@@ -4331,6 +4425,7 @@ import UIKit
                     }
                 }
                 registeringVoiceMessageIDs.remove(message.id)
+                registeringMessageID = nil
                 bufferedDeletedMessageIDs.removeAll()
                 let bufferedResolution = bufferedVoiceOutcomes.removeValue(forKey: message.id)
                 pendingVoiceNote = nil
@@ -4338,6 +4433,7 @@ import UIKit
                 voiceRetryAvailabilityTask?.cancel()
                 hasPendingVoiceNote = false
                 await Task.yield()
+                guard voiceFinalizationGeneration == generation, !Task.isCancelled else { return }
                 acceptVoiceSendTransition(for: draft.id, messageID: message.id)
                 let registrationResolution = registration.flatMap { registration -> VoiceNoteDraftResolution? in
                     guard let outcome = registration.outcome else { return nil }
@@ -4357,22 +4453,48 @@ import UIKit
                         await promoteNextPendingVoiceDraft()
                     }
                 }
+                guard voiceFinalizationGeneration == generation, !Task.isCancelled else { return }
                 if resolution?.outcome != .failed {
-                    await clearRouteDraftAfterMediaSend(draft.destination)
+                    await clearRouteDraftAfterMediaSend(draft.destination, voiceGeneration: generation)
                 }
             } catch is CancellationError {
+                if let finalization {
+                    if !didStartSend, draft.enqueueStartedAt != nil {
+                        _ = try? await VoiceNoteDraftStore.shared.markPending(
+                            draft, failedSendState: draft.failedSendState, finalization: finalization,
+                        )
+                    }
+                    await VoiceNoteDraftStore.shared.finishFinalization(finalization)
+                }
+                guard voiceFinalizationGeneration == generation else { return }
                 cancelVoiceSendTransition(for: draft.id)
                 hasPendingVoiceNote = pendingVoiceNote != nil
             } catch {
-                cancelVoiceSendTransition(for: draft.id)
                 log("Voice note finalization failed: \(error)")
-                if draft.enqueueStartedAt != nil {
-                    draft = await (try? VoiceNoteDraftStore.shared.markPending(
-                        draft,
-                        failedSendState: draft.failedSendState,
-                    )) ?? draft
+                if let finalization {
+                    // Only preflight or an explicit TDLib rejection proves that no
+                    // message was accepted. Unknown post-RPC failures stay unresolved.
+                    if !didStartSend || error is TDLibKit.Error,
+                       draft.enqueueStartedAt != nil, draft.temporaryMessageID == nil
+                    {
+                        _ = try? await VoiceNoteDraftStore.shared.markPending(
+                            draft, failedSendState: draft.failedSendState, finalization: finalization,
+                        )
+                    }
+                    await VoiceNoteDraftStore.shared.finishFinalization(finalization)
                 }
-                activatePendingVoiceDraft(draft)
+                guard voiceFinalizationGeneration == generation else { return }
+                cancelVoiceSendTransition(for: draft.id)
+                let status = await VoiceNoteDraftStore.shared.status(id: draft.id, destination: location.draftKey)
+                guard voiceFinalizationGeneration == generation else { return }
+                if let canonical = status.draft, canonical.temporaryMessageID == nil {
+                    draft = canonical
+                    activatePendingVoiceDraft(canonical)
+                    pendingVoiceDraftIsFinalizing = status.isFinalizing
+                } else {
+                    pendingVoiceNote = nil
+                    hasPendingVoiceNote = false
+                }
                 voiceNoteErrorMessage = pendingVoiceRetryStatusMessage
                     ?? "Couldn’t send the voice message. You can retry without recording again."
                 _ = try? await tdSendFrozenMediaChatAction(
@@ -4424,11 +4546,14 @@ import UIKit
 
     private func activatePendingVoiceDraft(_ draft: VoiceNoteSendDraft) {
         guard draft.destination == location.draftKey else { return }
+        voiceDraftRefreshGeneration &+= 1
         refreshForumTopicIfNeeded(draft.sendTopic)
         pendingVoiceNote = draft
+        pendingVoiceDraftIsFinalizing = false
         hasPendingVoiceNote = true
         pendingVoiceReplyMessage = nil
         voiceRetryAvailabilityTask?.cancel()
+        Task { [weak self] in await self?.refreshPendingVoiceDraft(id: draft.id) }
         if let retryAvailableAt = draft.failedSendState?.retryAvailableAt,
            retryAvailableAt > Foundation.Date()
         {
@@ -4450,9 +4575,10 @@ import UIKit
         }
     }
 
-    private func clearRouteDraftAfterMediaSend(_ destination: ChatDraftKey?) async {
+    private func clearRouteDraftAfterMediaSend(_ destination: ChatDraftKey?, voiceGeneration: UInt64? = nil) async {
         guard let accountID = destination?.accountID,
               destination == location.draftKey,
+              voiceGeneration == nil || voiceGeneration == voiceFinalizationGeneration,
               locationContextIsCurrent
         else { return }
         let context = ResolvedSendContext(
@@ -4464,7 +4590,9 @@ import UIKit
             replyTo: nil,
         )
         let draftClearSucceeded = await clearRouteDraft(context)
-        guard locationContextIsCurrent else { return }
+        guard locationContextIsCurrent,
+              voiceGeneration == nil || voiceGeneration == voiceFinalizationGeneration
+        else { return }
         composerRevision &+= 1
         let hasNewComposerState = !text.characters.isEmpty
             || replyMessage != nil
@@ -4601,8 +4729,12 @@ import UIKit
 
     private func promoteNextPendingVoiceDraft() async {
         guard pendingVoiceNote == nil, locationContextIsCurrent else { return }
+        let generation = voiceFinalizationGeneration
+        let refreshGeneration = voiceDraftRefreshGeneration
         let drafts = await VoiceNoteDraftStore.shared.drafts(for: location.draftKey)
         guard pendingVoiceNote == nil,
+              voiceFinalizationGeneration == generation,
+              voiceDraftRefreshGeneration == refreshGeneration,
               locationContextIsCurrent,
               let nextDraft = drafts.first(where: { $0.temporaryMessageID == nil })
         else { return }

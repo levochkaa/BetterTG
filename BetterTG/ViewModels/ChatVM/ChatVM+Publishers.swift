@@ -151,6 +151,13 @@ extension ChatVM {
             else { return }
             handleVoiceNoteDraftResolution(resolution)
         }
+        nc.publisher(&cancellables, for: .voiceNoteDraftChanged) { [weak self] notification in
+            guard let self, locationContextIsCurrent,
+                  let change = notification.object as? VoiceNoteDraftChange,
+                  change.destination == location.draftKey
+            else { return }
+            Task { [weak self] in await self?.refreshPendingVoiceDraft(id: change.draftID) }
+        }
         nc.publisher(&cancellables, for: .videoNoteDraftResolved) { [weak self] notification in
             guard let self,
                   locationContextIsCurrent,

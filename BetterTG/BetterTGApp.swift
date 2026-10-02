@@ -16,6 +16,7 @@ import UIKit
         #if DEBUG
             TdUpdateSourceProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
+            VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             TDLibMediaUpdateStreamsProbe.runDebugProbeIfRequested()
             VoiceNoteCodec.runDebugProbeIfRequested()
             VoiceRecordingDraftPreservation.runDebugProbeIfRequested()

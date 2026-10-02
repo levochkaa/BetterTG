@@ -17,12 +17,10 @@ enum VoiceNoteCodec {
 
     static func encodeOggOpus(from inputURL: URL) async throws -> URL {
         let outputURL = inputURL
-            .deletingPathExtension()
+            .deletingLastPathComponent()
+            .appendingPathComponent("voice-encode-\(UUID().uuidString)")
             .appendingPathExtension("ogg")
-        guard inputURL.standardizedFileURL != outputURL.standardizedFileURL else {
-            throw CodecError.invalidOutput
-        }
-        try? FileManager.default.removeItem(at: outputURL)
+        try Task.checkCancellation()
         let result = await Task.detached(priority: .userInitiated) {
             inputURL.path.withCString { inputPath in
                 outputURL.path.withCString { outputPath in
@@ -93,7 +91,7 @@ enum VoiceNoteCodec {
             Task {
                 let temporaryDirectory = FileManager.default.temporaryDirectory
                 let inputURL = temporaryDirectory.appendingPathComponent("bettertg-voice-codec-probe.wav")
-                let outputURL = inputURL.deletingPathExtension().appendingPathExtension("ogg")
+                var outputURL: URL?
                 let firstSegmentURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segment-1.wav")
                 let secondSegmentURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segment-2.wav")
                 let thirdSegmentURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segment-3.wav")
@@ -102,7 +100,6 @@ enum VoiceNoteCodec {
                 let replacementURL = temporaryDirectory.appendingPathComponent("bettertg-voice-segments-replaced.wav")
                 let temporaryURLs = [
                     inputURL,
-                    outputURL,
                     firstSegmentURL,
                     secondSegmentURL,
                     thirdSegmentURL,
@@ -114,18 +111,19 @@ enum VoiceNoteCodec {
                 do {
                     try makeProbeInput(at: inputURL)
                     let encodedURL = try await encodeOggOpus(from: inputURL)
-                    precondition(encodedURL == outputURL)
+                    outputURL = encodedURL
+                    precondition(encodedURL != inputURL && encodedURL.pathExtension == "ogg")
                     writeDebugProbeResult("Voice codec probe stage: encoded")
-                    let playbackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: outputURL)
-                    let reusedPlaybackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: outputURL)
-                    precondition(playbackURL != outputURL)
+                    let playbackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: encodedURL)
+                    let reusedPlaybackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: encodedURL)
+                    precondition(playbackURL != encodedURL)
                     precondition(reusedPlaybackURL == playbackURL)
                     let playbackFile = try AVAudioFile(forReading: playbackURL)
                     precondition(playbackFile.length > 0)
                     precondition(playbackFile.processingFormat.sampleRate == 48000)
                     precondition(playbackFile.processingFormat.channelCount == 1)
                     writeDebugProbeResult("Voice codec probe stage: playback")
-                    let attributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
+                    let attributes = try FileManager.default.attributesOfItem(atPath: encodedURL.path)
                     let size = attributes[.size] as? NSNumber
                     let referenceSamples = (0..<100).map { UInt8($0 % 32) }
                     let packedWaveform = pack(samples: referenceSamples)
@@ -149,7 +147,7 @@ enum VoiceNoteCodec {
                         duration: 1,
                         enqueueStartedAt: nil,
                         failedSendState: nil,
-                        fileURL: outputURL,
+                        fileURL: encodedURL,
                         isEncoded: true,
                         replyMessageID: nil,
                         replyTo: nil,
@@ -288,12 +286,12 @@ enum VoiceNoteCodec {
                     writeDebugProbeResult(proof)
                     log(proof)
                     try? FileManager.default.removeItem(at: playbackURL)
-                    cleanupDebugProbeFiles(temporaryURLs)
+                    cleanupDebugProbeFiles(temporaryURLs + [outputURL].compactMap(\.self))
                 } catch {
                     if let recordingProbeDraftID {
                         await VoiceRecordingDraftStore.shared.discard(id: recordingProbeDraftID)
                     }
-                    cleanupDebugProbeFiles(temporaryURLs)
+                    cleanupDebugProbeFiles(temporaryURLs + [outputURL].compactMap(\.self))
                     writeDebugProbeResult("Voice codec probe failed: \(error)")
                     assertionFailure("Voice codec probe failed: \(error)")
                 }

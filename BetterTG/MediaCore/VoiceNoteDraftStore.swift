@@ -75,8 +75,38 @@ private struct VoiceNoteOutcomeRecord: Codable {
 
 // MARK: - VoiceNoteDraftStoreError
 
-private enum VoiceNoteDraftStoreError: Swift.Error {
+enum VoiceNoteDraftStoreError: Swift.Error {
+    case draftUnavailable
     case enqueueAlreadyActive
+    case finalizationAlreadyActive
+    case staleFinalization
+}
+
+// MARK: - VoiceNoteFinalizationLease
+
+struct VoiceNoteFinalizationLease: Equatable {
+    let draftID: UUID
+    let destination: ChatDraftKey
+
+    fileprivate let token: UUID
+}
+
+// MARK: - VoiceNoteDraftStatus
+
+struct VoiceNoteDraftStatus {
+    let draft: VoiceNoteSendDraft?
+    let isFinalizing: Bool
+}
+
+// MARK: - VoiceNoteDraftChange
+
+struct VoiceNoteDraftChange {
+    let draftID: UUID
+    let destination: ChatDraftKey
+}
+
+extension Foundation.Notification.Name {
+    static let voiceNoteDraftChanged = Self("voiceNoteDraftChanged")
 }
 
 // MARK: - VoiceNoteDraftStore
@@ -90,6 +120,7 @@ actor VoiceNoteDraftStore {
 
     private let fileManager = FileManager.default
     private var registrationOwnedDraftIDs = Set<UUID>()
+    private var finalizations = [UUID: VoiceNoteFinalizationLease]()
     private let directoryURL: URL
     private let legacyBindingAllowed: @Sendable (ChatDraftKey) -> Bool
 
@@ -107,6 +138,12 @@ actor VoiceNoteDraftStore {
 
     func adopt(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
         try ensureDirectory()
+        if fileManager.fileExists(atPath: manifestURL(for: draft.id).path) {
+            // A UI snapshot can outlive encoding, enqueue and registration. Adoption
+            // must never restore that snapshot over the canonical manifest.
+            return try canonicalDraft(matching: draft)
+        }
+        guard finalizations[draft.id] == nil else { throw VoiceNoteDraftStoreError.finalizationAlreadyActive }
         var storedDraft = draft
         if !isManagedFile(draft.fileURL) {
             let fileExtension = draft.fileURL.pathExtension.isEmpty ? "wav" : draft.fileURL.pathExtension
@@ -129,11 +166,56 @@ actor VoiceNoteDraftStore {
         return storedDraft
     }
 
-    func replaceFile(in draft: VoiceNoteSendDraft, with encodedURL: URL) throws -> VoiceNoteSendDraft {
+    func claimFinalization(_ draft: VoiceNoteSendDraft) throws
+    -> (draft: VoiceNoteSendDraft, lease: VoiceNoteFinalizationLease) {
+        let canonical = try adopt(draft)
+        try Task.checkCancellation()
+        guard finalizations[canonical.id] == nil else { throw VoiceNoteDraftStoreError.finalizationAlreadyActive }
+        guard canonical.enqueueStartedAt == nil, canonical.temporaryMessageID == nil else {
+            throw VoiceNoteDraftStoreError.enqueueAlreadyActive
+        }
+        let lease = VoiceNoteFinalizationLease(
+            draftID: canonical.id,
+            destination: canonical.resolvedDestination,
+            token: UUID(),
+        )
+        finalizations[canonical.id] = lease
+        publishChange(canonical)
+        return (canonical, lease)
+    }
+
+    func finishFinalization(_ lease: VoiceNoteFinalizationLease) {
+        guard finalizations[lease.draftID] == lease else { return }
+        finalizations[lease.draftID] = nil
+        registrationOwnedDraftIDs.remove(lease.draftID)
+        nc.post(name: .voiceNoteDraftChanged, object: VoiceNoteDraftChange(
+            draftID: lease.draftID,
+            destination: lease.destination,
+        ))
+    }
+
+    func status(id: UUID, destination: ChatDraftKey) -> VoiceNoteDraftStatus {
+        let draft = loadCanonicalDraft(id: id).flatMap { $0.resolvedDestination == destination ? $0 : nil }
+        return VoiceNoteDraftStatus(
+            draft: draft,
+            isFinalizing: finalizations[id]?.destination == destination,
+        )
+    }
+
+    func replaceFile(
+        in draft: VoiceNoteSendDraft,
+        with encodedURL: URL,
+        finalization: VoiceNoteFinalizationLease,
+    ) throws -> VoiceNoteSendDraft {
+        try Task.checkCancellation()
         try ensureDirectory()
-        var updatedDraft = draft
+        let canonical = try canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
+        guard canonical.enqueueStartedAt == nil, canonical.temporaryMessageID == nil, !canonical.isEncoded else {
+            throw VoiceNoteDraftStoreError.enqueueAlreadyActive
+        }
+        var updatedDraft = canonical
         let destinationURL = directoryURL
-            .appendingPathComponent(draft.id.uuidString)
+            .appendingPathComponent("\(draft.id.uuidString)-\(finalization.token.uuidString)")
             .appendingPathExtension("ogg")
         if encodedURL.standardizedFileURL != destinationURL.standardizedFileURL {
             try? fileManager.removeItem(at: destinationURL)
@@ -144,28 +226,34 @@ actor VoiceNoteDraftStore {
         do {
             try save(updatedDraft)
         } catch {
-            if draft.fileURL.standardizedFileURL != destinationURL.standardizedFileURL {
+            if canonical.fileURL.standardizedFileURL != destinationURL.standardizedFileURL {
                 try? fileManager.removeItem(at: destinationURL)
             }
             throw error
         }
-        if draft.fileURL.standardizedFileURL != destinationURL.standardizedFileURL {
-            try? fileManager.removeItem(at: draft.fileURL)
+        if canonical.fileURL.standardizedFileURL != destinationURL.standardizedFileURL {
+            try? fileManager.removeItem(at: canonical.fileURL)
         }
         if encodedURL.standardizedFileURL != destinationURL.standardizedFileURL {
             try? fileManager.removeItem(at: encodedURL)
         }
+        publishChange(updatedDraft)
         return updatedDraft
     }
 
     func registerEnqueued(
         _ draft: VoiceNoteSendDraft,
         temporaryMessageID: Int64,
+        finalization: VoiceNoteFinalizationLease? = nil,
     ) throws -> VoiceNoteEnqueueRegistration {
+        var updatedDraft = try canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
+        guard updatedDraft.enqueueStartedAt != nil, updatedDraft.temporaryMessageID == nil else {
+            throw VoiceNoteDraftStoreError.enqueueAlreadyActive
+        }
         defer { registrationOwnedDraftIDs.remove(draft.id) }
-        var updatedDraft = draft
         updatedDraft.enqueueStartedAt = nil
         updatedDraft.temporaryMessageID = temporaryMessageID
+        updatedDraft.failedSendState = nil
         // Persist the actual TDLib ID before consuming candidate evidence, including
         // a crash between registration and success/failure cleanup.
         try save(updatedDraft)
@@ -179,42 +267,62 @@ actor VoiceNoteDraftStore {
                 updatedDraft = try markPending(
                     updatedDraft,
                     failedSendState: outcomeRecord.failedSendState,
+                    finalization: finalization,
                 )
             case .succeeded:
-                remove(updatedDraft)
+                guard removeResolved(updatedDraft, finalization: finalization) else {
+                    throw VoiceNoteDraftStoreError.draftUnavailable
+                }
             }
         }
         removeOutcomes(draftID: draft.id)
+        if let finalization { finishFinalization(finalization) }
+        publishChange(updatedDraft)
         return VoiceNoteEnqueueRegistration(draft: updatedDraft, outcome: outcomeRecord?.outcome)
     }
 
     func beginEnqueue(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
+        try beginEnqueue(draft, finalization: nil)
+    }
+
+    func beginEnqueue(
+        _ draft: VoiceNoteSendDraft,
+        finalization: VoiceNoteFinalizationLease?,
+    ) throws -> VoiceNoteSendDraft {
+        try Task.checkCancellation()
+        let canonical = try canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
+        guard canonical.isEncoded, canonical.enqueueStartedAt == nil, canonical.temporaryMessageID == nil else {
+            throw VoiceNoteDraftStoreError.enqueueAlreadyActive
+        }
         guard try !loadAllDrafts().contains(where: {
             $0.enqueueStartedAt != nil && (
-                $0.belongs(to: draft.resolvedDestination) || $0.deliveryKey == draft.deliveryKey
+                $0.belongs(to: canonical.resolvedDestination) || $0.deliveryKey == canonical.deliveryKey
             )
         }) else {
             throw VoiceNoteDraftStoreError.enqueueAlreadyActive
         }
         removeOutcomes(draftID: draft.id)
-        var updatedDraft = draft
+        var updatedDraft = canonical
         updatedDraft.enqueueStartedAt = Foundation.Date()
         try save(updatedDraft)
         registrationOwnedDraftIDs.insert(draft.id)
+        publishChange(updatedDraft)
         return updatedDraft
     }
 
     func markPending(
         _ draft: VoiceNoteSendDraft,
         failedSendState: VoiceNoteFailedSendState? = nil,
+        finalization: VoiceNoteFinalizationLease? = nil,
     ) throws -> VoiceNoteSendDraft {
-        var updatedDraft = draft
+        var updatedDraft = try canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
         updatedDraft.enqueueStartedAt = nil
         updatedDraft.failedSendState = failedSendState
         updatedDraft.temporaryMessageID = nil
         try save(updatedDraft)
         registrationOwnedDraftIDs.remove(draft.id)
         removeOutcomes(draftID: draft.id)
+        publishChange(updatedDraft)
         return updatedDraft
     }
 
@@ -277,7 +385,7 @@ actor VoiceNoteDraftStore {
             temporaryMessageID: temporaryMessageID,
         ) else { return nil }
         if draft.temporaryMessageID == temporaryMessageID {
-            remove(draft)
+            guard removeResolved(draft) else { throw VoiceNoteDraftStoreError.finalizationAlreadyActive }
             removeOutcomes(draftID: draft.id)
             return VoiceNoteDraftResolution(
                 chatID: draft.chatID,
@@ -371,10 +479,11 @@ actor VoiceNoteDraftStore {
         )
     }
 
-    func remove(_ draft: VoiceNoteSendDraft) {
-        registrationOwnedDraftIDs.remove(draft.id)
-        try? fileManager.removeItem(at: draft.fileURL)
-        try? fileManager.removeItem(at: manifestURL(for: draft.id))
+    @discardableResult func remove(_ draft: VoiceNoteSendDraft) -> Bool {
+        guard let canonical = try? canonicalDraft(matching: draft, forMutation: true),
+              canonical.enqueueStartedAt == nil, canonical.temporaryMessageID == nil
+        else { return false }
+        return removeResolved(canonical)
     }
 
     func discardMessages(chatID: Int64, messageIDs: [Int64]) {
@@ -384,8 +493,7 @@ actor VoiceNoteDraftStore {
             draft.temporaryMessageID.map(messageIDSet.contains) == true
                 || draft.failedSendState.map { messageIDSet.contains($0.messageID) } == true
         ) {
-            remove(draft)
-            removeOutcomes(draftID: draft.id)
+            _ = removeResolved(draft)
         }
     }
 
@@ -396,13 +504,63 @@ actor VoiceNoteDraftStore {
             draft.temporaryMessageID.map(messageIDSet.contains) == true
                 || draft.failedSendState.map { messageIDSet.contains($0.messageID) } == true
         ) {
-            remove(draft)
-            removeOutcomes(draftID: draft.id)
+            _ = removeResolved(draft)
         }
+    }
+
+    private func removeResolved(
+        _ draft: VoiceNoteSendDraft,
+        finalization: VoiceNoteFinalizationLease? = nil,
+    ) -> Bool {
+        guard let canonical = try? canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
+        else { return false }
+        registrationOwnedDraftIDs.remove(draft.id)
+        try? fileManager.removeItem(at: canonical.fileURL)
+        try? fileManager.removeItem(at: manifestURL(for: draft.id))
+        removeOutcomes(draftID: draft.id)
+        publishChange(canonical)
+        return !fileManager.fileExists(atPath: canonical.fileURL.path)
+            && !fileManager.fileExists(atPath: manifestURL(for: draft.id).path)
     }
 
     private func ensureDirectory() throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    }
+
+    private func loadCanonicalDraft(id: UUID) -> VoiceNoteSendDraft? {
+        guard let data = try? Data(contentsOf: manifestURL(for: id)),
+              let draft = try? JSONDecoder().decode(VoiceNoteSendDraft.self, from: data),
+              draft.id == id,
+              isManagedFile(draft.fileURL),
+              fileManager.fileExists(atPath: draft.fileURL.path)
+        else { return nil }
+        return draft
+    }
+
+    private func canonicalDraft(
+        matching snapshot: VoiceNoteSendDraft,
+        finalization: VoiceNoteFinalizationLease? = nil,
+        forMutation: Bool = false,
+    ) throws -> VoiceNoteSendDraft {
+        guard let canonical = loadCanonicalDraft(id: snapshot.id),
+              canonical.resolvedDestination == snapshot.resolvedDestination,
+              canonical.deliveryKey == snapshot.deliveryKey
+        else { throw VoiceNoteDraftStoreError.draftUnavailable }
+        if forMutation {
+            if let owner = finalizations[snapshot.id] {
+                guard owner == finalization else { throw VoiceNoteDraftStoreError.finalizationAlreadyActive }
+            } else if finalization != nil {
+                throw VoiceNoteDraftStoreError.staleFinalization
+            }
+        }
+        return canonical
+    }
+
+    private func publishChange(_ draft: VoiceNoteSendDraft) {
+        nc.post(name: .voiceNoteDraftChanged, object: VoiceNoteDraftChange(
+            draftID: draft.id,
+            destination: draft.resolvedDestination,
+        ))
     }
 
     private func draft(
@@ -511,8 +669,7 @@ actor VoiceNoteDraftStore {
                     reconciledDrafts.append(draft)
                 }
             case .succeeded:
-                remove(draft)
-                removeOutcomes(draftID: draft.id)
+                if !removeResolved(draft) { reconciledDrafts.append(draft) }
             }
         }
         return reconciledDrafts
