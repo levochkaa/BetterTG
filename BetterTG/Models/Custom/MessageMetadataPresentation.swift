@@ -220,7 +220,7 @@ struct MessageReplyPresentation {
     }
 
     var accessibilityDescription: String {
-        "Reply from \(title), \(body.text)"
+        "Reply from \(title), \(MessageTextSpoilerPresentation(body).accessibilityText())"
     }
 }
 

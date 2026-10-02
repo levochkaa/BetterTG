@@ -227,12 +227,14 @@ final class MessageStructuredContentView: UIView {
         album: [Message],
         client: TDLibClient,
         pollInteractionStore: MessagePollInteractionStore,
+        textSpoilers: MessageTextSpoilerStore? = nil,
         onAction: @escaping (MessageContentAction) -> Void,
     ) -> Bool {
         prepareForReuse()
         if let albumView = AttachmentAlbumMessageView(
             messages: album,
             client: client,
+            textSpoilers: textSpoilers,
             onAction: onAction,
         ) {
             handlesAlbumCaptions = true
@@ -303,6 +305,7 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
     init?(
         messages: [Message],
         client: TDLibClient,
+        textSpoilers: MessageTextSpoilerStore?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
         guard messages.count > 1 else { return nil }
@@ -313,12 +316,14 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
                 itemViews.append(AttachmentAlbumItemView(
                     audio: audio,
                     client: client,
+                    spoilerState: textSpoilers?.states[message.id],
                     onAction: onAction,
                 ))
             case .messageDocument(let document):
                 itemViews.append(AttachmentAlbumItemView(
                     document: document,
                     client: client,
+                    spoilerState: textSpoilers?.states[message.id],
                     onAction: onAction,
                 ))
             default:
@@ -357,52 +362,66 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
 
 private final class AttachmentAlbumItemView: UIView {
     private let fileView: TelegramFileMessageView
+    private var captionView: MessageTextContentView?
 
     init(
         audio: MessageAudio,
         client: TDLibClient,
+        spoilerState: MessageTextSpoilerState?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
         self.fileView = TelegramFileMessageView(audio: audio.audio, client: client, onAction: onAction)
         super.init(frame: .zero)
-        configure(fileView: fileView, caption: audio.caption)
+        configure(fileView: fileView, caption: audio.caption, client: client, spoilerState: spoilerState)
     }
 
     init(
         document: MessageDocument,
         client: TDLibClient,
+        spoilerState: MessageTextSpoilerState?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
         self.fileView = TelegramFileMessageView(document: document.document, client: client, onAction: onAction)
         super.init(frame: .zero)
-        configure(fileView: fileView, caption: document.caption)
+        configure(fileView: fileView, caption: document.caption, client: client, spoilerState: spoilerState)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if bounds.width > 0 { captionView?.setMaximumLayoutWidth(bounds.width) }
+    }
+
     func prepareForReuse() {
         fileView.prepareForReuse()
+        captionView?.prepareForReuse()
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
         fileView.setPlaybackVisible(isVisible)
+        captionView?.setCustomEmojiPlaybackVisible(isVisible)
     }
 
-    private func configure(fileView: TelegramFileMessageView, caption: FormattedText) {
+    private func configure(
+        fileView: TelegramFileMessageView, caption: FormattedText, client: TDLibClient,
+        spoilerState: MessageTextSpoilerState?,
+    ) {
         let stack = UIStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 3
         stack.addArrangedSubview(fileView)
         if !caption.text.isEmpty {
-            let captionLabel = UILabel()
-            captionLabel.attributedText = NSAttributedString(getAttributedString(from: caption))
-            captionLabel.numberOfLines = 0
-            captionLabel.adjustsFontForContentSizeCategory = true
-            captionLabel.accessibilityLabel = caption.text
-            stack.addArrangedSubview(captionLabel)
+            let captionView = MessageTextContentView()
+            captionView.configure(
+                formattedText: caption, client: client, statusText: "", statusColor: .secondaryLabel,
+                spoilerState: spoilerState,
+            )
+            self.captionView = captionView
+            stack.addArrangedSubview(captionView)
         }
         addSubview(stack)
         NSLayoutConstraint.activate([

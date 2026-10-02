@@ -218,7 +218,7 @@ final class ReplySnippetView: UIControl {
         canExpand = presentation.isManualQuote && !expanded
         titleLabel.text = presentation.title
         titleLabel.numberOfLines = presentation.isManualQuote ? 2 : 1
-        bodyLabel.attributedText = NSAttributedString(getAttributedString(from: presentation.body))
+        bodyLabel.attributedText = MessageTextSpoilerPresentation(presentation.body).attributedText()
         bodyLabel.numberOfLines = presentation.isManualQuote ? (expanded ? 50 : 5) : 1
         quoteIconView.isHidden = !presentation.isManualQuote
         if let thumbnail = presentation.thumbnail {
@@ -257,7 +257,7 @@ final class ReplySnippetView: UIControl {
         prepareForReuse()
         titleLabel.text = title
         titleLabel.numberOfLines = 2
-        bodyLabel.attributedText = NSAttributedString(getAttributedString(from: quote.text))
+        bodyLabel.attributedText = MessageTextSpoilerPresentation(quote.text).attributedText()
         bodyLabel.numberOfLines = 3
         quoteIconView.isHidden = false
         thumbnailWidthConstraint.constant = 0
@@ -266,7 +266,7 @@ final class ReplySnippetView: UIControl {
         self.onTap = { _ in onTap() }
         isUserInteractionEnabled = true
         isAccessibilityElement = true
-        accessibilityLabel = "\(title), quoted text, \(quote.text.text)"
+        accessibilityLabel = "\(title), quoted text, \(MessageTextSpoilerPresentation(quote.text).accessibilityText())"
         accessibilityTraits = [.button]
         accessibilityHint = "Opens the message"
         invalidateIntrinsicContentSize()

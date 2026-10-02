@@ -1317,6 +1317,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         $0.id == self.chatVM.highlightedMessageId
                     }),
                     client: chatVM.client,
+                    spoilerSource: navigationClientSource,
                     pollInteractionStore: chatVM.pollInteractionStore,
                     videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
                     canAddReactions: chatVM.canAddReactions,

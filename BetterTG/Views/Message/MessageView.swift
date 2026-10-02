@@ -1,5 +1,6 @@
 // MessageView.swift
 
+import Combine
 import TDLibKitDynamic
 import UIKit
 
@@ -185,6 +186,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let mediaView = MessageMediaView()
     private let structuredContentView = MessageStructuredContentView()
     private let textView = MessageTextContentView()
+    private let textSpoilers = MessageTextSpoilerStore()
+    private var spoilerSubscriptions = Set<AnyCancellable>()
+    private var refreshSpoilerAccessibility: (() -> Void)?
     private let reactionView = MessageReactionStripView()
     private let timestampLabel = UILabel()
     private let mediaTimestampLabel = UILabel()
@@ -259,6 +263,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaView.prepareForReuse()
         structuredContentView.prepareForReuse()
         textView.prepareForReuse()
+        spoilerSubscriptions.removeAll()
+        refreshSpoilerAccessibility = nil
+        textSpoilers.reset()
         reactionView.prepareForReuse()
         forwardView.prepareForReuse()
         replyView.prepareForReuse()
@@ -360,6 +367,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         chat: CustomChat,
         highlighted: Bool,
         client: TDLibClient,
+        spoilerSource: TdUpdateSource? = nil,
         pollInteractionStore: MessagePollInteractionStore,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         canAddReactions: Bool,
@@ -379,6 +387,21 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
         self.onSelectionToggle = onSelectionToggle
+        spoilerSubscriptions.removeAll()
+        refreshSpoilerAccessibility = nil
+        var captionTexts = [Int64: FormattedText]()
+        for source in message.sourceMessages {
+            if let text = MessageContentPresentation.make(source).formattedText { captionTexts[source.id] = text }
+        }
+        let textSourceID = message.sourceMessages
+            .first {
+                MessageContentPresentation.make($0).formattedText == message.formattedText
+            }?.id ?? message.id
+        if let text = message.formattedText { captionTexts[textSourceID] = text }
+        textSpoilers.configure(
+            source: spoilerSource?.clientID == client.id ? spoilerSource : nil,
+            chatID: message.message.chatId, texts: captionTexts,
+        )
         mediaTransitionGeneration = UUID()
         representedGalleryMessageIDs = message.album.isEmpty
             ? [message.id]
@@ -475,6 +498,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             album: message.album,
             client: client,
             pollInteractionStore: pollInteractionStore,
+            textSpoilers: textSpoilers,
             onAction: onContentAction,
         )
         structuredContentView.isHidden = !hasStructuredContent
@@ -491,8 +515,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 statusText: timestampText,
                 statusColor: timestampColor,
                 maximumWidth: maximumTextWidth(for: bounds.width),
+                spoilerState: textSpoilers.states[textSourceID],
             )
         } else {
+            textView.prepareForReuse()
             textView.isHidden = true
         }
 
@@ -530,21 +556,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
 
         isAccessibilityElement = !isVideoNoteMessage
-        let accessibilityContent =
-            if structuredContentView.handlesAlbumCaptions {
-                message.album.map { MessageContentPresentation.make($0).summary }.joined(separator: ", ")
-            } else {
-                displayedFormattedText?.text ?? presentation.summary
-            }
-        accessibilityLabel = [
+        let accessibilityStates = structuredContentView.handlesAlbumCaptions
+            ? message.album.compactMap { textSpoilers.states[$0.id] }
+            : [textSpoilers.states[textSourceID]].compactMap(\.self)
+        let accessibilityAlbum = structuredContentView.handlesAlbumCaptions ? message.album : []
+        let fallbackAccessibilityContent = MessageTextSpoilerPresentation.summary(for: message.message)
+        let prefix = [
             message.forwardPresentation?.accessibilityDescription,
             message.replyPresentation?.accessibilityDescription,
-            accessibilityContent,
-            hasReactions ? reactionAccessibilityDescription(visibleReactions) : nil,
-            timestampLabel.text,
         ]
-            .compactMap(\.self)
-            .joined(separator: ", ")
+        let suffix = [hasReactions ? reactionAccessibilityDescription(visibleReactions) : nil, timestampLabel.text]
         var metadataAccessibilityActions = [UIAccessibilityCustomAction]()
         if let reply = message.replyPresentation {
             if reply.isManualQuote, !message.isReplyQuoteExpanded {
@@ -595,10 +616,46 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             accessibilityTraits.remove(.selected)
             accessibilityValue = nil
         }
-        accessibilityCustomActions = metadataAccessibilityActions
+        refreshSpoilerAccessibility = { [weak self] in
+            guard let self else { return }
+            let content = accessibilityAlbum.isEmpty
+                ?
+                (accessibilityStates.first
+                    .map { $0.presentation.accessibilityText(revealed: $0.revealed) } ?? fallbackAccessibilityContent)
+                : accessibilityAlbum.map { MessageTextSpoilerPresentation.summary(
+                    for: $0,
+                    revealed: self.textSpoilers.states[$0.id]?.revealed == true,
+                ) }
+                .joined(separator: ", ")
+            updateSpoilerAccessibility(
+                content: content,
+                prefix: prefix,
+                suffix: suffix,
+                states: accessibilityStates,
+                actions: metadataAccessibilityActions,
+            )
+        }
+        for state in accessibilityStates {
+            state.changes.sink { [weak self] in self?.refreshSpoilerAccessibility?() }.store(in: &spoilerSubscriptions)
+        }
+        refreshSpoilerAccessibility?()
 
         bubbleContentNeedsMeasurement = true
         updateBubbleWidth(for: bounds.width)
+    }
+
+    func updateSpoilerAccessibility(
+        content: String, prefix: [String?], suffix: [String?], states: [MessageTextSpoilerState],
+        actions: [UIAccessibilityCustomAction],
+    ) {
+        accessibilityLabel = (prefix + [content] + suffix).compactMap(\.self).joined(separator: ", ")
+        var result = actions
+        if states.contains(where: { !$0.revealed && !$0.presentation.ranges.isEmpty }) {
+            result.append(UIAccessibilityCustomAction(name: "Reveal spoilers") { _ in
+                states.reduce(false) { $1.reveal() || $0 }
+            })
+        }
+        accessibilityCustomActions = result
     }
 
     func gestureRecognizer(
