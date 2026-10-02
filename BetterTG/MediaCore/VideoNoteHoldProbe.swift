@@ -390,7 +390,10 @@ import UIKit
             try await until("deinit open") { f.openCalls == 1 }
             v?.removeFromSuperview()
             v = nil
-            try require(weakView == nil, "pending open retained view")
+            // UIKit may release detached views after its queued layout/animation work.
+            // Keep the open RPC suspended while checking eventual view teardown.
+            await drain()
+            try await until("pending open released before ACK") { [weak weakView] in weakView == nil }
             f.acknowledge(0)
             await drain()
         }
