@@ -25,10 +25,12 @@
                 let result: String
                 do {
                     try await verify()
+                    try await verifyForumTopicDelivery()
                     result = "Chat update delivery probe passed: production-observer/scoped-source=true; "
                         + "queued-old-client/account-collision/unscoped-rejected=true; "
                         + "post-hydration-client/account/retired-owner/route-fences=true; "
                         + "current-delivery-and-legacy-transport-preserved=true; "
+                        + "forum-topic-info/scoped-queued-collision=true; "
                         + "same-epoch-message-ordering-not-covered; server-reads/sends/account-stores=0"
                 } catch {
                     result = "Chat update delivery probe failed: \(error)"
@@ -169,6 +171,61 @@
                     && rawDeliveryCount == 9,
                 "missing origin/owner/bootstrap accepted or shared transport changed",
             )
+        }
+
+        private static func verifyForumTopicDelivery() async throws {
+            let center = NotificationCenter()
+            var subscriptions = Set<AnyCancellable>()
+            defer { subscriptions.removeAll() }
+            let sourceA = TdUpdateSource(accountID: UUID(), clientID: 31)
+            let sourceB = TdUpdateSource(accountID: UUID(), clientID: 41)
+            let replacementB = TdUpdateSource(accountID: sourceB.accountID, clientID: 42)
+            var current: TdUpdateSource? = sourceA
+            let owners = [sourceA, sourceB, replacementB].map { source in
+                Owner(location: .init(accountID: source.accountID, chatID: 100, clientID: source.clientID, topic: nil))
+            }
+            for owner in owners {
+                ChatUpdateDeliveryAuthority.observe(
+                    .updateForumTopicInfo, center: center, subscriptions: &subscriptions, location: owner.location,
+                    currentLocation: { owner.location }, currentSource: { current },
+                    ownerIsCurrent: { owner.isCurrent },
+                    perform: { value, _ in
+                        guard value.info.chatId == owner.location.chatID else { return }
+                        owner.received.append(value.info.name)
+                    },
+                )
+            }
+            func post(_ name: String, source: TdUpdateSource?, chatID: Int64 = 100) {
+                update(.updateForumTopicInfo(.init(info: .init(
+                    chatId: chatID, creationDate: 1, creatorId: .messageSenderUser(.init(userId: 1)),
+                    forumTopicId: 7, icon: .init(color: 0x4A9EF1, customEmojiId: 0), isClosed: false,
+                    isGeneral: false, isHidden: false, isNameImplicit: false, isOutgoing: false, name: name,
+                ))), source: source, notificationCenter: center)
+            }
+            post("queued A", source: sourceA)
+            current = sourceB
+            post("foreign A", source: sourceA)
+            post("unscoped", source: nil)
+            post("another chat", source: sourceB, chatID: 101)
+            post("current B", source: sourceB)
+            await drainMainQueue()
+            try require(
+                owners[0].received.isEmpty && owners[1].received == ["current B"] && owners[2].received.isEmpty,
+                "queued forum info crossed account/chat authority",
+            )
+            post("queued B", source: sourceB)
+            current = replacementB
+            post("old B", source: sourceB)
+            post("replacement B", source: replacementB)
+            await drainMainQueue()
+            try require(
+                owners[1].received == ["current B"] && owners[2].received == ["replacement B"],
+                "forum info crossed replacement-client authority",
+            )
+            owners[2].isCurrent = false
+            post("retired B", source: replacementB)
+            await drainMainQueue()
+            try require(owners[2].received == ["replacement B"], "retired forum owner received info")
         }
 
         private static func drainMainQueue() async {

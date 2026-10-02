@@ -69,7 +69,7 @@ import TDLibKitDynamic
     }
 
     private func load(reset: Bool, query: String) {
-        guard !loading || reset else { return }
+        guard contextIsCurrent, !loading || reset else { return }
         if reset {
             generation &+= 1
             loadTask?.cancel()
@@ -98,7 +98,7 @@ import TDLibKitDynamic
         loading = true
         errorMessage = nil
         loadTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, contextIsCurrent else { return }
             do {
                 let result = try await client.getForumTopics(
                     chatId: location.chatID,
@@ -142,7 +142,7 @@ import TDLibKitDynamic
     }
 
     private func observeUpdates() {
-        nc.publisher(&cancellables, for: .updateForumTopicInfo) { [weak self] update in
+        observeCurrentUpdate(.updateForumTopicInfo) { [weak self] update in
             guard let self,
                   contextIsCurrent,
                   update.info.chatId == location.chatID
@@ -161,14 +161,14 @@ import TDLibKitDynamic
                 topics[index] = topics[index].replacing(info: update.info)
             }
         }
-        nc.publisher(&cancellables, for: .updateForumTopic) { [weak self] update in
+        observeCurrentUpdate(.updateForumTopic) { [weak self] update in
             guard let self,
                   contextIsCurrent,
                   update.chatId == location.chatID
             else { return }
             refreshTopic(id: update.forumTopicId)
         }
-        nc.publisher(&cancellables, for: .updateNewMessage) { [weak self] update in
+        observeCurrentUpdate(.updateNewMessage) { [weak self] update in
             guard let self,
                   contextIsCurrent,
                   update.message.chatId == location.chatID,
@@ -176,11 +176,9 @@ import TDLibKitDynamic
             else { return }
             refreshTopic(id: topic.forumTopicId)
         }
-        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
-            let update = event.value
+        observeCurrentUpdate(.updateDeleteMessages) { [weak self] update in
             guard let self,
                   contextIsCurrent,
-                  event.source.matches(location),
                   update.chatId == location.chatID,
                   !update.fromCache,
                   update.isPermanent,
@@ -190,33 +188,45 @@ import TDLibKitDynamic
             else { return }
             load(reset: true, query: query)
         }
-        nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
+        observeCurrentUpdate(.updateMessageContent) { [weak self] update in
             self?.refreshTopicContainingLastMessage(
                 chatID: update.chatId,
                 messageID: update.messageId,
             )
         }
-        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
+        observeCurrentUpdate(.updateMessageEdited) { [weak self] update in
             self?.refreshTopicContainingLastMessage(
                 chatID: update.chatId,
                 messageID: update.messageId,
             )
         }
-        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] event in
-            guard let self, event.source.matches(location) else { return }
-            refreshTopic(for: event.value.message)
+        observeCurrentUpdate(.updateMessageSendSucceeded) { [weak self] update in
+            self?.refreshTopic(for: update.message)
         }
-        nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { [weak self] event in
-            guard let self, event.source.matches(location) else { return }
-            refreshTopic(for: event.value.message)
+        observeCurrentUpdate(.updateMessageSendFailed) { [weak self] update in
+            self?.refreshTopic(for: update.message)
         }
     }
 
+    private func observeCurrentUpdate<Value>(
+        _ notification: TdNotification<Value>,
+        perform: @escaping (Value) -> Void,
+    ) {
+        ChatUpdateDeliveryAuthority.observe(
+            notification, center: nc, subscriptions: &cancellables, location: location,
+            currentLocation: { [weak self] in self?.location },
+            currentSource: { TDLib.shared.activeUpdateSource },
+            ownerIsCurrent: { [weak self] in self?.contextIsCurrent == true },
+            perform: { value, _ in perform(value) },
+        )
+    }
+
     private func refreshTopic(id: Int) {
+        guard contextIsCurrent else { return }
         topicRefreshTasks[id]?.cancel()
         let currentGeneration = generation
         topicRefreshTasks[id] = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, contextIsCurrent else { return }
             let topic = try? await client.getForumTopic(
                 chatId: location.chatID,
                 forumTopicId: id,
