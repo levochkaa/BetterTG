@@ -119,6 +119,7 @@ import UIKit
     private var chatMetadataTask: Task<Void, Never>?
     private var permissionTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
+    private var historyRequest = PeerProfileHistoryRequest()
     private var messageRefreshTasks = [Int64: Task<Void, Never>]()
     private var messageRefreshGenerations = [Int64: UUID]()
     private var oldestMessageID: Int64?
@@ -1175,6 +1176,7 @@ import UIKit
         guard historyTask == nil, hasMore, contextIsCurrent else { return }
         let fromMessageID = oldestMessageID ?? 0
         let requestedTab = currentSharedTab
+        let requestID = historyRequest.begin()
         historyError = nil
         historyTask = Task { [weak self] in
             guard let self else { return }
@@ -1192,7 +1194,11 @@ import UIKit
                 guard !Task.isCancelled,
                       contextIsCurrent,
                       currentSharedTab == requestedTab
-                else { return }
+                else {
+                    if historyRequest.finish(requestID) { historyTask = nil }
+                    return
+                }
+                guard historyRequest.finish(requestID) else { return }
                 let messages = result.messages
                 let nextCursor = messages.last?.id
                 for message in messages {
@@ -1205,14 +1211,15 @@ import UIKit
                 historyTask = nil
                 applySnapshot()
             } catch is CancellationError {
-                if currentSharedTab == requestedTab {
-                    historyTask = nil
-                    applySnapshot()
-                }
-            } catch {
-                guard contextIsCurrent, currentSharedTab == requestedTab else { return }
-                historyError = "Couldn't load shared \(requestedTab.title.lowercased())."
+                guard historyRequest.finish(requestID) else { return }
                 historyTask = nil
+                guard contextIsCurrent, currentSharedTab == requestedTab else { return }
+                applySnapshot()
+            } catch {
+                guard historyRequest.finish(requestID) else { return }
+                historyTask = nil
+                guard !Task.isCancelled, contextIsCurrent, currentSharedTab == requestedTab else { return }
+                historyError = "Couldn't load shared \(requestedTab.title.lowercased())."
                 activeMediaGallery?.allowMoreMessagesRetry()
                 applySnapshot()
             }
@@ -1565,6 +1572,7 @@ import UIKit
     }
 
     @objc private func tabChanged() {
+        historyRequest.invalidate()
         historyTask?.cancel()
         historyTask = nil
         messageRefreshTasks.values.forEach { $0.cancel() }

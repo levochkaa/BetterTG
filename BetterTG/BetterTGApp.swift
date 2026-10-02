@@ -20,6 +20,7 @@ import UIKit
             ChatComposerRestorationProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
             PeerProfileInfoPermissionProbe.runDebugProbeIfRequested()
+            PeerProfileHistoryRequestProbe.runDebugProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             SendDraftRelocationProbe.runDebugProbeIfRequested()
