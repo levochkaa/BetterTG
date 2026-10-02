@@ -7,6 +7,18 @@ let nc = NotificationCenter()
 let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .userInteractive)
 
 extension NotificationCenter {
+    func scopedPublisher<T>(
+        _ cancellables: inout Set<AnyCancellable>,
+        for tdNotification: TdNotification<T>,
+        _ perform: @escaping (TdScopedUpdate<T>) -> Void,
+    ) {
+        publisher(for: tdNotification.name)
+            .compactMap { TdScopedUpdate<T>(notification: $0) }
+            .receive(on: DispatchQueue.main)
+            .sink { perform($0) }
+            .store(in: &cancellables)
+    }
+
     func publisher<T>(
         _ cancellables: inout Set<AnyCancellable>,
         for tdNotification: TdNotification<T>,

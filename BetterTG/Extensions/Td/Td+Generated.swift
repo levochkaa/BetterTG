@@ -6,376 +6,380 @@
 import Foundation
 import TDLibKitDynamic
 
-func update(_ update: Update) {
+func update(
+    _ update: Update,
+    source: TdUpdateSource? = nil,
+    notificationCenter: NotificationCenter = nc
+) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
             TDLib.shared.UpdateAuthorizationState(updateAuthorizationState.authorizationState)
         case .updateNewMessage(let updateNewMessage):
-            nc.post(name: .updateNewMessage, object: updateNewMessage)
+            notificationCenter.postTdUpdate(name: .updateNewMessage, object: updateNewMessage, source: source)
         case .updateMessageSendAcknowledged(let updateMessageSendAcknowledged):
-            nc.post(name: .updateMessageSendAcknowledged, object: updateMessageSendAcknowledged)
+            notificationCenter.postTdUpdate(name: .updateMessageSendAcknowledged, object: updateMessageSendAcknowledged, source: source)
         case .updateMessageSendSucceeded(let updateMessageSendSucceeded):
-            nc.post(name: .updateMessageSendSucceeded, object: updateMessageSendSucceeded)
+            notificationCenter.postTdUpdate(name: .updateMessageSendSucceeded, object: updateMessageSendSucceeded, source: source)
         case .updateMessageSendFailed(let updateMessageSendFailed):
-            nc.post(name: .updateMessageSendFailed, object: updateMessageSendFailed)
+            notificationCenter.postTdUpdate(name: .updateMessageSendFailed, object: updateMessageSendFailed, source: source)
         case .updateMessageContent(let updateMessageContent):
-            nc.post(name: .updateMessageContent, object: updateMessageContent)
+            notificationCenter.postTdUpdate(name: .updateMessageContent, object: updateMessageContent, source: source)
         case .updateMessageEdited(let updateMessageEdited):
-            nc.post(name: .updateMessageEdited, object: updateMessageEdited)
+            notificationCenter.postTdUpdate(name: .updateMessageEdited, object: updateMessageEdited, source: source)
         case .updateMessageIsPinned(let updateMessageIsPinned):
-            nc.post(name: .updateMessageIsPinned, object: updateMessageIsPinned)
+            notificationCenter.postTdUpdate(name: .updateMessageIsPinned, object: updateMessageIsPinned, source: source)
         case .updateMessageInteractionInfo(let updateMessageInteractionInfo):
-            nc.post(name: .updateMessageInteractionInfo, object: updateMessageInteractionInfo)
+            notificationCenter.postTdUpdate(name: .updateMessageInteractionInfo, object: updateMessageInteractionInfo, source: source)
         case .updateMessageContentOpened(let updateMessageContentOpened):
-            nc.post(name: .updateMessageContentOpened, object: updateMessageContentOpened)
+            notificationCenter.postTdUpdate(name: .updateMessageContentOpened, object: updateMessageContentOpened, source: source)
         case .updateMessageMentionRead(let updateMessageMentionRead):
-            nc.post(name: .updateMessageMentionRead, object: updateMessageMentionRead)
+            notificationCenter.postTdUpdate(name: .updateMessageMentionRead, object: updateMessageMentionRead, source: source)
         case .updateMessageUnreadReactions(let updateMessageUnreadReactions):
-            nc.post(name: .updateMessageUnreadReactions, object: updateMessageUnreadReactions)
+            notificationCenter.postTdUpdate(name: .updateMessageUnreadReactions, object: updateMessageUnreadReactions, source: source)
         case .updateMessageContainsUnreadPollVotes(let updateMessageContainsUnreadPollVotes):
-            nc.post(name: .updateMessageContainsUnreadPollVotes, object: updateMessageContainsUnreadPollVotes)
+            notificationCenter.postTdUpdate(name: .updateMessageContainsUnreadPollVotes, object: updateMessageContainsUnreadPollVotes, source: source)
         case .updateMessageFactCheck(let updateMessageFactCheck):
-            nc.post(name: .updateMessageFactCheck, object: updateMessageFactCheck)
+            notificationCenter.postTdUpdate(name: .updateMessageFactCheck, object: updateMessageFactCheck, source: source)
         case .updateMessageSuggestedPostInfo(let updateMessageSuggestedPostInfo):
-            nc.post(name: .updateMessageSuggestedPostInfo, object: updateMessageSuggestedPostInfo)
+            notificationCenter.postTdUpdate(name: .updateMessageSuggestedPostInfo, object: updateMessageSuggestedPostInfo, source: source)
         case .updateMessageLiveLocationViewed(let updateMessageLiveLocationViewed):
-            nc.post(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed)
+            notificationCenter.postTdUpdate(name: .updateMessageLiveLocationViewed, object: updateMessageLiveLocationViewed, source: source)
         case .updateVideoPublished(let updateVideoPublished):
-            nc.post(name: .updateVideoPublished, object: updateVideoPublished)
+            notificationCenter.postTdUpdate(name: .updateVideoPublished, object: updateVideoPublished, source: source)
         case .updateNewChat(let updateNewChat):
-            nc.post(name: .updateNewChat, object: updateNewChat)
+            notificationCenter.postTdUpdate(name: .updateNewChat, object: updateNewChat, source: source)
         case .updateChatTitle(let updateChatTitle):
-            nc.post(name: .updateChatTitle, object: updateChatTitle)
+            notificationCenter.postTdUpdate(name: .updateChatTitle, object: updateChatTitle, source: source)
         case .updateChatPhoto(let updateChatPhoto):
-            nc.post(name: .updateChatPhoto, object: updateChatPhoto)
+            notificationCenter.postTdUpdate(name: .updateChatPhoto, object: updateChatPhoto, source: source)
         case .updateChatAccentColors(let updateChatAccentColors):
-            nc.post(name: .updateChatAccentColors, object: updateChatAccentColors)
+            notificationCenter.postTdUpdate(name: .updateChatAccentColors, object: updateChatAccentColors, source: source)
         case .updateChatPermissions(let updateChatPermissions):
-            nc.post(name: .updateChatPermissions, object: updateChatPermissions)
+            notificationCenter.postTdUpdate(name: .updateChatPermissions, object: updateChatPermissions, source: source)
         case .updateChatLastMessage(let updateChatLastMessage):
-            nc.post(name: .updateChatLastMessage, object: updateChatLastMessage)
+            notificationCenter.postTdUpdate(name: .updateChatLastMessage, object: updateChatLastMessage, source: source)
         case .updateChatPosition(let updateChatPosition):
-            nc.post(name: .updateChatPosition, object: updateChatPosition)
+            notificationCenter.postTdUpdate(name: .updateChatPosition, object: updateChatPosition, source: source)
         case .updateChatAddedToList(let updateChatAddedToList):
-            nc.post(name: .updateChatAddedToList, object: updateChatAddedToList)
+            notificationCenter.postTdUpdate(name: .updateChatAddedToList, object: updateChatAddedToList, source: source)
         case .updateChatRemovedFromList(let updateChatRemovedFromList):
-            nc.post(name: .updateChatRemovedFromList, object: updateChatRemovedFromList)
+            notificationCenter.postTdUpdate(name: .updateChatRemovedFromList, object: updateChatRemovedFromList, source: source)
         case .updateChatReadInbox(let updateChatReadInbox):
-            nc.post(name: .updateChatReadInbox, object: updateChatReadInbox)
+            notificationCenter.postTdUpdate(name: .updateChatReadInbox, object: updateChatReadInbox, source: source)
         case .updateChatReadOutbox(let updateChatReadOutbox):
-            nc.post(name: .updateChatReadOutbox, object: updateChatReadOutbox)
+            notificationCenter.postTdUpdate(name: .updateChatReadOutbox, object: updateChatReadOutbox, source: source)
         case .updateChatActionBar(let updateChatActionBar):
-            nc.post(name: .updateChatActionBar, object: updateChatActionBar)
+            notificationCenter.postTdUpdate(name: .updateChatActionBar, object: updateChatActionBar, source: source)
         case .updateChatBusinessBotManageBar(let updateChatBusinessBotManageBar):
-            nc.post(name: .updateChatBusinessBotManageBar, object: updateChatBusinessBotManageBar)
+            notificationCenter.postTdUpdate(name: .updateChatBusinessBotManageBar, object: updateChatBusinessBotManageBar, source: source)
         case .updateChatAvailableReactions(let updateChatAvailableReactions):
-            nc.post(name: .updateChatAvailableReactions, object: updateChatAvailableReactions)
+            notificationCenter.postTdUpdate(name: .updateChatAvailableReactions, object: updateChatAvailableReactions, source: source)
         case .updateChatDraftMessage(let updateChatDraftMessage):
-            nc.post(name: .updateChatDraftMessage, object: updateChatDraftMessage)
+            notificationCenter.postTdUpdate(name: .updateChatDraftMessage, object: updateChatDraftMessage, source: source)
         case .updateChatEmojiStatus(let updateChatEmojiStatus):
-            nc.post(name: .updateChatEmojiStatus, object: updateChatEmojiStatus)
+            notificationCenter.postTdUpdate(name: .updateChatEmojiStatus, object: updateChatEmojiStatus, source: source)
         case .updateChatMessageSender(let updateChatMessageSender):
-            nc.post(name: .updateChatMessageSender, object: updateChatMessageSender)
+            notificationCenter.postTdUpdate(name: .updateChatMessageSender, object: updateChatMessageSender, source: source)
         case .updateChatMessageAutoDeleteTime(let updateChatMessageAutoDeleteTime):
-            nc.post(name: .updateChatMessageAutoDeleteTime, object: updateChatMessageAutoDeleteTime)
+            notificationCenter.postTdUpdate(name: .updateChatMessageAutoDeleteTime, object: updateChatMessageAutoDeleteTime, source: source)
         case .updateChatNotificationSettings(let updateChatNotificationSettings):
-            nc.post(name: .updateChatNotificationSettings, object: updateChatNotificationSettings)
+            notificationCenter.postTdUpdate(name: .updateChatNotificationSettings, object: updateChatNotificationSettings, source: source)
         case .updateChatPendingJoinRequests(let updateChatPendingJoinRequests):
-            nc.post(name: .updateChatPendingJoinRequests, object: updateChatPendingJoinRequests)
+            notificationCenter.postTdUpdate(name: .updateChatPendingJoinRequests, object: updateChatPendingJoinRequests, source: source)
         case .updateChatReplyMarkup(let updateChatReplyMarkup):
-            nc.post(name: .updateChatReplyMarkup, object: updateChatReplyMarkup)
+            notificationCenter.postTdUpdate(name: .updateChatReplyMarkup, object: updateChatReplyMarkup, source: source)
         case .updateChatBackground(let updateChatBackground):
-            nc.post(name: .updateChatBackground, object: updateChatBackground)
+            notificationCenter.postTdUpdate(name: .updateChatBackground, object: updateChatBackground, source: source)
         case .updateChatTheme(let updateChatTheme):
-            nc.post(name: .updateChatTheme, object: updateChatTheme)
+            notificationCenter.postTdUpdate(name: .updateChatTheme, object: updateChatTheme, source: source)
         case .updateChatUnreadMentionCount(let updateChatUnreadMentionCount):
-            nc.post(name: .updateChatUnreadMentionCount, object: updateChatUnreadMentionCount)
+            notificationCenter.postTdUpdate(name: .updateChatUnreadMentionCount, object: updateChatUnreadMentionCount, source: source)
         case .updateChatUnreadReactionCount(let updateChatUnreadReactionCount):
-            nc.post(name: .updateChatUnreadReactionCount, object: updateChatUnreadReactionCount)
+            notificationCenter.postTdUpdate(name: .updateChatUnreadReactionCount, object: updateChatUnreadReactionCount, source: source)
         case .updateChatUnreadPollVoteCount(let updateChatUnreadPollVoteCount):
-            nc.post(name: .updateChatUnreadPollVoteCount, object: updateChatUnreadPollVoteCount)
+            notificationCenter.postTdUpdate(name: .updateChatUnreadPollVoteCount, object: updateChatUnreadPollVoteCount, source: source)
         case .updateChatVideoChat(let updateChatVideoChat):
-            nc.post(name: .updateChatVideoChat, object: updateChatVideoChat)
+            notificationCenter.postTdUpdate(name: .updateChatVideoChat, object: updateChatVideoChat, source: source)
         case .updateChatDefaultDisableNotification(let updateChatDefaultDisableNotification):
-            nc.post(name: .updateChatDefaultDisableNotification, object: updateChatDefaultDisableNotification)
+            notificationCenter.postTdUpdate(name: .updateChatDefaultDisableNotification, object: updateChatDefaultDisableNotification, source: source)
         case .updateChatHasProtectedContent(let updateChatHasProtectedContent):
-            nc.post(name: .updateChatHasProtectedContent, object: updateChatHasProtectedContent)
+            notificationCenter.postTdUpdate(name: .updateChatHasProtectedContent, object: updateChatHasProtectedContent, source: source)
         case .updateChatIsTranslatable(let updateChatIsTranslatable):
-            nc.post(name: .updateChatIsTranslatable, object: updateChatIsTranslatable)
+            notificationCenter.postTdUpdate(name: .updateChatIsTranslatable, object: updateChatIsTranslatable, source: source)
         case .updateChatIsMarkedAsUnread(let updateChatIsMarkedAsUnread):
-            nc.post(name: .updateChatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread)
+            notificationCenter.postTdUpdate(name: .updateChatIsMarkedAsUnread, object: updateChatIsMarkedAsUnread, source: source)
         case .updateChatViewAsTopics(let updateChatViewAsTopics):
-            nc.post(name: .updateChatViewAsTopics, object: updateChatViewAsTopics)
+            notificationCenter.postTdUpdate(name: .updateChatViewAsTopics, object: updateChatViewAsTopics, source: source)
         case .updateChatBlockList(let updateChatBlockList):
-            nc.post(name: .updateChatBlockList, object: updateChatBlockList)
+            notificationCenter.postTdUpdate(name: .updateChatBlockList, object: updateChatBlockList, source: source)
         case .updateChatHasScheduledMessages(let updateChatHasScheduledMessages):
-            nc.post(name: .updateChatHasScheduledMessages, object: updateChatHasScheduledMessages)
+            notificationCenter.postTdUpdate(name: .updateChatHasScheduledMessages, object: updateChatHasScheduledMessages, source: source)
         case .updateChatFolders(let updateChatFolders):
-            nc.post(name: .updateChatFolders, object: updateChatFolders)
+            notificationCenter.postTdUpdate(name: .updateChatFolders, object: updateChatFolders, source: source)
         case .updateChatOnlineMemberCount(let updateChatOnlineMemberCount):
-            nc.post(name: .updateChatOnlineMemberCount, object: updateChatOnlineMemberCount)
+            notificationCenter.postTdUpdate(name: .updateChatOnlineMemberCount, object: updateChatOnlineMemberCount, source: source)
         case .updateSavedMessagesTopic(let updateSavedMessagesTopic):
-            nc.post(name: .updateSavedMessagesTopic, object: updateSavedMessagesTopic)
+            notificationCenter.postTdUpdate(name: .updateSavedMessagesTopic, object: updateSavedMessagesTopic, source: source)
         case .updateSavedMessagesTopicCount(let updateSavedMessagesTopicCount):
-            nc.post(name: .updateSavedMessagesTopicCount, object: updateSavedMessagesTopicCount)
+            notificationCenter.postTdUpdate(name: .updateSavedMessagesTopicCount, object: updateSavedMessagesTopicCount, source: source)
         case .updateDirectMessagesChatTopic(let updateDirectMessagesChatTopic):
-            nc.post(name: .updateDirectMessagesChatTopic, object: updateDirectMessagesChatTopic)
+            notificationCenter.postTdUpdate(name: .updateDirectMessagesChatTopic, object: updateDirectMessagesChatTopic, source: source)
         case .updateTopicMessageCount(let updateTopicMessageCount):
-            nc.post(name: .updateTopicMessageCount, object: updateTopicMessageCount)
+            notificationCenter.postTdUpdate(name: .updateTopicMessageCount, object: updateTopicMessageCount, source: source)
         case .updateQuickReplyShortcut(let updateQuickReplyShortcut):
-            nc.post(name: .updateQuickReplyShortcut, object: updateQuickReplyShortcut)
+            notificationCenter.postTdUpdate(name: .updateQuickReplyShortcut, object: updateQuickReplyShortcut, source: source)
         case .updateQuickReplyShortcutDeleted(let updateQuickReplyShortcutDeleted):
-            nc.post(name: .updateQuickReplyShortcutDeleted, object: updateQuickReplyShortcutDeleted)
+            notificationCenter.postTdUpdate(name: .updateQuickReplyShortcutDeleted, object: updateQuickReplyShortcutDeleted, source: source)
         case .updateQuickReplyShortcuts(let updateQuickReplyShortcuts):
-            nc.post(name: .updateQuickReplyShortcuts, object: updateQuickReplyShortcuts)
+            notificationCenter.postTdUpdate(name: .updateQuickReplyShortcuts, object: updateQuickReplyShortcuts, source: source)
         case .updateQuickReplyShortcutMessages(let updateQuickReplyShortcutMessages):
-            nc.post(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages)
+            notificationCenter.postTdUpdate(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages, source: source)
         case .updateForumTopicInfo(let updateForumTopicInfo):
-            nc.post(name: .updateForumTopicInfo, object: updateForumTopicInfo)
+            notificationCenter.postTdUpdate(name: .updateForumTopicInfo, object: updateForumTopicInfo, source: source)
         case .updateForumTopic(let updateForumTopic):
-            nc.post(name: .updateForumTopic, object: updateForumTopic)
+            notificationCenter.postTdUpdate(name: .updateForumTopic, object: updateForumTopic, source: source)
         case .updateScopeNotificationSettings(let updateScopeNotificationSettings):
-            nc.post(name: .updateScopeNotificationSettings, object: updateScopeNotificationSettings)
+            notificationCenter.postTdUpdate(name: .updateScopeNotificationSettings, object: updateScopeNotificationSettings, source: source)
         case .updateReactionNotificationSettings(let updateReactionNotificationSettings):
-            nc.post(name: .updateReactionNotificationSettings, object: updateReactionNotificationSettings)
+            notificationCenter.postTdUpdate(name: .updateReactionNotificationSettings, object: updateReactionNotificationSettings, source: source)
         case .updateNotification(let updateNotification):
-            nc.post(name: .updateNotification, object: updateNotification)
+            notificationCenter.postTdUpdate(name: .updateNotification, object: updateNotification, source: source)
         case .updateNotificationGroup(let updateNotificationGroup):
-            nc.post(name: .updateNotificationGroup, object: updateNotificationGroup)
+            notificationCenter.postTdUpdate(name: .updateNotificationGroup, object: updateNotificationGroup, source: source)
         case .updateActiveNotifications(let updateActiveNotifications):
-            nc.post(name: .updateActiveNotifications, object: updateActiveNotifications)
+            notificationCenter.postTdUpdate(name: .updateActiveNotifications, object: updateActiveNotifications, source: source)
         case .updateHavePendingNotifications(let updateHavePendingNotifications):
-            nc.post(name: .updateHavePendingNotifications, object: updateHavePendingNotifications)
+            notificationCenter.postTdUpdate(name: .updateHavePendingNotifications, object: updateHavePendingNotifications, source: source)
         case .updateDeleteMessages(let updateDeleteMessages):
-            nc.post(name: .updateDeleteMessages, object: updateDeleteMessages)
+            notificationCenter.postTdUpdate(name: .updateDeleteMessages, object: updateDeleteMessages, source: source)
         case .updateChatAction(let updateChatAction):
-            nc.post(name: .updateChatAction, object: updateChatAction)
+            notificationCenter.postTdUpdate(name: .updateChatAction, object: updateChatAction, source: source)
         case .updatePendingMessage(let updatePendingMessage):
-            nc.post(name: .updatePendingMessage, object: updatePendingMessage)
+            notificationCenter.postTdUpdate(name: .updatePendingMessage, object: updatePendingMessage, source: source)
         case .updateCommunity(let updateCommunity):
-            nc.post(name: .updateCommunity, object: updateCommunity)
+            notificationCenter.postTdUpdate(name: .updateCommunity, object: updateCommunity, source: source)
         case .updateUserStatus(let updateUserStatus):
-            nc.post(name: .updateUserStatus, object: updateUserStatus)
+            notificationCenter.postTdUpdate(name: .updateUserStatus, object: updateUserStatus, source: source)
         case .updateUser(let updateUser):
-            nc.post(name: .updateUser, object: updateUser)
+            notificationCenter.postTdUpdate(name: .updateUser, object: updateUser, source: source)
         case .updateBasicGroup(let updateBasicGroup):
-            nc.post(name: .updateBasicGroup, object: updateBasicGroup)
+            notificationCenter.postTdUpdate(name: .updateBasicGroup, object: updateBasicGroup, source: source)
         case .updateSupergroup(let updateSupergroup):
-            nc.post(name: .updateSupergroup, object: updateSupergroup)
+            notificationCenter.postTdUpdate(name: .updateSupergroup, object: updateSupergroup, source: source)
         case .updateSecretChat(let updateSecretChat):
-            nc.post(name: .updateSecretChat, object: updateSecretChat)
+            notificationCenter.postTdUpdate(name: .updateSecretChat, object: updateSecretChat, source: source)
         case .updateUserFullInfo(let updateUserFullInfo):
-            nc.post(name: .updateUserFullInfo, object: updateUserFullInfo)
+            notificationCenter.postTdUpdate(name: .updateUserFullInfo, object: updateUserFullInfo, source: source)
         case .updateBasicGroupFullInfo(let updateBasicGroupFullInfo):
-            nc.post(name: .updateBasicGroupFullInfo, object: updateBasicGroupFullInfo)
+            notificationCenter.postTdUpdate(name: .updateBasicGroupFullInfo, object: updateBasicGroupFullInfo, source: source)
         case .updateSupergroupFullInfo(let updateSupergroupFullInfo):
-            nc.post(name: .updateSupergroupFullInfo, object: updateSupergroupFullInfo)
+            notificationCenter.postTdUpdate(name: .updateSupergroupFullInfo, object: updateSupergroupFullInfo, source: source)
         case .updateServiceNotification(let updateServiceNotification):
-            nc.post(name: .updateServiceNotification, object: updateServiceNotification)
+            notificationCenter.postTdUpdate(name: .updateServiceNotification, object: updateServiceNotification, source: source)
         case .updateNewOauthRequest(let updateNewOauthRequest):
-            nc.post(name: .updateNewOauthRequest, object: updateNewOauthRequest)
+            notificationCenter.postTdUpdate(name: .updateNewOauthRequest, object: updateNewOauthRequest, source: source)
         case .updateFile(let updateFile):
-            nc.post(name: .updateFile, object: updateFile)
+            notificationCenter.postTdUpdate(name: .updateFile, object: updateFile, source: source)
         case .updateFileGenerationStart(let updateFileGenerationStart):
-            nc.post(name: .updateFileGenerationStart, object: updateFileGenerationStart)
+            notificationCenter.postTdUpdate(name: .updateFileGenerationStart, object: updateFileGenerationStart, source: source)
         case .updateFileGenerationStop(let updateFileGenerationStop):
-            nc.post(name: .updateFileGenerationStop, object: updateFileGenerationStop)
+            notificationCenter.postTdUpdate(name: .updateFileGenerationStop, object: updateFileGenerationStop, source: source)
         case .updateFileDownloads(let updateFileDownloads):
-            nc.post(name: .updateFileDownloads, object: updateFileDownloads)
+            notificationCenter.postTdUpdate(name: .updateFileDownloads, object: updateFileDownloads, source: source)
         case .updateFileAddedToDownloads(let updateFileAddedToDownloads):
-            nc.post(name: .updateFileAddedToDownloads, object: updateFileAddedToDownloads)
+            notificationCenter.postTdUpdate(name: .updateFileAddedToDownloads, object: updateFileAddedToDownloads, source: source)
         case .updateFileDownload(let updateFileDownload):
-            nc.post(name: .updateFileDownload, object: updateFileDownload)
+            notificationCenter.postTdUpdate(name: .updateFileDownload, object: updateFileDownload, source: source)
         case .updateFileRemovedFromDownloads(let updateFileRemovedFromDownloads):
-            nc.post(name: .updateFileRemovedFromDownloads, object: updateFileRemovedFromDownloads)
+            notificationCenter.postTdUpdate(name: .updateFileRemovedFromDownloads, object: updateFileRemovedFromDownloads, source: source)
         case .updateApplicationVerificationRequired(let updateApplicationVerificationRequired):
-            nc.post(name: .updateApplicationVerificationRequired, object: updateApplicationVerificationRequired)
+            notificationCenter.postTdUpdate(name: .updateApplicationVerificationRequired, object: updateApplicationVerificationRequired, source: source)
         case .updateApplicationRecaptchaVerificationRequired(let updateApplicationRecaptchaVerificationRequired):
-            nc.post(name: .updateApplicationRecaptchaVerificationRequired, object: updateApplicationRecaptchaVerificationRequired)
+            notificationCenter.postTdUpdate(name: .updateApplicationRecaptchaVerificationRequired, object: updateApplicationRecaptchaVerificationRequired, source: source)
         case .updateCall(let updateCall):
-            nc.post(name: .updateCall, object: updateCall)
+            notificationCenter.postTdUpdate(name: .updateCall, object: updateCall, source: source)
         case .updateGroupCall(let updateGroupCall):
-            nc.post(name: .updateGroupCall, object: updateGroupCall)
+            notificationCenter.postTdUpdate(name: .updateGroupCall, object: updateGroupCall, source: source)
         case .updateGroupCallParticipant(let updateGroupCallParticipant):
-            nc.post(name: .updateGroupCallParticipant, object: updateGroupCallParticipant)
+            notificationCenter.postTdUpdate(name: .updateGroupCallParticipant, object: updateGroupCallParticipant, source: source)
         case .updateGroupCallParticipants(let updateGroupCallParticipants):
-            nc.post(name: .updateGroupCallParticipants, object: updateGroupCallParticipants)
+            notificationCenter.postTdUpdate(name: .updateGroupCallParticipants, object: updateGroupCallParticipants, source: source)
         case .updateGroupCallVerificationState(let updateGroupCallVerificationState):
-            nc.post(name: .updateGroupCallVerificationState, object: updateGroupCallVerificationState)
+            notificationCenter.postTdUpdate(name: .updateGroupCallVerificationState, object: updateGroupCallVerificationState, source: source)
         case .updateNewGroupCallMessage(let updateNewGroupCallMessage):
-            nc.post(name: .updateNewGroupCallMessage, object: updateNewGroupCallMessage)
+            notificationCenter.postTdUpdate(name: .updateNewGroupCallMessage, object: updateNewGroupCallMessage, source: source)
         case .updateNewGroupCallPaidReaction(let updateNewGroupCallPaidReaction):
-            nc.post(name: .updateNewGroupCallPaidReaction, object: updateNewGroupCallPaidReaction)
+            notificationCenter.postTdUpdate(name: .updateNewGroupCallPaidReaction, object: updateNewGroupCallPaidReaction, source: source)
         case .updateGroupCallMessageSendFailed(let updateGroupCallMessageSendFailed):
-            nc.post(name: .updateGroupCallMessageSendFailed, object: updateGroupCallMessageSendFailed)
+            notificationCenter.postTdUpdate(name: .updateGroupCallMessageSendFailed, object: updateGroupCallMessageSendFailed, source: source)
         case .updateGroupCallMessagesDeleted(let updateGroupCallMessagesDeleted):
-            nc.post(name: .updateGroupCallMessagesDeleted, object: updateGroupCallMessagesDeleted)
+            notificationCenter.postTdUpdate(name: .updateGroupCallMessagesDeleted, object: updateGroupCallMessagesDeleted, source: source)
         case .updateLiveStoryTopDonors(let updateLiveStoryTopDonors):
-            nc.post(name: .updateLiveStoryTopDonors, object: updateLiveStoryTopDonors)
+            notificationCenter.postTdUpdate(name: .updateLiveStoryTopDonors, object: updateLiveStoryTopDonors, source: source)
         case .updateNewCallSignalingData(let updateNewCallSignalingData):
-            nc.post(name: .updateNewCallSignalingData, object: updateNewCallSignalingData)
+            notificationCenter.postTdUpdate(name: .updateNewCallSignalingData, object: updateNewCallSignalingData, source: source)
         case .updateGiftAuctionState(let updateGiftAuctionState):
-            nc.post(name: .updateGiftAuctionState, object: updateGiftAuctionState)
+            notificationCenter.postTdUpdate(name: .updateGiftAuctionState, object: updateGiftAuctionState, source: source)
         case .updateActiveGiftAuctions(let updateActiveGiftAuctions):
-            nc.post(name: .updateActiveGiftAuctions, object: updateActiveGiftAuctions)
+            notificationCenter.postTdUpdate(name: .updateActiveGiftAuctions, object: updateActiveGiftAuctions, source: source)
         case .updateUserPrivacySettingRules(let updateUserPrivacySettingRules):
-            nc.post(name: .updateUserPrivacySettingRules, object: updateUserPrivacySettingRules)
+            notificationCenter.postTdUpdate(name: .updateUserPrivacySettingRules, object: updateUserPrivacySettingRules, source: source)
         case .updateUnreadMessageCount(let updateUnreadMessageCount):
-            nc.post(name: .updateUnreadMessageCount, object: updateUnreadMessageCount)
+            notificationCenter.postTdUpdate(name: .updateUnreadMessageCount, object: updateUnreadMessageCount, source: source)
         case .updateUnreadChatCount(let updateUnreadChatCount):
-            nc.post(name: .updateUnreadChatCount, object: updateUnreadChatCount)
+            notificationCenter.postTdUpdate(name: .updateUnreadChatCount, object: updateUnreadChatCount, source: source)
         case .updateChatJoinResult(let updateChatJoinResult):
-            nc.post(name: .updateChatJoinResult, object: updateChatJoinResult)
+            notificationCenter.postTdUpdate(name: .updateChatJoinResult, object: updateChatJoinResult, source: source)
         case .updateStory(let updateStory):
-            nc.post(name: .updateStory, object: updateStory)
+            notificationCenter.postTdUpdate(name: .updateStory, object: updateStory, source: source)
         case .updateStoryDeleted(let updateStoryDeleted):
-            nc.post(name: .updateStoryDeleted, object: updateStoryDeleted)
+            notificationCenter.postTdUpdate(name: .updateStoryDeleted, object: updateStoryDeleted, source: source)
         case .updateStoryPostSucceeded(let updateStoryPostSucceeded):
-            nc.post(name: .updateStoryPostSucceeded, object: updateStoryPostSucceeded)
+            notificationCenter.postTdUpdate(name: .updateStoryPostSucceeded, object: updateStoryPostSucceeded, source: source)
         case .updateStoryPostFailed(let updateStoryPostFailed):
-            nc.post(name: .updateStoryPostFailed, object: updateStoryPostFailed)
+            notificationCenter.postTdUpdate(name: .updateStoryPostFailed, object: updateStoryPostFailed, source: source)
         case .updateChatActiveStories(let updateChatActiveStories):
-            nc.post(name: .updateChatActiveStories, object: updateChatActiveStories)
+            notificationCenter.postTdUpdate(name: .updateChatActiveStories, object: updateChatActiveStories, source: source)
         case .updateStoryListChatCount(let updateStoryListChatCount):
-            nc.post(name: .updateStoryListChatCount, object: updateStoryListChatCount)
+            notificationCenter.postTdUpdate(name: .updateStoryListChatCount, object: updateStoryListChatCount, source: source)
         case .updateStoryStealthMode(let updateStoryStealthMode):
-            nc.post(name: .updateStoryStealthMode, object: updateStoryStealthMode)
+            notificationCenter.postTdUpdate(name: .updateStoryStealthMode, object: updateStoryStealthMode, source: source)
         case .updateTrustedMiniAppBots(let updateTrustedMiniAppBots):
-            nc.post(name: .updateTrustedMiniAppBots, object: updateTrustedMiniAppBots)
+            notificationCenter.postTdUpdate(name: .updateTrustedMiniAppBots, object: updateTrustedMiniAppBots, source: source)
         case .updateOption(let updateOption):
-            nc.post(name: .updateOption, object: updateOption)
+            notificationCenter.postTdUpdate(name: .updateOption, object: updateOption, source: source)
         case .updateStickerSet(let updateStickerSet):
-            nc.post(name: .updateStickerSet, object: updateStickerSet)
+            notificationCenter.postTdUpdate(name: .updateStickerSet, object: updateStickerSet, source: source)
         case .updateInstalledStickerSets(let updateInstalledStickerSets):
-            nc.post(name: .updateInstalledStickerSets, object: updateInstalledStickerSets)
+            notificationCenter.postTdUpdate(name: .updateInstalledStickerSets, object: updateInstalledStickerSets, source: source)
         case .updateTrendingStickerSets(let updateTrendingStickerSets):
-            nc.post(name: .updateTrendingStickerSets, object: updateTrendingStickerSets)
+            notificationCenter.postTdUpdate(name: .updateTrendingStickerSets, object: updateTrendingStickerSets, source: source)
         case .updateRecentStickers(let updateRecentStickers):
-            nc.post(name: .updateRecentStickers, object: updateRecentStickers)
+            notificationCenter.postTdUpdate(name: .updateRecentStickers, object: updateRecentStickers, source: source)
         case .updateFavoriteStickers(let updateFavoriteStickers):
-            nc.post(name: .updateFavoriteStickers, object: updateFavoriteStickers)
+            notificationCenter.postTdUpdate(name: .updateFavoriteStickers, object: updateFavoriteStickers, source: source)
         case .updateSavedAnimations(let updateSavedAnimations):
-            nc.post(name: .updateSavedAnimations, object: updateSavedAnimations)
+            notificationCenter.postTdUpdate(name: .updateSavedAnimations, object: updateSavedAnimations, source: source)
         case .updateSavedNotificationSounds(let updateSavedNotificationSounds):
-            nc.post(name: .updateSavedNotificationSounds, object: updateSavedNotificationSounds)
+            notificationCenter.postTdUpdate(name: .updateSavedNotificationSounds, object: updateSavedNotificationSounds, source: source)
         case .updateDefaultBackground(let updateDefaultBackground):
-            nc.post(name: .updateDefaultBackground, object: updateDefaultBackground)
+            notificationCenter.postTdUpdate(name: .updateDefaultBackground, object: updateDefaultBackground, source: source)
         case .updateEmojiChatThemes(let updateEmojiChatThemes):
-            nc.post(name: .updateEmojiChatThemes, object: updateEmojiChatThemes)
+            notificationCenter.postTdUpdate(name: .updateEmojiChatThemes, object: updateEmojiChatThemes, source: source)
         case .updateAccentColors(let updateAccentColors):
-            nc.post(name: .updateAccentColors, object: updateAccentColors)
+            notificationCenter.postTdUpdate(name: .updateAccentColors, object: updateAccentColors, source: source)
         case .updateProfileAccentColors(let updateProfileAccentColors):
-            nc.post(name: .updateProfileAccentColors, object: updateProfileAccentColors)
+            notificationCenter.postTdUpdate(name: .updateProfileAccentColors, object: updateProfileAccentColors, source: source)
         case .updateWebBrowserSettings(let updateWebBrowserSettings):
-            nc.post(name: .updateWebBrowserSettings, object: updateWebBrowserSettings)
+            notificationCenter.postTdUpdate(name: .updateWebBrowserSettings, object: updateWebBrowserSettings, source: source)
         case .updateLanguagePackStrings(let updateLanguagePackStrings):
-            nc.post(name: .updateLanguagePackStrings, object: updateLanguagePackStrings)
+            notificationCenter.postTdUpdate(name: .updateLanguagePackStrings, object: updateLanguagePackStrings, source: source)
         case .updateConnectionState(let updateConnectionState):
-            nc.post(name: .updateConnectionState, object: updateConnectionState)
+            notificationCenter.postTdUpdate(name: .updateConnectionState, object: updateConnectionState, source: source)
         case .updateFreezeState(let updateFreezeState):
-            nc.post(name: .updateFreezeState, object: updateFreezeState)
+            notificationCenter.postTdUpdate(name: .updateFreezeState, object: updateFreezeState, source: source)
         case .updateAgeVerificationParameters(let updateAgeVerificationParameters):
-            nc.post(name: .updateAgeVerificationParameters, object: updateAgeVerificationParameters)
+            notificationCenter.postTdUpdate(name: .updateAgeVerificationParameters, object: updateAgeVerificationParameters, source: source)
         case .updateTermsOfService(let updateTermsOfService):
-            nc.post(name: .updateTermsOfService, object: updateTermsOfService)
+            notificationCenter.postTdUpdate(name: .updateTermsOfService, object: updateTermsOfService, source: source)
         case .updateUnconfirmedSession(let updateUnconfirmedSession):
-            nc.post(name: .updateUnconfirmedSession, object: updateUnconfirmedSession)
+            notificationCenter.postTdUpdate(name: .updateUnconfirmedSession, object: updateUnconfirmedSession, source: source)
         case .updateAttachmentMenuBots(let updateAttachmentMenuBots):
-            nc.post(name: .updateAttachmentMenuBots, object: updateAttachmentMenuBots)
+            notificationCenter.postTdUpdate(name: .updateAttachmentMenuBots, object: updateAttachmentMenuBots, source: source)
         case .updateWebAppMessageSent(let updateWebAppMessageSent):
-            nc.post(name: .updateWebAppMessageSent, object: updateWebAppMessageSent)
+            notificationCenter.postTdUpdate(name: .updateWebAppMessageSent, object: updateWebAppMessageSent, source: source)
         case .updateActiveEmojiReactions(let updateActiveEmojiReactions):
-            nc.post(name: .updateActiveEmojiReactions, object: updateActiveEmojiReactions)
+            notificationCenter.postTdUpdate(name: .updateActiveEmojiReactions, object: updateActiveEmojiReactions, source: source)
         case .updateAvailableMessageEffects(let updateAvailableMessageEffects):
-            nc.post(name: .updateAvailableMessageEffects, object: updateAvailableMessageEffects)
+            notificationCenter.postTdUpdate(name: .updateAvailableMessageEffects, object: updateAvailableMessageEffects, source: source)
         case .updateDefaultReactionType(let updateDefaultReactionType):
-            nc.post(name: .updateDefaultReactionType, object: updateDefaultReactionType)
+            notificationCenter.postTdUpdate(name: .updateDefaultReactionType, object: updateDefaultReactionType, source: source)
         case .updateDefaultPaidReactionType(let updateDefaultPaidReactionType):
-            nc.post(name: .updateDefaultPaidReactionType, object: updateDefaultPaidReactionType)
+            notificationCenter.postTdUpdate(name: .updateDefaultPaidReactionType, object: updateDefaultPaidReactionType, source: source)
         case .updateSavedMessagesTags(let updateSavedMessagesTags):
-            nc.post(name: .updateSavedMessagesTags, object: updateSavedMessagesTags)
+            notificationCenter.postTdUpdate(name: .updateSavedMessagesTags, object: updateSavedMessagesTags, source: source)
         case .updateActiveLiveLocationMessages(let updateActiveLiveLocationMessages):
-            nc.post(name: .updateActiveLiveLocationMessages, object: updateActiveLiveLocationMessages)
+            notificationCenter.postTdUpdate(name: .updateActiveLiveLocationMessages, object: updateActiveLiveLocationMessages, source: source)
         case .updateOwnedStarCount(let updateOwnedStarCount):
-            nc.post(name: .updateOwnedStarCount, object: updateOwnedStarCount)
+            notificationCenter.postTdUpdate(name: .updateOwnedStarCount, object: updateOwnedStarCount, source: source)
         case .updateOwnedGramCount(let updateOwnedGramCount):
-            nc.post(name: .updateOwnedGramCount, object: updateOwnedGramCount)
+            notificationCenter.postTdUpdate(name: .updateOwnedGramCount, object: updateOwnedGramCount, source: source)
         case .updateChatRevenueAmount(let updateChatRevenueAmount):
-            nc.post(name: .updateChatRevenueAmount, object: updateChatRevenueAmount)
+            notificationCenter.postTdUpdate(name: .updateChatRevenueAmount, object: updateChatRevenueAmount, source: source)
         case .updateStarRevenueStatus(let updateStarRevenueStatus):
-            nc.post(name: .updateStarRevenueStatus, object: updateStarRevenueStatus)
+            notificationCenter.postTdUpdate(name: .updateStarRevenueStatus, object: updateStarRevenueStatus, source: source)
         case .updateGramRevenueStatus(let updateGramRevenueStatus):
-            nc.post(name: .updateGramRevenueStatus, object: updateGramRevenueStatus)
+            notificationCenter.postTdUpdate(name: .updateGramRevenueStatus, object: updateGramRevenueStatus, source: source)
         case .updateSpeechRecognitionTrial(let updateSpeechRecognitionTrial):
-            nc.post(name: .updateSpeechRecognitionTrial, object: updateSpeechRecognitionTrial)
+            notificationCenter.postTdUpdate(name: .updateSpeechRecognitionTrial, object: updateSpeechRecognitionTrial, source: source)
         case .updateGroupCallMessageLevels(let updateGroupCallMessageLevels):
-            nc.post(name: .updateGroupCallMessageLevels, object: updateGroupCallMessageLevels)
+            notificationCenter.postTdUpdate(name: .updateGroupCallMessageLevels, object: updateGroupCallMessageLevels, source: source)
         case .updateDiceEmojis(let updateDiceEmojis):
-            nc.post(name: .updateDiceEmojis, object: updateDiceEmojis)
+            notificationCenter.postTdUpdate(name: .updateDiceEmojis, object: updateDiceEmojis, source: source)
         case .updateStakeDiceState(let updateStakeDiceState):
-            nc.post(name: .updateStakeDiceState, object: updateStakeDiceState)
+            notificationCenter.postTdUpdate(name: .updateStakeDiceState, object: updateStakeDiceState, source: source)
         case .updateAnimatedEmojiMessageClicked(let updateAnimatedEmojiMessageClicked):
-            nc.post(name: .updateAnimatedEmojiMessageClicked, object: updateAnimatedEmojiMessageClicked)
+            notificationCenter.postTdUpdate(name: .updateAnimatedEmojiMessageClicked, object: updateAnimatedEmojiMessageClicked, source: source)
         case .updateAnimationSearchParameters(let updateAnimationSearchParameters):
-            nc.post(name: .updateAnimationSearchParameters, object: updateAnimationSearchParameters)
+            notificationCenter.postTdUpdate(name: .updateAnimationSearchParameters, object: updateAnimationSearchParameters, source: source)
         case .updateTextCompositionStyles(let updateTextCompositionStyles):
-            nc.post(name: .updateTextCompositionStyles, object: updateTextCompositionStyles)
+            notificationCenter.postTdUpdate(name: .updateTextCompositionStyles, object: updateTextCompositionStyles, source: source)
         case .updateSuggestedActions(let updateSuggestedActions):
-            nc.post(name: .updateSuggestedActions, object: updateSuggestedActions)
+            notificationCenter.postTdUpdate(name: .updateSuggestedActions, object: updateSuggestedActions, source: source)
         case .updateSpeedLimitNotification(let updateSpeedLimitNotification):
-            nc.post(name: .updateSpeedLimitNotification, object: updateSpeedLimitNotification)
+            notificationCenter.postTdUpdate(name: .updateSpeedLimitNotification, object: updateSpeedLimitNotification, source: source)
         case .updateContactCloseBirthdays(let updateContactCloseBirthdays):
-            nc.post(name: .updateContactCloseBirthdays, object: updateContactCloseBirthdays)
+            notificationCenter.postTdUpdate(name: .updateContactCloseBirthdays, object: updateContactCloseBirthdays, source: source)
         case .updateAutosaveSettings(let updateAutosaveSettings):
-            nc.post(name: .updateAutosaveSettings, object: updateAutosaveSettings)
+            notificationCenter.postTdUpdate(name: .updateAutosaveSettings, object: updateAutosaveSettings, source: source)
         case .updateBusinessConnection(let updateBusinessConnection):
-            nc.post(name: .updateBusinessConnection, object: updateBusinessConnection)
+            notificationCenter.postTdUpdate(name: .updateBusinessConnection, object: updateBusinessConnection, source: source)
         case .updateNewBusinessMessage(let updateNewBusinessMessage):
-            nc.post(name: .updateNewBusinessMessage, object: updateNewBusinessMessage)
+            notificationCenter.postTdUpdate(name: .updateNewBusinessMessage, object: updateNewBusinessMessage, source: source)
         case .updateBusinessMessageEdited(let updateBusinessMessageEdited):
-            nc.post(name: .updateBusinessMessageEdited, object: updateBusinessMessageEdited)
+            notificationCenter.postTdUpdate(name: .updateBusinessMessageEdited, object: updateBusinessMessageEdited, source: source)
         case .updateBusinessMessagesDeleted(let updateBusinessMessagesDeleted):
-            nc.post(name: .updateBusinessMessagesDeleted, object: updateBusinessMessagesDeleted)
+            notificationCenter.postTdUpdate(name: .updateBusinessMessagesDeleted, object: updateBusinessMessagesDeleted, source: source)
         case .updateNewInlineQuery(let updateNewInlineQuery):
-            nc.post(name: .updateNewInlineQuery, object: updateNewInlineQuery)
+            notificationCenter.postTdUpdate(name: .updateNewInlineQuery, object: updateNewInlineQuery, source: source)
         case .updateNewChosenInlineResult(let updateNewChosenInlineResult):
-            nc.post(name: .updateNewChosenInlineResult, object: updateNewChosenInlineResult)
+            notificationCenter.postTdUpdate(name: .updateNewChosenInlineResult, object: updateNewChosenInlineResult, source: source)
         case .updateNewGuestQuery(let updateNewGuestQuery):
-            nc.post(name: .updateNewGuestQuery, object: updateNewGuestQuery)
+            notificationCenter.postTdUpdate(name: .updateNewGuestQuery, object: updateNewGuestQuery, source: source)
         case .updateNewCallbackQuery(let updateNewCallbackQuery):
-            nc.post(name: .updateNewCallbackQuery, object: updateNewCallbackQuery)
+            notificationCenter.postTdUpdate(name: .updateNewCallbackQuery, object: updateNewCallbackQuery, source: source)
         case .updateNewInlineCallbackQuery(let updateNewInlineCallbackQuery):
-            nc.post(name: .updateNewInlineCallbackQuery, object: updateNewInlineCallbackQuery)
+            notificationCenter.postTdUpdate(name: .updateNewInlineCallbackQuery, object: updateNewInlineCallbackQuery, source: source)
         case .updateNewBusinessCallbackQuery(let updateNewBusinessCallbackQuery):
-            nc.post(name: .updateNewBusinessCallbackQuery, object: updateNewBusinessCallbackQuery)
+            notificationCenter.postTdUpdate(name: .updateNewBusinessCallbackQuery, object: updateNewBusinessCallbackQuery, source: source)
         case .updateNewShippingQuery(let updateNewShippingQuery):
-            nc.post(name: .updateNewShippingQuery, object: updateNewShippingQuery)
+            notificationCenter.postTdUpdate(name: .updateNewShippingQuery, object: updateNewShippingQuery, source: source)
         case .updateNewPreCheckoutQuery(let updateNewPreCheckoutQuery):
-            nc.post(name: .updateNewPreCheckoutQuery, object: updateNewPreCheckoutQuery)
+            notificationCenter.postTdUpdate(name: .updateNewPreCheckoutQuery, object: updateNewPreCheckoutQuery, source: source)
         case .updateNewCustomEvent(let updateNewCustomEvent):
-            nc.post(name: .updateNewCustomEvent, object: updateNewCustomEvent)
+            notificationCenter.postTdUpdate(name: .updateNewCustomEvent, object: updateNewCustomEvent, source: source)
         case .updateNewCustomQuery(let updateNewCustomQuery):
-            nc.post(name: .updateNewCustomQuery, object: updateNewCustomQuery)
+            notificationCenter.postTdUpdate(name: .updateNewCustomQuery, object: updateNewCustomQuery, source: source)
         case .updateUserSubscription(let updateUserSubscription):
-            nc.post(name: .updateUserSubscription, object: updateUserSubscription)
+            notificationCenter.postTdUpdate(name: .updateUserSubscription, object: updateUserSubscription, source: source)
         case .updatePoll(let updatePoll):
-            nc.post(name: .updatePoll, object: updatePoll)
+            notificationCenter.postTdUpdate(name: .updatePoll, object: updatePoll, source: source)
         case .updatePollAnswer(let updatePollAnswer):
-            nc.post(name: .updatePollAnswer, object: updatePollAnswer)
+            notificationCenter.postTdUpdate(name: .updatePollAnswer, object: updatePollAnswer, source: source)
         case .updateManagedBot(let updateManagedBot):
-            nc.post(name: .updateManagedBot, object: updateManagedBot)
+            notificationCenter.postTdUpdate(name: .updateManagedBot, object: updateManagedBot, source: source)
         case .updateChatMember(let updateChatMember):
-            nc.post(name: .updateChatMember, object: updateChatMember)
+            notificationCenter.postTdUpdate(name: .updateChatMember, object: updateChatMember, source: source)
         case .updateNewChatJoinRequest(let updateNewChatJoinRequest):
-            nc.post(name: .updateNewChatJoinRequest, object: updateNewChatJoinRequest)
+            notificationCenter.postTdUpdate(name: .updateNewChatJoinRequest, object: updateNewChatJoinRequest, source: source)
         case .updateChatBoost(let updateChatBoost):
-            nc.post(name: .updateChatBoost, object: updateChatBoost)
+            notificationCenter.postTdUpdate(name: .updateChatBoost, object: updateChatBoost, source: source)
         case .updateMessageReaction(let updateMessageReaction):
-            nc.post(name: .updateMessageReaction, object: updateMessageReaction)
+            notificationCenter.postTdUpdate(name: .updateMessageReaction, object: updateMessageReaction, source: source)
         case .updateMessageReactions(let updateMessageReactions):
-            nc.post(name: .updateMessageReactions, object: updateMessageReactions)
+            notificationCenter.postTdUpdate(name: .updateMessageReactions, object: updateMessageReactions, source: source)
         case .updatePaidMediaPurchased(let updatePaidMediaPurchased):
-            nc.post(name: .updatePaidMediaPurchased, object: updatePaidMediaPurchased)
+            notificationCenter.postTdUpdate(name: .updatePaidMediaPurchased, object: updatePaidMediaPurchased, source: source)
     }
 }
 

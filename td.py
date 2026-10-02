@@ -22,7 +22,11 @@ import TDLibKitDynamic
 """
 
 UPDATE_FUNC = """
-func update(_ update: Update) {
+func update(
+    _ update: Update,
+    source: TdUpdateSource? = nil,
+    notificationCenter: NotificationCenter = nc
+) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
             TDLib.shared.UpdateAuthorizationState(updateAuthorizationState.authorizationState)
@@ -115,7 +119,7 @@ def generate(update_source: str) -> bool:
         update_cases.append(
             (
                 f"        case .{name}(let {name}):\n",
-                f"            nc.post(name: .{name}, object: {name})\n",
+                f"            notificationCenter.postTdUpdate(name: .{name}, object: {name}, source: source)\n",
             )
         )
 

@@ -356,7 +356,7 @@ final class TDLib: @unchecked Sendable {
                     break
                 }
             }
-            update(incomingUpdate)
+            update(incomingUpdate, source: TdUpdateSource(accountID: accountID, clientID: client.id))
 
             switch state {
             case .authorizationStateReady:
@@ -373,7 +373,7 @@ final class TDLib: @unchecked Sendable {
 
         guard isActive(client: client, accountID: accountID) else { return }
         publishMediaUpdate(incomingUpdate)
-        update(incomingUpdate)
+        update(incomingUpdate, source: TdUpdateSource(accountID: accountID, clientID: client.id))
     }
 
     private func publishMediaUpdate(_ update: Update) {

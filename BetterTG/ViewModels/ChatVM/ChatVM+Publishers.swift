@@ -17,8 +17,9 @@ extension ChatVM {
             else { return }
             updateNewMessage(update)
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
-            guard let self, locationContextIsCurrent else { return }
+        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
+            guard let self, locationContextIsCurrent, event.source.matches(location) else { return }
+            let update = event.value
             if update.chatId == customChat.id {
                 updateDeleteMessages(update)
                 if !update.fromCache,
@@ -124,16 +125,20 @@ extension ChatVM {
             else { return }
             loadForumTopic()
         }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] event in
+            let update = event.value
             guard let self,
                   locationContextIsCurrent,
+                  event.source.matches(location),
                   location.matches(message: update.message)
             else { return }
             updateMessageSendSucceeded(update)
         }
-        nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { [weak self] event in
+            let update = event.value
             guard let self,
                   locationContextIsCurrent,
+                  event.source.matches(location),
                   location.matches(message: update.message)
             else { return }
             updateMessageSendFailed(update)

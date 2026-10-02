@@ -62,28 +62,29 @@ extension RootVM {
         nc.publisher(&cancellables, for: .updateChatViewAsTopics) { [weak self] update in
             self?.refreshChat(id: update.chatId)
         }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
-            guard let self else { return }
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
+            let update = event.value
             SelectedDocumentFileStore.complete(
-                accountID: activeAccountID,
+                accountID: event.source.accountID,
                 chatID: update.message.chatId,
                 messageID: update.oldMessageId,
             )
         }
-        nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
-            guard let self else { return }
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { event in
+            let update = event.value
             try? SelectedDocumentFileStore.replaceMessageID(
-                accountID: activeAccountID,
+                accountID: event.source.accountID,
                 chatID: update.message.chatId,
                 old: update.oldMessageId,
                 new: update.message.id,
             )
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
-            guard let self, !update.fromCache, update.isPermanent else { return }
+        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { event in
+            let update = event.value
+            guard !update.fromCache, update.isPermanent else { return }
             for messageID in update.messageIds {
                 SelectedDocumentFileStore.complete(
-                    accountID: activeAccountID,
+                    accountID: event.source.accountID,
                     chatID: update.chatId,
                     messageID: messageID,
                 )

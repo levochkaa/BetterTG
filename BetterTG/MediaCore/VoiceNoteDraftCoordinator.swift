@@ -16,10 +16,11 @@ final class VoiceNoteDraftCoordinator {
 
     func start() {
         guard cancellables.isEmpty else { return }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { update in
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
+            let update = event.value
             guard case .messageVoiceNote = update.message.content else { return }
             let destination = ChatDraftKey(
-                accountID: TDLib.shared.activeAccountID,
+                accountID: event.source.accountID,
                 chatID: update.message.chatId,
                 topic: update.message.topicId,
             )
@@ -38,10 +39,11 @@ final class VoiceNoteDraftCoordinator {
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateMessageSendFailed) { update in
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { event in
+            let update = event.value
             guard case .messageVoiceNote = update.message.content else { return }
             let destination = ChatDraftKey(
-                accountID: TDLib.shared.activeAccountID,
+                accountID: event.source.accountID,
                 chatID: update.message.chatId,
                 topic: update.message.topicId,
             )
@@ -77,9 +79,10 @@ final class VoiceNoteDraftCoordinator {
                 }
             }
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { update in
+        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { event in
+            let update = event.value
             guard !update.fromCache, update.isPermanent else { return }
-            let accountID = TDLib.shared.activeAccountID
+            let accountID = event.source.accountID
             Task {
                 for messageID in update.messageIds {
                     do {

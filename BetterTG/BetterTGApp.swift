@@ -14,6 +14,7 @@ import UIKit
     ) -> Bool {
         FFmpegCapabilities.assertRequiredCodecsAvailable()
         #if DEBUG
+            TdUpdateSourceProbe.runDebugProbeIfRequested()
             VoiceNoteCodec.runDebugProbeIfRequested()
             VoiceRecordingDraftPreservation.runDebugProbeIfRequested()
             VideoNoteAssetWriter.runDebugProbeIfRequested()

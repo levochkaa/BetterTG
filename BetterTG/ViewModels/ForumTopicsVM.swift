@@ -176,9 +176,11 @@ import TDLibKitDynamic
             else { return }
             refreshTopic(id: topic.forumTopicId)
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
+        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
+            let update = event.value
             guard let self,
                   contextIsCurrent,
+                  event.source.matches(location),
                   update.chatId == location.chatID,
                   !update.fromCache,
                   update.isPermanent,
@@ -200,11 +202,13 @@ import TDLibKitDynamic
                 messageID: update.messageId,
             )
         }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
-            self?.refreshTopic(for: update.message)
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] event in
+            guard let self, event.source.matches(location) else { return }
+            refreshTopic(for: event.value.message)
         }
-        nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
-            self?.refreshTopic(for: update.message)
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendFailed) { [weak self] event in
+            guard let self, event.source.matches(location) else { return }
+            refreshTopic(for: event.value.message)
         }
     }
 
