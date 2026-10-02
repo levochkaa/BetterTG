@@ -31,6 +31,7 @@ import UIKit
             MessagePollInteractionStore.runDebugSubmissionProbeIfRequested()
             NavigationClientRestorationProbe.runDebugProbeIfRequested()
             ForumTopicsRestorationProbe.runDebugProbeIfRequested()
+            ClassicNavigationProbe.runDebugProbeIfRequested()
             VoiceNoteFinalizationProbe.runDebugProbeIfRequested()
             SendDraftRelocationProbe.runDebugProbeIfRequested()
             TDLibMediaUpdateStreamsProbe.runDebugProbeIfRequested()
@@ -116,17 +117,7 @@ import UIKit
     // MARK: Private
 
     private func configureAppearance() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
-        appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.18)
-        appearance.shadowColor = UIColor.separator.withAlphaComponent(0.35)
-        appearance.titleTextAttributes = [.foregroundColor: UIColor.label]
-        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.label]
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
-        UINavigationBar.appearance().tintColor = .systemBlue
+        ClassicNavigation.applyAppearance(to: UINavigationBar.appearance())
     }
 }
 

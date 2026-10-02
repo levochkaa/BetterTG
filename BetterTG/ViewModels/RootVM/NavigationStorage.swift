@@ -8,7 +8,7 @@ import UIKit
 
     static let shared = NavigationStorage()
 
-    let navigationController = UINavigationController()
+    let navigationController = ClassicNavigation.controller()
 
     private var clientRestoration: NavigationClientRestoration?
 

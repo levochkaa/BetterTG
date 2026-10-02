@@ -559,7 +559,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if let navigationController {
             navigationController.pushViewController(controller, animated: true)
         } else {
-            present(UINavigationController(rootViewController: controller), animated: true)
+            present(ClassicNavigation.controller(rootViewController: controller), animated: true)
         }
     }
 

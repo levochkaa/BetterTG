@@ -239,7 +239,7 @@ final class LoginViewController: UIViewController {
             selectedCountry = country
             render()
         }
-        present(UINavigationController(rootViewController: countries), animated: true)
+        present(ClassicNavigation.controller(rootViewController: countries), animated: true)
     }
 
     @objc private func continueLogin() {

@@ -759,6 +759,7 @@ import UIKit
         navigationController?.navigationBar.standardAppearance = appearance
         navigationController?.navigationBar.scrollEdgeAppearance = appearance
         navigationController?.navigationBar.compactAppearance = appearance
+        navigationController?.navigationBar.compactScrollEdgeAppearance = appearance
         navigationController?.navigationBar.isTranslucent = true
     }
 
