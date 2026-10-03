@@ -16,6 +16,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private let account: TelegramAccount
     private let payload: String
     private let metadata: RelayNotificationMetadata
+    private let target: RichNotificationTarget?
     private let allowsQuickReply: Bool
     private let logger: os.Logger
     private let manager = TDLibClientManager()
@@ -36,6 +37,9 @@ final class NotificationTDLibSession: @unchecked Sendable {
         self.account = account
         self.payload = payload
         self.metadata = metadata
+        self.target = RichNotificationTarget(
+            accountID: metadata.accountID, peer: metadata.peer, serverMessageID: metadata.serverMessageID,
+        )
         self.allowsQuickReply = allowsQuickReply
         self.logger = logger
     }
@@ -43,7 +47,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
     // MARK: Internal
 
     func resolve() async -> ResolvedTelegramNotification? {
-        guard RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
+        guard let target, target.matches(accountUserID: account.userID) else { return nil }
         let result = await withCheckedContinuation { continuation in
             stateLock.lock()
             resolutionContinuation = continuation
@@ -66,28 +70,19 @@ final class NotificationTDLibSession: @unchecked Sendable {
         case .updateAuthorizationState(let value):
             handle(authorizationState: value.authorizationState, client: client)
         case .updateNotificationGroup(let value):
-            guard let notification = value.addedNotifications.last(where: matchesExpectedMessage)
-                ?? value.addedNotifications.last
+            guard let target,
+                  let notification = target.notification(in: value.addedNotifications, groupChatID: value.chatId)
             else { return }
             Task { [weak self] in
-                guard let self else { return }
-                let resolved = await resolve(notification: notification, chatID: value.chatId, client: client)
+                guard let self,
+                      let chat = try? await client.getChat(chatId: value.chatId),
+                      target.matches(chat: chat, requestedChatID: value.chatId)
+                else { return }
+                let resolved = await resolve(notification: notification, chat: chat, target: target, client: client)
                 finish(resolved, reason: resolved == nil ? "unresolved" : "notification")
             }
         default:
             break
-        }
-    }
-
-    private func matchesExpectedMessage(_ notification: TDLibKitDynamic.Notification) -> Bool {
-        guard let serverMessageID = metadata.serverMessageID else { return true }
-        switch notification.type {
-        case .notificationTypeNewPushMessage(let value):
-            return value.messageId >> 20 == serverMessageID
-        case .notificationTypeNewMessage(let value):
-            return value.message.id >> 20 == serverMessageID
-        default:
-            return false
         }
     }
 
@@ -168,9 +163,13 @@ final class NotificationTDLibSession: @unchecked Sendable {
 
     private func resolve(
         notification: TDLibKitDynamic.Notification,
-        chatID: Int64,
+        chat: Chat,
+        target: RichNotificationTarget,
         client: TDLibClient,
     ) async -> ResolvedTelegramNotification? {
+        guard target.matches(notification: notification, groupChatID: chat.id),
+              target.matches(chat: chat, requestedChatID: chat.id) else { return nil }
+        let chatID = chat.id
         var senderID: MessageSender
         var senderName: String
         var media: MediaCandidate?
@@ -184,12 +183,10 @@ final class NotificationTDLibSession: @unchecked Sendable {
             media = mediaCandidate(for: value.content)
             body = notificationBody(for: value.content)
             expectsMedia = isMediaContent(value.content)
-            let canFetchMessage = value.messageId > 0 || metadata.serverMessageID != nil
             if media == nil,
-               canFetchMessage,
                let message = await fetchMessage(
                    chatID: chatID,
-                   suggestedMessageID: value.messageId,
+                   target: target,
                    client: client,
                )
             {
@@ -222,11 +219,11 @@ final class NotificationTDLibSession: @unchecked Sendable {
 
         let resolvedSenderID = senderID
         let resolvedMediaCandidate = media
-        let conversation = try? await client.getChat(chatId: chatID)
+        let conversation = chat
         async let senderAvatar = avatarData(for: resolvedSenderID, client: client)
         async let conversationAvatar = imageData(
-            file: conversation?.photo?.small,
-            placeholder: conversation?.photo?.minithumbnail?.data,
+            file: conversation.photo?.small,
+            placeholder: conversation.photo?.minithumbnail?.data,
             client: client,
         )
         async let mediaData = imageData(
@@ -253,7 +250,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
             )
         }
         let canQuickReply =
-            if allowsQuickReply, let conversation {
+            if allowsQuickReply {
                 await QuickReplyNotification.canSendText(to: conversation, using: client)
             } else {
                 false
@@ -276,7 +273,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
 
         return ResolvedTelegramNotification(
             senderName: senderName.isEmpty ? (metadata.senderName ?? "Telegram") : senderName,
-            conversationTitle: conversation?.title ?? metadata.conversationTitle,
+            conversationTitle: conversation.title,
             senderAvatarData: resolvedSenderAvatar,
             conversationAvatarData: resolvedConversationAvatar,
             mediaData: resolvedMedia,
@@ -287,25 +284,15 @@ final class NotificationTDLibSession: @unchecked Sendable {
 
     private func fetchMessage(
         chatID: Int64,
-        suggestedMessageID: Int64,
+        target: RichNotificationTarget,
         client: TDLibClient,
     ) async -> Message? {
-        var messageIDs = [Int64]()
-        if suggestedMessageID > 0 {
-            messageIDs.append(suggestedMessageID)
-        }
-        if let serverMessageID = metadata.serverMessageID,
-           serverMessageID > 0,
-           serverMessageID <= Int64.max >> 20
-        {
-            let tdlibMessageID = serverMessageID << 20
-            if !messageIDs.contains(tdlibMessageID) {
-                messageIDs.append(tdlibMessageID)
-            }
-        }
+        let messageIDs = [target.messageID]
 
         for messageID in messageIDs {
-            if let message = try? await client.getMessage(chatId: chatID, messageId: messageID) {
+            if let message = try? await client.getMessage(chatId: chatID, messageId: messageID),
+               target.matches(message: message, chatID: chatID)
+            {
                 logger.log("rich_notification.message_fetched source=get_message")
                 RichNotificationDiagnostics.record("message_fetched", fields: ["source": "get_message"])
                 return message
@@ -316,7 +303,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 limit: 3,
                 offset: -1,
                 onlyLocal: false,
-            ), let message = history.messages?.first(where: { $0.id == messageID }) {
+            ), let message = history.messages?.first(where: { target.matches(message: $0, chatID: chatID) }) {
                 logger.log("rich_notification.message_fetched source=chat_history")
                 RichNotificationDiagnostics.record("message_fetched", fields: ["source": "chat_history"])
                 return message
@@ -331,14 +318,16 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 offset: 0,
                 onlyLocal: false,
             ), let messages = history.messages {
-                if let message = messages.first(where: matchesExpectedMessage) {
+                if let message = messages.first(where: { target.matches(message: $0, chatID: chatID) }) {
                     logger.log("rich_notification.message_fetched source=latest_history")
                     RichNotificationDiagnostics.record("message_fetched", fields: ["source": "latest_history"])
                     return message
                 }
             }
             for messageID in messageIDs {
-                if let message = try? await client.getMessage(chatId: chatID, messageId: messageID) {
+                if let message = try? await client.getMessage(chatId: chatID, messageId: messageID),
+                   target.matches(message: message, chatID: chatID)
+                {
                     logger.log("rich_notification.message_fetched source=get_message_after_history")
                     RichNotificationDiagnostics.record(
                         "message_fetched",
@@ -355,13 +344,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
             fields: ["source": "network", "success": "false"],
         )
         return nil
-    }
-
-    private func matchesExpectedMessage(_ message: Message) -> Bool {
-        if let serverMessageID = metadata.serverMessageID {
-            return message.id >> 20 == serverMessageID
-        }
-        return false
     }
 
     private func avatarData(for sender: MessageSender, client: TDLibClient) async -> Data? {

@@ -14,6 +14,7 @@ import UIKit
     ) -> Bool {
         FFmpegCapabilities.assertRequiredCodecsAvailable()
         #if DEBUG
+            RichNotificationTargetProbe.runIfRequested()
             TdUpdateSourceProbe.runDebugProbeIfRequested()
             LoginAuthorizationProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
