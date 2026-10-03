@@ -48,13 +48,12 @@ enum RichNotificationCache {
         return try? Data(contentsOf: url)
     }
 
-    @discardableResult static func cacheAvatar(
+    static func cacheAvatar(
         _ data: Data, for peer: RichNotificationPeerReference, accountID: Int64?,
         containerURL: () -> URL? = { BetterTGAppGroup.containerURL() },
-        shouldWrite: () -> Bool = { true },
-    ) -> Bool {
-        guard let url = avatarURL(for: peer, accountID: accountID, containerURL: containerURL) else { return false }
-        return writeJPEG(data, to: url, maximumPixelSize: 256, shouldWrite: shouldWrite)
+    ) {
+        guard let url = avatarURL(for: peer, accountID: accountID, containerURL: containerURL) else { return }
+        writeJPEG(data, to: url, maximumPixelSize: 256)
     }
 
     static func mediaURL(
@@ -125,11 +124,9 @@ enum RichNotificationCache {
         return directory
     }
 
-    @discardableResult private static func writeJPEG(
-        _ data: Data, to url: URL, maximumPixelSize: Int, shouldWrite: () -> Bool = { true },
-    ) -> Bool {
-        guard let jpeg = normalizedJPEG(data, maximumPixelSize: maximumPixelSize), shouldWrite()
-        else { return false }
+    private static func writeJPEG(_ data: Data, to url: URL, maximumPixelSize: Int) {
+        guard let jpeg = normalizedJPEG(data, maximumPixelSize: maximumPixelSize)
+        else { return }
         do {
             try jpeg.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes(

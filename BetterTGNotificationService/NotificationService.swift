@@ -141,7 +141,6 @@ final class NotificationService: UNNotificationServiceExtension {
         guard metadata.expectsMedia, let reference = metadata.messageReference else { return fallback }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            guard isCurrent(ticket) else { return fallback }
             if let url = RichNotificationCache.mediaURL(for: reference, accountID: metadata.accountID),
                let data = try? Data(contentsOf: url)
             {

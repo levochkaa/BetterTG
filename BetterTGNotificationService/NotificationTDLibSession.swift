@@ -44,20 +44,17 @@ final class NotificationTDLibSession: @unchecked Sendable {
     // MARK: Internal
 
     func resolve() async -> ResolvedTelegramNotification? {
-        guard let target, target.expectedChatID != nil,
-              target.matches(accountUserID: account.userID) else { return nil }
-        return await withTaskCancellationHandler {
-            let result = await withCheckedContinuation { continuation in
-                guard lifetime.begin({ continuation.resume(returning: $0) }) else { return }
-                guard lifetime.createClient({
-                    manager.createClient { [weak self] data, client in
-                        self?.handle(data: data, client: client)
-                    }
-                    .id
-                }) else { return }
-                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 14) { [weak self] in
-                    self?.finish(nil, reason: "timeout")
-                }
+        guard RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
+        let result = await withCheckedContinuation { continuation in
+            stateLock.lock()
+            resolutionContinuation = continuation
+            stateLock.unlock()
+
+            client = manager.createClient { [weak self] data, client in
+                self?.handle(data: data, client: client)
+            }
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 14) { [weak self] in
+                self?.finish(nil, reason: "timeout")
             }
             await close()
             return result
@@ -264,13 +261,9 @@ final class NotificationTDLibSession: @unchecked Sendable {
             ticket: ticket,
         )
 
-        let senderAvatarData = await senderAvatar
-        guard isCurrent(ticket) else { return nil }
-        let resolvedSenderAvatar = senderAvatarData
+        let resolvedSenderAvatar = await senderAvatar
             ?? RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID)
-        let conversationAvatarData = await conversationAvatar
-        guard isCurrent(ticket) else { return nil }
-        let resolvedConversationAvatar = conversationAvatarData
+        let resolvedConversationAvatar = await conversationAvatar
             ?? RichNotificationCache.avatarData(for: metadata.peer, accountID: metadata.accountID)
         let resolvedMedia = await mediaData
         guard isCurrent(ticket) else { return nil }
@@ -292,25 +285,21 @@ final class NotificationTDLibSession: @unchecked Sendable {
             } else {
                 false
             }
-        guard isCurrent(ticket),
+        guard !Task.isCancelled,
               RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
-        guard lifetime.publish(ticket, {
-            if let resolvedMedia, let message = metadata.messageReference {
-                RichNotificationCache.cacheMedia(resolvedMedia, for: message, accountID: metadata.accountID)
-            }
-            if let resolvedSenderAvatar {
-                RichNotificationCache.cacheAvatar(
-                    resolvedSenderAvatar,
-                    for: metadata.sender,
-                    accountID: metadata.accountID,
-                )
-            }
-            if let resolvedConversationAvatar {
-                RichNotificationCache.cacheAvatar(
-                    resolvedConversationAvatar, for: metadata.peer, accountID: metadata.accountID,
-                )
-            }
-        }) else { return nil }
+        if let resolvedMedia, let message = metadata.messageReference {
+            RichNotificationCache.cacheMedia(resolvedMedia, for: message, accountID: metadata.accountID)
+        }
+        if let resolvedSenderAvatar {
+            RichNotificationCache.cacheAvatar(resolvedSenderAvatar, for: metadata.sender, accountID: metadata.accountID)
+        }
+        if let resolvedConversationAvatar {
+            RichNotificationCache.cacheAvatar(
+                resolvedConversationAvatar,
+                for: metadata.peer,
+                accountID: metadata.accountID,
+            )
+        }
 
         return ResolvedTelegramNotification(
             senderName: senderName.isEmpty ? (metadata.senderName ?? "Telegram") : senderName,

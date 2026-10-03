@@ -19,72 +19,23 @@ struct RichNotificationCacheSource: Equatable {
 // MARK: - RichNotificationAvatarReferences
 
 struct RichNotificationAvatarReferences {
-    struct Registration {
-        let peer: RichNotificationPeerReference
-        let revision: RichNotificationAvatarRevision
-        let rank: Int
-    }
-
-    private struct Photo {
-        let fileIDs: [Int]
-        let revision: RichNotificationAvatarRevision
-        let sequence: UInt64
-    }
-
-    private(set) var sequence: UInt64 = 0
-
     private var source: RichNotificationCacheSource?
     private var references = [Int: Set<RichNotificationPeerReference>]()
-    /// Current-source, metadata-only registrations; their total peer count is not
-    /// the worker's bounded pending-payload or successful-candidate cache.
-    private var photos = [RichNotificationPeerReference: Photo]()
-
-    func wasReplaced(_ peer: RichNotificationPeerReference, after sequence: UInt64) -> Bool {
-        (photos[peer]?.sequence ?? 0) > sequence
-    }
 
     mutating func bind(_ source: RichNotificationCacheSource?) {
         guard self.source != source else { return }
-        for photo in photos.values {
-            photo.revision.invalidate()
-        }
         self.source = source
         references.removeAll()
-        photos.removeAll()
     }
 
-    mutating func replace(
-        _ reference: RichNotificationPeerReference, fileIDs: [Int], source: RichNotificationCacheSource,
-    ) -> RichNotificationAvatarRevision? {
-        guard self.source == source else { return nil }
-        if let photo = photos[reference], photo.fileIDs == fileIDs { return photo.revision }
-        if let previous = photos.removeValue(forKey: reference) {
-            previous.revision.invalidate()
-            for fileID in previous.fileIDs {
-                references[fileID]?.remove(reference)
-                if references[fileID]?.isEmpty == true { references.removeValue(forKey: fileID) }
-            }
-        }
-        let revision = RichNotificationAvatarRevision()
-        sequence &+= 1
-        photos[reference] = Photo(fileIDs: fileIDs, revision: revision, sequence: sequence)
-        for fileID in fileIDs {
-            references[fileID, default: []].insert(reference)
-        }
-        return revision
+    mutating func insert(_ reference: RichNotificationPeerReference, fileID: Int, source: RichNotificationCacheSource) {
+        guard self.source == source else { return }
+        references[fileID, default: []].insert(reference)
     }
 
     func references(for fileID: Int, source: RichNotificationCacheSource) -> Set<RichNotificationPeerReference>? {
         guard self.source == source else { return nil }
         return references[fileID]
-    }
-
-    func registrations(for fileID: Int, source: RichNotificationCacheSource) -> [Registration] {
-        guard self.source == source else { return [] }
-        return (references[fileID] ?? []).compactMap { peer in
-            guard let photo = photos[peer], let index = photo.fileIDs.lastIndex(of: fileID) else { return nil }
-            return Registration(peer: peer, revision: photo.revision, rank: index + 1)
-        }
     }
 }
 
@@ -92,6 +43,11 @@ struct RichNotificationAvatarReferences {
 
 @MainActor final class RichNotificationCacheCoordinator {
     // MARK: Private
+
+    private struct Context {
+        let source: RichNotificationCacheSource
+        let client: TDLibClient
+    }
 
     private struct Context {
         let source: RichNotificationCacheSource
@@ -106,9 +62,6 @@ struct RichNotificationAvatarReferences {
     private var cancellables = Set<AnyCancellable>()
     private let tdlib = TDLib.shared
     private var avatarReferences = RichNotificationAvatarReferences()
-    private let avatarWorker = RichNotificationAvatarWorker()
-    private let mediaPrewarmer = RichNotificationMediaPrewarmer()
-    private var refreshRequests = [Int64: UUID]()
 
     private init() {}
 
@@ -117,22 +70,7 @@ struct RichNotificationAvatarReferences {
         started = true
         #if DEBUG
             RichNotificationCacheProbe.runIfRequested()
-            RichNotificationAvatarWorkerProbe.runIfRequested()
-            RichNotificationMediaPrewarmerProbe.runIfRequested()
         #endif
-
-        // TDLib publishes this synchronously on its main-queue admission path.
-        // In particular handoff emits nil without an activeClientChanges event.
-        tdlib.authorizationUpdates
-            .sink { [weak self] snapshot in
-                guard let self else { return }
-                if let source = snapshot?.source, context(for: source) != nil { return }
-                avatarReferences.bind(nil)
-                avatarWorker.bind(nil)
-                mediaPrewarmer.bind(nil)
-                refreshRequests.removeAll()
-            }
-            .store(in: &cancellables)
 
         nc.scopedPublisher(&cancellables, for: .updateUser) { [weak self] update in
             guard let self, let context = context(for: update.source) else { return }
@@ -146,9 +84,7 @@ struct RichNotificationAvatarReferences {
             guard let self, let context = context(for: update.source) else { return }
             refresh(chatID: update.value.chatId, context: context)
         }
-        // Admission and revocation share TDLib's synchronous accepted-update
-        // order; a queued old message must not start after its edit/delete.
-        mediaPrewarmer.observeNewMessages { [weak self] update in
+        nc.scopedPublisher(&cancellables, for: .updateNewMessage) { [weak self] update in
             guard let self, let context = context(for: update.source) else { return }
             cacheMedia(for: update.value.message, context: context)
         }
@@ -161,12 +97,7 @@ struct RichNotificationAvatarReferences {
             .sink { [weak self] source in
                 guard let self, source == tdlib.activeUpdateSource else { return }
                 // A queued source change must not clear a newer admitted map.
-                if context(for: source) == nil {
-                    avatarReferences.bind(nil)
-                    avatarWorker.bind(nil)
-                    mediaPrewarmer.bind(nil)
-                    refreshRequests.removeAll()
-                }
+                if context(for: source) == nil { avatarReferences.bind(nil) }
             }
             .store(in: &cancellables)
     }
@@ -179,8 +110,6 @@ struct RichNotificationAvatarReferences {
         guard bound.isCurrent(source: tdlib.activeUpdateSource, account: account, clientID: client.id)
         else { return nil }
         avatarReferences.bind(bound)
-        avatarWorker.bind(bound)
-        mediaPrewarmer.bind(bound)
         return Context(source: bound, client: client)
     }
 
@@ -202,7 +131,6 @@ struct RichNotificationAvatarReferences {
     }
 
     private func cache(chat: Chat, context: Context) {
-        refreshRequests.removeValue(forKey: chat.id)
         guard let reference = peerReference(for: chat) else { return }
         cacheAvatar(
             reference: reference,
@@ -213,17 +141,9 @@ struct RichNotificationAvatarReferences {
     }
 
     private func refresh(chatID: Int64, context: Context) {
-        let request = UUID()
-        let photoSequence = avatarReferences.sequence
-        refreshRequests[chatID] = request
         Task { [weak self] in
-            guard let self else { return }
-            defer { if refreshRequests[chatID] == request { refreshRequests.removeValue(forKey: chatID) } }
-            guard isCurrent(context), refreshRequests[chatID] == request,
-                  let chat = try? await context.client.getChat(chatId: chatID), isCurrent(context),
-                  refreshRequests[chatID] == request,
-                  let peer = peerReference(for: chat), !avatarReferences.wasReplaced(peer, after: photoSequence)
-            else { return }
+            guard let self, isCurrent(context),
+                  let chat = try? await context.client.getChat(chatId: chatID), isCurrent(context) else { return }
             cache(chat: chat, context: context)
         }
     }
@@ -235,61 +155,76 @@ struct RichNotificationAvatarReferences {
         context: Context,
     ) {
         guard isCurrent(context) else { return }
-        guard let revision = avatarReferences.replace(
-            reference,
-            fileIDs: files.map(\.id),
-            source: context.source,
-        ) else { return }
         if let placeholder {
-            avatarWorker.offer(.init(
-                peer: reference,
-                source: context.source,
-                revision: revision,
-                rank: 0,
-                input: .data(placeholder),
-            ))
+            RichNotificationCache.cacheAvatar(placeholder, for: reference, accountID: context.source.userID)
         }
         for file in files {
+            avatarReferences.insert(reference, fileID: file.id, source: context.source)
             cacheCompleted(file: file, context: context)
         }
     }
 
     private func cacheCompleted(file: File, context: Context) {
         guard isCurrent(context),
+              let references = avatarReferences.references(for: file.id, source: context.source), !references.isEmpty,
               file.local.isDownloadingCompleted,
-              !file.local.path.isEmpty
+              !file.local.path.isEmpty,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: file.local.path))
         else { return }
-        for registration in avatarReferences.registrations(for: file.id, source: context.source) {
-            avatarWorker.offer(.init(
-                peer: registration.peer,
-                source: context.source,
-                revision: registration.revision,
-                rank: registration.rank,
-                input: .path(file.local.path),
-            ))
+        for reference in references {
+            RichNotificationCache.cacheAvatar(data, for: reference, accountID: context.source.userID)
         }
     }
 
     private func cacheMedia(for message: Message, context: Context) {
-        mediaPrewarmer.start(message: message, source: context.source, operations: .init(
-            isCurrent: { [weak self] in self?.isCurrent(context) == true },
-            peer: { [weak self] chatID in
-                guard let chat = try? await context.client.getChat(chatId: chatID),
-                      chat.id == chatID else { return nil }
-                return self?.peerReference(for: chat)
-            },
-            download: { file in
-                await (try? context.client.downloadFile(
-                    fileId: file.id,
-                    limit: 0,
-                    offset: 0,
-                    priority: 1,
-                    synchronous: true,
-                )) ?? file
-            },
-            read: { try? Data(contentsOf: URL(fileURLWithPath: $0)) },
-            cache: { RichNotificationCache.cacheMedia($0, for: $1, accountID: $2) },
-        ))
+        guard !message.isOutgoing, let candidate = mediaCandidate(for: message.content) else { return }
+        Task { [weak self] in
+            guard let self, isCurrent(context),
+                  let chat = try? await context.client.getChat(chatId: message.chatId), isCurrent(context),
+                  let peer = peerReference(for: chat),
+                  message.id > 0
+            else { return }
+            let reference = RichNotificationMessageReference(
+                peer: peer,
+                serverMessageID: message.id >> 20,
+            )
+            if let placeholder = candidate.placeholder {
+                RichNotificationCache.cacheMedia(placeholder, for: reference, accountID: context.source.userID)
+            }
+            let file = await (try? context.client.downloadFile(
+                fileId: candidate.file.id,
+                limit: 0,
+                offset: 0,
+                priority: 1,
+                synchronous: true,
+            )) ?? candidate.file
+            guard isCurrent(context), file.local.isDownloadingCompleted,
+                  !file.local.path.isEmpty,
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: file.local.path))
+            else { return }
+            RichNotificationCache.cacheMedia(data, for: reference, accountID: context.source.userID)
+        }
+    }
+
+    private func mediaCandidate(for content: MessageContent) -> MediaCandidate? {
+        switch content {
+        case .messagePhoto(let value):
+            guard let size = value.photo.sizes.min(by: { lhs, rhs in
+                abs(max(lhs.width, lhs.height) - 1280) < abs(max(rhs.width, rhs.height) - 1280)
+            }) else { return nil }
+            return MediaCandidate(file: size.photo, placeholder: value.photo.minithumbnail?.data)
+        case .messageVideo(let value):
+            guard let thumbnail = value.video.thumbnail else { return nil }
+            return MediaCandidate(file: thumbnail.file, placeholder: value.video.minithumbnail?.data)
+        case .messageAnimation(let value):
+            guard let thumbnail = value.animation.thumbnail else { return nil }
+            return MediaCandidate(file: thumbnail.file, placeholder: value.animation.minithumbnail?.data)
+        case .messageSticker(let value):
+            guard let thumbnail = value.sticker.thumbnail else { return nil }
+            return MediaCandidate(file: thumbnail.file, placeholder: nil)
+        default:
+            return nil
+        }
     }
 
     private func peerReference(for chat: Chat) -> RichNotificationPeerReference? {
