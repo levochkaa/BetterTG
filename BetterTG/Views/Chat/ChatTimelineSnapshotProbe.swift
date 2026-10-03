@@ -40,6 +40,8 @@ import UIKit
         var finishingRetainedDeletion = true
         var finishingRetainedCommitted = true
         var deletingBinding: (DisplayedMessageID, UUID)?
+        weak var deletingCell: MessageCell?
+        var deletingProviderDiagnostics = [String]()
         var preserved = 0
         var beforeProvider: (() -> Void)?
         var authorities = [DisplayedMessageID: ChatMessageActionAuthority]()
@@ -63,11 +65,15 @@ import UIKit
                 let hook = self?.beforeProvider
                 self?.beforeProvider = nil
                 hook?()
-                return ChatTimelineCellProvider.dequeue(
+                let returned = ChatTimelineCellProvider.dequeue(
                     MessageCell.self, from: collection, at: path, reuseIdentifier: "snapshot-probe",
                     preserve: { [weak self] cell in
-                        guard let self, let id = item.displayedMessageID,
-                              state.canPreserveDeletingCell(cell, id: id) else { return false }
+                        guard let self, let id = item.displayedMessageID else { return false }
+                        let decision = state.canPreserveDeletingCell(cell, id: id)
+                        if id == deletingBinding?.0 {
+                            deletingProviderDiagnostics.append(deletionReceipt("preserve=\(decision)", cell: cell))
+                        }
+                        guard decision else { return false }
                         preserved += 1
                         return true
                     },
@@ -97,7 +103,24 @@ import UIKit
                     },
                     unavailable: { $0.resetUnavailableContent() },
                 )
+                if let owner = self, item.displayedMessageID == owner.deletingBinding?.0 {
+                    owner.deletingProviderDiagnostics.append(owner.deletionReceipt(
+                        "returned",
+                        cell: returned as? MessageCell,
+                    ))
+                }
+                return returned
             }
+        }
+
+        func deletionReceipt(_ phase: String, cell: MessageCell?) -> String {
+            guard let cell else { return "\(phase):cell=nil" }
+            let transform = cell.transform
+            let lease = deletingBinding.map { state.ownsDeletingBinding($0.1, id: $0.0) } ?? false
+            return "\(phase):same-cell=\(cell === deletingCell),binding=\(cell.timelineRowID == deletingBinding?.1),"
+                + "displayed=\(cell.timelineDisplayedID == deletingBinding?.0),interaction=\(cell.isUserInteractionEnabled),"
+                + "alpha=\(cell.alpha),transform=(\(transform.a),\(transform.b),\(transform.c),\(transform.d),\(transform.tx),\(transform.ty)),"
+                + "reuse=\(cell.probeReuseCount),lease=\(lease),preserved=\(preserved)"
         }
 
         func resolve(
@@ -390,6 +413,8 @@ import UIKit
               let binding = cell.timelineRowID else { throw Failure(description: "missing deleting cell") }
         let id = canonical.displayedID
         rows.deletingBinding = (id, binding)
+        rows.deletingCell = cell
+        rows.deletingProviderDiagnostics.removeAll()
         let preservedBefore = rows.preserved
         var armed = false
         rows.beforeProvider = { [weak rows, weak cell] in
@@ -399,6 +424,7 @@ import UIKit
             cell.alpha = 0.375
             cell.transform = .init(translationX: 8, y: -3)
             armed = true
+            rows.deletingProviderDiagnostics.append(rows.deletionReceipt("armed", cell: cell))
         }
         rows.enqueue(.init(ids: [id], viewportRevision: rows.viewport.invalidationRevision))
         try await until("late deleting native provider") { rows.held.count == 1 }
@@ -406,7 +432,9 @@ import UIKit
             armed && rows.preserved == preservedBefore + 1 && cell.timelineRowID == binding
             && !cell.isUserInteractionEnabled && cell.alpha == 0.375
             && cell.transform == CGAffineTransform(translationX: 8, y: -3),
-            "late provider resurrected or rebound the exact deleting cell",
+            "late provider resurrected or rebound the exact deleting cell: armed=\(armed),preserved-delta=\(rows.preserved - preservedBefore); "
+                + rows.deletingProviderDiagnostics.joined(separator: "; ") + "; "
+                + rows.deletionReceipt("native-receipt", cell: cell),
         )
         let other = MessageCell(frame: .zero)
         try require(
