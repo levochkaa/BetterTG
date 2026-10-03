@@ -18,6 +18,7 @@ import UIKit
             RichNotificationSessionLifetimeProbe.runIfRequested()
             RichNotificationRequestProbe.runIfRequested()
             RichNotificationPreviewProbe.runIfRequested()
+            RichNotificationMediaStoreProbe.runIfRequested()
             TdUpdateSourceProbe.runDebugProbeIfRequested()
             LoginAuthorizationProbe.runDebugProbeIfRequested()
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
