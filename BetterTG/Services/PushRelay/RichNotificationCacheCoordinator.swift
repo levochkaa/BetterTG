@@ -19,23 +19,72 @@ struct RichNotificationCacheSource: Equatable {
 // MARK: - RichNotificationAvatarReferences
 
 struct RichNotificationAvatarReferences {
+    struct Registration {
+        let peer: RichNotificationPeerReference
+        let revision: RichNotificationAvatarRevision
+        let rank: Int
+    }
+
+    private struct Photo {
+        let fileIDs: [Int]
+        let revision: RichNotificationAvatarRevision
+        let sequence: UInt64
+    }
+
+    private(set) var sequence: UInt64 = 0
+
     private var source: RichNotificationCacheSource?
     private var references = [Int: Set<RichNotificationPeerReference>]()
+    /// Current-source, metadata-only registrations; their total peer count is not
+    /// the worker's bounded pending-payload or successful-candidate cache.
+    private var photos = [RichNotificationPeerReference: Photo]()
+
+    func wasReplaced(_ peer: RichNotificationPeerReference, after sequence: UInt64) -> Bool {
+        (photos[peer]?.sequence ?? 0) > sequence
+    }
 
     mutating func bind(_ source: RichNotificationCacheSource?) {
         guard self.source != source else { return }
+        for photo in photos.values {
+            photo.revision.invalidate()
+        }
         self.source = source
         references.removeAll()
+        photos.removeAll()
     }
 
-    mutating func insert(_ reference: RichNotificationPeerReference, fileID: Int, source: RichNotificationCacheSource) {
-        guard self.source == source else { return }
-        references[fileID, default: []].insert(reference)
+    mutating func replace(
+        _ reference: RichNotificationPeerReference, fileIDs: [Int], source: RichNotificationCacheSource,
+    ) -> RichNotificationAvatarRevision? {
+        guard self.source == source else { return nil }
+        if let photo = photos[reference], photo.fileIDs == fileIDs { return photo.revision }
+        if let previous = photos.removeValue(forKey: reference) {
+            previous.revision.invalidate()
+            for fileID in previous.fileIDs {
+                references[fileID]?.remove(reference)
+                if references[fileID]?.isEmpty == true { references.removeValue(forKey: fileID) }
+            }
+        }
+        let revision = RichNotificationAvatarRevision()
+        sequence &+= 1
+        photos[reference] = Photo(fileIDs: fileIDs, revision: revision, sequence: sequence)
+        for fileID in fileIDs {
+            references[fileID, default: []].insert(reference)
+        }
+        return revision
     }
 
     func references(for fileID: Int, source: RichNotificationCacheSource) -> Set<RichNotificationPeerReference>? {
         guard self.source == source else { return nil }
         return references[fileID]
+    }
+
+    func registrations(for fileID: Int, source: RichNotificationCacheSource) -> [Registration] {
+        guard self.source == source else { return [] }
+        return (references[fileID] ?? []).compactMap { peer in
+            guard let photo = photos[peer], let index = photo.fileIDs.lastIndex(of: fileID) else { return nil }
+            return Registration(peer: peer, revision: photo.revision, rank: index + 1)
+        }
     }
 }
 
@@ -62,6 +111,8 @@ struct RichNotificationAvatarReferences {
     private var cancellables = Set<AnyCancellable>()
     private let tdlib = TDLib.shared
     private var avatarReferences = RichNotificationAvatarReferences()
+    private let avatarWorker = RichNotificationAvatarWorker()
+    private var refreshRequests = [Int64: UUID]()
 
     private init() {}
 
@@ -70,7 +121,20 @@ struct RichNotificationAvatarReferences {
         started = true
         #if DEBUG
             RichNotificationCacheProbe.runIfRequested()
+            RichNotificationAvatarWorkerProbe.runIfRequested()
         #endif
+
+        // TDLib publishes this synchronously on its main-queue admission path.
+        // In particular handoff emits nil without an activeClientChanges event.
+        tdlib.authorizationUpdates
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                if let source = snapshot?.source, context(for: source) != nil { return }
+                avatarReferences.bind(nil)
+                avatarWorker.bind(nil)
+                refreshRequests.removeAll()
+            }
+            .store(in: &cancellables)
 
         nc.scopedPublisher(&cancellables, for: .updateUser) { [weak self] update in
             guard let self, let context = context(for: update.source) else { return }
@@ -97,7 +161,11 @@ struct RichNotificationAvatarReferences {
             .sink { [weak self] source in
                 guard let self, source == tdlib.activeUpdateSource else { return }
                 // A queued source change must not clear a newer admitted map.
-                if context(for: source) == nil { avatarReferences.bind(nil) }
+                if context(for: source) == nil {
+                    avatarReferences.bind(nil)
+                    avatarWorker.bind(nil)
+                    refreshRequests.removeAll()
+                }
             }
             .store(in: &cancellables)
     }
@@ -110,6 +178,7 @@ struct RichNotificationAvatarReferences {
         guard bound.isCurrent(source: tdlib.activeUpdateSource, account: account, clientID: client.id)
         else { return nil }
         avatarReferences.bind(bound)
+        avatarWorker.bind(bound)
         return Context(source: bound, client: client)
     }
 
@@ -131,6 +200,7 @@ struct RichNotificationAvatarReferences {
     }
 
     private func cache(chat: Chat, context: Context) {
+        refreshRequests.removeValue(forKey: chat.id)
         guard let reference = peerReference(for: chat) else { return }
         cacheAvatar(
             reference: reference,
@@ -141,9 +211,17 @@ struct RichNotificationAvatarReferences {
     }
 
     private func refresh(chatID: Int64, context: Context) {
+        let request = UUID()
+        let photoSequence = avatarReferences.sequence
+        refreshRequests[chatID] = request
         Task { [weak self] in
-            guard let self, isCurrent(context),
-                  let chat = try? await context.client.getChat(chatId: chatID), isCurrent(context) else { return }
+            guard let self else { return }
+            defer { if refreshRequests[chatID] == request { refreshRequests.removeValue(forKey: chatID) } }
+            guard isCurrent(context), refreshRequests[chatID] == request,
+                  let chat = try? await context.client.getChat(chatId: chatID), isCurrent(context),
+                  refreshRequests[chatID] == request,
+                  let peer = peerReference(for: chat), !avatarReferences.wasReplaced(peer, after: photoSequence)
+            else { return }
             cache(chat: chat, context: context)
         }
     }
@@ -155,24 +233,38 @@ struct RichNotificationAvatarReferences {
         context: Context,
     ) {
         guard isCurrent(context) else { return }
+        guard let revision = avatarReferences.replace(
+            reference,
+            fileIDs: files.map(\.id),
+            source: context.source,
+        ) else { return }
         if let placeholder {
-            RichNotificationCache.cacheAvatar(placeholder, for: reference, accountID: context.source.userID)
+            avatarWorker.offer(.init(
+                peer: reference,
+                source: context.source,
+                revision: revision,
+                rank: 0,
+                input: .data(placeholder),
+            ))
         }
         for file in files {
-            avatarReferences.insert(reference, fileID: file.id, source: context.source)
             cacheCompleted(file: file, context: context)
         }
     }
 
     private func cacheCompleted(file: File, context: Context) {
         guard isCurrent(context),
-              let references = avatarReferences.references(for: file.id, source: context.source), !references.isEmpty,
               file.local.isDownloadingCompleted,
-              !file.local.path.isEmpty,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: file.local.path))
+              !file.local.path.isEmpty
         else { return }
-        for reference in references {
-            RichNotificationCache.cacheAvatar(data, for: reference, accountID: context.source.userID)
+        for registration in avatarReferences.registrations(for: file.id, source: context.source) {
+            avatarWorker.offer(.init(
+                peer: registration.peer,
+                source: context.source,
+                revision: registration.revision,
+                rank: registration.rank,
+                input: .path(file.local.path),
+            ))
         }
     }
 
