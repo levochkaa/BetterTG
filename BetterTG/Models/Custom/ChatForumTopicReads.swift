@@ -6,32 +6,15 @@ import TDLibKitDynamic
 /// One metadata owner for the base forum timeline and its composer. Canceled
 /// TDLib continuations still occupy a transport slot until their callback returns.
 @MainActor final class ChatForumTopicReads {
-    struct ReceiptProjection {
-        static let unavailable = ReceiptProjection(permitsFinalStatus: false, readOutbox: nil, topic: nil)
-
-        let permitsFinalStatus: Bool
-        let readOutbox: Int64?
-        let topic: MessageTopic?
-    }
-
     private final class Entry {
         let id = UUID()
         var updates: ForumTopicLiveUpdateState
-        var receipts: ChatDeliveryReceiptState
         var value: ForumTopic?
         var info: ForumTopicInfo?
         var infoRevision = UInt64.zero
         var attempted = false
 
-        init(location: ChatLocation) {
-            self.updates = ForumTopicLiveUpdateState(location: location)
-            self.receipts = ChatDeliveryReceiptState(location: location)
-        }
-
-        func retire() {
-            updates.retire()
-            receipts.retire()
-        }
+        init(location: ChatLocation) { self.updates = ForumTopicLiveUpdateState(location: location) }
     }
 
     private struct Request {
@@ -52,7 +35,6 @@ import TDLibKitDynamic
     private let currentSource: () -> TdUpdateSource?
     private let read: (Int) async throws -> ForumTopic
     private let publish: (Int, ForumTopic?) -> Void
-    private let receiptChanged: (Int) -> Void
     private var entries = [Int: Entry]()
     private var order = [Int]()
     private var requests = [UUID: Request]()
@@ -62,13 +44,11 @@ import TDLibKitDynamic
         currentSource: @escaping () -> TdUpdateSource?,
         read: @escaping (Int) async throws -> ForumTopic,
         publish: @escaping (Int, ForumTopic?) -> Void,
-        receiptChanged: @escaping (Int) -> Void = { _ in },
     ) {
         self.location = location
         self.currentSource = currentSource
         self.read = read
         self.publish = publish
-        self.receiptChanged = receiptChanged
     }
 
     deinit { requests.values.forEach { $0.task.cancel() } }
@@ -84,28 +64,14 @@ import TDLibKitDynamic
         }
     }
 
-    func receipt(for message: Message) -> ReceiptProjection {
-        guard !isRetired, currentSource()?.matches(location) == true, message.chatId == location.chatID,
-              case .messageTopicForum(let topic) = message.topicId, topic.forumTopicId > 0,
-              let entry = entries[topic.forumTopicId],
-              entry.receipts.permits(currentSource(), location: location.withForumTopic(id: topic.forumTopicId))
-        else { return .unavailable }
-        return ReceiptProjection(
-            permitsFinalStatus: true,
-            readOutbox: entry.receipts.lastReadOutbox,
-            topic: message.topicId,
-        )
-    }
-
     func synchronize(_ ids: [Int]) {
         guard admitsWork() else { return }
         var seen = Set<Int>()
         order = ids.filter { $0 > 0 && seen.insert($0).inserted }
         for id in Array(entries.keys) where !seen.contains(id) {
-            entries.removeValue(forKey: id)?.retire()
+            entries.removeValue(forKey: id)?.updates.retire()
             requests.values.filter { $0.topicID == id }.forEach { $0.task.cancel() }
             publish(id, nil)
-            receiptChanged(id)
         }
         for id in order where entries[id] == nil {
             entries[id] = Entry(location: location.withForumTopic(id: id))
@@ -138,12 +104,8 @@ import TDLibKitDynamic
 
     func receive(_ update: UpdateForumTopic, source: TdUpdateSource) {
         guard admitsWork(), source.matches(location), update.chatId == location.chatID,
-              let entry = entries[update.forumTopicId] else { return }
-        if entry.receipts.receive(update, source: source, location: entry.receipts.location) {
-            receiptChanged(update.forumTopicId)
-        }
-        guard
-            let change = entry.updates.receive(update, current: entry.value, source: source)
+              let entry = entries[update.forumTopicId],
+              let change = entry.updates.receive(update, current: entry.value, source: source)
         else { return }
         if change.metadataChanged, let value = entry.value {
             accept(entry.updates.applyingLatest(to: value), for: update.forumTopicId, entry: entry)
@@ -162,14 +124,11 @@ import TDLibKitDynamic
         guard !isRetired else { return }
         isRetired = true
         let ids = Array(entries.keys)
-        entries.values.forEach { $0.retire() }
+        entries.values.forEach { $0.updates.retire() }
         entries.removeAll()
         order.removeAll()
         requests.values.forEach { $0.task.cancel() }
-        for id in ids {
-            publish(id, nil)
-            receiptChanged(id)
-        }
+        ids.forEach { publish($0, nil) }
     }
 
     private func admitsWork() -> Bool {
@@ -187,8 +146,7 @@ import TDLibKitDynamic
               let id = order.first(where: { id in
                   entries[id]?.attempted == false && !requests.values.contains { $0.topicID == id }
               }),
-              let entry = entries[id], let ticket = entry.updates.beginRead(source: currentSource()),
-              let receiptTicket = entry.receipts.beginRead(source: currentSource(), location: entry.receipts.location)
+              let entry = entries[id], let ticket = entry.updates.beginRead(source: currentSource())
         {
             entry.attempted = true
             let requestID = UUID()
@@ -201,9 +159,6 @@ import TDLibKitDynamic
                 let value = try? await read(id)
                 guard !Task.isCancelled, let self, owns(requestID, entryID: entryID), let entry = entries[id]
                 else { return }
-                if entry.receipts.finishForumRead(
-                    receiptTicket, topic: value, source: currentSource(), location: entry.receipts.location,
-                ) { receiptChanged(id) }
                 guard var accepted = entry.updates.finishRead(ticket, topic: value, source: currentSource())
                 else { return }
                 if entry.infoRevision != infoRevision, let info = entry.info {

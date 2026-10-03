@@ -123,6 +123,7 @@ extension ChatVM {
             else { return }
             customChat.type = .supergroup(update.supergroup)
             refreshDeliveryStates()
+            refreshAllMessagesForumTopicsIfNeeded()
             objectWillChange.send()
         }
         observeCurrentUpdate(.updateForumTopicInfo) { [weak self] update, _ in
@@ -138,6 +139,11 @@ extension ChatVM {
                   TDLib.shared.activeClient.id == client.id,
                   update.chatId == location.chatID
             else { return }
+            if isAllMessagesForum {
+                receiveAllMessagesForumTopicUpdate(update, source: authority.source)
+                return
+            }
+            guard update.forumTopicId == location.forumTopicID else { return }
             receiveForumTopicUpdate(update, authority: authority)
         }
         observeCurrentUpdate(.updateMessageSendSucceeded) { [weak self] update, authority in

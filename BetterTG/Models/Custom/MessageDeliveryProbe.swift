@@ -94,6 +94,7 @@ import UIKit
     }
 
     static func runIfRequested() {
+        ChatForumTopicReadsProbe.runIfRequested()
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-delivery") else { return }
         Task { @MainActor in
             let result: String
@@ -117,6 +118,67 @@ import UIKit
             }
             log(result)
         }
+    }
+
+    static func fixture(
+        id: Int64,
+        chatID: Int64 = 100,
+        album: Int64 = 0,
+        outgoing: Bool = true,
+        channel: Bool = false,
+        state: MessageSendingState? = nil,
+        topic: MessageTopic? = nil,
+        content: MessageContent? = nil,
+    ) -> Message {
+        Message(
+            authorSignature: "",
+            autoDeleteIn: 0,
+            canBeSaved: true,
+            chatId: chatID,
+            containsUnreadMention: false,
+            containsUnreadPollVotes: false,
+            content: content ?? .messageText(.init(
+                linkPreview: nil,
+                linkPreviewOptions: nil,
+                text: .init(entities: [], text: "message"),
+            )),
+            date: Int(max(1, id)),
+            editDate: 0,
+            effectId: 0,
+            ephemeralMessageId: 0,
+            factCheck: nil,
+            forwardInfo: nil,
+            guestBotCallerId: nil,
+            hasTimestampedMedia: false,
+            id: id,
+            importInfo: nil,
+            interactionInfo: nil,
+            isChannelPost: channel,
+            isFromOffline: false,
+            isOutgoing: outgoing,
+            isPaidGramSuggestedPost: false,
+            isPaidStarSuggestedPost: false,
+            isPinned: false,
+            mediaAlbumId: TdInt64(album),
+            paidMessageStarCount: 0,
+            receiverId: nil,
+            replyMarkup: nil,
+            replyTo: nil,
+            restrictionInfo: nil,
+            schedulingState: nil,
+            selfDestructIn: 0,
+            selfDestructType: nil,
+            senderBoostCount: 0,
+            senderBusinessBotUserId: 0,
+            senderId: .messageSenderUser(.init(userId: 1)),
+            senderTag: "",
+            sendingState: state,
+            suggestedPostInfo: nil,
+            summaryLanguageCode: "",
+            topicId: topic,
+            unreadReactions: [],
+            viaBotUserId: 0,
+        )
     }
 
     private static func verifyReceipts() throws {
@@ -602,66 +664,6 @@ import UIKit
             lastReadInboxMessageId: inbox, lastReadOutboxMessageId: outbox,
             notificationSettings: forumTopic().notificationSettings, unreadMentionCount: 0,
             unreadPollVoteCount: 0, unreadReactionCount: 0,
-        )
-    }
-
-    private static func fixture(
-        id: Int64,
-        album: Int64 = 0,
-        outgoing: Bool = true,
-        channel: Bool = false,
-        state: MessageSendingState? = nil,
-        topic: MessageTopic? = nil,
-        content: MessageContent? = nil,
-    ) -> Message {
-        Message(
-            authorSignature: "",
-            autoDeleteIn: 0,
-            canBeSaved: true,
-            chatId: 100,
-            containsUnreadMention: false,
-            containsUnreadPollVotes: false,
-            content: content ?? .messageText(.init(
-                linkPreview: nil,
-                linkPreviewOptions: nil,
-                text: .init(entities: [], text: "message"),
-            )),
-            date: Int(max(1, id)),
-            editDate: 0,
-            effectId: 0,
-            ephemeralMessageId: 0,
-            factCheck: nil,
-            forwardInfo: nil,
-            guestBotCallerId: nil,
-            hasTimestampedMedia: false,
-            id: id,
-            importInfo: nil,
-            interactionInfo: nil,
-            isChannelPost: channel,
-            isFromOffline: false,
-            isOutgoing: outgoing,
-            isPaidGramSuggestedPost: false,
-            isPaidStarSuggestedPost: false,
-            isPinned: false,
-            mediaAlbumId: TdInt64(album),
-            paidMessageStarCount: 0,
-            receiverId: nil,
-            replyMarkup: nil,
-            replyTo: nil,
-            restrictionInfo: nil,
-            schedulingState: nil,
-            selfDestructIn: 0,
-            selfDestructType: nil,
-            senderBoostCount: 0,
-            senderBusinessBotUserId: 0,
-            senderId: .messageSenderUser(.init(userId: 1)),
-            senderTag: "",
-            sendingState: state,
-            suggestedPostInfo: nil,
-            summaryLanguageCode: "",
-            topicId: topic,
-            unreadReactions: [],
-            viaBotUserId: 0,
         )
     }
 
