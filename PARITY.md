@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: P1 A48 forwarding-topic snapshot ownership before P2 A46b pin ordering; primary-list A46a is verified below.
+Active queue: P2 A46b forwarding pin ordering and A32 native search placement.
+Primary-list A46a is verified below; A48's actual early-detachment callback now has bounded native proof.
 A47 individual topic-list reads `09db3f5` pass max-two/FIFO/reset native checks and existing forum regressions.
 A30h member-tag draft retention/renewed explicit Save `c895a8c` passes bounded native checks and existing profile regressions.
 A44b2a/b shared bounded reads and exact per-topic receipts `4a2a190`/`2190c4d` pass controlled reader/native MessageCell probes.
@@ -187,7 +188,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | fixed bounded echo/read ownership — `e3fb6d9`, `597d6f3`, page-membership correction `c9317e5`, known-row lifetime `0a4c6af`. Real-VM controlled reads/native cell and controller regressions pass; actual search/foreground and fuzzy before/after proof recorded. Actual TDLib request counts, delayed server conflicting updates and one bounded redundant unknown follow-up remain unverified/open |
 | A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | partial — primary list `34b7868` preserves raw-head ranks across append/individual updates and matching-query restoration. Native PID88745 and actual PID92862 put General first; Forward selector A46b and live multi-pin/reorder behavior remain open. Changed-pin echo can require a second stable head; pure remote reorder needs explicit refresh |
 | A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | fixed bounded in `09db3f5`: max two individual native reads per VM across canceled query generations, exact-UUID retirement and coalesced FIFO demand. Native PID97812 and existing forum regressions pass. Page concurrency, global cross-VM limits and queue hard memory cap are outside this slice; no live lag/OOM claim |
-| A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; an earlier reconfigure can request a removed ID and receive a new fallback cell | needs-fix — source-confirmed A42-class cell-model ownership defect; no actual Forward crash reproduced. Freeze models per apply, retain outgoing rows, serialize/coalesce snapshots, and gate selection through settlement/current source before A46b |
+| A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; failed query retry can also merge older-query rows. Native teardown exposed a detached-parent interval before didMove(nil) | fixed bounded through `fe9424c`/`727103c`, diagnostic `1fa99a9`: transaction-owned models, serialized page/toggle applies, accepted-query and immediate containment gates. Native PID68845 passes late-callback/cursor/pending-drain checks before retirement. Natural baseline crash, live permission/TDLib races, modal dismiss and actual interactive cancellation remain unverified |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -2144,6 +2145,32 @@ is imported. This source pass does not prove every content's real rendering/acti
   reconfigure IDs, stale completion, selection gates and teardown; existing forum snapshot/active-search regressions.
   Use injected read-only endpoints, no real forwarding/server writes. Telegram's separate UI infrastructure is not imported;
   this is UIKit transaction correctness under the established A42 contract, not a new server ordering claim.
+- Initial integration `fe9424c` (worker `7710a9`, reviewed tree `eb2c373e`) serializes page/toggle snapshots, keeps outgoing
+  models/clients, gates query selection and replaces previous-query rows on cursor-zero retry. Primary build
+  `build-Debug-20261003-112447-8466-30715.log`: PASS9s, complete log zero warnings/errors. Native PID14762 at11:27:30+04
+  FAILED its teardown assertion; this was not a runtime-complete handoff.
+- Diagnostic-only `1fa99a9` (worker `2c82e6c`, reviewed tree `12cea598`) adds exact pop/containment receipts without changing
+  production guards. Build `build-Debug-20261003-113410-35144-20625.log`: PASS9s, complete log zero warnings/errors.
+  Native PID35915 at11:34:59 passes transaction/query/fallback/selection cases and post-retirement cleanup. Immediate pop receipt
+  is parent=nil, absent from stack, retired=false, with models1/2 retained and apply busy; the later receipt is retired=true and empty.
+  Thus waiting for `didMove(nil)` fixes the probe's timing assumption but does not establish immediate detached-owner admission.
+  Next bounded correction must reject late reads/actions/new applies during this actual detached interval, while retaining models
+  through the exact native completion and avoiding permanent retirement in a cancellable `willMove(nil)` transition.
+- Follow-up `727103c` (worker `5a4ac6`, reviewed tree `e29ea3c`) remembers first non-nil containment. After that receipt,
+  actual parent/children detachment rejects page/action/enqueue/drain admission before the terminal lifecycle callback; bootstrap
+  reads stay compatible and exact completion remains unconditional. No window/nav-stack/`isMovingFromParent` gate or irreversible
+  `willMove(nil)` retirement is introduced. A retained parent can continue its current read.
+  Single SwiftFormat0/2; build `build-Debug-20261003-114744-67424-30857.log`: PASS9s, full log zero warnings/errors.
+- Native PID68845 on audit59EB535C/iOS26.5, report11:48:19+04: PASS actual production controller/table, held native completion,
+  coalesced queries, same-cell/fallback, closed/selected rows, failed head→retry/raw append cursor, stale source/query and teardown.
+  Immediate pop receipt is retired=false/owner=false/parent=nil. The native read returns distinct cursor(91,44,900) and its exact
+  Task.value plus held completion are consumed **before** retirement wait; original cursor and starts2/2 remain unchanged, queued
+  and late models are not admitted. The intermediate receipt is still retired=false; final lifecycle cleanup empties models.
+  First attachment is separately awaited; synthetic retained-parent `willMove(nil)` keeps loading/selection alive. This does not
+  prove an actual canceled swipe, whole modal dismissal, live rights resolution or real forwarding. No server delivery is exercised.
+- Existing supplementary regressions pass on the integrated follow-up: PID75259 restoration/snapshot11:50:49/52+04,
+  PID75908 active-search11:51:32. Reports are fresh from newly resolved containers. Evidence under
+  `.build/ui-probe-evidence/astra-a48-forward-snapshot/`; natural UIKit overlap and actual Forward delivery remain unverified.
 
 ### A46 forum pinned ordering audit — 2026-10-03
 
@@ -2190,6 +2217,14 @@ is imported. This source pass does not prove every content's real rendering/acti
   remain A32. Controlled multi-pin ordering is proven; live configured multi-pin changes and scrolled prepend/resize are not.
   Same PID92862 Home→foreground keeps the exact order/frames, with `ForumTopics client restoration: replacement accepted`
   at11:16:16.793+04. This proves one quiescent display-rank renewal on that loaded list, not active remote pin mutation.
+- A46b before proof: actual PID92862, still `34b7868`, opened an existing photo's Forward action → searched the existing forum
+  → entered its production topic selector. IDs153,196,1,134,94,37 put pinned General third at y290.67pt (first rowy168).
+  `astra-a46-pinned-order/forward-topics-before.png` was inspected; no topic/destination selected and no Send.
+  Reference: Telegram current/pre `submodules/TelegramUI/Components/PeerSelectionController/Sources/PeerSelectionControllerNode.swift`
+  223–249/196–222 uses the shared forum ChatList and its separate pinnedIndex. After A48, reuse the query-owned pin projection
+  in this consumer: accepted raw head assigns rank, append preserves it, accepted membership edges invalidate obsolete positions,
+  and changed query clears it. Keep raw cursor, server query membership, A48 snapshot/selection gates and existing rights semantics.
+  Native consumer checks must cover ordered pins, append/unpin/re-pin, query changes, failed head retry and unchanged selected IDs.
 
 ### A30d ForumTopics client recovery — 2026-10-02
 
@@ -2559,7 +2594,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next implementation: P1 A48 forwarding-topic snapshot/accepted-query ownership, then A46b forwarding pin order.
+- Exact next implementation: A46b forwarding pin order, with the verified A48 ownership/query boundaries preserved; A32
+  public native search placement can proceed independently. A48 `fe9424c`/`727103c` has bounded native/regression proof above.
   A46a `34b7868` has bounded native/actual-list/foreground proof above. Preserve raw pagination, exact query/source ownership,
   A45 arbitration and A47's native read bound; never infer configured pin positions from timestamps or topic IDs.
   A47 `09db3f5` and A30h `c895a8c` have bounded native/regression proofs above; their live/runtime limitations remain.
