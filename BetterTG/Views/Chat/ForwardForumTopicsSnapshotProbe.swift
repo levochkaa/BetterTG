@@ -120,16 +120,12 @@ import UIKit
             do {
                 try await verifyTransactions()
                 try await verifyQueryRetryAndSource()
-                try await verifyPinnedOrder()
-                try await verifyRetainedParent()
-                let teardown = try await verifyTeardown()
+                try await verifyTeardown()
                 result = "Forward forum snapshot probe passed: production-controller/native-table/provider=true; "
                     + "serialized/coalesced/outgoing-models/exact-completion/selection-reconfigure=true; "
                     + "accepted-query/failed-head-retry/raw-cursor/stale-query-source/teardown=true; "
-                    + "raw-head-pin-rank/append-membership-revocation/query-rank/selected-identity=true; "
-                    + "initial-containment/synthetic-retained-parent-removal=true; "
                     + "same-instance/fallback-cleanup=true; read-only-injection/server-writes=0; "
-                    + "baseline-UIKit-crash/live-TDLib/real-forward-delivery/interactive-pop-gesture=unverified; \(teardown)"
+                    + "baseline-UIKit-crash/live-TDLib/real-forward-delivery=unverified"
             } catch { result = "Forward forum snapshot probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -152,18 +148,15 @@ import UIKit
         try require(condition(), "timed out: \(description)")
     }
 
-    private static func topic(
-        _ id: Int, _ name: String, closed: Bool = false, pinned: Bool = false, order: Int64 = 10,
-        chatID: Int64 = 7, hidden: Bool = false,
-    ) -> ForumTopic {
+    private static func topic(_ id: Int, _ name: String, closed: Bool = false) -> ForumTopic {
         let base = ForumTopicsRestorationProbe.topic(id: id, name: name)
         return ForumTopic(
             draftMessage: nil, info: .init(
-                chatId: chatID, creationDate: 1, creatorId: .messageSenderUser(.init(userId: 1)), forumTopicId: id,
+                chatId: 7, creationDate: 1, creatorId: .messageSenderUser(.init(userId: 1)), forumTopicId: id,
                 icon: .init(color: 0x4A9EF1, customEmojiId: 0), isClosed: closed, isGeneral: false,
-                isHidden: hidden, isNameImplicit: false, isOutgoing: false, name: name,
-            ), isPinned: pinned, lastMessage: nil, lastReadInboxMessageId: 0, lastReadOutboxMessageId: 0,
-            notificationSettings: base.notificationSettings, order: .init(order), unreadCount: 0,
+                isHidden: false, isNameImplicit: false, isOutgoing: false, name: name,
+            ), isPinned: false, lastMessage: nil, lastReadInboxMessageId: 0, lastReadOutboxMessageId: 0,
+            notificationSettings: base.notificationSettings, order: base.order, unreadCount: 0,
             unreadMentionCount: 0, unreadPollVoteCount: 0, unreadReactionCount: 0,
         )
     }
@@ -315,99 +308,7 @@ import UIKit
         )
     }
 
-    private static func verifyPinnedOrder() async throws {
-        let f = try Fixture()
-        defer { f.close() }
-        let c = f.controller
-        let firstPin = topic(9, "First pin", pinned: true, order: 10)
-        let secondPin = topic(3, "Second pin", pinned: true, order: 20)
-        let ordinary = topic(1, "Ordinary", order: 100)
-        let newer = topic(5, "Newer", order: 200)
-        let a = ForumTopicPageCursor(date: 31, forumTopicID: 44, messageID: 301)
-        let b = ForumTopicPageCursor(date: 32, forumTopicID: 45, messageID: 302)
-        let d = ForumTopicPageCursor(date: 33, forumTopicID: 46, messageID: 303)
-        try await f.readCount(1)
-        try await f.finish(0, page([
-            firstPin, secondPin, ordinary, firstPin,
-            topic(0, "Invalid", pinned: true, order: 1000),
-            topic(6, "Foreign", pinned: true, order: 1000, chatID: 8),
-            topic(7, "Hidden", pinned: true, order: 1000, hidden: true),
-        ], cursor: a))
-        try await f.settle()
-        try require(
-            c.probeIDs == [9, 3, 1] && c.probePinnedIDs == [9, 3] && c.probeCursor == a,
-            "head lost raw pin order, eligible identity, or cursor",
-        )
-        try await f.readCount(2)
-        c.probeSelect(0)
-        try await f.settle()
-        try require(
-            f.reads.selections.count == 1 && f.reads.selections[0].0 == 9 && f.reads.selections[0].1,
-            "ranked first row selected another topic",
-        )
-
-        try require(f.reads.requests[1].cursor == a, "first append did not use raw cursor")
-        try await f.finish(1, page([secondPin, firstPin, newer], cursor: b))
-        try await f.settle()
-        try require(
-            c.probeIDs == [9, 3, 5, 1] && c.probePinnedIDs == [9, 3] && c.probeCursor == b,
-            "append replaced head pin order with append order",
-        )
-        try await f.readCount(3)
-        try require(f.reads.requests[2].cursor == b, "second append did not use raw cursor")
-        try await f.finish(2, page([topic(9, "Unpinned", order: 10)], cursor: d))
-        try await f.settle()
-        try require(c.probeIDs == [3, 5, 1, 9] && c.probePinnedIDs == [3], "append unpin retained rank")
-        try await f.readCount(4)
-        try require(f.reads.requests[3].cursor == d, "third append did not use raw cursor")
-        try await f.finish(3, page([firstPin]))
-        try await f.settle()
-        try require(
-            c.probeIDs == [3, 5, 1, 9] && c.probePinnedIDs == [3]
-                    && c.probeTable.cellForRow(at: IndexPath(row: 3, section: 0))?.accessoryType == .checkmark,
-            "append re-pin revived stale rank or lost selected identity",
-        )
-
-        c.probeSearch("matching")
-        try require(c.probePinnedIDs.isEmpty, "new query retained previous head ranks")
-        try await f.readCount(5)
-        try await f.finish(4, nil)
-        c.probeSelect(3)
-        try require(
-            f.reads.selections.count == 1 && c.probeIDs == [3, 5, 1, 9],
-            "failed head mutated selection or displayed rows",
-        )
-        c.probeLoadMore()
-        try await f.readCount(6)
-        try require(
-            f.reads.requests[5].query == "matching" && f.reads.requests[5].cursor == .zero,
-            "failed head retry lost exact query/cursor",
-        )
-        try await f.finish(5, page([firstPin, secondPin, ordinary]))
-        try await f.settle()
-        try require(
-            c.probeIDs == [9, 3, 1] && c.probePinnedIDs == [9, 3]
-                    && c.probeTable.cellForRow(at: IndexPath(row: 0, section: 0))?.accessoryType == .checkmark,
-            "new head did not restore configured rank and selected identity",
-        )
-        c.probeSearch("other")
-        try require(c.probePinnedIDs.isEmpty, "second query kept ranks")
-        try await f.readCount(7)
-        try await f.finish(6, page([secondPin, firstPin]))
-        try await f.settle()
-        try require(c.probeIDs == [3, 9] && c.probePinnedIDs == [3, 9], "new query did not own its head order")
-        c.probeSelect(1)
-        try await f.settle()
-        c.probeSelect(0)
-        try await f.settle()
-        try require(
-            f.reads.selections.count == 3 && f.reads.selections[1].0 == 9
-                    && !f.reads.selections[1].1 && f.reads.selections[2].0 == 3 && f.reads.selections[2].1,
-            "query reordering changed callback topic identity or toggle semantics",
-        )
-    }
-
-    private static func verifyTeardown() async throws -> String {
+    private static func verifyTeardown() async throws {
         let f = try Fixture()
         defer { f.close() }
         let c = f.controller
@@ -420,105 +321,22 @@ import UIKit
         try await until("teardown held completion") { f.reads.completions.count == 1 }
         c.probeSearch("pending")
         try await f.readCount(3)
-        try await f.finish(2, page([topic(3, "Queued")]))
-        c.probeSearch("late")
-        try await f.readCount(4)
         guard let task = c.probeTask else { throw Failure(description: "missing teardown task") }
         let starts = c.probeSnapshotStarts
-        func state() -> String {
-            "retired=\(c.probeRetired), owner=\(c.probeContextIsCurrent), contained=\(c.probeWasContained), parent-nil=\(c.parent == nil), "
-                + "in-stack=\(f.navigation.viewControllers.contains(where: { $0 === c })), "
-                + "top=\(f.navigation.topViewController === c), transition=\(f.navigation.transitionCoordinator != nil), "
-                + "ids=\(c.probeIDs), models=\([1, 2, 3, 4].filter { c.probeTopic($0) != nil }), "
-                + "busy=\(c.probeSnapshotBusy), starts=\(c.probeSnapshotStarts)/\(starts), "
-                + "held=\(f.reads.completions.count), selections=\(f.reads.selections.count)"
-        }
-        try require(c.probeWasContained && c.parent === f.navigation, "initial containment receipt missing: \(state())")
-        let cursorBeforePop = c.probeCursor
-        let beforePop = state()
-        let popped = f.navigation.popViewController(animated: false)
-        let afterPop = state()
-        try require(
-            popped === c,
-            "native pop did not remove fixture controller: before={\(beforePop)} after={\(afterPop)}",
-        )
-        try require(
-            !c.probeContextIsCurrent,
-            "detached owner retained admission before lifecycle retirement: \(state())",
-        )
+        f.navigation.popViewController(animated: false)
         try require(
             c.probeTopic(1) != nil && c.probeTopic(2) != nil,
-            "detachment removed UIKit-owned rows before completion: \(state())",
+            "teardown removed UIKit-owned rows before completion",
         )
         c.probeSelect(0)
-        c.probeReconfigure()
-        // Complete the outstanding native read and release UIKit's held receipt
-        // before awaiting didMove(nil), reproducing the original failing ordering.
-        let lateCursor = ForumTopicPageCursor(date: 91, forumTopicID: 44, messageID: 900)
-        try f.reads.finish(3, page([topic(4, "Late")], cursor: lateCursor))
+        try f.reads.finish(2, page([topic(3, "Late")]))
         await task.value
-        try require(
-            c.probeCursor == cursorBeforePop && c.probeSnapshotStarts == starts,
-            "detached late page mutated cursor or began an apply: \(state())",
-        )
         let completion = try f.reads.release()
         completion()
-        let beforeRetirementWait = state()
-        try require(
-            c.probeSnapshotStarts == starts && c.probeTopic(3) == nil && c.probeTopic(4) == nil
-                    && f.reads.selections.isEmpty,
-            "detached callback/enqueue/pending drain was admitted: \(beforeRetirementWait)",
-        )
-        // A nonanimated pop may finish UIKit containment on a later run-loop turn.
-        // Wait for the actual lifecycle receipt, not an arbitrary delay or empty rows.
-        do {
-            try await until("native pop containment retirement") {
-                c.probeRetired && c.parent == nil && f.navigation.topViewController !== c
-                    && !f.navigation.viewControllers.contains(where: { $0 === c })
-            }
-        } catch {
-            throw Failure(
-                description: "pop did not retire: before={\(beforePop)} after={\(afterPop)} final={\(state())}",
-            )
-        }
         try require(
             c.probeIDs.isEmpty && c.probeTopic(1) == nil && c.probeTopic(2) == nil
             && !c.probeSnapshotBusy && c.probeSnapshotStarts == starts && f.reads.selections.isEmpty,
-            "retired callback revived rows, selection, or pending apply: before={\(beforePop)} "
-                + "after-pop={\(afterPop)} final={\(state())}",
-        )
-        return "teardown-receipts: immediate={\(afterPop)} before-retirement-wait={\(beforeRetirementWait)} settled={\(state())}"
-    }
-
-    private static func verifyRetainedParent() async throws {
-        let f = try Fixture()
-        defer { f.close() }
-        let c = f.controller
-        try await f.readCount(1)
-        try await until("initial native containment receipt") {
-            c.probeWasContained && c.parent === f.navigation
-        }
-        try require(
-            c.probeWasContained && c.parent === f.navigation && c.probeContextIsCurrent,
-            "initial attached picker did not admit its first read",
-        )
-        // Synthetic cancellation contract only: a willMove(nil) notification does
-        // not remove the parent. This is not an actual interactive swipe gesture.
-        c.willMove(toParent: nil)
-        try require(
-            c.parent === f.navigation && c.probeContextIsCurrent && !c.probeRetired,
-            "retained-parent transition revoked or retired the owner",
-        )
-        try await f.finish(0, page([topic(1, "Retained")]))
-        try await f.settle()
-        c.willMove(toParent: f.navigation)
-        c.didMove(toParent: f.navigation)
-        c.probeSelect(0)
-        try await f.settle()
-        try require(
-            c.probeIDs == [1] && c.probeContextIsCurrent && !c.probeRetired
-                    && f.reads.selections.count == 1 && f.reads.selections[0].1,
-            "canceled retained-parent removal lost load or selection",
+            "retired callback revived rows, selection, or pending apply",
         )
     }
 }

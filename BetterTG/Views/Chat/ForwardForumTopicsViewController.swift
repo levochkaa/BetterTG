@@ -25,10 +25,6 @@ import UIKit
     var probeIDs: [Int] { snapshotState.displayedIDs }
     var probeCursor: ForumTopicPageCursor { cursor }
     var probeLoading: Bool { loading }
-    var probeRetired: Bool { retired }
-    var probeWasContained: Bool { wasContained }
-    var probeContextIsCurrent: Bool { contextIsCurrent }
-    var probePinnedIDs: [Int] { pinnedOrder.ids }
     var probeTask: Task<Void, Never>? { loadTask }
     func probeTopic(_ id: Int) -> ForumTopic? { snapshotState.topic(id: id) }
     func probeSearch(_ text: String) { searchBar(searchBar, textDidChange: text) }
@@ -51,7 +47,6 @@ import UIKit
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
     private var snapshotState = ForumTopicsSnapshotState()
-    private var pinnedOrder = ForumTopicPinnedOrder()
     private var topics = [ForumTopic]()
     private var selectedTopicIDs: Set<Int>
     private var allowedTopicIDs = Set<Int>()
@@ -66,13 +61,9 @@ import UIKit
     private var canManageTopics = false
     private var rightsResolved = false
     private var retired = false
-    private var wasContained = false
 
     private var contextIsCurrent: Bool {
-        // Initial view loading may precede UIKit's first containment receipt. Once
-        // attached, parent removal revokes admission immediately; didMove(nil) can lag.
-        // Keep an interactive removal with a retained parent nonterminal.
-        guard !retired, !wasContained || parent?.children.contains(where: { $0 === self }) == true else { return false }
+        guard !retired else { return false }
         #if DEBUG
         if let probeCurrentContext { return probeCurrentContext() }
         #endif
@@ -119,10 +110,7 @@ import UIKit
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        guard parent == nil else {
-            wasContained = true
-            return
-        }
+        guard parent == nil else { return }
         retired = true
         generation &+= 1
         loadTask?.cancel()
@@ -341,30 +329,12 @@ import UIKit
                       currentQuery == query,
                       contextIsCurrent
                 else { return }
-                let incoming = page.topics.filter { $0.info.chatId == self.chat.id && $0.info.forumTopicId > 0 }
-                if requestedCursor != .zero, acceptedQuery == currentQuery {
-                    // Append can revoke a known rank, but membership alone never
-                    // supplies the configured position of a newly pinned topic.
-                    var previous = Dictionary(uniqueKeysWithValues: topics.map { ($0.info.forumTopicId, $0.isPinned) })
-                    for topic in incoming {
-                        let id = topic.info.forumTopicId
-                        pinnedOrder.observeMembership(id: id, previous: previous[id], pinned: topic.isPinned)
-                        previous[id] = topic.isPinned
-                    }
-                }
-                let merged = ForumTopicPageState.merging(
+                topics = ForumTopicPageState.merging(
                     // A failed reset can be retried through loadMore with reset=false.
                     // A raw head always replaces the preceding query's accepted rows.
                     existing: requestedCursor == .zero || acceptedQuery != currentQuery ? [] : topics,
-                    incoming: incoming,
+                    incoming: page.topics,
                 )
-                if requestedCursor == .zero {
-                    pinnedOrder.acceptHead(
-                        page.topics, eligible: Set(merged.map(\.info.forumTopicId)),
-                        chatID: chat.id, after: pinRevision,
-                    )
-                }
-                topics = pinnedOrder.applying(to: merged)
                 acceptedQuery = currentQuery
                 allowedTopicIDs = Set(topics.compactMap { topic in
                     self.canPost(to: topic) ? topic.info.forumTopicId : nil
@@ -407,13 +377,13 @@ import UIKit
     }
 
     private func applySnapshot() {
-        guard contextIsCurrent else { return }
+        guard !retired else { return }
         snapshotState.enqueue(topics, client: client)
         drainSnapshot()
     }
 
     private func drainSnapshot() {
-        guard contextIsCurrent, let batch = snapshotState.begin() else { return }
+        guard !retired, let batch = snapshotState.begin() else { return }
         #if DEBUG
         probeSnapshotStarts += 1
         #endif
