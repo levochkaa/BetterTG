@@ -270,7 +270,15 @@ import UIKit
         }
         rows.apply()
         try await until("initial MessageCells") { rows.completed == 1 }
-        rows.collection.layoutIfNeeded()
+        // The first diffable completion can precede UIWindow's automatic safe-area
+        // inset adjustment. Capture the viewport only after that initial layout.
+        try await until("initial safe-area layout") {
+            window.layoutIfNeeded()
+            host.view.layoutIfNeeded()
+            rows.collection.layoutIfNeeded()
+            return rows.collection.adjustedContentInset.top == window.safeAreaInsets.top
+                && rows.collection.contentOffset.y == -rows.collection.adjustedContentInset.top
+        }
         let path = IndexPath(item: 2, section: 0)
         guard let original = rows.collection.cellForItem(at: path) as? MessageCell
             else { throw Failure(description: "missing actual MessageCell") }
@@ -298,7 +306,9 @@ import UIKit
         try require(
             rows.collection.cellForItem(at: path) === original && rows.collection.contentOffset == offset
                     && original.accessibilityLabel?.contains("Read") == true && staleCallbacks == 0,
-            "same-ID replacement missed status, moved viewport or accepted old owner callback",
+            "same-ID replacement: retained-cell=\(rows.collection.cellForItem(at: path) === original), "
+                + "offset=\(offset)->\(rows.collection.contentOffset), "
+                + "AX=\(original.accessibilityLabel ?? "nil"), stale-callbacks=\(staleCallbacks)",
         )
         subscription.cancel()
         let otherOwner = NSObject()
