@@ -71,6 +71,14 @@ final class ClassicNavigationBar: UINavigationBar {
         applyingPolicy = true
         defer { applyingPolicy = false }
         for item in items {
+            if item.searchController != nil {
+                if item.preferredSearchBarPlacement != .stacked { item.preferredSearchBarPlacement = .stacked }
+                if item
+                    .searchBarPlacementAllowsToolbarIntegration
+                {
+                    item.searchBarPlacementAllowsToolbarIntegration = false
+                }
+            }
             for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
                 hideSharedBackground(button)
             }
