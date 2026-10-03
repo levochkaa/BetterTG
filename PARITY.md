@@ -95,8 +95,9 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: P2 A46b forwarding pin ordering and A32 native search placement.
-Primary-list A46a is verified below; A48's actual early-detachment callback now has bounded native proof.
+Active queue: A22 actual ChatView automatic-snapshot completion ownership, then the next useful gap.
+A46b forwarding pin ordering and A32 top search placement have bounded native/actual proof below.
+A32 still has native capsule/shadow/Back limitations; A48's early-detachment callback has bounded native proof.
 A47 individual topic-list reads `09db3f5` pass max-two/FIFO/reset native checks and existing forum regressions.
 A30h member-tag draft retention/renewed explicit Save `c895a8c` passes bounded native checks and existing profile regressions.
 A44b2a/b shared bounded reads and exact per-topic receipts `4a2a190`/`2190c4d` pass controlled reader/native MessageCell probes.
@@ -172,7 +173,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A30g | P1 | At `72d74b0`, Profile only retains itself while topmost; an open Members/Admins child keeps the old client and lacks restoration participation. Actual basic-group Members → Home → foreground drops both routes to Chat in the same PID | fixed bounded — `55ff037`/`f9b5dad` exact-parent/list retention including unloaded parent across epochs; `e049da3` explicit visible Retry. Native regressions pass; actual basic-group Members survives two epochs, Admins survives one and Back reaches fresh Profile. Live supergroup pagination/permission loss, tag editor and dispatched Save remain separate |
 | A30h | P1 | At `2190c4d`, MembersParentBinding requires Members topmost; [Profile, Members, Tag] cannot retain Profile on client renewal and its account-change handler removes the entire suffix. Tag editor also freezes the old client and owns no renewal session | fixed bounded in `c895a8c`: exact typed triplet hold, renewed immutable edit endpoint with fresh tag authority, uncertain-write/no-replay and revision-safe ACK. Native PID83507 and existing profile regressions pass; whole live chain/foreground, interactive Back cancellation and authorized server Save remain unverified |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
-| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background. `3983b48` removes ineffective synthetic Back/title tracking; native nil-item policy and actual Profile/Edit/Back pass, but Back remains circular. `1b89dbd` makes folder selector/order Done plain text; selector pixels/action and native gates pass. Native search islands and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
+| A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — explicit buttons `941a90a`/`1b89dbd`, nil Back cleanup `3983b48`. `1ef0935` keeps owned native search below the title and out of the toolbar; native and actual forum query/foreground/clear pass. Search capsule/shadow, circular Back and extended visual/accessibility matrix remain open; marker scan is not visual proof |
 | A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
 | A34 | P1 | At `7426478`, `RootVM.updateChatFolders` builds main/custom snapshots, awaits archive hydration, then replaces all folders. Accepted same-epoch unread/draft/message/position events during that await mutate the old objects and are lost on replacement | fixed bounded observed fields — `4185849` reconciles newer accepted deltas across raw/peer/list reads and final insertion; `3290ba4` retires superseded refresh projections immediately. Actual reducer/insertion suspended probes pass. RootVM transport wiring is source-reviewed; unobserved fields/group updates and delayed live RPC remain open |
 | A35 | P2 | At `7426478`, `RootVM.loadScopeNotificationSettings` collects three sequential reads and finally merges old values over settings accepted from intervening updates | fixed in `67c9470` — per-scope request revisions reserved before dispatch, accepted-update revocation and immediate response publication. Actual loader suspended-read probe passes overlapping loads, late success/failure, source/epoch/cancel and value retention; real mute-badge race is unverified |
@@ -186,7 +187,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
 | A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | fixed bounded ordinary/forum delivery — `1630ee1`, geometry `909f62b`, explicit-topic `5b9b322`, all-messages shared reads/receipts `4a2a190`/`2190c4d`. Controlled/native cells and actual ordinary/explicit-topic foreground display pass. Live all-messages/peer-read transitions and final self mapping remain separate; broadcast final checks conservatively excluded |
 | A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | fixed bounded echo/read ownership — `e3fb6d9`, `597d6f3`, page-membership correction `c9317e5`, known-row lifetime `0a4c6af`. Real-VM controlled reads/native cell and controller regressions pass; actual search/foreground and fuzzy before/after proof recorded. Actual TDLib request counts, delayed server conflicting updates and one bounded redundant unknown follow-up remain unverified/open |
-| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | partial — primary list `34b7868` preserves raw-head ranks across append/individual updates and matching-query restoration. Native PID88745 and actual PID92862 put General first; Forward selector A46b and live multi-pin/reorder behavior remain open. Changed-pin echo can require a second stable head; pure remote reorder needs explicit refresh |
+| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | fixed bounded in primary list `34b7868` and Forward `e2dd664`: query-owned raw-head ranks, membership-edge revocation and unchanged raw cursor. Native multi-pin/append/query/selection and actual single-pin lists pass. Live multi-pin/reorder remains unverified; changed-pin echo can need a second stable head and pure remote reorder needs explicit refresh |
 | A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | fixed bounded in `09db3f5`: max two individual native reads per VM across canceled query generations, exact-UUID retirement and coalesced FIFO demand. Native PID97812 and existing forum regressions pass. Page concurrency, global cross-VM limits and queue hard memory cap are outside this slice; no live lag/OOM claim |
 | A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; failed query retry can also merge older-query rows. Native teardown exposed a detached-parent interval before didMove(nil) | fixed bounded through `fe9424c`/`727103c`, diagnostic `1fa99a9`: transaction-owned models, serialized page/toggle applies, accepted-query and immediate containment gates. Native PID68845 passes late-callback/cursor/pending-drain checks before retirement. Natural baseline crash, live permission/TDLib races, modal dismiss and actual interactive cancellation remain unverified |
 
@@ -2225,6 +2226,19 @@ is imported. This source pass does not prove every content's real rendering/acti
   in this consumer: accepted raw head assigns rank, append preserves it, accepted membership edges invalidate obsolete positions,
   and changed query clears it. Keep raw cursor, server query membership, A48 snapshot/selection gates and existing rights semantics.
   Native consumer checks must cover ordered pins, append/unpin/re-pin, query changes, failed head retry and unchanged selected IDs.
+- A46b integration `e2dd664` (worker `8559c51`, independently reviewed tree `7f78bf8a`) reuses `ForumTopicPinnedOrder` in
+  the production Forward controller. Exact-chat/positive incoming rows are merged before projection; raw response cursor/hasMore
+  remain untouched. Only accepted raw head assigns ranks. Append observes known membership edges, including duplicate-ID edges
+  within its page, without inventing rank; query change clears rank. A48 model/apply/selection/source/containment gates remain.
+  Single SwiftFormat0/2; integrated build `build-Debug-20261003-120434-2571-25802.log`: PASS22s, full log zero warnings/errors.
+- Native PID14782 on audit59EB535C/iOS26.5, fresh report12:07:44+04: PASS ordered two-pin head, invalid/foreign/hidden rows,
+  reversed append order/raw cursor, across-page unpin→re-pin revocation, selected-ID persistence, failed head retry/new query
+  and existing A48 transaction/teardown cases. Same-page duplicate ABA is source-inspected, not separately native-tested.
+  This run's post-completion teardown receipt was already retired; the earlier PID68845 proof remains the explicit pre-retirement case.
+- Actual PID15841 at `e2dd664`: existing photo → Forward → existing forum → production topic selector now shows
+  IDs1,153,196,134,94,37. General1 is pinned and first at y168pt instead of third at y290.67pt; rows remain402×61.33pt.
+  `astra-a46-pinned-order/forward-topics-after.png` inspected. No topic/destination chosen, pin mutation or Send. This is actual
+  single-pin loaded-list proof; live multi-pin editing/reordering, permissions and delivery remain unverified.
 
 ### A30d ForumTopics client recovery — 2026-10-02
 
@@ -2393,6 +2407,27 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Private captures/diagnostics: `.build/ui-probe-evidence/astra-a32-primary`. No profile fields edited/Save tapped/server mutation.
   Native Back/background/history, interactive cancel, first-frame polish, RTL/dynamic widths/dark mode and native search remain open.
   Continue independent P1 list ordering while preserving this reproducible public-API limitation.
+
+### A32 native search placement — 2026-10-03
+
+- `1ef0935` sets `.stacked` and disables toolbar integration only for non-nil search controllers on app-owned bars.
+  Setters are idempotent; search/delegate/field identity, text/selection, active state, scrolling policy and native Back are retained.
+  No global appearance mutation, private subview traversal or controller/delegate replacement. The Forward picker owns a separate
+  UISearchBar header and is unchanged by this policy.
+- References: pre-Liquid `8e7e5fe`, `ChatListHeaderComponent/Sources/ChatListNavigationBar.swift`272–326 retains search in
+  the top navigation region. Local UIKit26.5 `UINavigationItem.h`39–53,232–254 defines stacked placement and the public toolbar
+  opt-out. These APIs establish preferred placement, not full classic visual styling; no Telegram UI infrastructure is copied.
+- Independent review passed final tree `7dd516d8`. Both changed Swift files formatted in one invocation; final build
+  `build-Debug-20261003-120206-97759-31692.log`: PASS18s, full log zero warnings/errors. Native PID99807, report12:03:03+04,
+  passes initial/late/replaced/removed search, repeated layout, non-nil selection[2,5], delegate/text/scroll preservation and unowned
+  bar isolation, plus existing Back/action/appearance checks. Integrated PID14782 repeats PASS at12:07:37.
+- Actual PID99807, source `1ef0935` on audit59EB535C/iOS26.5: top Search Topics replaces the bottom toolbar island; first topic
+  moves from y116 to y176pt, below search. Active field is(16,70,315,44); query `articles` returns topic37 at y122pt.
+  Home→foreground in the same PID preserves query, keyboard and these frames; clear/close restores all six rows with General first.
+  The narrow replacement log has no receipt, so this proves foreground UI continuity, not a newly established TDLib client epoch.
+  Inspected `astra-a32-search-placement/after-final.png`, `active.png`, `foreground-search.png`.
+- Search capsule/shadow, circular Back/Close, other search screens, rotation, RTL/Dynamic Type and accessibility remain open.
+  Production/dependency forbidden-marker scan is empty at `e2dd664`; this is not proof that all runtime chrome is classic.
 
 ### Background Simulator launch — 2026-10-02
 
@@ -2594,13 +2629,15 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next implementation: A46b forwarding pin order, with the verified A48 ownership/query boundaries preserved; A32
-  public native search placement can proceed independently. A48 `fe9424c`/`727103c` has bounded native/regression proof above.
+- Exact next slice: A22 opt-in real ChatView snapshot-completion proof, using unchanged real rows and a matched control/drag
+  invalidation schedule. Do not introduce a fake VM or claim actual prepend/keyboard/media-resize coverage from it.
+  A46b `e2dd664` and A32 placement `1ef0935` have bounded native/actual proof above; native chrome remains partial.
+  A48 `fe9424c`/`727103c` has bounded native/regression proof above.
   A46a `34b7868` has bounded native/actual-list/foreground proof above. Preserve raw pagination, exact query/source ownership,
   A45 arbitration and A47's native read bound; never infer configured pin positions from timestamps or topic IDs.
   A47 `09db3f5` and A30h `c895a8c` have bounded native/regression proofs above; their live/runtime limitations remain.
   A44b2b now derives exact raw-topic receipts with the existing shared reads. Preserve A44a/b1/b2 states and A45 no-echo behavior,
-  source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 remains partial for other consumers/live rank updates.
+  source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 live multi-pin/reorder behavior remains unverified.
   A45a/b/c have bounded real-VM/native-cell proof above. A44a/A44b1 have bounded native/actual proofs above;
   A44b2 has controlled/native proof, live all-messages data remains unavailable; final self/broadcast checks conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
@@ -2613,7 +2650,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A30f1 editor state/authority proof passes; full gallery/member-editor restoration remains separate.
   A36 child-publisher and actual deleted-title proofs pass; modal fixture correction passes combined probes. A37 complete
   focused baseline and actual delayed settled geometry are clean; retain the original intermittent failure and avoid speculative rewrite.
-  Retain A32 native Back/search and extended runtime matrix;
+  Retain A32 native Back/search capsule styling and extended runtime matrix;
   retain A22's controlled layout/interaction runtime gaps after the bounded authority repair.
   Retain static-image live transport/account-switch proof limits and Chat's untested nonempty composer/import/keyboard cases.
   Telegram's chat-level background path stops into preview; Legacy also has a separate dismiss observer. Their ordering and durable
