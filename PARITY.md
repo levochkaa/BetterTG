@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A45a topic-list fetch echo/direct scalar and individual-read ownership, then A45b page/full arbitration.
+Active queue: A45b topic-list page/full arbitration and info tombstones; A45a echo/direct-scalar repair has bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
 All-messages topic aggregation stays A44b2; no cross-topic/global watermark fallback.
 At `72d74b0`, the integrated
@@ -179,7 +179,8 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
 | A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | partial — ordinary states/feed `1630ee1`, geometry proof `909f62b`, explicit-topic receipts/ChatVM echo `5b9b322`; native and actual ordinary/topic foreground display proofs pass. All-messages b2, actual peer-read transitions and final self/broadcast mapping remain separate |
-| A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | needs-fix — direct update or semantic reconciliation must break RPC echo, preserve omitted lastMessage/order/unread count and reject late stale reads. Source-confirmed at `909f62b`; no instrumented runtime request-count proof yet. ChatVM has the same prerequisite being addressed within A44b1, not a topic-list fix |
+| A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | partial — `e3fb6d9` coalesces echoes, applies scalar updates, preserves semantic demand and fences individual reads. Real-VM injected-read/native-cell probe passes; page/full omitted-field arbitration and page info tombstones remain A45b. Actual TDLib request-count proof remains unverified; ChatVM equivalent is separately fixed in A44b1 |
+| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | needs-fix — preserve authoritative pinned-topic ordering separately from chronological order. Source-confirmed in primary and independent review; no native or live pinned-order proof yet. Separate from A45 fetch ownership |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1867,6 +1868,52 @@ is imported. This source pass does not prove every content's real rendering/acti
   page-created unknown demands, refresh omitted count/order only for relevant semantic changes, and overlay exact-topic scalar
   events accepted after either page or individual dispatch. Full page-vs-individual ordering of omitted fields and later
   hidden/renamed-info resurrection are separate A45b. Reset must preserve raw TD pagination cursor semantics and exact owners.
+- A45a `e3fb6d9` (worker `af3a8bb`) consumes known scalar payloads directly and deduplicates unchanged echoes. Unknown
+  lookups coalesce behind page/individual work; a returned page satisfies only unknown-echo demand, never later semantic
+  demand for omitted count/order/lastMessage. Independent review caught and repaired that demand-loss race before integration.
+  Inbox/draft changes refresh once; post-dispatch exact-topic scalar updates overlay either response. Individual requests
+  validate UUID/generation/query/raw returned chat+topic and use weak VM ownership across await. Synchronous source departure
+  permanently retires tasks/subscriptions/leases; late cleanup cannot remove a successor. Shared applying(update:) preserves b1.
+- Native PID31180 on source e3fb6d9, `-ui-probe-forum-updates`, PASS: actual ForumTopicsVM with controlled async read closures
+  and local scoped notifications proves page/individual echo counts, unknown/failed/filtered demand, direct scalar delivery,
+  post-dispatch scalar overlay/raw cursor, semantic demand across page and individual completion, wrong result identity,
+  late query/error cleanup and terminal source ABA. A mounted production ForumTopicCell updates from its topics publisher.
+  This is not a full diffable-controller/viewport proof or live TDLib RPC counting; no global account mutation or server writes.
+- Native PID32832 on the same source: active-search and restoration probes both PASS, covering the production search controller,
+  field/table/snapshot lifetime, renewed bindings, late metadata, source/account guards, saved page/query/cursors and viewport
+  helpers. These fixtures do not prove current live-server filtering or a real foreground cycle. Results are saved under
+  `.build/ui-probe-evidence/astra-a45-topic-updates/` with the A45a probe output.
+- Native PID34729 message-delivery regression PASS, including explicit-topic scalar extraction, echo decisions, late drafts,
+  real MessageCells and stable owner/offset behavior. Whole-ChatVM and live peer-read transitions remain outside that fixture.
+- Actual PID36808 on e3fb6d9: six real topic rows loaded, search reduced to topic1, same-process Home/foreground preserved the
+  raw query and focused keyboard. Ownership released05:32:58.246, restored05:33:47.182, search binding accepted05:33:47.532 (+04).
+  idb physical-keyboard input produced a Cyrillic-layout query despite visible English keys; this was observed, not labelled
+  literal-General proof. Screen-keyboard input and its visible correction then produced General. Cancel restored all six IDs
+  `[153,196,1,134,94,37]` at their original x0/w402, y116+61.3333n geometry. Screenshots before/search/foreground/after inspected.
+  No topic selected, message sent or pin changed. This verifies bounded live read/filter/renewal/navigation, not RPC counts,
+  delayed server response ordering, large-page pagination or remote topic edits. Existing native Back/Search styling gap remains A32.
+- Five changed Swift files formatted together; primary `build-Debug-20261003-052515-30443-1717.log` PASS11s and worker
+  `052305-27973-17007.log` PASS8s, complete logs zero warnings/errors. Source review passed on immutable af3a8bb.
+  A45b now addresses older full responses overwriting a newer accepted row and page responses resurrecting hidden/renamed rows;
+  it must preserve raw cursors, accepted-update overlays, semantic demand and the no-echo contract.
+
+### A46 forum pinned ordering audit — 2026-10-03
+
+- Source `cb723ab`: `ForumTopicPageState.merging` and `ForumTopicsVM.sortTopics` compare only order and topic ID;
+  `ForumTopicCell` renders pin decoration/background without moving the row. A pinned topic with an older chronological
+  order can therefore remain below an ordinary topic. This predates A45a's direct scalar path.
+- Pinned TDLib022d6020 `ForumTopic.cpp:117–133` derives order only from last message and draft date. `td_api.tl:3917`
+  exposes isPinned separately; getForumTopics is a temporary server-list API with an explicit raw pagination cursor.
+  Telegram `6ad963e`/pre-Liquid `8e7e5f` `ChatListNodeLocation.swift:365–388`/`264–288` uses a separate pinnedIndex.
+  `ForumChannels.swift:1265–1313`/`1075–1122` stores pinned thread IDs separately when applying loaded results.
+- Preserve configured pin order, exact source/query ownership and raw cursor; do not infer pin positions from timestamps
+  or topic IDs. Pinned `ForumTopicManager.cpp:748–774` consumes the server's ordered pinned IDs only as membership and
+  emits an update only when isPinned changes; a pure remote reorder has no exposed position update. Preserve server-head
+  response order where available and state the refresh limitation rather than inventing a local order. No server pin writes or
+  runtime reordering were exercised; this is a gap queued after A45, not a completed parity claim.
+- Actual PID36808 on e3fb6d9 confirms the visible defect: pinned General/topic1 is third, below two ordinary topics, both before
+  and after search/foreground/Cancel. Screenshot `astra-a45-topic-updates/list-before.png` and list-after were inspected;
+  no pin mutation was issued. Multiple configured pin ordering still has no runtime proof.
 
 ### A30d ForumTopics client recovery — 2026-10-02
 
@@ -2213,7 +2260,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   are integrated as `f551b40`/`1f959bb`/`cc6ad7e`/`501af59`; probe corrections `f8e40b1`/`655698c`/`7097a76` as
   `e5979fd`/`c9e2169`/`37e08e8`. Bounded native/actual proof passes. A44a `52d7e33` is integrated as `1630ee1`;
   primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
-  A44b1 `caf406d` is integrated as `5b9b322`; worker continues with A45a only.
+  A44b1 `caf406d` is integrated as `5b9b322`; A45a `af3a8bb` is integrated as `e3fb6d9` with bounded native proof.
+  Worker continues with A45b only; A46 pinned ordering is separate.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
@@ -2230,10 +2278,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact current slice: A45a ForumTopicsVM echo/direct scalar and individual read ownership, under independent review in worker.
-  Include minimal post-dispatch exact-topic scalar overlay for pages to avoid introducing a stale direct-update regression.
-  Preserve raw cursors and current query/source; no duplicate or recursive fetch from unchanged response echoes.
-  A45b omitted-field page/full arbitration and info tombstones stay separate. A44a/A44b1 have bounded native/actual proofs above;
+- Exact current slice: A45b ForumTopicsVM full-result admission by request-dispatch order and post-dispatch info/tombstones.
+  A higher already-accepted result may defeat an older response; a pending/failed newer request alone must not discard valid data.
+  Preserve raw cursors, query/source authority, scalar overlays and A45a semantic demand; rejection must not trigger an echo loop.
+  A45a has bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
   A44b2 all-messages per-topic receipt queue remains separate, final self/broadcast checks conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
   live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
