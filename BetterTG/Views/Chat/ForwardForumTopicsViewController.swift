@@ -28,6 +28,7 @@ import UIKit
     var probeRetired: Bool { retired }
     var probeWasContained: Bool { wasContained }
     var probeContextIsCurrent: Bool { contextIsCurrent }
+    var probePinnedIDs: [Int] { pinnedOrder.ids }
     var probeTask: Task<Void, Never>? { loadTask }
     func probeTopic(_ id: Int) -> ForumTopic? { snapshotState.topic(id: id) }
     func probeSearch(_ text: String) { searchBar(searchBar, textDidChange: text) }
@@ -50,6 +51,7 @@ import UIKit
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
     private var snapshotState = ForumTopicsSnapshotState()
+    private var pinnedOrder = ForumTopicPinnedOrder()
     private var topics = [ForumTopic]()
     private var selectedTopicIDs: Set<Int>
     private var allowedTopicIDs = Set<Int>()
@@ -339,12 +341,30 @@ import UIKit
                       currentQuery == query,
                       contextIsCurrent
                 else { return }
-                topics = ForumTopicPageState.merging(
+                let incoming = page.topics.filter { $0.info.chatId == self.chat.id && $0.info.forumTopicId > 0 }
+                if requestedCursor != .zero, acceptedQuery == currentQuery {
+                    // Append can revoke a known rank, but membership alone never
+                    // supplies the configured position of a newly pinned topic.
+                    var previous = Dictionary(uniqueKeysWithValues: topics.map { ($0.info.forumTopicId, $0.isPinned) })
+                    for topic in incoming {
+                        let id = topic.info.forumTopicId
+                        pinnedOrder.observeMembership(id: id, previous: previous[id], pinned: topic.isPinned)
+                        previous[id] = topic.isPinned
+                    }
+                }
+                let merged = ForumTopicPageState.merging(
                     // A failed reset can be retried through loadMore with reset=false.
                     // A raw head always replaces the preceding query's accepted rows.
                     existing: requestedCursor == .zero || acceptedQuery != currentQuery ? [] : topics,
-                    incoming: page.topics,
+                    incoming: incoming,
                 )
+                if requestedCursor == .zero {
+                    pinnedOrder.acceptHead(
+                        page.topics, eligible: Set(merged.map(\.info.forumTopicId)),
+                        chatID: chat.id, after: pinRevision,
+                    )
+                }
+                topics = pinnedOrder.applying(to: merged)
                 acceptedQuery = currentQuery
                 allowedTopicIDs = Set(topics.compactMap { topic in
                     self.canPost(to: topic) ? topic.info.forumTopicId : nil
