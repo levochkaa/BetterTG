@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A53 notification media concealment, then A52 correlation/teardown and queued actual ChatView mutations.
+Active queue: A52b NSE live-session/expiry authority, then A53b explicit denial/versioned media cache and queued actual ChatView mutations.
 A51a `38b7d06` and A51b `6b187b0` pass isolated cache/worker native probes. Post-worker sample was idle-only, so comparable
 production performance remains unverified; do not infer a speedup or keep repeating unaligned captures. Keep A39's deadline.
 `e70a227` repairs the separately reproduced latest-end sample invalidation: controlled baseline FAIL0.811s becomes PASS;
@@ -207,8 +207,8 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | bounded repairs — A49a exact-cell fallback, A49b provider/touch authority, A49c1 values and A49c2 `f799d29` shared frozen transactions; `724bf32` repairs measured UIKit deletion reset. Scheduler/action native probes and actual selection/viewport checks pass. Natural Chat crash was not reproduced; actual queued mutation/delete timing/player and physical touch races remain unverified |
 | A50 | P1 | Actual Saved Messages Cancel leaves circles/controls on unselected rows; endMessageSelection only invalidates previously selected IDs, and deselect-last invalidates zero rows | bounded fix `487c0de` updates all snapshot message rows on exit and surviving rows in structural last-selection removal. Actual Cancel/deselect-last screenshots pass; structural removal source-reviewed only |
 | A51 | P1 | At `1c72d3a`, launch sample attributes628/1931 main-thread samples to rich-notification user/chat cache sinks doing source-file reads, image decode/JPEG, directory lookup and atomic writes. Coordinator uses raw events/global td across awaits and disk keys omit account | bounded repairs `38b7d06` account/source isolation and `6b187b0` serial off-main avatars/current-photo ordering; native isolated probes pass. Post-change sample is idle-only, not a performance comparison. Strict NSE write cutoff, photo-removal disk invalidation, registration cardinality and media IO remain open; actual notification delivery unverified |
-| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | needs-fix/source-reviewed — A51a account namespace does not prove message/peer correlation or expiry teardown. Real notification delivery/cancellation is unverified; keep separate from the cache performance repair |
-| A53 | P1 | At `38b7d06`, app coordinator caches incoming photo/video/animation without isSecret/hasSpoiler checks; NSE MessageContent resolution excludes them, but shared-cache fallback/attachment construction can reintroduce those bytes | needs-fix/source-reviewed — regular cloud-chat spoiler/secret-media admission must fail closed before download/cache. Secret-chat peer mapping already returns nil. Existing cached bytes, edit races and fallback authority need separate checks; no real notification or concealed-media bytes exercised |
+| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | fixed bounded A52a `878e85f`: exact account/peer/chat/raw-message correlation, no unrelated fallback; native helper/model cases pass. A52b live-session/expiry teardown remains needs-fix. Actual NSE delivery/RPC/cancellation unverified |
+| A53 | P1 | At `38b7d06`, app coordinator caches incoming photo/video/animation without isSecret/hasSpoiler checks; NSE MessageContent resolution excludes them, but shared-cache fallback/attachment construction can reintroduce those bytes | fixed bounded A53a `afed19b`: full-message admission and exact scoped active-job revocation, native publisher/pipeline probe passes. A53b persisted evidence, explicit denial and NSE fallback remain needs-fix. No real notification or concealed-media bytes exercised |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -2059,6 +2059,27 @@ is imported. This source pass does not prove every content's real rendering/acti
   prohibited production/dependency marker scan is empty. Worker checkout is clean, all implementation changes are committed;
   only this ledger awaits its focused commit. Goal remains active; A53 is the next bounded implementation.
 
+### A52a exact notification correlation — 2026-10-03
+
+- `878e85f` replaces unrelated-last and shifted-only matching with `RichNotificationTarget`: positive exact account,
+  peer kind/ID, ordinary cloud server ID in1...Int32.max, exact TDLib raw ID with zero local/scheduled bits. Invalid metadata
+  is rejected before creating a TDLib client. The actual getChat response must match requested chatID and metadata peer;
+  newMessage also requires its embedded message.chatId. Every getMessage/history candidate rechecks chat and raw ID.
+- Telegram official `6ad963e5`, `Telegram/NotificationService/Sources/NotificationService.swift`2006 and pre `8e7e5fe`
+  same path1770 resolve media through exact message identity. Pinned TDLibFramework `1.8.66-022d6020`,
+  `td/td/telegram/MessageId.h`27–75 defines ordinary serverID<<20 and distinct low-bit local/scheduled variants;
+  TDLibKit `1.5.2-tdlib-1.8.66-022d6020` notificationTypeNewMessage/NewPushMessage, getChat/getMessage/getChatHistory.
+- Independent immutable review passes tree `b6f2bce3` on `be7dbdf`; four-file format2/4. Wrapper
+  `175532-86891-9719` PASS9s, full1573-line log zero warnings/errors. Integration with A53a: joint eight-file format0/8,
+  `175914-89505-20180` PASS8s, full1573-line log zero warnings/errors.
+- Native at source `afed19b`, Audit Simulator59EB535C/iOS26.5, PID90125, fresh container
+  `372A479D-FC6A-4F8B-BFF8-CB41CBC52013`, target report18:00:04+04 PASS. Actual production helper and TDLib model fixtures
+  cover nil/wrong account, invalid/maximum cloud ID, low-bit aliases, peer kind/ID, wrong chat response/message group,
+  matching-before-unrelated-last and unrelated-only selection. showPreview=false remains identifiable for the next denial
+  stage; identity is not preview permission. No RPC/account-store/notification/INInteraction donation in the probe.
+- A52b remains open: unstructured nested session tasks, timeout/expiry and cache-publication lifetime. This helper/model
+  proof does not exercise actual NSE delivery or TDLib RPC. Evidence: `.build/ui-probe-evidence/astra-a52-a53/`.
+
 ### A53 notification media concealment — source finding 2026-10-03
 
 - At `38b7d06`, `RichNotificationCacheCoordinator.cacheMedia` accepts incoming photo/video/animation through its local
@@ -2075,6 +2096,41 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Next after A51b: bounded app-side eligibility gate before download/cache, deterministic positive/negative cases. Then
   examine persisted eligibility, content edits and NSE fallback authority; a new admission guard alone does not sanitize
   existing entries or prove delayed/cache-only notification delivery. Keep this separate from avatar-worker proof.
+- Repair plan reviewed at `be7dbdf` before implementation: A53a shared full-message eligibility plus source/chat/raw-message
+  work leases. Reject secret/spoiler/self-destruct media before any getChat/download/write; preserve ordinary supported
+  positives. Matching content/delete updates and auth/source revocation retire old jobs immediately; every await must
+  recheck the captured lease, and older cleanup must not remove a replacement job. This stage does not close the disk/NSE bypass.
+- Prerequisites for the remaining end-to-end repair: A52 exact account/chat/peer/raw-message correlation and live-session
+  authority. The current unrelated addedNotifications.last fallback and shifted-only ID match cannot certify media under a
+  metadata key. Then explicit unresolved/denied/allowed state must govern builder, cache wait and cache publication.
+  Under-specified PushMessageContent thumbnails are not positive evidence; fetch exact full MessageContent even when a
+  push thumbnail exists. Explicit denial must never become an ordinary nil cache fallback.
+- Durable cache target: atomic versioned evidence and bytes bound to account/peer/chat/raw-message/content revision;
+  old scoped/unscoped JPEGs stay untouched and unread. Observed edits/deletes revoke evidence and outstanding jobs before
+  awaits; only current verified content can republish. Preserve ordinary eligible preview/fallback behavior. Unseen server
+  edits and actual remote notification delivery remain separate proof limits, not reasons to disable every preview.
+- Planned probes use isolated roots and the actual production policy/lease/attachment-selection seams, with held async
+  work and exact receipts. Do not donate synthetic INInteractions or send real notifications for these tests.
+- A53a `afed19b` (worker `739c9e3`, reviewed tree `55d6883a`) adds shared full-Message policy: photo/video/animation
+  require !isSecret&&!hasSpoiler; videoNote !isSecret; selfDestructType/selfDestructIn reject the envelope. Ordinary
+  autoDeleteIn does not deny previews. The app preserves photo/video/animation/sticker candidates and placeholder→file.
+- `RichNotificationMediaPrewarmer` owns source/chat/raw-message UUID leases. New-message admission and content/delete
+  revocation use the same synchronous accepted-TDLib publisher order; an old queued admission cannot revive an edited job.
+  Matching edits/deletes, auth nil and source/client replacement revoke before awaits resume. Each await rechecks current
+  authority; old cleanup cannot remove a replacement. The actual getChat response also validates requested chatID.
+- Worker joint four-file format/final build `175435-85477-13178` PASS10s/full1450-line log zero warnings/errors.
+  Initial compile missing a nested @MainActor annotation was repaired, not suppressed. Exact peer review caught and fixed
+  a vacuous burst-test oracle: the test now requires and awaits the precise newly admitted task. Integration build above.
+- Native same source/PID/container as A52a: media-admission report18:00:05+04 PASS; ordinary families and placeholder
+  positives, concealed/self-destruct negatives before injected IO, same-turn new→edit, held getChat/download revocation,
+  source ABA/client replacement and own-token cleanup all pass. The production publisher/pipeline uses injected RPC/read/
+  cache operations; real TDLib/NSE/durable disk revocation is not demonstrated. No private media or messages sent.
+  Cache-scope and avatar-worker regression probes also PASS18:00:05 using real isolated JPEG/filesystem IO.
+- Remaining A53b: raw existing media cache, NSE nil fallback and push-thumbnail authority still bypass explicit denial.
+  notificationTypeNewMessage.showPreview=false is also not yet enforced by the resolver. Versioned evidence plus bytes,
+  known-edit/delete invalidation and explicit unresolved/denied/allowed selection depend on A52b session authority.
+  App media work remains uncapped and reads/writes on main; this slice revokes leases, not the underlying TDLib download.
+  Future exact app cache keys should reject low-bit local/scheduled variants too; A52a currently hardens NSE only.
 
 ### A40 complete build-warning visibility — 2026-10-03
 
