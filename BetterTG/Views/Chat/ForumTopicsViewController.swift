@@ -32,6 +32,7 @@ import UIKit
     var probeCurrent: Bool { contextIsCurrent }
     var probeRetired: Bool { retired }
     var probePrepared: Bool { preparedClient != nil }
+    private(set) var probeSearchDismissals = 0
     var probeActor: Int64? { actorID }
     var probePages: ForumTopicsRestorationState { restorationState().pages }
     func probeRetryEvent() { retryClientRestoration() }
@@ -169,7 +170,11 @@ import UIKit
     }
 
     func didPresentSearchController(_: UISearchController) { retryClientRestoration() }
-    func didDismissSearchController(_: UISearchController) { resolveTargetIfNeeded()
+    func didDismissSearchController(_: UISearchController) {
+        #if DEBUG
+        probeSearchDismissals += 1
+        #endif
+        resolveTargetIfNeeded()
         retryClientRestoration()
     }
 

@@ -312,11 +312,26 @@ import UIKit
 
         f.owner.move(108)
         try await until("metadata before pop") { f.owner.pending[108] != nil }
+        let dismissals = controller.probeSearchDismissals
         search.isActive = false
-        f.navigation.popViewController(animated: false)
-        try require(!controller.probeCurrent, "actual pop retained action authority")
+        try await until("native search dismissal before quiescent pop") {
+            controller.probeSearchDismissals > dismissals
+                && !search.isActive && !search.isBeingDismissed && search.transitionCoordinator == nil
+                && search.presentingViewController == nil && controller.presentedViewController == nil
+                && f.navigation.presentedViewController == nil && f.navigation.transitionCoordinator == nil
+        }
+        try require(
+            f.navigation.topViewController === controller && f.owner.pending[108] != nil,
+            "search dismissal lost the pending owner before explicit pop",
+        )
+        let popped = f.navigation.popViewController(animated: false)
+        try require(
+            popped === controller && !f.navigation.viewControllers.contains(where: { $0 === controller })
+                    && !controller.chatListActionOwnerIsAttached && !controller.probeCurrent,
+            "actual pop retained navigation or action authority",
+        )
         f.owner.finish(108)
-        try await until("actual pop lifecycle retirement") { controller.probeRetired }
+        try await until("actual pop lifecycle retirement") { controller.parent == nil && controller.probeRetired }
         try require(controller.navigationClientSource?.clientID == 107, "late metadata renewed popped controller")
     }
 
