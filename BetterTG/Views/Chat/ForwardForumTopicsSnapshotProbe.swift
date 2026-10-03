@@ -120,12 +120,12 @@ import UIKit
             do {
                 try await verifyTransactions()
                 try await verifyQueryRetryAndSource()
-                try await verifyTeardown()
+                let teardown = try await verifyTeardown()
                 result = "Forward forum snapshot probe passed: production-controller/native-table/provider=true; "
                     + "serialized/coalesced/outgoing-models/exact-completion/selection-reconfigure=true; "
                     + "accepted-query/failed-head-retry/raw-cursor/stale-query-source/teardown=true; "
                     + "same-instance/fallback-cleanup=true; read-only-injection/server-writes=0; "
-                    + "baseline-UIKit-crash/live-TDLib/real-forward-delivery=unverified"
+                    + "baseline-UIKit-crash/live-TDLib/real-forward-delivery=unverified; \(teardown)"
             } catch { result = "Forward forum snapshot probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -308,7 +308,7 @@ import UIKit
         )
     }
 
-    private static func verifyTeardown() async throws {
+    private static func verifyTeardown() async throws -> String {
         let f = try Fixture()
         defer { f.close() }
         let c = f.controller
@@ -323,10 +323,36 @@ import UIKit
         try await f.readCount(3)
         guard let task = c.probeTask else { throw Failure(description: "missing teardown task") }
         let starts = c.probeSnapshotStarts
-        f.navigation.popViewController(animated: false)
+        func state() -> String {
+            "retired=\(c.probeRetired), parent-nil=\(c.parent == nil), "
+                + "in-stack=\(f.navigation.viewControllers.contains(where: { $0 === c })), "
+                + "top=\(f.navigation.topViewController === c), transition=\(f.navigation.transitionCoordinator != nil), "
+                + "ids=\(c.probeIDs), models=\([1, 2, 3].filter { c.probeTopic($0) != nil }), "
+                + "busy=\(c.probeSnapshotBusy), starts=\(c.probeSnapshotStarts)/\(starts), "
+                + "held=\(f.reads.completions.count), selections=\(f.reads.selections.count)"
+        }
+        let beforePop = state()
+        let popped = f.navigation.popViewController(animated: false)
+        let afterPop = state()
+        try require(
+            popped === c,
+            "native pop did not remove fixture controller: before={\(beforePop)} after={\(afterPop)}",
+        )
+        // A nonanimated pop may finish UIKit containment on a later run-loop turn.
+        // Wait for the actual lifecycle receipt, not an arbitrary delay or empty rows.
+        do {
+            try await until("native pop containment retirement") {
+                c.probeRetired && c.parent == nil && f.navigation.topViewController !== c
+                    && !f.navigation.viewControllers.contains(where: { $0 === c })
+            }
+        } catch {
+            throw Failure(
+                description: "pop did not retire: before={\(beforePop)} after={\(afterPop)} final={\(state())}",
+            )
+        }
         try require(
             c.probeTopic(1) != nil && c.probeTopic(2) != nil,
-            "teardown removed UIKit-owned rows before completion",
+            "teardown removed UIKit-owned rows before completion: \(state())",
         )
         c.probeSelect(0)
         try f.reads.finish(2, page([topic(3, "Late")]))
@@ -336,8 +362,10 @@ import UIKit
         try require(
             c.probeIDs.isEmpty && c.probeTopic(1) == nil && c.probeTopic(2) == nil
             && !c.probeSnapshotBusy && c.probeSnapshotStarts == starts && f.reads.selections.isEmpty,
-            "retired callback revived rows, selection, or pending apply",
+            "retired callback revived rows, selection, or pending apply: before={\(beforePop)} "
+                + "after-pop={\(afterPop)} final={\(state())}",
         )
+        return "teardown-receipts: immediate={\(afterPop)} settled={\(state())}; pre-retirement-admission=unverified"
     }
 }
 #endif

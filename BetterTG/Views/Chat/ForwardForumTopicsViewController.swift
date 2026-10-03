@@ -25,6 +25,7 @@ import UIKit
     var probeIDs: [Int] { snapshotState.displayedIDs }
     var probeCursor: ForumTopicPageCursor { cursor }
     var probeLoading: Bool { loading }
+    var probeRetired: Bool { retired }
     var probeTask: Task<Void, Never>? { loadTask }
     func probeTopic(_ id: Int) -> ForumTopic? { snapshotState.topic(id: id) }
     func probeSearch(_ text: String) { searchBar(searchBar, textDidChange: text) }
