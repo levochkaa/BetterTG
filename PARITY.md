@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: recheck remaining concrete P1 work (A30 member-tag editor renewal first) before P2 A46 pin ordering.
+Active queue: confirmed P1 A30h member-tag editor draft retention/renewed explicit Save, before P2 A46 pin ordering.
 A44b2a/b shared bounded reads and exact per-topic receipts `4a2a190`/`2190c4d` pass controlled reader/native MessageCell probes.
 A45a/b/c echo/direct-scalar, full-read arbitration and known server-query membership have bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
@@ -167,6 +167,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A29 | P1 | `MainView.setAllChatsMuted` re-resolves global `td` between `getChat` and `setChatNotificationSettings`; switching A→B during the read can write A's settings/peer ID through B. FolderView/menu/editor read/write sequences likewise lack frozen action authority | fixed bounded transport in `15f146f` (worker `7513376`) — immutable action client/source, read/write/completion gates, cancellation/attachment checks. Production bulk-helper suspended-read/write probe passes with stale writes=0; cold-launch folder/editor navigation passes. Live account/dismissal mutation races and server writes remain unverified; stale same-account screens still require A30 |
 | A30 | P1 | Background ownership release closes clients while suppressing Closing/Closed; foreground activates same account with `notify:false`. Root compares only loggedIn/accountID and retains a ChatVM whose immutable client/location epoch is closed; updates/sends are rejected until Back→reopen | partial — Main `0820359`/`c5d3f8b`; quiescent Chat `494bf56`/`9495f0a`; Archive `bb36bc7`; ForumTopics `958bc82`/`01a2d84` and active search through `501af59`; folder flows `850ccf8`/`b923f19`; profile editor `1e072ca`; quiescent profile `c68c1c2` plus A38 `97ccea8`; quiescent Members/Admins through `e049da3`. Bounded native and same-PID foreground proof below; A39 has bounded repair proof. Active capture, member-tag editor and full account/notification lifecycle remain open |
 | A30g | P1 | At `72d74b0`, Profile only retains itself while topmost; an open Members/Admins child keeps the old client and lacks restoration participation. Actual basic-group Members → Home → foreground drops both routes to Chat in the same PID | fixed bounded — `55ff037`/`f9b5dad` exact-parent/list retention including unloaded parent across epochs; `e049da3` explicit visible Retry. Native regressions pass; actual basic-group Members survives two epochs, Admins survives one and Back reaches fresh Profile. Live supergroup pagination/permission loss, tag editor and dispatched Save remain separate |
+| A30h | P1 | At `2190c4d`, MembersParentBinding requires Members topmost; [Profile, Members, Tag] cannot retain Profile on client renewal and its account-change handler removes the entire suffix. Tag editor also freezes the old client and owns no renewal session | needs-fix — retain only the exact attached same-account/actor triplet while the existing editor is active; reuse the edit session for renewed explicit Save with fresh member/tag checks and no replay after uncertain dispatch. Source-confirmed, native/live proof pending; existing live account previously denied tag editing |
 | A31 | P2 | Poll submission times out after 10s and allows another request, but old RPC failure calls `failSubmission(messageID:)` without an attempt token, clearing the newer submission's busy state; timeout callbacks likewise identify only message/source selection | fixed bounded scope — `b7de6ee` freezes per-attempt identity across queued RPC, failure, timeout and authoritative selection reset; production-store probe passes, delayed live RPC/UI remains unverified |
 | A32 | P2 | A29 production screenshots at `15f146f` show circular Back/Add and capsule Save controls on Chat Folders/New Folder; those secondary screens use native UIBarButtonItem despite the required classic chrome | partial — `941a90a` owned-bar policy removes the actual Edit Save background. `3983b48` removes ineffective synthetic Back/title tracking; native nil-item policy and actual Profile/Edit/Back pass, but Back remains circular. `1b89dbd` makes folder selector/order Done plain text; selector pixels/action and native gates pass. Native search islands and visual/accessibility matrix remain open; headless flags/marker scan do not prove classic runtime appearance |
 | A33 | P2 | Actual own-profile screenshot at `bdd19cd` shows Saved Messages wrapped and truncated inside a narrow title region although the full-width header has room | fixed bounded width — `b97fa9b` gives header labels definite available width. Actual profile at 402pt: title 362pt, full Saved Messages visible, avatar96pt; A20b regression passes. Other widths/Dynamic Type/RTL remain unverified. Separate from A20b; no introduced-regression claim |
@@ -1504,6 +1505,31 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Documentation validation `build-Debug-20261003-031613-8760-19481.log`: PASS5s, full log zero warnings/errors. Forbidden
   production/dependency marker scan is empty; AGENTS/CLAUDE agree. No new Swift change in this documentation checkpoint.
 
+### A30h member-tag editor renewal: repair contract — 2026-10-03
+
+- Source `2190c4d`, primary and independent review: `PeerProfileControlsViewControllers.swift`314–326 pushes the tag editor
+  above Members. `PeerProfileMembersRestoration.swift`145–151 requires Members itself topmost, so Profile's retention gate
+  (`PeerProfileViewController.swift`234–242) fails; synchronous client-change handling1017–1021 reaches1095–1123 and drops
+  Profile/Members/Tag together. The tag editor1170–1188 captures one immutable old client and has no renewed edit session.
+  This is a concrete source-proved P1, not a claim that the live account's authorized editor was exercised.
+- Bounded change: hold only the exact attached adjacent Profile→Members→Tag chain for the same account and actor, preserving
+  the existing editor, text/selection/marked input and visible errors. Keep stale parents quarantined and defer their replacement
+  until editor closes; do not widen generic Members.canRetain or Profile replacement eligibility. Existing parent restoration
+  resumes afterward. Reuse/extend the existing PeerProfileEditSession rather than replacing the navigation architecture.
+- One explicit tag Save gets a current Ready endpoint and repeats getChat plus actor/target getChatMember, permissions and
+  captured-baseline conflict checks before setChatMemberTag. Preserve empty-tag removal and validation. Source/actor/detached
+  changes must prevent dispatch; a possibly dispatched write becomes uncertain with no automatic retry. A delayed ACK must not
+  pop over newer typing. No live tag/rights mutation is authorized by this smoke; use controlled endpoints for those boundaries.
+- References: current `6ad963e` `TelegramUI/Components/ChatParticipantRightsScreen/Sources/ChatParticipantRightsScreen.swift`
+  63–64,250–274,502–516 and `TelegramCore/Sources/TelegramEngine/Peers/Ranks.swift`15–42 preserve rank edit intent and
+  account-owned explicit commit; pre-Liquid `8e7e5f` `PeerInfoUI/Sources/ChannelAdminController.swift`
+  922–933,1150–1155,1304–1311 owns updated rank/focus. These do not prove Telegram behavior under TDLib client recreation.
+  TDLib `022d6020`: getChat/getChatMember/setChatMemberTag and canEditTag/canManageTags; preserve the existing authority matrix.
+- Planned proof: actual UIKit editor with exact-chain retention and controlled edit endpoints; repeated same-account epochs,
+  raw text/selection, predispatch cancellation, postdispatch uncertainty/no replay, new typing versus delayed result and Back
+  release. Existing profile/member probes must pass. Live authorized editing remains unavailable unless naturally permitted;
+  no synthetic production route or server changes to create the fixture.
+
 ### A39 explicit target navigation — 2026-10-03
 
 - `1b1429f` (worker `4fc6d02`) retires retained viewport intent when accepting explicit navigation, consults the current
@@ -2412,7 +2438,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next audit cursor: remaining A30 member-tag editor client renewal; confirm a concrete bounded P1 before implementing.
+- Exact next implementation: A30h confirmed member-tag editor client renewal under the bounded repair contract above.
   A44b2b now derives exact raw-topic receipts with the existing shared reads. Preserve A44a/b1/b2 states and A45 no-echo behavior,
   source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 remains a confirmed separate P2.
   A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
