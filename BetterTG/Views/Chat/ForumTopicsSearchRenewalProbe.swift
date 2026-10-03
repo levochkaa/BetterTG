@@ -279,13 +279,33 @@ import UIKit
 
         let modal = UIViewController()
         search.present(modal, animated: false)
-        try await until("foreign modal") { search.presentedViewController === modal }
+        try await until("foreign modal attached to actual presenter") {
+            modal.presentingViewController?.presentedViewController === modal
+                && modal.viewIfLoaded?.window === f.window && !modal.isBeingPresented
+                && modal.transitionCoordinator == nil
+        }
+        guard let presenter = modal.presentingViewController
+            else { throw Failure(description: "foreign modal lost presenter") }
+        log("Forum active search probe modal: search-active=\(search.isActive); "
+            + "presenter=\(NSStringFromClass(type(of: presenter))); "
+            + "search-owns=\(search.presentedViewController === modal); "
+            + "controller-owns=\(controller.presentedViewController === modal); "
+            + "navigation-owns=\(f.navigation.presentedViewController === modal)")
+        try require(
+            search.isActive && f.navigation.topViewController === controller
+                    && controller.navigationItem.searchController === search && search.searchBar
+                        .searchTextField === field,
+            "foreign modal replaced or deactivated owned search",
+        )
         let current = controller.probeModel
         f.owner.move(107)
         await events()
         try require(f.owner.pending[107] == nil && controller.probeModel === current, "foreign modal admitted renewal")
-        search.dismiss(animated: false)
-        try await until("foreign modal dismissal") { search.presentedViewController == nil }
+        presenter.dismiss(animated: false)
+        try await until("foreign modal actual-owner dismissal") {
+            modal.presentingViewController == nil && modal.viewIfLoaded?.window == nil
+        }
+        try require(search.isActive, "foreign modal dismissal deactivated owned search")
         // A user input/layout event, not a timer, retries the deferred owner.
         f.text("event after modal")
         try await f.settle(107)
