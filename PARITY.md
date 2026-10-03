@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A44a ordinary-chat bubble delivery states; exact forum receipts stay separate A44b.
+Active queue: A44b1 explicit forum-topic receipts and its ChatVM fetch-echo prerequisite; A45 topic-list fetch echo next.
+A44a ordinary-chat bubble states have bounded native and real-history/foreground proof. All-messages topic aggregation stays A44b2.
 At `72d74b0`, the integrated
 `982245f` navigation driver passes cold, loaded and same-PID foreground target checks with actual visible/centered cells.
 A30g source review and actual same-PID basic-group smoke confirmed an open member list lost its parent profile and route during client replacement.
@@ -176,7 +177,8 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
-| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | needs-fix — bounded delivery presentation plus source/route-scoped chat/topic watermarks and targeted bubble reconfiguration. Preserve pending/failed precedence, album IDs/anchor and explicit self/broadcast semantics; source-audited, no runtime fix claim |
+| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | partial — ordinary nonforum states/feed fixed `1630ee1`, native geometry proof corrected `909f62b`; actual four Read bubbles retain frames through foreground client renewal. Explicit forum b1, all-messages b2 and final self/broadcast mapping remain separate |
+| A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | needs-fix — direct update or semantic reconciliation must break RPC echo, preserve omitted lastMessage/order/unread count and reject late stale reads. Source-confirmed at `909f62b`; no instrumented runtime request-count proof yet. ChatVM has the same prerequisite being addressed within A44b1, not a topic-list fix |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1780,6 +1782,52 @@ is imported. This source pass does not prove every content's real rendering/acti
   quick acknowledgement, may precede failure and is not final success/read. Fullscreen gallery controls are outside this
   status repair; bubble media overlays are in scope. Source audit only; no new production code or live message send/read proof.
 
+### A44a ordinary-chat bubble delivery states — 2026-10-03
+
+- Worker `52d7e33` integrated as `1630ee1`; DEBUG-only geometry correction `909f62b`. Add derived Equatable status with
+  raw Failed/Pending precedence before any temporary-ID comparison; final outgoing ordinary messages show single/double checks
+  from the current source/route watermark. Unknown receipt never claims Read. Canonical first chronological album member supplies
+  status, independent of newest-first display representative; promotion/replacement recomputes it. Incoming/broadcast/forum
+  final states and final Saved Messages mapping stay excluded; Saved pending/failed remains visible despite TD's outgoing flag.
+- `ChatVM` subscribes to scoped outbox updates before a fresh current-client getChat baseline. UUID/revision fences reject late
+  reads after accepted updates, including duplicates; source departure terminally retires/cancels receipts. History seeds omit
+  derived state. Text/footer/media overlays share the status; accessibility speaks Sending/Failed to send/Delivered/Read rather
+  than glyphs. References and pinned TDLib semantics are in the preceding A44 audit; no foreign Telegram infrastructure copied.
+- Independent review closed same-ID wrapper publication, stale legacy-failure and queued old-owner risks. Structural snapshots
+  reconfigure retained IDs whose wrapper changed. Per-message queued invalidations validate exact current model/wrapper and batch
+  a receipt burst into one existing anchor-preserving reconfiguration, avoiding one whole snapshot apply per row.
+- Native `-ui-probe-message-delivery`, audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: PID62893 PASS includes
+  revision/source/route retirement, canonical album promotion, pending/final replacement, history seed reset, actual MessageCell
+  text/footer/media/VoiceOver, same-cell stable-ID replacement, stale owner rejection and 23 changed wrappers in one native apply.
+  Fixed-row adapter offset remains unchanged. It is not whole-ChatVM or self-sizing production-history proof.
+- Preserve fixture failures: PID58294 compound assertion failed; diagnostic PID59352 isolated retained-cell=true, Read=true,
+  stale callbacks=0, but offset `(0,0)→(0,-62)`. UIWindow had not yet applied its initial automatic safe-area inset. `909f62b`
+  waits for actual window/host/collection layout and settled initial inset before capturing the baseline; no assertion was removed
+  and no production anchor code was changed. Native PASS followed on PID62893.
+- Same PID62893 actual production navigation through bot and ordinary personal histories: incoming bot messages had no outgoing
+  checks; four pre-existing outgoing personal-chat messages displayed double checks and spoken Read. No typing, sending,
+  reactions, links or message actions. Only already-read rows were opened. Actual outgoing frames were x8/w386 at y469.6667,
+  555.0,654.3333,739.6667 with heights80.3333,94.3333,80.3333,32. They remained identical after Home/foreground:
+  ownership released04:57:36.747, restored04:58:39.482, Chat viewport settled/fresh-history starts04:58:39.772 (+04).
+  Screenshots inspected before/after; same PID, empty composer and keyboard hidden. This proves existing Read display and
+  quiescent source renewal, not a live peer read transition or sending/failure lifecycle. Dynamic media resizing, albums under
+  live sends and multi-account operation remain unverified. Local artifacts: `.build/ui-probe-evidence/astra-a44-delivery/`.
+- Worker and primary full build logs zero warnings/errors; integration `044543-57615-13161` PASS9s, geometry correction
+  `045008-60058-31007` PASS6s, each after one all-changed-Swift formatting invocation. A04 range regression PID58294 also passes
+  with the unique-byte-coverage backend. A04 production/probe repair is committed as `8be1c9a`.
+
+### A45 forum fetch-response echo audit — 2026-10-03
+
+- Source `909f62b`: `ForumTopicsVM.swift:281–286` invokes refresh for every scalar topic update;341–365 cancels/replaces its
+  task then calls getForumTopic, without an in-flight skip or semantic dedup. The pinned TDLib022d6020
+  `telegram/ForumTopicManager.cpp:831–880` executes the user query, and1165–1190 replaces its topic and unconditionally calls
+  `send_update_forum_topic` (including the literal `topic_ == nullptr || true` branch). Thus an unchanged response can provoke
+  another request. Independent reviewer and primary confirmed this; request-count/runtime impact has not been measured.
+- A44b1's ChatVM loader has the analogous edge and must break it before receipt baseline integration. The list owner is a
+  separate next slice: consume scalar fields directly, preserve fields absent from update (lastMessage/order/unreadCount/info),
+  reconcile only true semantic changes requiring a read, and revision-fence stale full responses. Preserve query, pagination,
+  current-client authority and stable topic rows. Prior A30d restoration proof does not cover or repair this cycle.
+
 ### A30d ForumTopics client recovery — 2026-10-02
 
 - `958bc82` (worker `45c93ef`) adds prepared same-account replacement of only the stale topic-list navigation slot. Metadata
@@ -2040,7 +2088,12 @@ is imported. This source pass does not prove every content's real rendering/acti
   A08/A10 native/UIKit probes now pass through `10b23c5`.
   Broad parity is not complete.
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
-- Latest verified implementation includes A30d active-search renewal through `501af59`, native proof through `37e08e8`
+- Latest verified implementation includes A04 partial-file buffering `8be1c9a`, A44a ordinary receipts `1630ee1` and native
+  geometry proof `909f62b`; actual four Read bubbles retain exact frames through a client foreground epoch (PID62893).
+  Explicit forum A44b1 is in the worker; A45 list fetch echo is source-confirmed and queued next.
+  Checkpoint build `build-Debug-20261003-050026-80761-652.log` PASS6s; complete log zero warnings/errors.
+  AGENTS/CLAUDE match; production/dependency scan still has zero VLC, forbidden UI and imported Telegram-infrastructure markers.
+  A30d active-search renewal through `501af59`, native proof through `37e08e8`
   (PID27782 PASS) and actual two-epoch search/clear smoke (PID1590). A43 receipt feed has three native root regressions PASS,
   PID `24065`.
   Its baseline `d8e2bb0` includes A30g `55ff037`/`f9b5dad`, visible Retry `e049da3` and A42 `59f187b`.
@@ -2117,7 +2170,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   Their bounded native/actual proof is above. A30g `0c2e1a2`/`50a299a`/`6b5a29d` is integrated as
   `55ff037`/`f9b5dad`/`e049da3`, with native/actual proof above. A30d `5c65406`/`465cf12`/`a75f667`/`8a08600`
   are integrated as `f551b40`/`1f959bb`/`cc6ad7e`/`501af59`; probe corrections `f8e40b1`/`655698c`/`7097a76` as
-  `e5979fd`/`c9e2169`/`37e08e8`. Bounded native/actual proof passes. Worker is implementing bounded A44a.
+  `e5979fd`/`c9e2169`/`37e08e8`. Bounded native/actual proof passes. A44a `52d7e33` is integrated as `1630ee1`;
+  primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick). Worker implements A44b1 only.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
@@ -2134,16 +2188,15 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact current slice: A44a ordinary nonforum bubble delivery presentation and scoped outbox feed. Subscribe before fresh
-  getChat baseline; revision-fence late reads, exclude receipt authority from restoration seeds and reconfigure exact current
-  stable-ID wrappers, including same-ID album representative replacement. Failed/Pending precede temporary-ID comparison.
-  No global receipt fallback for forum messages; A44b exact topic aggregation stays separate. Final self/broadcast checks remain
-  conservative until explicitly mapped. Worker changes need independent review, clean build and native integration proof.
+- Exact current slice: A44b1 explicit forum-topic delivery and ChatVM fetch-echo prerequisite, under independent review in worker.
+  Consume exact scalar update before revision-fenced reused getForumTopic baseline; no global/nil/General-topic fallback or
+  restored receipt authority. Raw canonical message topic must match route. Identical fetch echoes cannot trigger another read;
+  late full responses cannot revert newer scalar/draft/info. A44b2 all-messages per-topic queue remains separate; A45 list echo
+  is next. A44a ordinary delivery has bounded native/actual proof above; final self/broadcast checks remain conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
   live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
   A30g bounded recovery is verified; larger member lists, server permission changes and tag-editor/Save restoration stay open.
-  A43 list receipt feed is fixed in `596e895`; A44 timeline delivery status is the next confirmed source-audited candidate,
-  with separate topic, album, self and broadcast contracts above. Do not claim A43 repaired bubble delivery.
+  A43 list receipt feed is fixed in `596e895`; A44a repairs ordinary bubbles separately. Keep topic/self/broadcast contracts above.
   A39 mid-flight takeover and estimated-height convergence now pass bounded cold/loaded/foreground target checks at `72d74b0`;
   live quote/album/rotation/user-interruption coverage and sequential metadata waits remain separate limits.
   A38 admission/native/actual scrolled restoration proof passes; no live delayed delete/spoiler or active PiP claim.
