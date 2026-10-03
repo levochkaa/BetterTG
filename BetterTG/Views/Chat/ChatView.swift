@@ -1994,14 +1994,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard timelineSourceIsCurrent else { timelineSnapshots.retire()
             return
         }
-        timelineSnapshots.enqueue(demand)
-        drainTimelineSnapshots()
-    }
-
-    private func makeTimelineContent(_ demand: ChatTimelineSnapshotState.Demand) -> ChatTimelineSnapshotState.Content {
-        mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
+        subscribeToMessages()
         let wasSelectingMessages = isSelectingMessages
-        if demand.structural, isSelectingMessages {
+        if isSelectingMessages {
             let displayedIDs = Set(chatVM.messages.map(\.displayedID))
             selectedDisplayedMessageIDs.formIntersection(displayedIDs)
             if selectedDisplayedMessageIDs.isEmpty {
@@ -2030,7 +2025,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         snapshot.reconfigureItems(headerIDs)
         let changedOwners = messageRenderOwners.replace(chatVM.messages)
         snapshot.reconfigureItems(itemIDs.filter { item in
-            item.displayedMessageID.map(changedOwners.contains) == true
+            guard let id = item.displayedMessageID else { return false }
+            return wasSelectingMessages && !isSelectingMessages || changedOwners.contains(id)
         })
         timelineLayoutMutationDepth += 1
         recordMessageNavigationGeometry("snapshot-before")
