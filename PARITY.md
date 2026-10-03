@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A52b2 service request/content/donation ownership, then A53b explicit denial/versioned media cache and queued actual ChatView mutations.
+Active queue: A53b1 explicit notification preview denial and legacy media-read cutoff, then A53b2 verified/versioned cache-only previews and queued actual ChatView mutations.
 A51a `38b7d06` and A51b `6b187b0` pass isolated cache/worker native probes. Post-worker sample was idle-only, so comparable
 production performance remains unverified; do not infer a speedup or keep repeating unaligned captures. Keep A39's deadline.
 `e70a227` repairs the separately reproduced latest-end sample invalidation: controlled baseline FAIL0.811s becomes PASS;
@@ -207,7 +207,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | bounded repairs — A49a exact-cell fallback, A49b provider/touch authority, A49c1 values and A49c2 `f799d29` shared frozen transactions; `724bf32` repairs measured UIKit deletion reset. Scheduler/action native probes and actual selection/viewport checks pass. Natural Chat crash was not reproduced; actual queued mutation/delete timing/player and physical touch races remain unverified |
 | A50 | P1 | Actual Saved Messages Cancel leaves circles/controls on unselected rows; endMessageSelection only invalidates previously selected IDs, and deselect-last invalidates zero rows | bounded fix `487c0de` updates all snapshot message rows on exit and surviving rows in structural last-selection removal. Actual Cancel/deselect-last screenshots pass; structural removal source-reviewed only |
 | A51 | P1 | At `1c72d3a`, launch sample attributes628/1931 main-thread samples to rich-notification user/chat cache sinks doing source-file reads, image decode/JPEG, directory lookup and atomic writes. Coordinator uses raw events/global td across awaits and disk keys omit account | bounded repairs `38b7d06` account/source isolation and `6b187b0` serial off-main avatars/current-photo ordering; native isolated probes pass. Post-change sample is idle-only, not a performance comparison. Strict NSE write cutoff, photo-removal disk invalidation, registration cardinality and media IO remain open; actual notification delivery unverified |
-| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | fixed bounded A52a `878e85f` + A52b1 `90d324d`: exact identity/single resolver, cancellation-safe session authority and strict cache publication cutoff; native helper cases pass. A52b2 service request/content/donation ownership remains needs-fix. Actual NSE delivery/TDLib close and RPC termination unverified |
+| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | fixed bounded A52a `878e85f`, A52b1 `90d324d`, A52b2 `559a762`: exact identity/single resolver, session publication cutoff and request-owned completion/content producer; native helper cases pass. Actual NSE delivery/TDLib close, RPC termination and completion of already-started donation remain unverified |
 | A53 | P1 | At `38b7d06`, app coordinator caches incoming photo/video/animation without isSecret/hasSpoiler checks; NSE MessageContent resolution excludes them, but shared-cache fallback/attachment construction can reintroduce those bytes | fixed bounded A53a `afed19b`: full-message admission and exact scoped active-job revocation, native publisher/pipeline probe passes. A53b persisted evidence, explicit denial and NSE fallback remain needs-fix. No real notification or concealed-media bytes exercised |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
@@ -2126,9 +2126,38 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Then A53b: explicit hidden/showPreview denial must revoke even a previously accepted in-flight resolver for that same
   message; the new single resolver does not make its first notification permanently authoritative. Full-message eligibility,
   known content/delete revisions and versioned persisted evidence must govern cache/builder/wait paths together.
+- A52b2 plan reviewed at `3d680cb`: a request coordinator owns one UUID, original fallback, handler and task handle.
+  Replacement retires the exact old record; cancel and handler delivery run outside the lock and may reenter begin.
+  Every later install/check/finish must therefore validate its ticket, including the ticket returned by an outer begin.
+  Finish invokes its synchronous content producer under the same lock as expiry, then retires and delivers its captured
+  handler once. Preserve ordinary content generation, original fallback and account/session selection. Test actual
+  coordinator paths with injected effects; do not donate synthetic interactions. Entered builder IO may delay expiry;
+  only donation invocation is fenced, not completion of an already-started system donation.
 - Final checkpoint build `182318-27788-15437`: PASS5s, complete1385-line log zero warnings/errors. Production/dependency
   prohibited-marker scan empty; AGENTS/CLAUDE match. Primary implementation and worker are committed and clean; this
   proof ledger is the final focused documentation commit. Goal stays active; next implementation is A52b2 above.
+
+### A52b2 request-owned content completion — 2026-10-03
+
+- `559a762` adds a shared production request coordinator: UUID owns original content, handler and optional task. Replacement
+  and expiry retire that record; cancellation and exact-handler delivery run outside the lock. Reentrant handlers/cancellation
+  can replace an outer begin before it returns, so every install/check/finish validates its ticket. Late task installation
+  cancels the exact orphan; an old delayed result cannot construct content or complete a newer request.
+- Actual NSE content builder, attachment creation and donation invocation run inside the coordinator's synchronous finish
+  producer. Expiry and producer ownership serialize; once retired, the captured handler is delivered once. Original fallback,
+  positive enrichment, account/session selection and quick-reply behavior remain. No lock crosses await/cancel/handler delivery.
+- Official current `6ad963e5` NotificationService.swift2524–2527/2553–2606 and pre-Liquid `8e7e5fe`2267–2270/2296–2349
+  separate old-work disposal from once-only completion. This adapts that ownership without Telegram infrastructure imports.
+- Exact independent review passes tree `d3f44f92`. Joint four-file SwiftFormat0/4; final build `183542-38148-13783` PASS4s,
+  full1476-line log zero warnings/errors. Two earlier logger/capture warnings were corrected with explicit `self.logger`.
+- Native source `559a762`, Audit Simulator59EB535C/iOS26.5, PID40035, fresh container
+  `68E5B756-8A9D-44EF-9CFC-298DDACF7B30`: request probe18:39:27+04 PASS. Actual coordinator covers original/positive
+  once-only completion, expiry/finish before task registration, held uncooperative old response, handler/cancellation reentry,
+  rejected superseded outer ticket and entered synchronous producer versus expiry. Fixture tasks are awaited; effects injected.
+- Same launch: session lifetime, target, media admission, cache scope and avatar worker reports18:39:26–27 PASS. idb hierarchy
+  available before install; wrapper launch preserved focus. Evidence: `.build/ui-probe-evidence/astra-a52-a53/request/`.
+  Actual NSE/APNs/builder donation remains unverified; an entered synchronous builder may delay expiry, and a system donation
+  already started cannot be revoked. The coordinator probe performs no RPC/account/cache/donation effects.
 
 ### A53 notification media concealment — source finding 2026-10-03
 
@@ -2191,6 +2220,17 @@ is imported. This source pass does not prove every content's real rendering/acti
   the current nil-candidate path can fetch full media/body despite a hidden push. Backend
   `apns-payload-mapper.service.ts` forwards loc_key as metadata.event without independent preview permission. This is
   source evidence, not demonstrated push exposure. Content eligibility and notification preview permission are distinct.
+- A53b1 repair boundary reviewed before implementation at `559a762`: represent unresolved/denied/allowed media explicitly;
+  hidden/showPreview=false must withhold body overrides as well as attachments. Scan every exact notification in the batch
+  before admitting the sole resolver. Later denial/edit/delete and publication/finish must use one lifetime authority so a
+  previously accepted resolver cannot publish after known denial. Require exact full Message admission even with push thumbnails.
+- A53b1 removes raw-JPEG reads from builder/fallback/cache-wait, preserves fresh eligible media and normal text/title/avatar/
+  quick reply, and adds injected production decision/race proofs without real notifications or donations. It leaves old cache
+  files untouched. Transitional limitation: unverified cache-only media is withheld. This is not complete A53 parity.
+- Mandatory next A53b2 restores ordinary verified cache-only previews: atomic versioned evidence+bytes, exact account/chat/
+  ordinary raw-message identity, separate preview permission, cross-process revision arbitration and observed edit/delete
+  invalidation even without an active job. Missing/evicted evidence must reject late commits. Existing raw JPEGs remain unread;
+  full Message media eligibility alone must not be treated as showPreview permission. Unseen server edits/settings stay unverified.
 
 ### A40 complete build-warning visibility — 2026-10-03
 
@@ -3056,6 +3096,10 @@ is imported. This source pass does not prove every content's real rendering/acti
 
 ## Checkpoint
 
+- Latest notification request slice `559a762`: independent exact review, warning-free build `183542-38148-13783` and all six
+  native probes at PID40035 pass with the limits recorded above. A52a/b1/b2 are bounded fixes, not real APNs delivery proof.
+  Next is A53b1 denial/legacy-read cutoff, followed immediately by required A53b2 verified cache-only preview restoration.
+  Goal remains active; Simulator/account state is preserved. Prior checkpoint bullets below are historical.
 - Latest A51a `38b7d06` plus A51b `6b187b0` pass combined cache/worker native probes PID46367 and warning-free integration
   build `172737-45171-21885`. Viewport regression passes PID49173, but its idle-only sample is not a performance comparison.
   Next: A53 notification media concealment, then A52 and actual queued ChatView proof. The A51 section records remaining
