@@ -1529,94 +1529,105 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         dataSource = UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>(
             collectionView: collectionView,
         ) { [weak self] collectionView, indexPath, itemID in
-            guard let self else { return UICollectionViewCell() }
             switch itemID {
             case .dateHeader(let headerID):
-                guard let cell = collectionView.dequeueReusableCell(
-                    withReuseIdentifier: ChatDateHeaderCell.reuseIdentifier,
-                    for: indexPath,
-                ) as? ChatDateHeaderCell else { return UICollectionViewCell() }
-                cell.configure(id: headerID)
-                return cell
+                ChatTimelineCellProvider.dequeue(
+                    ChatDateHeaderCell.self, from: collectionView, at: indexPath,
+                    reuseIdentifier: ChatDateHeaderCell.reuseIdentifier,
+                    configure: { [weak self] cell in
+                        guard self != nil else { return false }
+                        cell.configure(id: headerID)
+                        return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
+                )
             case .topicHeader(let headerID):
-                guard let cell = collectionView.dequeueReusableCell(
-                    withReuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
-                    for: indexPath,
-                ) as? ForumTopicRunHeaderCell else { return UICollectionViewCell() }
-                cell.configure(
-                    id: headerID,
-                    info: chatVM.forumTopic(id: headerID.topicID)?.info,
-                    client: chatVM.client,
-                    onOpen: { [weak self] in self?.openForumTopic(id: headerID.topicID) },
+                ChatTimelineCellProvider.dequeue(
+                    ForumTopicRunHeaderCell.self, from: collectionView, at: indexPath,
+                    reuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
+                    configure: { [weak self] cell in
+                        guard let self else { return false }
+                        cell.configure(
+                            id: headerID,
+                            info: chatVM.forumTopic(id: headerID.topicID)?.info,
+                            client: chatVM.client,
+                            onOpen: { [weak self] in self?.openForumTopic(id: headerID.topicID) },
+                        )
+                        return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
                 )
-                return cell
             case .message(let displayedMessageID):
-                guard let cell = collectionView.dequeueReusableCell(
-                    withReuseIdentifier: MessageCell.reuseIdentifier,
-                    for: indexPath,
-                ) as? MessageCell,
-                    let message = message(for: displayedMessageID)
-                else { return UICollectionViewCell() }
-                let messageSelectable = canSelectMessage(message)
-                mediaRevealSession?.reconcile(message.sourceMessages)
-                cell.configure(
-                    message: message,
-                    chat: chatVM.customChat,
-                    highlighted: message.sourceMessages.contains(where: {
-                        $0.id == self.chatVM.highlightedMessageId
-                    }),
-                    client: chatVM.client,
-                    spoilerSource: navigationClientSource,
-                    mediaRevealSession: mediaRevealSession,
-                    pollInteractionStore: chatVM.pollInteractionStore,
-                    videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
-                    canAddReactions: chatVM.canAddReactions,
-                    selectionActive: isSelectingMessages && messageSelectable,
-                    selected: selectedDisplayedMessageIDs.contains(displayedMessageID),
-                    onSwipeToReply: presentationMode == .full
-                        && !isSelectingMessages
-                        && !chatVM.isReadOnlyTopic
-                        && message.properties.canBeReplied
-                        ? { [weak self] in self?.chatVM.beginReply(to: message) }
-                        : nil,
-                    onSelectionToggle: isSelectingMessages && messageSelectable
-                        ? { [weak self] in self?.toggleMessageSelection(displayedMessageID: displayedMessageID) }
-                        : nil,
-                    onReactionTap: { [weak self] type in
-                        guard let self,
-                              presentationMode == .full,
-                              !isSelectingMessages,
-                              !chatVM.isReadOnlyTopic
-                        else { return }
-                        chatVM.toggleReaction(on: message, type: type, isBig: false)
+                ChatTimelineCellProvider.dequeue(
+                    MessageCell.self, from: collectionView, at: indexPath,
+                    reuseIdentifier: MessageCell.reuseIdentifier,
+                    configure: { [weak self] cell in
+                        guard let self, let message = message(for: displayedMessageID) else { return false }
+                        let messageSelectable = canSelectMessage(message)
+                        mediaRevealSession?.reconcile(message.sourceMessages)
+                        cell.configure(
+                            message: message,
+                            chat: chatVM.customChat,
+                            highlighted: message.sourceMessages.contains(where: {
+                                $0.id == self.chatVM.highlightedMessageId
+                            }),
+                            client: chatVM.client,
+                            spoilerSource: navigationClientSource,
+                            mediaRevealSession: mediaRevealSession,
+                            pollInteractionStore: chatVM.pollInteractionStore,
+                            videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
+                            canAddReactions: chatVM.canAddReactions,
+                            selectionActive: isSelectingMessages && messageSelectable,
+                            selected: selectedDisplayedMessageIDs.contains(displayedMessageID),
+                            onSwipeToReply: presentationMode == .full
+                                && !isSelectingMessages
+                                && !chatVM.isReadOnlyTopic
+                                && message.properties.canBeReplied
+                                ? { [weak self] in self?.chatVM.beginReply(to: message) }
+                                : nil,
+                            onSelectionToggle: isSelectingMessages && messageSelectable
+                                ? { [weak self] in
+                                    self?.toggleMessageSelection(displayedMessageID: displayedMessageID)
+                                }
+                                : nil,
+                            onReactionTap: { [weak self] type in
+                                guard let self,
+                                      presentationMode == .full,
+                                      !isSelectingMessages,
+                                      !chatVM.isReadOnlyTopic
+                                else { return }
+                                chatVM.toggleReaction(on: message, type: type, isBig: false)
+                            },
+                            onMetadataNavigate: { [weak self] target in
+                                guard self?.presentationMode == .full,
+                                      self?.isSelectingMessages == false
+                                else { return }
+                                self?.navigate(to: target)
+                            },
+                            onReplyQuoteExpand: { [weak self] in
+                                self?.expandReplyQuote(for: message)
+                            },
+                            onContentAction: { [weak self] action in
+                                guard self?.presentationMode == .full,
+                                      self?.isSelectingMessages == false
+                                else { return }
+                                self?.performContentAction(action)
+                            },
+                            onMediaTap: { [weak self] messages, selection in
+                                guard self?.presentationMode == .full,
+                                      self?.isSelectingMessages == false
+                                else { return }
+                                self?.showMedia(messages, selection: selection)
+                            },
+                        )
+                        cell.onSelfSizingHeightChange = { [weak self] in
+                            self?.messageCellWillChangeHeight()
+                        }
+                        message.sourceMessages.forEach { self.pendingInlineVideoOwnerReturns.remove($0.id) }
+                        return true
                     },
-                    onMetadataNavigate: { [weak self] target in
-                        guard self?.presentationMode == .full,
-                              self?.isSelectingMessages == false
-                        else { return }
-                        self?.navigate(to: target)
-                    },
-                    onReplyQuoteExpand: { [weak self] in
-                        self?.expandReplyQuote(for: message)
-                    },
-                    onContentAction: { [weak self] action in
-                        guard self?.presentationMode == .full,
-                              self?.isSelectingMessages == false
-                        else { return }
-                        self?.performContentAction(action)
-                    },
-                    onMediaTap: { [weak self] messages, selection in
-                        guard self?.presentationMode == .full,
-                              self?.isSelectingMessages == false
-                        else { return }
-                        self?.showMedia(messages, selection: selection)
-                    },
+                    unavailable: { $0.resetUnavailableContent() },
                 )
-                cell.onSelfSizingHeightChange = { [weak self] in
-                    self?.messageCellWillChangeHeight()
-                }
-                message.sourceMessages.forEach { self.pendingInlineVideoOwnerReturns.remove($0.id) }
-                return cell
             }
         }
     }

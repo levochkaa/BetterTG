@@ -135,6 +135,11 @@ class TelegramContextMenuExtractableView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    #if DEBUG
+        func probeTakeContextMenuContent() -> UIView? { takeContextMenuContent() }
+        func probePutBackContextMenuContent(_ content: UIView) { putBackContextMenuContent(content) }
+    #endif
+
     // MARK: Fileprivate
 
     fileprivate func takeContextMenuContent() -> UIView? {

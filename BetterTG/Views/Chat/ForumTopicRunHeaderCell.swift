@@ -28,9 +28,19 @@ final class ForumTopicRunHeaderCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        resetUnavailableContent()
+    }
+
+    func resetUnavailableContent() {
         iconView.prepareForReuse()
         iconSignature = nil
         onOpen = nil
+        titleLabel.text = nil
+        control.isAccessibilityElement = false
+        control.accessibilityLabel = nil
+        control.accessibilityValue = nil
+        control.accessibilityHint = nil
+        control.accessibilityIdentifier = nil
     }
 
     func configure(
@@ -39,6 +49,9 @@ final class ForumTopicRunHeaderCell: UICollectionViewCell {
         client: TDLibClient,
         onOpen: @escaping () -> Void,
     ) {
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
+        isUserInteractionEnabled = true
         self.onOpen = onOpen
         let title = info?.name ?? (id.topicID == 1 ? "General" : "Topic")
         titleLabel.text = title

@@ -54,10 +54,19 @@ final class ChatDateHeaderCell: UICollectionViewCell {
     }
 
     func configure(id: ChatDateHeaderID) {
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
+        isUserInteractionEnabled = true
         let date = Date(timeIntervalSince1970: TimeInterval(id.dayTimestamp))
         let text = Self.title(for: date)
         titleLabel.text = "  \(text)  "
         titleLabel.accessibilityLabel = text
         titleLabel.accessibilityIdentifier = "chat-date-\(id.dayTimestamp)"
+    }
+
+    func resetUnavailableContent() {
+        titleLabel.text = nil
+        titleLabel.accessibilityLabel = nil
+        titleLabel.accessibilityIdentifier = nil
     }
 }

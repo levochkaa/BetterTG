@@ -158,6 +158,15 @@ private final class SwipeToReplyIndicatorView: UIView {
             pulseView.removeFromSuperview()
         }
     }
+
+    func reset() {
+        layer.removeAllAnimations()
+        progressLayer.removeAllAnimations()
+        thresholdPulseView?.layer.removeAllAnimations()
+        thresholdPulseView?.removeFromSuperview()
+        thresholdPulseView = nil
+        update(progress: 0)
+    }
 }
 
 // MARK: - MessageCell
@@ -174,6 +183,23 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         formatter.dateFormat = "HH:mm"
         return formatter
     }()
+
+    #if DEBUG
+        private(set) var probeReuseCount = 0
+
+        var probeUnavailableResourcesAreReset: Bool {
+            onSwipeToReply == nil && onMediaTap == nil && onSelectionToggle == nil && onSelfSizingHeightChange == nil
+                && refreshSpoilerAccessibility == nil && spoilerSubscriptions.isEmpty && textSpoilers.states.isEmpty
+                && representedGalleryMessageIDs.isEmpty && suspendedHistoryPanGesture == nil
+                && !swipeToReplyRecognizer.isEnabled && !selectionActive && !selectionOutgoing && !selectionCentered
+                && avatarView.isHidden && forwardView.isHidden && replyView.isHidden && textView.isHidden
+                && mediaView.isHidden && structuredContentView.isHidden && reactionView.isHidden
+                && timestampLabel.text == nil && mediaTimestampLabel.text == nil
+                && textView.attributedText.length == 0 && bubbleView.isHidden
+                && selectionControl.isHidden && selectionIndicatorView.isHidden
+                && rowStack.transform == .identity
+        }
+    #endif
 
     var onSelfSizingHeightChange: (() -> Void)?
 
@@ -255,45 +281,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        alpha = 1
-        transform = .identity
-        isUserInteractionEnabled = true
-        resumeHistoryScrolling()
-        avatarView.prepareForReuse()
-        mediaView.prepareForReuse()
-        structuredContentView.prepareForReuse()
-        textView.prepareForReuse()
-        spoilerSubscriptions.removeAll()
-        refreshSpoilerAccessibility = nil
-        textSpoilers.reset()
-        reactionView.prepareForReuse()
-        forwardView.prepareForReuse()
-        replyView.prepareForReuse()
-        forwardView.isHidden = true
-        replyView.isHidden = true
-        textView.isHidden = true
-        mediaView.isHidden = true
-        structuredContentView.isHidden = true
-        reactionView.isHidden = true
-        timestampLabel.isHidden = true
-        mediaTimestampLabel.isHidden = true
-        onSwipeToReply = nil
-        onMediaTap = nil
-        onSelectionToggle = nil
-        onSelfSizingHeightChange = nil
-        representedGalleryMessageIDs.removeAll()
-        mediaTransitionGeneration = UUID()
-        swipeToReplyRecognizer.isEnabled = false
-        selectionActive = false
-        selectionOutgoing = false
-        selectionCentered = false
-        selectionControl.isHidden = true
-        selectionIndicatorView.isHidden = true
-        selectionIndicatorView.setSelected(false)
-        accessibilityTraits.remove(.selected)
-        accessibilityCustomActions = nil
-        resetSwipeToReply(animated: false)
-        bubbleContentNeedsMeasurement = true
+        #if DEBUG
+            probeReuseCount += 1
+        #endif
+        resetUnavailableContent()
     }
 
     override func layoutSubviews() {
@@ -316,6 +307,81 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         if window == nil {
             resumeHistoryScrolling()
         }
+    }
+
+    /// UIKit can reconfigure the current cell without calling prepareForReuse.
+    func resetUnavailableContent() {
+        layer.removeAllAnimations()
+        rowStack.layer.removeAllAnimations()
+        bubbleContainerView.layer.removeAllAnimations()
+        bubbleContainerView.transform = .identity
+        bubbleContainerView.alpha = 1
+        if bubbleView.superview === bubbleContainerView {
+            bubbleView.layer.removeAllAnimations()
+            bubbleView.transform = .identity
+            bubbleView.alpha = 1
+        }
+        swipeToReplyIndicator.reset()
+        selectionIndicatorView.layer.removeAllAnimations()
+        alpha = 1
+        transform = .identity
+        contentView.isHidden = false
+        isUserInteractionEnabled = true
+        isAccessibilityElement = false
+        accessibilityElementsHidden = false
+        accessibilityLabel = nil
+        accessibilityValue = nil
+        accessibilityHint = nil
+        accessibilityIdentifier = nil
+        accessibilityTraits = []
+        resumeHistoryScrolling()
+        avatarView.prepareForReuse()
+        avatarView.isHidden = true
+        mediaView.prepareForReuse()
+        structuredContentView.prepareForReuse()
+        textView.prepareForReuse()
+        spoilerSubscriptions.removeAll()
+        refreshSpoilerAccessibility = nil
+        textSpoilers.reset()
+        reactionView.prepareForReuse()
+        forwardView.prepareForReuse()
+        replyView.prepareForReuse()
+        forwardView.isHidden = true
+        replyView.isHidden = true
+        textView.isHidden = true
+        mediaView.isHidden = true
+        structuredContentView.isHidden = true
+        reactionView.isHidden = true
+        timestampLabel.isHidden = true
+        timestampLabel.text = nil
+        mediaTimestampLabel.isHidden = true
+        mediaTimestampLabel.text = nil
+        bubbleView.backgroundColor = .clear
+        // Context menus may currently own this view outside the cell hierarchy.
+        // Conceal it without stealing the menu's view or return constraints.
+        bubbleView.isHidden = true
+        onSwipeToReply = nil
+        onMediaTap = nil
+        onSelectionToggle = nil
+        onSelfSizingHeightChange = nil
+        representedGalleryMessageIDs.removeAll()
+        mediaTransitionGeneration = UUID()
+        swipeToReplyRecognizer.isEnabled = false
+        swipeReplyFeedback = nil
+        swipeReplyFeedbackArmed = true
+        selectionActive = false
+        selectionOutgoing = false
+        selectionCentered = false
+        selectionControl.isHidden = true
+        selectionIndicatorView.isHidden = true
+        selectionIndicatorView.alpha = 0
+        selectionIndicatorView.transform = .identity
+        selectionIndicatorView.setSelected(false)
+        accessibilityTraits.remove(.selected)
+        accessibilityCustomActions = nil
+        resetSwipeToReply(animated: false)
+        bubbleContentNeedsMeasurement = true
+        measuredCellWidth = 0
     }
 
     func setMediaPlaybackVisible(_ isVisible: Bool, allowsInlineVideoPlayback: Bool = true) {
@@ -387,6 +453,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     ) {
         alpha = 1
         transform = .identity
+        bubbleView.isHidden = false
+        contentView.isHidden = false
+        accessibilityElementsHidden = false
         isUserInteractionEnabled = true
         self.onSwipeToReply = onSwipeToReply
         self.onMediaTap = onMediaTap
