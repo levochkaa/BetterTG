@@ -17,6 +17,7 @@ struct ForumTopicsRestorationState {
     let location: ChatLocation
     let query: String
     let topics: [ForumTopic]
+    let pinnedTopicIDs: [Int]
     let cursor: ForumTopicPageCursor
     let completedCursors: Set<ForumTopicPageCursor>
     let hasMore: Bool
@@ -32,11 +33,13 @@ struct ForumTopicsRestorationState {
         requestedCursors: Set<ForumTopicPageCursor>,
         hasMore: Bool,
         request: ForumTopicPageRequest?,
+        pinnedTopicIDs: [Int] = [],
     ) {
         self.location = location
         self.query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let needsNewQuery = query != modelQuery || query != acceptedQuery
         self.topics = query == acceptedQuery ? topics : []
+        self.pinnedTopicIDs = needsNewQuery ? [] : pinnedTopicIDs
         self.cursor = needsNewQuery ? .zero : cursor
         var completed = needsNewQuery ? [] : requestedCursors
         if let request { completed.remove(request.cursor) }

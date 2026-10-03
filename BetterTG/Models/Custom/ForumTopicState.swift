@@ -145,6 +145,54 @@ extension ForumTopic {
     }
 }
 
+// MARK: - ForumTopicPinnedOrder
+
+/// Only a server head supplies pin positions. Unknown/new pins keep ordinary
+/// chronology until the next explicit head read; membership is not a rank.
+struct ForumTopicPinnedOrder {
+    private(set) var ids = [Int]()
+    private(set) var revision = UInt64.zero
+
+    private var changedAt = [Int: UInt64]()
+
+    init(ids: [Int] = []) {
+        var seen = Set<Int>()
+        self.ids = ids.filter { $0 > 0 && seen.insert($0).inserted }
+    }
+
+    mutating func reset(keepingRanks: Bool) {
+        if !keepingRanks { ids.removeAll() }
+        changedAt.removeAll()
+    }
+
+    mutating func observeMembership(id: Int, previous: Bool?, pinned: Bool) {
+        guard id > 0, let previous, previous != pinned else { return }
+        revision &+= 1
+        changedAt[id] = revision
+        ids.removeAll { $0 == id }
+    }
+
+    mutating func acceptHead(_ raw: [ForumTopic], eligible: Set<Int>, chatID: Int64, after version: UInt64) {
+        var seen = Set<Int>()
+        ids = raw.compactMap { topic in
+            let id = topic.info.forumTopicId
+            guard topic.info.chatId == chatID, id > 0, topic.isPinned, !topic.info.isHidden,
+                  eligible.contains(id), (changedAt[id] ?? 0) <= version,
+                  seen.insert(id).inserted else { return nil }
+            return id
+        }
+    }
+
+    func applying(to chronological: [ForumTopic]) -> [ForumTopic] {
+        let byID = Dictionary(uniqueKeysWithValues: chronological.map { ($0.info.forumTopicId, $0) })
+        let pinned = ids.compactMap { id in
+            byID[id].flatMap { $0.isPinned && !$0.info.isHidden ? $0 : nil }
+        }
+        let ranked = Set(pinned.map(\.info.forumTopicId))
+        return pinned + chronological.filter { !ranked.contains($0.info.forumTopicId) }
+    }
+}
+
 // MARK: - ForumTopicPageState
 
 enum ForumTopicPageState {

@@ -112,6 +112,8 @@ import UIKit
                 try await verifyRetainedSearchMembership()
                 try await verifyBoundedReads()
                 try await verifyBoundedQueryResets()
+                try await verifyPinnedOrder()
+                try await verifyPinReadRaces()
                 result = "Forum updates probe passed: real-VM/injected-page-topic-reads/local-scoped-updates=true; "
                     + "echo-before-after-page-topic/unknown-coalescing/failed-echo-no-retry=true; "
                     + "direct-scalar/no-RPC/native-cell/late-page-scalar/draft-inbox-one-refresh=true; "
@@ -122,6 +124,8 @@ import UIKit
                     + "retained-query-name/closed-info/inbox-draft-read/rename-hide-query-source-ABA/display-seed=true; "
                     + "individual-native-max-two/FIFO-coalescing/queued-info-veto/canceled-generation-slots=true; "
                     + "individual-limit=per-VM; page-concurrency/global-limit/queue-memory-cap=unverified; "
+                    + "raw-head-pin-rank/append-individual-preservation/query-seed/failed-head/pin-edge-fence=true; "
+                    + "unknown-repin/pure-remote-reorder=explicit-head-refresh; forward-picker-order=unchanged; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -303,14 +307,14 @@ import UIKit
     private static func topic(
         id: Int, name: String = "Swift", outbox: Int64 = 0, inbox: Int64 = 0,
         draft: String? = nil, mentions: Int = 0, hidden: Bool = false, closed: Bool = false,
-        unreadCount: Int = 0, order: Int64 = 10, lastID: Int64? = nil,
+        unreadCount: Int = 0, order: Int64 = 10, lastID: Int64? = nil, pinned: Bool = false,
     ) -> ForumTopic {
         let base = ForumTopicsRestorationProbe.topic(id: id, name: name)
         let payload = UpdateForumTopic(
             chatId: 7, draftMessage: draft.map { .init(
                 content: .draftMessageContentText(.init(linkPreviewOptions: nil, text: .init(entities: [], text: $0))),
                 date: 1, effectId: 0, replyTo: nil, suggestedPostInfo: nil,
-            ) }, forumTopicId: id, isPinned: false, lastReadInboxMessageId: inbox, lastReadOutboxMessageId: outbox,
+            ) }, forumTopicId: id, isPinned: pinned, lastReadInboxMessageId: inbox, lastReadOutboxMessageId: outbox,
             notificationSettings: base.notificationSettings, unreadMentionCount: mentions,
             unreadPollVoteCount: 0, unreadReactionCount: 0,
         )
@@ -850,6 +854,194 @@ import UIKit
                 && f.maximumOutstandingTopics == 2 && f.model.topics.map(\.info.forumTopicId) == [1],
             "source ABA revived transport demand or late results",
         )
+    }
+
+    private static func verifyPinnedOrder() async throws {
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        let older = topic(id: 9, order: 1, pinned: true)
+        let newer = topic(id: 3, order: 2, pinned: true)
+        let ordinary = topic(id: 1, order: 500)
+        f.model.loadInitial()
+        try await until("pin head") { f.pages.count == 1 }
+        let first = f.model.probePageTask!
+        f.finishPage(0, [older, newer, ordinary, older])
+        try await terminal([first])
+        try require(f.model.topics.map(\.info.forumTopicId) == [9, 3, 1], "raw pin ranks sorted by chronology/ID")
+        f.post(older)
+        await events()
+        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9, 3], "equal pin echo invalidated rank")
+
+        f.model.loadMore()
+        try await until("pin append") { f.pages.count == 2 }
+        let append = f.model.probePageTask!
+        f.finishPage(1, [newer, older, topic(id: 5, order: 700)], cursor: 80)
+        try await terminal([append])
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [9, 3, 5, 1]
+                && f.model.restorationState(rawQuery: "").cursor == .init(date: 80, forumTopicID: 80, messageID: 80),
+            "append replaced head pin ranks or raw cursor",
+        )
+        let changed = topic(id: 9, inbox: 1, order: 999, pinned: true)
+        f.post(changed)
+        try await until("pinned individual") { f.pendingTopicIndex(id: 9) != nil }
+        let individual = f.model.probeTopicTask(id: 9)!
+        f.finishTopic(f.pendingTopicIndex(id: 9)!, changed)
+        try await terminal([individual])
+        try require(f.model.topics.map(\.info.forumTopicId) == [9, 3, 5, 1], "individual invented pin position")
+
+        f.post(topic(id: 3, order: 2))
+        await events()
+        try require(f.model.topics.map(\.info.forumTopicId) == [9, 5, 1, 3], "unpin kept stale rank")
+        f.post(newer)
+        await events()
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [9, 5, 1, 3] && f.topics.count == 1
+                && f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9],
+            "repin invented rank or fetched from pin echo",
+        )
+        f.model.loadInitial()
+        try await until("same-query pin refresh") { f.pages.count == 3 }
+        let failed = f.model.probePageTask!
+        f.failPage(2)
+        try await terminal([failed])
+        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9], "failed head lost display ranks")
+        f.model.loadInitial()
+        try await until("explicit repin head") { f.pages.count == 4 }
+        let refresh = f.model.probePageTask!
+        f.finishPage(3, [newer, changed, ordinary])
+        try await terminal([refresh])
+        try require(f.model.topics.map(\.info.forumTopicId) == [3, 9, 1], "explicit head failed to replace pin order")
+
+        let seed = f.model.restorationState(rawQuery: "")
+        let restored = Fixture(restoration: seed)
+        defer { restored.model.retire()
+        restored.cancelOutstanding()
+        }
+        restored.model.start()
+        try require(
+            restored.pages.isEmpty && restored.model.topics.map(\.info.forumTopicId) == [3, 9, 1]
+                && restored.model.restorationState(rawQuery: "").pinnedTopicIDs == [3, 9],
+            "restoration lost accepted display ranks or treated seed as fresh read",
+        )
+        let ahead = f.model.restorationState(rawQuery: "ahead")
+        try require(ahead.topics.isEmpty && ahead.pinnedTopicIDs.isEmpty, "new raw query borrowed old pin ranks")
+        f.model.search("Swift")
+        try await until("query-specific pin head") { f.pages.count == 5 }
+        try require(
+            f.model.restorationState(rawQuery: "Swift").pinnedTopicIDs.isEmpty,
+            "query reset retained rank authority",
+        )
+        let query = f.model.probePageTask!
+        f.finishPage(4, [changed, newer])
+        try await terminal([query])
+        try require(f.model.topics.map(\.info.forumTopicId) == [9, 3], "query head failed to own its pin order")
+    }
+
+    private static func verifyPinReadRaces() async throws {
+        let pinned = topic(id: 9, order: 1, pinned: true)
+        let ordinary = topic(id: 1, order: 50)
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        f.model.loadInitial()
+        try await until("pin-race initial") { f.pages.count == 1 }
+        f.post(pinned)
+        await events()
+        let first = f.model.probePageTask!
+        f.finishPage(0, [pinned, ordinary])
+        try await terminal([first])
+        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9], "initial pin echo lost head rank")
+        f.model.loadInitial()
+        try await until("pin ABA head") { f.pages.count == 2 }
+        f.post(topic(id: 9, order: 1))
+        f.post(pinned)
+        await events()
+        let pending = f.model.probePageTask!
+        f.finishPage(1, [pinned, ordinary])
+        try await terminal([pending])
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [1, 9]
+                && f.model.restorationState(rawQuery: "").pinnedTopicIDs.isEmpty,
+            "old head revived pre-ABA pin position",
+        )
+
+        f.post(topic(id: 9, order: 1))
+        await events()
+        f.model.loadInitial()
+        try await until("changed-pin response echo") { f.pages.count == 3 }
+        f.post(pinned)
+        await events()
+        let echoed = f.model.probePageTask!
+        f.finishPage(2, [pinned, ordinary])
+        try await terminal([echoed])
+        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs.isEmpty, "changed echo bypassed edge fence")
+        f.model.loadInitial()
+        try await until("second explicit pin head") { f.pages.count == 4 }
+        f.post(pinned)
+        await events()
+        let stable = f.model.probePageTask!
+        f.finishPage(3, [pinned, ordinary])
+        try await terminal([stable])
+        try require(f.model.topics.map(\.info.forumTopicId) == [9, 1], "stable second head did not resolve pin rank")
+
+        // Restored cursor-zero append does not reset/cancel the existing
+        // individual read. Its accepted membership edge must fence head ranks.
+        let seed = ForumTopicsRestorationState(
+            location: f.model.location, rawQuery: "", modelQuery: "", acceptedQuery: "", topics: [pinned, ordinary],
+            cursor: .zero, requestedCursors: [], hasMore: true, request: nil, pinnedTopicIDs: [9],
+        )
+        let restored = Fixture(restoration: seed)
+        defer { restored.model.retire()
+        restored.cancelOutstanding()
+        }
+        restored.model.start()
+        restored.post(topic(id: 9, inbox: 1, order: 1, pinned: true))
+        try await until("pin membership individual") { restored.pendingTopicIndex(id: 9) != nil }
+        let individual = restored.model.probeTopicTask(id: 9)!
+        restored.model.loadMore()
+        try await until("cursor-zero concurrent head") { restored.pages.count == 1 }
+        let head = restored.model.probePageTask!
+        restored.finishTopic(restored.pendingTopicIndex(id: 9)!, topic(id: 9, inbox: 1, order: 1))
+        try await terminal([individual])
+        restored.finishPage(0, [pinned, ordinary])
+        try await terminal([head])
+        try require(
+            restored.model.restorationState(rawQuery: "").pinnedTopicIDs.isEmpty
+                && restored.model.topics.map(\.info.forumTopicId) == [1, 9],
+            "head ignored an accepted individual membership edge",
+        )
+
+        var order = ForumTopicPinnedOrder(ids: [9])
+        let ticket = order.revision
+        // Full admission is independently tested by A45. Final eligible rows
+        // may retain a newer full payload without losing unchanged pin rank.
+        order.acceptHead([pinned, pinned, topic(id: 0, pinned: true)], eligible: [], chatID: 7, after: ticket)
+        try require(order.ids.isEmpty, "rejected/invalid raw head assigned rank")
+        order.acceptHead([pinned], eligible: [9], chatID: 8, after: ticket)
+        try require(order.ids.isEmpty, "foreign chat assigned pin rank")
+        order.observeMembership(id: 9, previous: true, pinned: true)
+        order.acceptHead([pinned, pinned], eligible: [9], chatID: 7, after: ticket)
+        try require(order.ids == [9], "newer unchanged membership lost eligible raw rank")
+        order.observeMembership(id: 9, previous: true, pinned: false)
+        order.observeMembership(id: 9, previous: false, pinned: true)
+        order.acceptHead([pinned], eligible: [9], chatID: 7, after: ticket)
+        try require(order.ids.isEmpty, "newer membership ABA borrowed old raw rank")
+
+        f.model.loadInitial()
+        try await until("retired pin head") { f.pages.count == 5 }
+        let late = f.model.probePageTask!
+        let foreign = TdUpdateSource(accountID: UUID(), clientID: f.source.clientID)
+        f.current = foreign
+        f.changes.send(foreign)
+        f.current = f.source
+        f.changes.send(f.source)
+        f.finishPage(4, [pinned, ordinary])
+        try await terminal([late])
+        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs.isEmpty, "source ABA revived pin rank")
     }
 
     private static func terminal(_ tasks: [Task<Void, Never>]) async throws {

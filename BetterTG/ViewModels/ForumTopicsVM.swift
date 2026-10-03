@@ -40,6 +40,7 @@ import TDLibKitDynamic
     private var liveRevision = UInt64.zero
     private var readOrdinal = UInt64.zero
     private var acceptedReadOrdinals = [Int: UInt64]()
+    private var pinnedOrder = ForumTopicPinnedOrder()
     private var scalarUpdates = [Int: (revision: UInt64, value: UpdateForumTopic)]()
     private var infoUpdates = [Int: (revision: UInt64, value: ForumTopicInfo)]()
     private var generation = UInt64.zero
@@ -95,6 +96,7 @@ import TDLibKitDynamic
         self.reads = reads ?? .live(client: client)
         if let restoration, restoration.accepts(location) {
             self.topics = restoration.topics
+            self.pinnedOrder = ForumTopicPinnedOrder(ids: restoration.pinnedTopicIDs)
             self.query = restoration.query
             self.acceptedQuery = restoration.query
             self.nextOffsetDate = restoration.cursor.date
@@ -191,6 +193,7 @@ import TDLibKitDynamic
                 messageID: nextOffsetMessageID,
             ),
             requestedCursors: requestedCursors, hasMore: hasMore, request: pendingPageRequest,
+            pinnedTopicIDs: pinnedOrder.ids,
         )
     }
 
@@ -206,6 +209,7 @@ import TDLibKitDynamic
         scalarUpdates.removeAll()
         infoUpdates.removeAll()
         acceptedReadOrdinals.removeAll()
+        pinnedOrder.reset(keepingRanks: false)
         cancellables.removeAll()
         chatOpenLease?.invalidate()
     }
@@ -241,6 +245,7 @@ import TDLibKitDynamic
             scalarUpdates.removeAll()
             infoUpdates.removeAll()
             acceptedReadOrdinals.removeAll()
+            pinnedOrder.reset(keepingRanks: query == self.query)
             self.query = query
             nextOffsetDate = 0
             nextOffsetForumTopicID = 0
@@ -269,6 +274,7 @@ import TDLibKitDynamic
         let readPage = reads.page
         let location = location
         let read = beginRead()
+        let pinRevision = pinnedOrder.revision
         loadTask = Task { [weak self] in
             guard !Task.isCancelled, self?.contextIsCurrent == true else { return }
             do {
@@ -280,7 +286,8 @@ import TDLibKitDynamic
                 else { return }
                 var removed = Set<Int>()
                 let incoming = result.topics.compactMap { response -> ForumTopic? in
-                    guard let topic = self.acceptFullTopic(response, read: read) else { return nil }
+                    guard let topic = self.acceptFullTopic(response, read: read, head: cursor == .zero)
+                    else { return nil }
                     let renamed = self.infoUpdates[topic.info.forumTopicId].map {
                         $0.revision > read.revision && $0.value.name != response.info.name
                     } ?? false
@@ -294,10 +301,17 @@ import TDLibKitDynamic
                 let retained = reset
                     ? topics.filter { (self.acceptedReadOrdinals[$0.info.forumTopicId] ?? 0) > read.ordinal }
                     : topics
-                topics = ForumTopicPageState.merging(
+                let merged = ForumTopicPageState.merging(
                     existing: retained.filter { !removed.contains($0.info.forumTopicId) },
                     incoming: incoming.filter { !removed.contains($0.info.forumTopicId) },
                 )
+                if cursor == .zero {
+                    pinnedOrder.acceptHead(
+                        result.topics, eligible: Set(merged.map(\.info.forumTopicId)),
+                        chatID: location.chatID, after: pinRevision,
+                    )
+                }
+                topics = pinnedOrder.applying(to: merged)
                 acceptedQuery = query
                 nextOffsetDate = result.nextOffsetDate
                 nextOffsetForumTopicID = result.nextOffsetForumTopicId
@@ -429,8 +443,10 @@ import TDLibKitDynamic
         liveRevision &+= 1
         scalarUpdates[id] = (liveRevision, update)
         guard previous != update else { return }
+        pinnedOrder.observeMembership(id: id, previous: previous?.isPinned, pinned: update.isPinned)
         if let index = topics.firstIndex(where: { $0.info.forumTopicId == id }) {
             topics[index] = topics[index].applying(update: update)
+            if previous?.isPinned != update.isPinned { sortTopics() }
         }
         let needsFull = previous.map {
             $0.lastReadInboxMessageId != update.lastReadInboxMessageId || $0.draftMessage != update.draftMessage
@@ -450,12 +466,19 @@ import TDLibKitDynamic
 
     /// Admission records removals too. A stale full result cannot revive a row
     /// or replace the payload used to recognize TDLib's response echoes.
-    private func acceptFullTopic(_ response: ForumTopic, read: ReadStamp) -> ForumTopic? {
+    private func acceptFullTopic(_ response: ForumTopic, read: ReadStamp, head: Bool = false) -> ForumTopic? {
         let id = response.info.forumTopicId
         guard response.info.chatId == location.chatID, id > 0,
               acceptedReadOrdinals[id].map({ $0 <= read.ordinal }) ?? true else { return nil }
         var topic = rebaseScalars(response, after: read.revision)
         if let info = infoUpdates[id], info.revision > read.revision { topic = topic.replacing(info: info.value) }
+        if !head {
+            pinnedOrder.observeMembership(
+                id: id, previous: scalarUpdates[id]?.value.isPinned
+                    ?? topics.first { $0.info.forumTopicId == id }?.isPinned,
+                pinned: topic.isPinned,
+            )
+        }
         acceptedReadOrdinals[id] = read.ordinal
         if scalarUpdates[id].map({ $0.revision <= read.revision }) ?? true {
             scalarUpdates[id] = (read.revision, topic.updatePayload)
@@ -560,12 +583,12 @@ import TDLibKitDynamic
     }
 
     private func sortTopics() {
-        topics.sort { lhs, rhs in
+        topics = pinnedOrder.applying(to: topics.sorted { lhs, rhs in
             if lhs.order != rhs.order {
                 return lhs.order > rhs.order
             }
             return lhs.info.forumTopicId < rhs.info.forumTopicId
-        }
+        })
     }
 }
 
