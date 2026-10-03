@@ -335,6 +335,10 @@ import UIKit
         #endif
         guard attempt?.command != nil, !issuingCommand else { return }
         receivedEnd = true
+        // Both geometry observations must follow the latest accepted end;
+        // an existing checker may still hold a sample from the earlier flight.
+        firstOffset = nil
+        firstTarget = nil
         #if DEBUG
             debugRecord("native-end-accepted")
         #endif
