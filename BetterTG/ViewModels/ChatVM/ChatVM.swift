@@ -63,8 +63,14 @@ import UIKit
     let pollInteractionStore = MessagePollInteractionStore()
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
-    @Published private(set) var editCustomMessage: CustomMessage?
-    @Published var replyMessage: CustomMessage?
+    @Published private(set) var editCustomMessage: CustomMessage? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
+    @Published var replyMessage: CustomMessage? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     @Published private(set) var replyQuote: InputTextQuote?
     @Published private(set) var replyInputOverride: InputMessageReplyTo?
     @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
@@ -87,7 +93,10 @@ import UIKit
     @Published private(set) var hasPendingVoiceNote = false
     @Published private(set) var hasPendingVideoNote = false
     @Published private(set) var retryingVideoNote = false
-    @Published private(set) var restoredVideoRecordingDraft: VideoNoteRecordingDraft?
+    @Published private(set) var restoredVideoRecordingDraft: VideoNoteRecordingDraft? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     @Published private(set) var restoredVideoRecordingReplyMessage: CustomMessage?
     @Published private(set) var pendingVoiceReplyMessage: CustomMessage?
     @Published private(set) var pendingVideoReplyMessage: CustomMessage?
@@ -125,6 +134,10 @@ import UIKit
         }
     }
 
+    var recordingVideoTopicDemand: MessageTopic? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     private var voiceFinalizationGeneration = UInt64.zero
     private var voiceDraftRefreshGeneration = UInt64.zero
     @Published private var pendingVoiceDraftIsFinalizing = false
@@ -142,8 +155,14 @@ import UIKit
     private var voiceRecordingLifecycle = VoiceRecordingLifecycle()
     private var voiceFinalizationNeedsCheckpoint = false
     private let voiceBackgroundCheckpoint = VoiceRecordingCheckpointProtection()
-    private var activeVoiceRecordingDraft: VoiceRecordingDraft?
-    private var activeVoiceRecordingContext: ResolvedSendContext?
+    private var activeVoiceRecordingDraft: VoiceRecordingDraft? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
+    private var activeVoiceRecordingContext: ResolvedSendContext? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     private let voiceRecordingPreviewPlayer = LocalMediaPlayer()
     private var voiceRecordingPreviewLoadedURL: URL?
     private var voiceRecordingPreviewOwnsAudioSession = false
@@ -151,8 +170,14 @@ import UIKit
     private var voiceRecordingTrimTask: Task<Void, Never>?
     private var voiceRecordingTrimGeneration = 0
     private var voiceRecordingTrimBaseDraft: VoiceRecordingDraft?
-    private var pendingVideoNote: VideoNoteSendDraft?
-    private var outgoingVideoNotes = [Int64: VideoNoteSendDraft]()
+    private var pendingVideoNote: VideoNoteSendDraft? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
+    private var outgoingVideoNotes = [Int64: VideoNoteSendDraft]() {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     private var outgoingDocumentURLsByMessageID = [Int64: URL]()
     private var outgoingDocumentProvisionalLeaseIDsByMessageID = [Int64: Int64]()
     private var bufferedTerminalDocumentMessageIDs = Set<Int64>()
@@ -177,7 +202,10 @@ import UIKit
     private var forumTopicRequestID: UUID?
     private var forumTopicLiveUpdates: ForumTopicLiveUpdateState
     private var forumTopicInfoRevision = UInt64.zero
-    private var forumTopicTasks = [Int: Task<Void, Never>]()
+    private var allMessagesTopicReads: ChatForumTopicReads?
+    private var allMessagesTopicReadsRetired = false
+    private var forumTopicDemandRefreshQueued = false
+
     private var activeChatAction: ChatAction?
     private var activeChatActionContext: ResolvedSendContext?
     private var chatActionRouteRevision = UInt64.zero
@@ -193,8 +221,14 @@ import UIKit
     private var draftClearTask: Task<Void, Never>?
     private let previewing: Bool
 
-    private var pendingVoiceNote: VoiceNoteSendDraft?
-    private var outgoingVoiceNotes = [Int64: VoiceNoteSendDraft]()
+    private var pendingVoiceNote: VoiceNoteSendDraft? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
+    private var outgoingVoiceNotes = [Int64: VoiceNoteSendDraft]() {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     private var registeringVoiceMessageIDs = Set<Int64>()
     private var bufferedVoiceOutcomes = [Int64: VoiceNoteDraftResolution]()
     private var bufferedDeletedMessageIDs = Set<Int64>()
@@ -230,9 +264,10 @@ import UIKit
     }
 
     var isAllMessagesForum: Bool {
-        location.topic == nil
-            && customChat.supergroup?.isForum == true
-            && !customChat.chat.viewAsTopics
+        guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages,
+              case .chatTypeSupergroup(let type) = customChat.chat.type,
+              let group = customChat.supergroup, group.id == type.supergroupId else { return false }
+        return group.isForum && !type.isChannel && !group.isChannel && !group.isDirectMessagesGroup
     }
 
     var acceptedChatActionTopic: MessageTopic? {
@@ -614,7 +649,6 @@ import UIKit
         reactionMutationTasks.values.forEach { $0.cancel() }
         pinnedMessageTask?.cancel()
         forumTopicTask?.cancel()
-        forumTopicTasks.values.forEach { $0.cancel() }
         draftClearTask?.cancel()
         composerMediaDraftTask?.cancel()
         pinMutationTasks.values.forEach { $0.cancel() }
@@ -622,6 +656,7 @@ import UIKit
         timer?.invalidate()
         audioRecorder?.stop()
         MainActor.assumeIsolated {
+            allMessagesTopicReads?.retire()
             voiceBackgroundCheckpoint.finish()
             messageRefresh?.cancel()
             composerRestorationLifetime.finish {
@@ -705,9 +740,7 @@ import UIKit
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
-        if isAllMessagesForum {
-            refreshForumTopic(id: 1)
-        }
+        refreshAllMessagesForumTopicsIfNeeded()
         if isReadOnlyTopic, forumTopicInfo == nil, forumTopicTask == nil {
             loadForumTopic()
         }
@@ -919,6 +952,9 @@ import UIKit
     }
 
     func retireDeliveryReceipts() {
+        allMessagesTopicReadsRetired = true
+        allMessagesTopicReads?.retire()
+        forumTopicsByID.removeAll()
         deliveryReadTask?.cancel()
         deliveryReadTask = nil
         if location.forumTopicID != nil {
@@ -1018,6 +1054,7 @@ import UIKit
 
     func retryMessageRefresh() {
         guard locationContextIsCurrent else { return }
+        retryAllMessagesForumTopics()
         messageRefresh?.retryFailures()
         latestRestorationFailed = false
         driveMessageRefresh()
@@ -1545,6 +1582,11 @@ import UIKit
 
     func updateForumTopicInfo(_ info: ForumTopicInfo) {
         guard info.chatId == location.chatID else { return }
+        if isAllMessagesForum {
+            guard locationContextIsCurrent, let source = TDLib.shared.activeUpdateSource else { return }
+            allMessagesTopicReads?.receive(info, source: source)
+            return
+        }
         if info.forumTopicId == location.forumTopicID {
             forumTopicInfoRevision &+= 1
             forumTopicInfo = info
@@ -1560,27 +1602,20 @@ import UIKit
     }
 
     func refreshForumTopic(id: Int) {
-        guard isAllMessagesForum,
-              forumTopicTasks[id] == nil,
-              locationContextIsCurrent
-        else { return }
-        let client = client
-        let accountID = accountID
-        forumTopicTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            defer { forumTopicTasks[id] = nil }
-            let topic = try? await client.getForumTopic(
-                chatId: location.chatID,
-                forumTopicId: id,
-            )
-            guard !Task.isCancelled,
-                  TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id
-            else { return }
-            guard let topic else { return }
-            forumTopicsByID[id] = topic
-            messagesDidChange.send()
-        }
+        guard let reader = allMessagesForumReader() else { return }
+        reader.request(id)
+        // Reply/draft callers install their context synchronously after requesting.
+        queueForumTopicDemandRefresh()
+    }
+
+    func receiveAllMessagesForumTopicUpdate(_ update: UpdateForumTopic, source: TdUpdateSource) {
+        guard isAllMessagesForum, locationContextIsCurrent else { return }
+        allMessagesTopicReads?.receive(update, source: source)
+    }
+
+    func retryAllMessagesForumTopics() {
+        refreshAllMessagesForumTopicsIfNeeded()
+        allMessagesTopicReads?.retryMissing()
     }
 
     func loadForumTopic() {
@@ -3215,6 +3250,25 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    func refreshAllMessagesForumTopicsIfNeeded() {
+        guard isAllMessagesForum else {
+            allMessagesTopicReads?.synchronize([])
+            return
+        }
+        guard let reader = allMessagesForumReader() else { return }
+        let composerTopics: [MessageTopic?] = [
+            .messageTopicForum(.init(forumTopicId: 1)), // General is only the base composer's default.
+            replyMessage?.message.chatId == chatID ? replyMessage?.message.topicId : nil,
+            editCustomMessage?.message.chatId == chatID ? editCustomMessage?.message.topicId : nil,
+            activeVoiceRecordingContext?.destinationTopic, activeVoiceRecordingDraft?.sendTopic,
+            restoredVideoRecordingDraft?.sendTopic, recordingVideoTopicDemand,
+            pendingVoiceNote?.sendTopic, pendingVideoNote?.sendTopic,
+        ] + outgoingVoiceNotes.values.map(\.sendTopic) + outgoingVideoNotes.values.map(\.sendTopic)
+        reader.synchronize(ChatForumTopicReads.demandedIDs(
+            chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
+        ))
+    }
+
     private func preserveVoiceRecordingCheckpoint() {
         stopVoiceRecordingPreviewPlayback()
         guard recordingVoiceNote else { return }
@@ -3743,21 +3797,37 @@ import UIKit
             }
     }
 
-    private func refreshAllMessagesForumTopicsIfNeeded() {
-        guard isAllMessagesForum else { return }
-        let topicIDs = Set(messages.compactMap { message -> Int? in
-            if case .messageTopicForum(let topic) = message.message.topicId {
-                topic.forumTopicId
-            } else {
-                nil
-            }
-        })
-        for id in topicIDs where forumTopicsByID[id] == nil {
-            refreshForumTopic(id: id)
+    private func queueForumTopicDemandRefresh() {
+        guard !forumTopicDemandRefreshQueued, !allMessagesTopicReadsRetired, isAllMessagesForum else { return }
+        forumTopicDemandRefreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            forumTopicDemandRefreshQueued = false
+            refreshAllMessagesForumTopicsIfNeeded()
         }
-        if forumTopicsByID[1] == nil {
-            refreshForumTopic(id: 1)
-        }
+    }
+
+    private func allMessagesForumReader() -> ChatForumTopicReads? {
+        guard isAllMessagesForum, locationContextIsCurrent, !allMessagesTopicReadsRetired else { return nil }
+        if let allMessagesTopicReads { return allMessagesTopicReads }
+        let client = client
+        let chatID = chatID
+        let reader = ChatForumTopicReads(
+            location: location,
+            currentSource: { TDLib.shared.activeUpdateSource },
+            read: { try await client.getForumTopic(chatId: chatID, forumTopicId: $0) },
+            publish: { [weak self] id, value in
+                guard let self else { return }
+                if value != nil {
+                    guard locationContextIsCurrent, isAllMessagesForum, !allMessagesTopicReadsRetired else { return }
+                }
+                guard forumTopicsByID[id] != value else { return }
+                forumTopicsByID[id] = value
+                messagesDidChange.send()
+            },
+        )
+        allMessagesTopicReads = reader
+        return reader
     }
 
     private func permissionAllows(_ kind: ChatSendContentKind) -> Bool {

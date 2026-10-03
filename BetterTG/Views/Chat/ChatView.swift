@@ -160,7 +160,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var videoNoteRecorder: VideoNoteRecorderViewController?
     private var videoNoteReplyMessage: CustomMessage?
     private var videoNoteReplyInput: InputMessageReplyTo?
-    private var videoNoteSendTopic: MessageTopic?
+    private var videoNoteSendTopic: MessageTopic? {
+        didSet { chatVM.recordingVideoTopicDemand = videoNoteSendTopic }
+    }
+
     private var videoNoteChatActionActive = false
     private var restoredVideoRecordingDraftIDHandled: UUID?
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
