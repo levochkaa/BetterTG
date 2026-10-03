@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A52b NSE live-session/expiry authority, then A53b explicit denial/versioned media cache and queued actual ChatView mutations.
+Active queue: A52b2 service request/content/donation ownership, then A53b explicit denial/versioned media cache and queued actual ChatView mutations.
 A51a `38b7d06` and A51b `6b187b0` pass isolated cache/worker native probes. Post-worker sample was idle-only, so comparable
 production performance remains unverified; do not infer a speedup or keep repeating unaligned captures. Keep A39's deadline.
 `e70a227` repairs the separately reproduced latest-end sample invalidation: controlled baseline FAIL0.811s becomes PASS;
@@ -207,7 +207,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | bounded repairs — A49a exact-cell fallback, A49b provider/touch authority, A49c1 values and A49c2 `f799d29` shared frozen transactions; `724bf32` repairs measured UIKit deletion reset. Scheduler/action native probes and actual selection/viewport checks pass. Natural Chat crash was not reproduced; actual queued mutation/delete timing/player and physical touch races remain unverified |
 | A50 | P1 | Actual Saved Messages Cancel leaves circles/controls on unselected rows; endMessageSelection only invalidates previously selected IDs, and deselect-last invalidates zero rows | bounded fix `487c0de` updates all snapshot message rows on exit and surviving rows in structural last-selection removal. Actual Cancel/deselect-last screenshots pass; structural removal source-reviewed only |
 | A51 | P1 | At `1c72d3a`, launch sample attributes628/1931 main-thread samples to rich-notification user/chat cache sinks doing source-file reads, image decode/JPEG, directory lookup and atomic writes. Coordinator uses raw events/global td across awaits and disk keys omit account | bounded repairs `38b7d06` account/source isolation and `6b187b0` serial off-main avatars/current-photo ordering; native isolated probes pass. Post-change sample is idle-only, not a performance comparison. Strict NSE write cutoff, photo-removal disk invalidation, registration cardinality and media IO remain open; actual notification delivery unverified |
-| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | fixed bounded A52a `878e85f`: exact account/peer/chat/raw-message correlation, no unrelated fallback; native helper/model cases pass. A52b live-session/expiry teardown remains needs-fix. Actual NSE delivery/RPC/cancellation unverified |
+| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | fixed bounded A52a `878e85f` + A52b1 `90d324d`: exact identity/single resolver, cancellation-safe session authority and strict cache publication cutoff; native helper cases pass. A52b2 service request/content/donation ownership remains needs-fix. Actual NSE delivery/TDLib close and RPC termination unverified |
 | A53 | P1 | At `38b7d06`, app coordinator caches incoming photo/video/animation without isSecret/hasSpoiler checks; NSE MessageContent resolution excludes them, but shared-cache fallback/attachment construction can reintroduce those bytes | fixed bounded A53a `afed19b`: full-message admission and exact scoped active-job revocation, native publisher/pipeline probe passes. A53b persisted evidence, explicit denial and NSE fallback remain needs-fix. No real notification or concealed-media bytes exercised |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
@@ -2077,7 +2077,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   cover nil/wrong account, invalid/maximum cloud ID, low-bit aliases, peer kind/ID, wrong chat response/message group,
   matching-before-unrelated-last and unrelated-only selection. showPreview=false remains identifiable for the next denial
   stage; identity is not preview permission. No RPC/account-store/notification/INInteraction donation in the probe.
-- A52b remains open: unstructured nested session tasks, timeout/expiry and cache-publication lifetime. This helper/model
+- At the A52a checkpoint, A52b remained open: nested session tasks, timeout/expiry and cache-publication lifetime. This helper/model
   proof does not exercise actual NSE delivery or TDLib RPC. Evidence: `.build/ui-probe-evidence/astra-a52-a53/`.
 - A52b1 repair boundary reviewed before implementation: one lifetime authority owns continuation, client bootstrap and
   configure/process/resolver task tickets. Exact raw group-chat prefilter precedes the sole resolver; getChat's type/peer
@@ -2088,6 +2088,47 @@ is imported. This source pass does not prove every content's real rendering/acti
   manager `closeClients`133–138 waits for clients removal, and queryQueue177–178 removes before the queued client update
   handler necessarily runs. Canceling a Swift Task or completing close is not a callback-drain proof. A52b2 service request
   generation, builder/INInteraction donation and callback ownership remain separate from the session-only repair.
+
+### A52b1 session publication and teardown authority — 2026-10-03
+
+- `90d324d` (worker `8c11665`, reviewed tree `c87a5863`) introduces one locked session lifetime for continuation,
+  client bootstrap and at most one configure/process/resolve role. Tickets are reserved before spawning and reject a
+  task handle arriving after completion or retirement. The target's raw chat prefilter prevents a same-messageID event
+  from another chat consuming the sole resolver. Overflow is rejected before client creation; getChat type/peer checks remain.
+- Outer cancellation, timeout and authorization failure retire authority once, cancel registered task handles and resume
+  the result outside the lock. Late callback admission, post-await results and cache publication require live exact tickets.
+  Synchronous cache writes and retirement share the lock: writes already inside it may delay retirement, but later writes
+  cannot enter. Utility close is claimed once after retirement without joining pending TDLib tasks; the process lock stays
+  held until close returns. Basic service cancellation checks stop already-cancelled work before lock/session/content paths.
+- Telegram official `6ad963e5`, `Telegram/NotificationService/Sources/NotificationService.swift`2524–2527,2571–2606,
+  and pre `8e7e5fe`2267–2270,2314–2349 separate handler disposal from once-only content completion. BetterTG adapts
+  ownership to Swift tasks/TDLibKit; no SignalKit/Postbox/Display infrastructure copied. Pinned TDLib `DialogId.cpp`66–88
+  and `DialogId.h`26–27 define private/basic/supergroup raw chat IDs; monoforum arithmetic remains accepted.
+- Worker joint seven-file format3/7; wrapper `181538-16903-22292` PASS10s, complete1585-line log zero warnings/errors.
+  Independent immutable peer review passes. Primary joint eleven-file format0/11; integration `182000-23494-22239`
+  PASS17s, complete1585-line log zero warnings/errors. Worker is clean; all seven implementation files committed.
+- Native at `90d324d`, same Audit Simulator59EB535C/iOS26.5, PID25440, fresh container
+  `90A3B266-C8A0-4C49-BC66-191D96C1C1C1`: lifetime report18:21:15+04 PASS. Production authority fixtures cover cancel
+  before begin/create, creation concurrent with retirement/early callback, wrong/duplicate tickets, completion before handle
+  registration, three held uncooperative role tasks, result before their release, close claim without joining, positive and
+  denied effects, and synchronous publication ordering. Exact admitted tasks are awaited; positive event receipts are checked.
+  No actual TDLib client/cache/account/notification/donation effects in this lifetime probe.
+- Same run: target, media-admission and cache-scope reports18:21:14 PASS; avatar worker18:21:15 PASS. Target adds exact
+  group-chat, monoforum and overflow checks. Cache/worker tests retain real isolated JPEG IO. idb hierarchy available before
+  install; wrapper kept Simulator in background. Evidence: `.build/ui-probe-evidence/astra-a52-a53/lifetime/`.
+- Limits: pinned SDK RPC continuations can outlive cancellation; close is not a callback-drain proof. Check-before-await
+  cannot guarantee zero new RPC submissions after a concurrent retirement, while publication itself is strictly gated.
+  Actual NSE/APNs/SDK shutdown remain unverified. An entered synchronous write can delay expiry; no hard-deadline guarantee.
+- Next A52b2: bind service processing task, content handler, temporary attachment/INInteraction construction and completion
+  to one request authority. A Task.isCancelled check before builder alone has a check→side-effect gap. Preserve original
+  fallback and once-only delivery; test replacement, expiry before task-handle registration, late producer and positive delivery
+  through a production seam without donating synthetic interactions. Do not conflate this with the session-only repair.
+- Then A53b: explicit hidden/showPreview denial must revoke even a previously accepted in-flight resolver for that same
+  message; the new single resolver does not make its first notification permanently authoritative. Full-message eligibility,
+  known content/delete revisions and versioned persisted evidence must govern cache/builder/wait paths together.
+- Final checkpoint build `182318-27788-15437`: PASS5s, complete1385-line log zero warnings/errors. Production/dependency
+  prohibited-marker scan empty; AGENTS/CLAUDE match. Primary implementation and worker are committed and clean; this
+  proof ledger is the final focused documentation commit. Goal stays active; next implementation is A52b2 above.
 
 ### A53 notification media concealment — source finding 2026-10-03
 
