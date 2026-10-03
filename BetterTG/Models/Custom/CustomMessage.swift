@@ -64,9 +64,11 @@ import TDLibKitDynamic
         self.isPinned = isPinned ?? message.isPinned
     }
 
-    func updateDeliveryState(permitsFinalStatus: Bool, readOutbox: Int64?) {
+    func updateDeliveryState(permitsFinalStatus: Bool, readOutbox: Int64?, topic: MessageTopic? = nil) {
         let source = deliverySourceMessage
-        let next = MessageDeliveryState.resolve(source, permitsFinalStatus: permitsFinalStatus, readOutbox: readOutbox)
+        let next = MessageDeliveryState.resolve(
+            source, permitsFinalStatus: permitsFinalStatus, readOutbox: readOutbox, topic: topic,
+        )
         if deliveryState != next { deliveryState = next }
     }
 }

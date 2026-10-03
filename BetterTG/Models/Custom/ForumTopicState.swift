@@ -92,7 +92,13 @@ struct ForumTopicLiveUpdateState {
 
     func applyingLatest(to topic: ForumTopic) -> ForumTopic {
         guard matches(topic), let update = latest else { return topic }
-        return topic.applying(update: update)
+        return ForumTopic(
+            draftMessage: update.draftMessage, info: topic.info, isPinned: update.isPinned,
+            lastMessage: topic.lastMessage, lastReadInboxMessageId: update.lastReadInboxMessageId,
+            lastReadOutboxMessageId: update.lastReadOutboxMessageId, notificationSettings: update.notificationSettings,
+            order: topic.order, unreadCount: topic.unreadCount, unreadMentionCount: update.unreadMentionCount,
+            unreadPollVoteCount: update.unreadPollVoteCount, unreadReactionCount: update.unreadReactionCount,
+        )
     }
 
     @discardableResult mutating func finishRead(
@@ -119,77 +125,6 @@ struct ForumTopicLiveUpdateState {
 
     private func matches(_ topic: ForumTopic) -> Bool {
         topic.info.chatId == location.chatID && topic.info.forumTopicId == location.forumTopicID
-    }
-}
-
-extension ForumTopic {
-    func applying(update: UpdateForumTopic) -> ForumTopic {
-        guard info.chatId == update.chatId, info.forumTopicId == update.forumTopicId else { return self }
-        return ForumTopic(
-            draftMessage: update.draftMessage, info: info, isPinned: update.isPinned,
-            lastMessage: lastMessage, lastReadInboxMessageId: update.lastReadInboxMessageId,
-            lastReadOutboxMessageId: update.lastReadOutboxMessageId, notificationSettings: update.notificationSettings,
-            order: order, unreadCount: unreadCount, unreadMentionCount: update.unreadMentionCount,
-            unreadPollVoteCount: update.unreadPollVoteCount, unreadReactionCount: update.unreadReactionCount,
-        )
-    }
-
-    var updatePayload: UpdateForumTopic {
-        UpdateForumTopic(
-            chatId: info.chatId, draftMessage: draftMessage, forumTopicId: info.forumTopicId,
-            isPinned: isPinned, lastReadInboxMessageId: lastReadInboxMessageId,
-            lastReadOutboxMessageId: lastReadOutboxMessageId, notificationSettings: notificationSettings,
-            unreadMentionCount: unreadMentionCount, unreadPollVoteCount: unreadPollVoteCount,
-            unreadReactionCount: unreadReactionCount,
-        )
-    }
-}
-
-// MARK: - ForumTopicPinnedOrder
-
-/// Only a server head supplies pin positions. Unknown/new pins keep ordinary
-/// chronology until the next explicit head read; membership is not a rank.
-struct ForumTopicPinnedOrder {
-    private(set) var ids = [Int]()
-    private(set) var revision = UInt64.zero
-
-    private var changedAt = [Int: UInt64]()
-
-    init(ids: [Int] = []) {
-        var seen = Set<Int>()
-        self.ids = ids.filter { $0 > 0 && seen.insert($0).inserted }
-    }
-
-    mutating func reset(keepingRanks: Bool) {
-        if !keepingRanks { ids.removeAll() }
-        changedAt.removeAll()
-    }
-
-    mutating func observeMembership(id: Int, previous: Bool?, pinned: Bool) {
-        guard id > 0, let previous, previous != pinned else { return }
-        revision &+= 1
-        changedAt[id] = revision
-        ids.removeAll { $0 == id }
-    }
-
-    mutating func acceptHead(_ raw: [ForumTopic], eligible: Set<Int>, chatID: Int64, after version: UInt64) {
-        var seen = Set<Int>()
-        ids = raw.compactMap { topic in
-            let id = topic.info.forumTopicId
-            guard topic.info.chatId == chatID, id > 0, topic.isPinned, !topic.info.isHidden,
-                  eligible.contains(id), (changedAt[id] ?? 0) <= version,
-                  seen.insert(id).inserted else { return nil }
-            return id
-        }
-    }
-
-    func applying(to chronological: [ForumTopic]) -> [ForumTopic] {
-        let byID = Dictionary(uniqueKeysWithValues: chronological.map { ($0.info.forumTopicId, $0) })
-        let pinned = ids.compactMap { id in
-            byID[id].flatMap { $0.isPinned && !$0.info.isHidden ? $0 : nil }
-        }
-        let ranked = Set(pinned.map(\.info.forumTopicId))
-        return pinned + chronological.filter { !ranked.contains($0.info.forumTopicId) }
     }
 }
 
