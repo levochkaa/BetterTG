@@ -98,12 +98,15 @@ import UIKit
             do {
                 try await verify()
                 try await verifyDeferredDemand()
+                try await verifyFullReadOrdering()
+                try await verifyPageTombstones()
                 result = "Forum updates probe passed: real-VM/injected-page-topic-reads/local-scoped-updates=true; "
                     + "echo-before-after-page-topic/unknown-coalescing/failed-echo-no-retry=true; "
                     + "direct-scalar/no-RPC/native-cell/late-page-scalar/draft-inbox-one-refresh=true; "
                     + "semantic-demand-after-page/individual-to-page/page-failure/hidden-unknown=true; "
                     + "query-source-retirement/request-owner/wrong-response/late-error=true; "
-                    + "page-full-omitted-fields/info-tombstones/real-RPC=unverified; server-writes=0"
+                    + "full-read-order/both-completions/unrelated-event/newer-failure/info-tombstones/raw-cursor=true; "
+                    + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -284,7 +287,7 @@ import UIKit
     private static func topic(
         id: Int, name: String = "Swift", outbox: Int64 = 0, inbox: Int64 = 0,
         draft: String? = nil, mentions: Int = 0, hidden: Bool = false,
-        unreadCount: Int = 0, order: Int64 = 10,
+        unreadCount: Int = 0, order: Int64 = 10, lastID: Int64? = nil,
     ) -> ForumTopic {
         let base = ForumTopicsRestorationProbe.topic(id: id, name: name)
         let payload = UpdateForumTopic(
@@ -302,7 +305,8 @@ import UIKit
                 chatId: 7, creationDate: 1, creatorId: base.info.creatorId, forumTopicId: id, icon: base.info.icon,
                 isClosed: false, isGeneral: false, isHidden: hidden, isNameImplicit: false, isOutgoing: false,
                 name: name,
-            ), isPinned: result.isPinned, lastMessage: nil, lastReadInboxMessageId: inbox,
+            ), isPinned: result.isPinned, lastMessage: lastID.map { lastMessage(id: $0, topicID: id) },
+            lastReadInboxMessageId: inbox,
             lastReadOutboxMessageId: outbox,
             notificationSettings: result.notificationSettings, order: TdInt64(order), unreadCount: unreadCount,
             unreadMentionCount: mentions, unreadPollVoteCount: 0, unreadReactionCount: 0,
@@ -375,6 +379,149 @@ import UIKit
         try require(
             f.topics.count == 4 && !f.model.topics.contains { $0.info.forumTopicId == 2 },
             "hidden unknown echo looped",
+        )
+    }
+
+    private static func verifyFullReadOrdering() async throws {
+        for pageFirst in [false, true] {
+            let f = Fixture()
+            defer { f.model.retire()
+            f.cancelOutstanding()
+            }
+            f.model.loadInitial()
+            try await until("ordering initial page") { f.pages.count == 1 }
+            let initial = f.model.probeReadTasks
+            f.finishPage(0, [topic(id: 1), topic(id: 2)])
+            try await terminal(initial)
+            f.post(topic(id: 1, inbox: 1))
+            try await until("older individual dispatch") { f.topics.count == 1 }
+            let individual = f.model.probeReadTasks
+            f.model.loadMore()
+            try await until("newer page dispatch") { f.pages.count == 2 }
+            let page = [f.model.probePageTask].compactMap(\.self)
+            // Unrelated revision changes must not turn a full-read baseline into a live event.
+            f.post(topic(id: 2, outbox: 900))
+            await events()
+            let older = topic(id: 1, name: "Older", outbox: 10, inbox: 1, unreadCount: 10, order: 100, lastID: 100)
+            let newer = topic(id: 1, name: "Newer", outbox: 20, inbox: 2, unreadCount: 20, order: 200, lastID: 200)
+            if pageFirst {
+                f.finishPage(1, [newer], cursor: 80)
+                try await terminal(page)
+                f.finishTopic(0, older)
+                try await terminal(individual)
+            } else {
+                f.finishTopic(0, older)
+                try await terminal(individual)
+                try require(
+                    f.model.topics.first { $0.info.forumTopicId == 1 }?.lastMessage?.id == 100
+                        && f.model.topics.first { $0.info.forumTopicId == 1 }?.info.name == "Older",
+                    "pending newer request suppressed valid older response",
+                )
+                f.finishPage(1, [newer], cursor: 80)
+                try await terminal(page)
+            }
+            let row = f.model.topics.first { $0.info.forumTopicId == 1 }
+            try require(
+                row?.lastMessage?.id == 200 && row?.order == 200 && row?.unreadCount == 20
+                    && row?.info.name == "Newer" && row?.lastReadOutboxMessageId == 20,
+                "full response ordering or unrelated live revision corrupted newer row (pageFirst=\(pageFirst))",
+            )
+            f.post(newer)
+            await events()
+            try require(f.topics.count == 1, "rejected old response regressed echo comparison baseline")
+        }
+
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        f.model.loadInitial()
+        try await until("failed newer initial page") { f.pages.count == 1 }
+        let initial = f.model.probeReadTasks
+        f.finishPage(0, [topic(id: 1)])
+        try await terminal(initial)
+        f.post(topic(id: 1, inbox: 1))
+        try await until("valid older read") { f.topics.count == 1 }
+        let individual = f.model.probeReadTasks
+        f.model.loadMore()
+        try await until("failed newer page") { f.pages.count == 2 }
+        let page = [f.model.probePageTask].compactMap(\.self)
+        f.failPage(1)
+        try await terminal(page)
+        f.finishTopic(0, topic(id: 1, inbox: 1, unreadCount: 77, order: 77, lastID: 77))
+        try await terminal(individual)
+        try require(
+            f.model.topics.first?.lastMessage?.id == 77 && f.model.topics.first?.unreadCount == 77,
+            "failed newer request suppressed valid older full response",
+        )
+    }
+
+    private static func verifyPageTombstones() async throws {
+        for hidden in [true, false] {
+            let f = Fixture()
+            defer { f.model.retire()
+            f.cancelOutstanding()
+            }
+            f.model.search("Swift")
+            try await until("tombstone initial page") { f.pages.count == 1 }
+            let initial = f.model.probeReadTasks
+            f.finishPage(0, [topic(id: 1)])
+            try await terminal(initial)
+            f.post(topic(id: 1, inbox: 1))
+            try await until("tombstone old individual") { f.topics.count == 1 }
+            let individual = f.model.probeReadTasks
+            f.model.loadMore()
+            try await until("tombstone append") { f.pages.count == 2 }
+            let page = [f.model.probePageTask].compactMap(\.self)
+            f.postInfo(topic(id: 1, name: hidden ? "Swift" : "Other", hidden: hidden))
+            await events()
+            try require(f.model.topics.isEmpty, "live hidden/nonmatching info did not remove row")
+            f.finishPage(1, [topic(id: 1)], cursor: 80)
+            try await terminal(page)
+            f.finishTopic(0, topic(id: 1, inbox: 1, unreadCount: 9, lastID: 9))
+            try await terminal(individual)
+            try require(
+                f.model.topics.isEmpty && f.model.hasMore
+                    && f.model.restorationState(rawQuery: "Swift").cursor == .init(
+                        date: 80,
+                        forumTopicID: 80,
+                        messageID: 80,
+                    )
+                    && f.topics.count == 1,
+                "stale page/individual revived tombstone, changed raw cursor or spawned read",
+            )
+            // A later full read can replace pre-dispatch info; tombstones aren't permanent exclusions.
+            f.model.loadMore()
+            try await until("fresh after tombstone") { f.pages.count == 3 }
+            let fresh = [f.model.probePageTask].compactMap(\.self)
+            f.finishPage(2, [topic(id: 1, inbox: 2, unreadCount: 2)], cursor: 120)
+            try await terminal(fresh)
+            try require(
+                f.model.topics.count == 1 && f.model.topics[0].info.name == "Swift"
+                    && !f.model.topics[0].info.isHidden && f.model.topics[0].unreadCount == 2,
+                "pre-dispatch info was reapplied over fresh full response",
+            )
+        }
+    }
+
+    private static func lastMessage(id: Int64, topicID: Int) -> Message {
+        Message(
+            authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 7,
+            containsUnreadMention: false, containsUnreadPollVotes: false,
+            content: .messageText(.init(
+                linkPreview: nil,
+                linkPreviewOptions: nil,
+                text: .init(entities: [], text: "probe"),
+            )),
+            date: 1, editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
+            guestBotCallerId: nil, hasTimestampedMedia: false, id: id, importInfo: nil, interactionInfo: nil,
+            isChannelPost: false, isFromOffline: false, isOutgoing: false, isPaidGramSuggestedPost: false,
+            isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
+            receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
+            selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
+            senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
+            suggestedPostInfo: nil, summaryLanguageCode: "", topicId: .messageTopicForum(.init(forumTopicId: topicID)),
+            unreadReactions: [], viaBotUserId: 0,
         )
     }
 

@@ -7,6 +7,11 @@ import TDLibKitDynamic
 // MARK: - ForumTopicsVM
 
 @MainActor final class ForumTopicsVM: ObservableObject {
+    private struct ReadStamp {
+        let ordinal: UInt64
+        let revision: UInt64
+    }
+
     let customChat: CustomChat
     let location: ChatLocation
     let client: TDLibClient
@@ -30,6 +35,8 @@ import TDLibKitDynamic
     // true is a semantic invalidation; a page can satisfy only a false/unknown echo.
     private var pendingTopicRefreshes = [Int: Bool]()
     private var liveRevision = UInt64.zero
+    private var readOrdinal = UInt64.zero
+    private var acceptedReadOrdinals = [Int: UInt64]()
     private var scalarUpdates = [Int: (revision: UInt64, value: UpdateForumTopic)]()
     private var infoUpdates = [Int: (revision: UInt64, value: ForumTopicInfo)]()
     private var generation = UInt64.zero
@@ -123,6 +130,7 @@ import TDLibKitDynamic
     }
 
     var probeReadTasks: [Task<Void, Never>] { Array(topicRefreshTasks.values) + [loadTask].compactMap(\.self) }
+    var probePageTask: Task<Void, Never>? { loadTask }
 
     static func isolated(
         customChat: CustomChat,
@@ -187,6 +195,7 @@ import TDLibKitDynamic
         pendingTopicRefreshes.removeAll()
         scalarUpdates.removeAll()
         infoUpdates.removeAll()
+        acceptedReadOrdinals.removeAll()
         cancellables.removeAll()
         chatOpenLease?.invalidate()
     }
@@ -221,6 +230,7 @@ import TDLibKitDynamic
             pendingTopicRefreshes.removeAll()
             scalarUpdates.removeAll()
             infoUpdates.removeAll()
+            acceptedReadOrdinals.removeAll()
             self.query = query
             nextOffsetDate = 0
             nextOffsetForumTopicID = 0
@@ -248,7 +258,7 @@ import TDLibKitDynamic
         pendingPageRequest = ForumTopicPageRequest(cursor: cursor, resets: reset)
         let readPage = reads.page
         let location = location
-        let readRevision = liveRevision
+        let read = beginRead()
         loadTask = Task { [weak self] in
             guard !Task.isCancelled, self?.contextIsCurrent == true else { return }
             do {
@@ -258,18 +268,15 @@ import TDLibKitDynamic
                       query == self.query,
                       contextIsCurrent
                 else { return }
-                let incoming = result.topics.filter { $0.info.chatId == location.chatID }.map {
-                    self.rebaseScalars($0, after: readRevision)
-                }
-                for topic in incoming {
-                    let id = topic.info.forumTopicId
-                    if scalarUpdates[id].map({ $0.revision <= readRevision }) ?? true {
-                        scalarUpdates[id] = (liveRevision, topic.updatePayload)
-                    }
-                }
+                let incoming = result.topics.compactMap { self.acceptFullTopic($0, read: read) }
+                let removed = Set(incoming.filter { $0.info.isHidden || !self.topicMatchesQuery($0.info) }
+                    .map(\.info.forumTopicId))
+                let retained = reset
+                    ? topics.filter { (self.acceptedReadOrdinals[$0.info.forumTopicId] ?? 0) > read.ordinal }
+                    : topics
                 topics = ForumTopicPageState.merging(
-                    existing: reset ? [] : topics,
-                    incoming: incoming,
+                    existing: retained.filter { !removed.contains($0.info.forumTopicId) },
+                    incoming: incoming.filter { !removed.contains($0.info.forumTopicId) },
                 )
                 acceptedQuery = query
                 nextOffsetDate = result.nextOffsetDate
@@ -415,6 +422,29 @@ import TDLibKitDynamic
         return topic.applying(update: update.value)
     }
 
+    private func beginRead() -> ReadStamp {
+        readOrdinal &+= 1
+        return ReadStamp(ordinal: readOrdinal, revision: liveRevision)
+    }
+
+    /// Admission records removals too. A stale full result cannot revive a row
+    /// or replace the payload used to recognize TDLib's response echoes.
+    private func acceptFullTopic(_ response: ForumTopic, read: ReadStamp) -> ForumTopic? {
+        let id = response.info.forumTopicId
+        guard response.info.chatId == location.chatID, id > 0,
+              acceptedReadOrdinals[id].map({ $0 <= read.ordinal }) ?? true else { return nil }
+        var topic = rebaseScalars(response, after: read.revision)
+        if let info = infoUpdates[id], info.revision > read.revision { topic = topic.replacing(info: info.value) }
+        acceptedReadOrdinals[id] = read.ordinal
+        if scalarUpdates[id].map({ $0.revision <= read.revision }) ?? true {
+            scalarUpdates[id] = (read.revision, topic.updatePayload)
+        }
+        if infoUpdates[id].map({ $0.revision <= read.revision }) ?? true {
+            infoUpdates[id] = (read.revision, topic.info)
+        }
+        return topic
+    }
+
     private func drainPendingTopicRefreshes() {
         guard contextIsCurrent, !loading else { return }
         let pending = pendingTopicRefreshes
@@ -441,7 +471,7 @@ import TDLibKitDynamic
         let query = query
         let location = location
         let readTopic = reads.topic
-        let readRevision = liveRevision
+        let read = beginRead()
         topicRefreshTasks[id] = Task { [weak self] in
             defer {
                 if let self, topicRequestIDs[id] == requestID {
@@ -459,17 +489,8 @@ import TDLibKitDynamic
                   currentGeneration == generation, query == self.query,
                   contextIsCurrent
             else { return }
-            guard let response, response.info.chatId == location.chatID,
-                  response.info.forumTopicId == id else { return }
-            var topic = rebaseScalars(response, after: readRevision)
-            if let info = infoUpdates[id], info.revision > readRevision { topic = topic.replacing(info: info.value) }
-            if scalarUpdates[id].map({ $0.revision <= readRevision }) ?? true {
-                scalarUpdates[id] = (liveRevision, topic.updatePayload)
-            }
-            if infoUpdates[id].map({ $0.revision <= readRevision }) ?? true { infoUpdates[id] = (
-                liveRevision,
-                topic.info,
-            ) }
+            guard let response, response.info.forumTopicId == id,
+                  let topic = acceptFullTopic(response, read: read) else { return }
             if topic.info.isHidden || !topicMatchesQuery(topic.info) {
                 topics.removeAll { $0.info.forumTopicId == id }
                 return
