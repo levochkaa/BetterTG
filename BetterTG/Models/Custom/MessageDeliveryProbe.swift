@@ -591,7 +591,13 @@ import UIKit
             extracted.superview === externalHost && extracted.isHidden
                 && extracted.transform == CGAffineTransform(scaleX: 1.1, y: 1.1) && extracted.alpha == 0.8
                 && container.transform == .identity && container.alpha == 1,
-            "fallback stole or exposed extracted content",
+            "fallback stole or exposed extracted content: "
+                + "externalHost=\(extracted.superview === externalHost), hidden=\(extracted.isHidden), "
+                + "extractedTransform=\(extracted.transform), expectedTransform=\(CGAffineTransform(scaleX: 1.1, y: 1.1)), "
+                + "extractedAlpha=\(String(format: "%.17g", Double(extracted.alpha))), "
+                + "expectedAlpha=\(String(format: "%.17g", Double(CGFloat(0.8)))), "
+                + "containerTransform=\(container.transform), "
+                + "containerAlpha=\(String(format: "%.17g", Double(container.alpha)))",
         )
         selection.sendActions(for: .touchUpInside)
         _ = oldSelectionAction.actionHandler?(oldSelectionAction)
