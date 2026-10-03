@@ -22,6 +22,7 @@ import UIKit
         var topics = [(id: Int, continuation: CheckedContinuation<ForumTopic, Swift.Error>)]()
         var completedPages = Set<Int>()
         var completedTopics = Set<Int>()
+        var maximumOutstandingTopics = 0
         var model: ForumTopicsVM!
 
         init(restoration: ForumTopicsRestorationState? = nil) {
@@ -49,6 +50,9 @@ import UIKit
                         return
                         }
                         self.topics.append((id, continuation))
+                        self.maximumOutstandingTopics = max(
+                            self.maximumOutstandingTopics, self.topics.count - self.completedTopics.count,
+                        )
                     }
                 },
             ), restoration: restoration)
@@ -74,6 +78,10 @@ import UIKit
             completedTopics.insert(index)
             if let value { topics[index].continuation.resume(returning: value) }
             else { topics[index].continuation.resume(throwing: Failure(description: "controlled read failure")) }
+        }
+
+        func pendingTopicIndex(id: Int) -> Int? {
+            topics.indices.first { topics[$0].id == id && !completedTopics.contains($0) }
         }
 
         func failPage(_ index: Int) {
@@ -102,6 +110,8 @@ import UIKit
                 try await verifyPageTombstones()
                 try await verifyServerSearchMembership()
                 try await verifyRetainedSearchMembership()
+                try await verifyBoundedReads()
+                try await verifyBoundedQueryResets()
                 result = "Forum updates probe passed: real-VM/injected-page-topic-reads/local-scoped-updates=true; "
                     + "echo-before-after-page-topic/unknown-coalescing/failed-echo-no-retry=true; "
                     + "direct-scalar/no-RPC/native-cell/late-page-scalar/draft-inbox-one-refresh=true; "
@@ -110,6 +120,8 @@ import UIKit
                     + "full-read-order/both-completions/unrelated-event/newer-failure/info-tombstones/raw-cursor=true; "
                     + "server-query-membership/same-name-info-echo/newer-rename/hidden=true; "
                     + "retained-query-name/closed-info/inbox-draft-read/rename-hide-query-source-ABA/display-seed=true; "
+                    + "individual-native-max-two/FIFO-coalescing/queued-info-veto/canceled-generation-slots=true; "
+                    + "individual-limit=per-VM; page-concurrency/global-limit/queue-memory-cap=unverified; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -700,6 +712,144 @@ import UIKit
                 "late fuzzy read crossed query/source ABA",
             )
         }
+    }
+
+    private static func verifyBoundedReads() async throws {
+        for failedPage in [false, true] {
+            let f = Fixture()
+            defer { f.model.retire()
+            f.cancelOutstanding()
+            }
+            f.model.loadInitial()
+            try await until("bounded initial page") { f.pages.count == 1 }
+            let page = f.model.probePageTask!
+            if failedPage { f.failPage(0) }
+            else { f.finishPage(0, [topic(id: 1)]) }
+            try await terminal([page])
+            for id in 10...19 {
+                f.postInfo(topic(id: id))
+                f.postInfo(topic(id: id))
+            }
+            try await until("bounded external info burst") { f.topics.count == 2 }
+            await events()
+            try require(
+                Set(f.topics.map(\.id)) == [10, 11] && f.maximumOutstandingTopics == 2
+                    && f.model.probeOutstandingTopicReadCount == 2,
+                "distinct external infos exceeded two reads or lost FIFO admission",
+            )
+            // Scalar duplicates upgrade the existing queue reason without moving
+            // the topic behind a later demand or creating an extra request.
+            f.post(topic(id: 20))
+            f.postInfo(topic(id: 21))
+            f.post(topic(id: 20, inbox: 1))
+            f.post(topic(id: 20, inbox: 1))
+            f.postInfo(topic(id: 18, hidden: true))
+            await events()
+            let expected = Array(10...17) + [19, 20, 21]
+            for (position, id) in expected.enumerated() {
+                try await until("queued topic \(id)") { f.pendingTopicIndex(id: id) != nil }
+                guard let index = f.pendingTopicIndex(id: id), let task = f.model.probeTopicTask(id: id)
+                else { throw Failure(description: "missing exact bounded task") }
+                let value = topic(id: id, inbox: id == 20 ? 1 : 0)
+                if id == 10 { f.finishTopic(index, nil) }
+                else if id == 11 { f.finishTopic(index, topic(id: 99)) }
+                else { f.finishTopic(index, value) }
+                try await terminal([task])
+                if position + 2 < expected.count {
+                    let next = expected[position + 2]
+                    try await until("FIFO successor \(next)") { f.pendingTopicIndex(id: next) != nil }
+                    try require(f.topics.last?.id == next, "duplicate demand reordered the FIFO")
+                }
+                if id > 11 {
+                    f.postInfo(value)
+                    f.post(value)
+                    await events()
+                }
+                try require(f.maximumOutstandingTopics == 2, "terminal/retry exceeded native slot bound")
+            }
+            await events()
+            try require(
+                f.topics.count == expected.count && f.model.probeOutstandingTopicReadCount == 0
+                    && !f.topics.contains { $0.id == 18 }
+                    && !f.model.topics.contains { [10, 11, 18, 99].contains($0.info.forumTopicId) }
+                    && Set(f.model.topics.map(\.info.forumTopicId)).isSuperset(of: expected.filter { $0 > 11 }),
+                "bounded queue starved, retried echoes or published a failed/hidden/foreign result",
+            )
+        }
+    }
+
+    private static func verifyBoundedQueryResets() async throws {
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        f.postInfo(topic(id: 1))
+        f.postInfo(topic(id: 2))
+        try await until("old generation occupied slots") { f.topics.count == 2 }
+        let oldOne = f.model.probeTopicTask(id: 1)!
+        let oldTwo = f.model.probeTopicTask(id: 2)!
+        let oldOneIndex = f.pendingTopicIndex(id: 1)!
+        let oldTwoIndex = f.pendingTopicIndex(id: 2)!
+        for (index, query) in ["First", "Second"].enumerated() {
+            f.model.search(query)
+            try await until("reset page \(query)") { f.pages.count == index + 1 }
+            f.postInfo(topic(id: 1, name: query))
+            f.postInfo(topic(id: index == 0 ? 3 : 4, name: query))
+            if index == 1 { f.postInfo(topic(id: 5, name: query)) }
+            await events()
+            let page = f.model.probePageTask!
+            f.finishPage(index, [])
+            try await terminal([page])
+            try require(
+                f.topics.count == 2 && f.model.probeOutstandingTopicReadCount == 2
+                    && f.model.probeTopicTask(id: 1) == nil,
+                "query cancellation freed an unfinished native slot",
+            )
+        }
+        f.finishTopic(oldTwoIndex, nil)
+        try await terminal([oldTwo])
+        try await until("current same-topic successor") { f.topics.count == 3 }
+        try require(f.topics.last?.id == 1, "latest query FIFO lost same-topic demand")
+        let successor = f.model.probeTopicTask(id: 1)!
+        // The older same-ID continuation is still present; select the newly
+        // dispatched request by exclusion, never by task scheduling order.
+        guard let currentIndex = f.topics.indices.first(where: {
+            $0 != oldOneIndex && f.topics[$0].id == 1 && !f.completedTopics.contains($0)
+        }) else { throw Failure(description: "same-topic successor transport missing") }
+        try require(!f.completedTopics.contains(oldOneIndex), "old native continuation vanished before callback")
+        f.finishTopic(oldOneIndex, topic(id: 1))
+        try await terminal([oldOne])
+        try await until("current second slot") { f.pendingTopicIndex(id: 4) != nil }
+        try require(
+            f.model.probeTopicTask(id: 1) != nil && f.model.topics.isEmpty && f.maximumOutstandingTopics == 2,
+            "old same-ID terminal erased successor authority or published stale row",
+        )
+        f.finishTopic(currentIndex, topic(id: 1, name: "Second"))
+        try await terminal([successor])
+        try await until("current final demand") { f.pendingTopicIndex(id: 5) != nil }
+        try require(
+            f.model.topics.map(\.info.name) == ["Second"] && !f.topics.contains { $0.id == 3 },
+            "reset retained old queued demand or rejected current row",
+        )
+        let pending = f.model.probeOutstandingTopicTasks
+        let count = f.topics.count
+        let foreign = TdUpdateSource(accountID: UUID(), clientID: f.source.clientID)
+        f.current = foreign
+        f.changes.send(foreign)
+        f.current = f.source
+        f.changes.send(f.source)
+        f.postInfo(topic(id: 6, name: "Second"))
+        for id in [4, 5] {
+            let index = f.pendingTopicIndex(id: id)!
+            f.finishTopic(index, topic(id: id, name: "Second"))
+        }
+        try await terminal(pending)
+        await events()
+        try require(
+            f.topics.count == count && f.model.probeOutstandingTopicReadCount == 0
+                && f.maximumOutstandingTopics == 2 && f.model.topics.map(\.info.forumTopicId) == [1],
+            "source ABA revived transport demand or late results",
+        )
     }
 
     private static func terminal(_ tasks: [Task<Void, Never>]) async throws {
