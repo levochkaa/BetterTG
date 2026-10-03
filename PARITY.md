@@ -60,7 +60,7 @@ current code before scheduling duplicate work. This section and the current chec
 | P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | reviewed with bounded A11–A17/A26 repairs, including own-draft relocation/reinstall/discard and native lifecycle/finish/handoff probes; actual OS suspension, audio delivery, hardware and server proof remain open |
 | P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | reviewed with bounded A01–A04/A18/A19 repairs; native incomplete-file playback/seek and scoped ownership probes pass. Live streaming, lookahead estimates and active system PiP/device lifecycle remain unverified |
 | P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | reviewed with bounded A10/A20/A31/A43–A48 repairs. A21 secret photo/video/animation and immediate/view-once playback remain incomplete and concealed; exhaustive live content/action matrix is unverified |
-| P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | reviewed with bounded A22/A24/A25/A39/A49a/b repairs and native/actual checks below. A49c frozen rendering/snapshot ownership is next; physical selection race, prepend/resize/rotation/keyboard, live edit/IME and send flights remain unverified |
+| P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | reviewed with bounded A22/A24/A25/A39/A49a/b/c repairs and native/actual checks below. A49c2 scheduler/deletion native and ordinary actual selection/viewport checks pass; A39 intermittent native failure needs diagnosis. Physical selection race, prepend/resize/rotation/keyboard, live edit/IME and send flights remain unverified |
 | P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | reviewed with bounded A05/A06/A12–A14/A18/A19/A23/A29/A30/A34/A35/A38 repairs. A23 remaining subscribers and A30 active capture/full account lifecycle remain partial; no full multi-account/server proof |
 | P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | reviewed with bounded A20b/A27/A28 repairs — profile grid concealment, effective info-edit policy and pagination request identity probed; own-profile grid navigation passes at `bdd19cd`; hardware/server/gesture proof incomplete |
 | P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | reviewed with bounded auth/list/mutation/foreground repairs below; A32 native chrome and intermittent A37 remain unresolved. Live multi-account/logout and complete secondary-surface proof remain unverified |
@@ -95,12 +95,14 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: P1 A49c2 coherent snapshot rendering/serialized applies after value prerequisite `d8512b5`. Provider callback authority `eeb93b2`, selection touch
-binding `9961aba` and A49a fallback have bounded native proof; physical touch across same-cell reconfiguration remains unverified.
-Current implementation checkpoint: `d8512b5`, including actual A50 selection-exit repair `487c0de`. Final wrapper build
-`build-Debug-20261003-141942-39748-21216.log` PASS6s, complete log zero warnings/errors; AGENTS/CLAUDE agree and production/
-dependency marker scan is empty. Native render/action/delivery probe PID35594 passes; actual A50 Cancel/deselect-last PID22663
-passes. Goal remains active; the next coherent scheduler slice is not started. No server mutation or host focus activation.
+Active queue: A39 native settlement failure diagnostics, then actual queued ChatView mutation/viewport coverage.
+`f799d29` integrates frozen rendering/serialized applies after value prerequisite `d8512b5`; exact reviewed worker tree
+`bac0ab6f`, primary build `151812-44934-6936` PASS23s/fullzero. Provider callback authority `eeb93b2`, selection touch
+binding `9961aba` and A49a fallback retain bounded native proof; physical touch across same-cell reconfiguration is unverified.
+`724bf32` repairs the measured UIKit deletion reset through inner presentation ownership. Native scheduler PID79368,
+final delivery/action and actual A22 PID79903 pass. Same-PID Saved Select→Cancel and deselect-last remove every visible
+selector. Standalone A39 PID50146 repeats the earlier unresolved native settlement failure; no timeout was relaxed.
+Goal remains active; no sends/deletes/forwards or host focus activation. Final checkpoint/build and proof limits are in A49c2.
 A22 actual ChatView completion/control/ended-delegate-drag proof passes at `41f87a5`; physical mutation races remain open.
 A46b forwarding pin ordering and A32 top search placement have bounded native/actual proof below.
 A32 still has native capsule/shadow/Back limitations; A48's early-detachment callback has bounded native proof.
@@ -186,7 +188,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | unresolved intermittent — later focused baseline and actual delayed settled geometry are clean. Preserve the original failure; require a fresh measured reproduction before repair. Data/caret retention passes; root stack replacement/prompt updates remain unproven causes |
 | A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
-| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | fixed bounded target navigation — `6a29431` retains raw target authority; `982245f` adds progress-bounded estimated-height convergence. Native production-driver probe and actual cold/loaded/foreground target checks pass at `72d74b0`. Live quote, album remap, user interruption and rotation remain separate proof limits |
+| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | bounded target repair `6a29431`/`982245f` has actual cold/loaded/foreground proof at `72d74b0`; native animated resize settlement now has intermittent failures, including standalone PID50146 at `f799d29`. Diagnostic follow-up is next; unchanged helper and earlier passing runs do not explain this failure. Live quote, album remap, user interruption and rotation remain separate proof limits |
 | A40 | P1 | `6a29431` integration log contains an AppIntents metadata warning for the notification extension; both wrapper output paths concealed this warning | fixed — `eff2876` removes warning filters and unused extension import, skips its inapplicable AppIntents stage. Complete signed/unsigned/final-signed logs are warning-free after A41. Compact-only historical claims are not proof of zero warnings |
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
@@ -196,7 +198,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | fixed bounded in primary list `34b7868` and Forward `e2dd664`: query-owned raw-head ranks, membership-edge revocation and unchanged raw cursor. Native multi-pin/append/query/selection and actual single-pin lists pass. Live multi-pin/reorder remains unverified; changed-pin echo can need a second stable head and pure remote reorder needs explicit refresh |
 | A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | fixed bounded in `09db3f5`: max two individual native reads per VM across canceled query generations, exact-UUID retirement and coalesced FIFO demand. Native PID97812 and existing forum regressions pass. Page concurrency, global cross-VM limits and queue hard memory cap are outside this slice; no live lag/OOM claim |
 | A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; failed query retry can also merge older-query rows. Native teardown exposed a detached-parent interval before didMove(nil) | fixed bounded through `fe9424c`/`727103c`, diagnostic `1fa99a9`: transaction-owned models, serialized page/toggle applies, accepted-query and immediate containment gates. Native PID68845 passes late-callback/cursor/pending-drain checks before retirement. Natural baseline crash, live permission/TDLib races, modal dismiss and actual interactive cancellation remain unverified |
-| A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | partial — A49a `ca71e33`/`0404996` exact-cell fallback; A49b `eeb93b2` provider authority and `9961aba` selection-touch binding have native proof. No natural Chat crash reproduced. A49c frozen rendering/serialization remain open; physical touch race is unverified, retaining mutable wrappers alone is insufficient |
+| A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | bounded repairs — A49a exact-cell fallback, A49b provider/touch authority, A49c1 values and A49c2 `f799d29` shared frozen transactions; `724bf32` repairs measured UIKit deletion reset. Scheduler/action native probes and actual selection/viewport checks pass. Natural Chat crash was not reproduced; actual queued mutation/delete timing/player and physical touch races remain unverified |
 | A50 | P1 | Actual Saved Messages Cancel leaves circles/controls on unselected rows; endMessageSelection only invalidates previously selected IDs, and deselect-last invalidates zero rows | bounded fix `487c0de` updates all snapshot message rows on exit and surviving rows in structural last-selection removal. Actual Cancel/deselect-last screenshots pass; structural removal source-reviewed only |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
@@ -1324,6 +1326,80 @@ is imported. This source pass does not prove every content's real rendering/acti
   sender/metadata/formatted/properties/reaction/read/mutation changes leave captured values and exact materialization unchanged;
   clone mutations stay isolated; old baseline fails, fresh baseline+canonical passes, clone cannot acquire canonical authority.
   All prior delivery/A49/A44 native cases pass. Source+native prerequisite proof does not establish frozen production rendering.
+- Fresh pre-integration baseline at clean `f15d2b9` (production `d8512b5`, product from `141942-39748-21216`): standalone
+  viewport-authority PID67824/container `86434DC1-9554-4BA7-8BBD-768A533512E0`, report14:34:47+04 PASS. Native A39
+  animation/estimated-height resize/convergence passes; the earlier combined-run failure remains unexplained, not superseded.
+- Actual Saved Messages baseline, wrapper `-ui-probe-viewport-completion`, Audit59EB535C/iOS26.5 PID77750/container
+  `07C30E00-16D2-410F-9DCB-326F7756FCA7`, report14:43:58+04 PASS. Control offset498.6667→562.6667→498.6667 and
+  stable-ID pixel331.3333→267.3333→331.3333; ended synthetic delegate drag retains562.6667/pixel267.3333. Native/releases2/2,
+  depth1→0, original anchor restored in cleanup. `c2-baseline-viewport.png` inspected. One physical scroll entered the fixture;
+  concurrent physical drag/history insertion/resize/keyboard remain unverified. No send/delete/forward or host focus activation.
+  These are checks of the committed prerequisite, not proof of the in-progress scheduler.
+
+### A49c2 frozen timeline transactions — 2026-10-03
+
+- P1, `f799d29` (worker `ec68744`, reviewed tree `bac0ab6f`): all five production snapshot producers share one active
+  transaction and a coalesced intent buffer. Provider rows retain exact canonical identity, immutable render values, client/source,
+  header and selection inputs through exact native completion. Materialization and new inline players remain lazy; live action,
+  navigation and prefetch lookup stay separate. Raw album membership must be committed before navigation/send settlement.
+- Preserve A22 interaction epochs, A44 owner invalidation, A50 all-row selection exit, temporary/final aliases and the140ms
+  deletion deadline. Tombstone-owned bindings survive intermediate commits. Same-album reappearance first commits removal,
+  then queues fresh membership without turning stale recovery into post-drag restoration. Duplicate/ownerless receipts release
+  only the matching batch; pending/finishing states block premature navigation/send/client settlement.
+- Committed visible-row acknowledgement deduplicates current visible raw IDs and checks the attached active scene/route.
+  Context previews may load history but cannot acknowledge reads. Background/read-retry/player ownership changes have source
+  review, not live transport proof. No TDLib API change; pinned TDLibKit remains `1.5.2-tdlib-1.8.66-022d6020`.
+- Telegram references: official master `6ad963e5`, pre-Liquid `8e7e5fe`,
+  `submodules/TelegramUI/Sources/ChatHistoryListNode.swift`4197–4241 (raw-member correlation and transaction-owned history);
+  pre-Liquid `submodules/TelegramUI/Sources/ChatController.swift`7372–7384 (all history selection updates). No infrastructure imported.
+- Worker compile failures `145001`/`145414` (actor isolation/explicit captures/type inference) and weak-mutation warnings
+  `145605` were corrected, not suppressed. Review withdrew earlier approvals for deletion-lease carryover, same-album liveness
+  and mixed-epoch recovery; final worker `151204-36307-16904` PASS9s/fullzero. Primary joint SwiftFormat0/9 and
+  `151812-44934-6936` PASS23s/fullzero; exact reviewed tree integrated without other Swift changes.
+- First native scheduler probe, Audit59EB535C/iOS26.5 PID48152/container `3F87B0C4-06F0-4748-A8BF-6D9C6F987646`,
+  report15:19:13+04 FAIL: deleting-cell presentation changed. Diagnostic-only `1727d77` (worker `f06ea40`, reviewed tree
+  `d638b735`), format0/9/build `152429-60083-15376` PASS12s/fullzero, preserves the assertion. PID62822/container
+  `0539F196-6964-4174-B1C0-9C134447DEB6`, report15:25:35 FAIL confirms exact same cell/binding/lease, reuse0,
+  interaction disabled; alpha0.375/translation(8,-3) survive provider return, but UIKit resets cell alpha1/identity by native
+  receipt. Production also animates these cell attributes: an inner presentation-layer repair is required, not a weaker oracle.
+- Same `f799d29`: delivery/action regression PID49199/container `D31762BA-315B-4FC8-8946-C4DA59FB09CF`, report15:20:15 PASS.
+  Standalone viewport-authority PID50146/container `E157EB3B-DCCB-45ED-91FE-D5E081F2B63D`, report15:21:10 FAIL:
+  A39 animated target/quote did not settle after resize. Driver/probe are byte-unchanged from `d8512b5` and do not instantiate
+  ChatView. Historical failure remains unresolved; this repeat disproves any claim that only combined runs can fail.
+- Actual Saved Messages A22 PID51820/container `7E07B2CE-3C0E-483C-9110-AD462FC19784`, report15:23:35 PASS:
+  exact native/releases2/2, depth1→0; control offset483.3333→547.3333→483.3333, anchor pixel346.6667→282.6667→346.6667;
+  ended synthetic delegate drag retains547.3333/pixel282.6667. One physical scroll entered the exercise; IDs were unchanged.
+  Real prepend/media resize/keyboard/physical overlap remain unverified. No sends/deletes/forwards or host focus activation.
+- `724bf32` (worker `0b08091`, reviewed tree `d0a54bb4`) moves deletion opacity/slide/scale into MessageCell.contentView,
+  composing its permanent timeline flip. Cell/descendant AX and interaction are disabled during deletion; configure/unavailable/
+  reuse reset only the owned inner layer, preserving rowStack swipe/selection and externally extracted menu content.
+  Worker joint9-file format/build `153256-73686-3111` PASS10s/fullzero; primary format0/9/build `153501-78488-29638`
+  PASS12s/fullzero. Assertions now measure the actual owned presentation, including same-cell normal configure and animation reset.
+- Audit59EB535C/iOS26.5 PID79368/container `B9291225-072C-42EF-883E-0A471DF8472C`, report15:35:36 PASS: production
+  scheduler/native MessageCell, all five coalesced demands, exact/duplicate/ownerless receipts and depth, frozen values/actions,
+  committed raw album members, stale restoration rejection, both same-album deletion/reappearance schedules and AX/reset.
+  Late provider/native receipt preserve inner opacity/transform and exact binding without reuse. Actual ChatView producer races,
+  physical gestures, live client switch,140ms delete timing and actual timeline media-player ownership remain unverified; RPC/sends0.
+- Same final production `724bf32`, PID79903/container `585489CE-C989-4009-8687-A6065E83554B`, report15:36:23 PASS:
+  existing delivery/render/action/poll/touch/source/receipt native regressions. Earlier media-reveal regression at `1727d77`,
+  PID69532/container `78A0D689-DDC4-4EB4-9F6A-E7C481D2B0A3`, report15:29:29 PASS with isolated native media/backend;
+  it does not prove real timeline gestures, TDLib transport or active system PiP.
+- Same final PID79903 actual Saved A22 report15:38:06 PASS: native/releases2/2, depth1→0, stable IDs unchanged.
+  Control offset488.6667→552.6667→488.6667, anchor pixel341.3333→277.3333→341.3333; ended synthetic delegate drag
+  retains552.6667/pixel277.3333. Ordinary Select→Cancel and Select→tap sole selected row both remove all visible selectors
+  and restore the empty composer. Screenshots `c2-final-viewport`, `c2-final-selected`, `c2-final-cancel`,
+  `c2-final-deselect-before`, `c2-final-deselect-clean` inspected under `.build/ui-probe-evidence/astra-a49b-actions/`.
+  Root screenshots contain private previews and must stay local. No sends/deletes/forwards/reactions/votes/profile/account edits;
+  ordinary navigation may acknowledge history through the app's normal read path. The injected probes themselves issue no RPCs.
+- Next bounded slice: add passive A39 completion/failure-reason receipts (outcome, post-result visibility, offset error,
+  commands/native ends and deadline versus correction budget). Confirm or reject the source candidate where a late layout
+  offset change clears `receivedEnd` and leaves no future end to resume checks. Keep current deadline/centering assertions;
+  then add an exact event-order regression and repair only a measured defect. Driver/probe do not use the ChatView scheduler.
+  Further A49 coverage: actual queued producer overlap, prepend/keyboard/media resize, committed-read lifecycle and current
+  inline-player ownership. Native fixture success is not proof of these whole-controller/server paths.
+- Final checkpoint build `154717-90533-2969` PASS9s, full1385-line log has no warnings/errors; AGENTS/CLAUDE agree,
+  production/dependency VLC and forbidden UI/infrastructure marker scan is empty. Source checkpoint `724bf32`; only this
+  parity record changed after that build. Simulator remains booted in Saved Messages, selection exited; no host focus activation.
 
 ### A23e login authorization authority — 2026-10-02
 
