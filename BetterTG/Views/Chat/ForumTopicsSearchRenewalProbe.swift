@@ -312,6 +312,8 @@ import UIKit
 
         f.owner.move(108)
         try await until("metadata before pop") { f.owner.pending[108] != nil }
+        guard let preparation = controller.probePreparationTask
+            else { throw Failure(description: "missing held preparation task") }
         let dismissals = controller.probeSearchDismissals
         search.isActive = false
         try await until("native search dismissal before quiescent pop") {
@@ -332,7 +334,16 @@ import UIKit
         )
         f.owner.finish(108)
         try await until("actual pop lifecycle retirement") { controller.parent == nil && controller.probeRetired }
-        try require(controller.navigationClientSource?.clientID == 107, "late metadata renewed popped controller")
+        var preparationFinished = false
+        let observer = Task { await preparation.value
+        preparationFinished = true
+        }
+        defer { observer.cancel() }
+        try await until("late popped-owner metadata terminal guard") { preparationFinished }
+        try require(
+            controller.navigationClientSource?.clientID == 107 && !controller.probePrepared,
+            "late metadata renewed or prepared popped controller",
+        )
     }
 
     private static func verifyUnloadedFailure() async throws {
