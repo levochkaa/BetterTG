@@ -38,6 +38,34 @@
             let scrolls: Int
         }
 
+        /// Observes only existing sleep resumptions; it schedules no work.
+        private final class WaitReceipt: CustomStringConvertible {
+            private var startedAt: CFTimeInterval = 0
+            private var previousResume: CFTimeInterval = 0
+            private var count = 0
+            private var maximumGap: CFTimeInterval = 0
+            private var lastGaps = [CFTimeInterval]()
+
+            var description: String {
+                "count=\(count) maxGap=\(maximumGap) elapsed=\(previousResume - startedAt) lastGaps=\(lastGaps)"
+            }
+
+            func begin() {
+                startedAt = CACurrentMediaTime()
+                previousResume = startedAt
+            }
+
+            func resumed() {
+                let now = CACurrentMediaTime()
+                let gap = now - previousResume
+                previousResume = now
+                count += 1
+                maximumGap = max(maximumGap, gap)
+                if lastGaps.count == 5 { lastGaps.removeFirst() }
+                lastGaps.append(gap)
+            }
+        }
+
         private final class Cell: UICollectionViewCell {
             var rowHeight: CGFloat = 48
 
@@ -266,6 +294,8 @@
                 throw Failure(description: "missing settlement scene")
             }
             let native = Fixture(scene: scene)
+            let motionWait = WaitReceipt()
+            let completionWait = WaitReceipt()
             defer { native.close() }
             do {
                 await native.install()
@@ -274,7 +304,9 @@
                     native.target == 92 && native.driver.ownsViewport && native.quoted.isEmpty,
                     "intent/quote retired before native arrival",
                 )
-                try await wait("native animation never moved") { native.collection.contentOffset.y > 20 }
+                try await wait("native animation never moved", receipt: motionWait) {
+                    native.collection.contentOffset.y > 20
+                }
                 try require(native.driver.ownsViewport, "animation lost ownership while moving")
                 native.automaticWrite() // Snapshot anchor.
                 native.automaticWrite() // Latest pin.
@@ -282,7 +314,9 @@
                 native.automaticWrite() // Inset previousOffset fallback.
                 native.targetHeight = 156
                 await native.install() // Estimated-height reconfiguration while native animation runs.
-                try await wait("native animated resize did not finish") { !native.results.isEmpty }
+                try await wait("native animated resize did not finish", receipt: completionWait) {
+                    !native.results.isEmpty
+                }
                 let settled = native.results == [.settled]
                 let visible = native.targetIsVisible(92)
                 let quoted = native.quoted == [92]
@@ -298,7 +332,9 @@
                 )
                 try require(native.scrolls > 2 && native.ends > 0, "fixture did not exercise UIKit native animation")
             } catch {
-                throw Failure(description: "\(error)\n\(native.diagnostics(for: 92))")
+                throw Failure(
+                    description: "\(error)\nwait-motion \(motionWait)\nwait-completion \(completionWait)\n\(native.diagnostics(for: 92))",
+                )
             }
 
             try await verifySuccessiveSizing(scene: scene)
@@ -481,10 +517,16 @@
             )
         }
 
-        private static func wait(_ detail: String, until condition: () -> Bool) async throws {
+        private static func wait(
+            _ detail: String,
+            receipt: WaitReceipt? = nil,
+            until condition: () -> Bool,
+        ) async throws {
             let deadline = ContinuousClock.now + .seconds(3)
+            receipt?.begin()
             while !condition(), ContinuousClock.now < deadline {
                 try await Task.sleep(for: .milliseconds(10))
+                receipt?.resumed()
             }
             try require(condition(), detail)
         }
