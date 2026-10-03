@@ -30,10 +30,13 @@ import TDLibKitDynamic
     private let reads: ForumTopicsReadEnvironment
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
-    private var topicRefreshTasks = [Int: Task<Void, Never>]()
+    // Canceling a Swift task doesn't end TDLib's continuation. Old generations
+    // occupy these transport slots until their exact tasks return.
+    private var topicRequests = [UUID: Task<Void, Never>]()
     private var topicRequestIDs = [Int: UUID]()
     // true is a semantic invalidation; a page can satisfy only a false/unknown echo.
     private var pendingTopicRefreshes = [Int: Bool]()
+    private var pendingTopicOrder = [Int]()
     private var liveRevision = UInt64.zero
     private var readOrdinal = UInt64.zero
     private var acceptedReadOrdinals = [Int: UInt64]()
@@ -73,7 +76,7 @@ import TDLibKitDynamic
 
     deinit {
         loadTask?.cancel()
-        topicRefreshTasks.values.forEach { $0.cancel() }
+        topicRequests.values.forEach { $0.cancel() }
         chatOpenLease?.invalidate()
     }
 
@@ -130,7 +133,13 @@ import TDLibKitDynamic
         )
     }
 
-    var probeReadTasks: [Task<Void, Never>] { Array(topicRefreshTasks.values) + [loadTask].compactMap(\.self) }
+    var probeReadTasks: [Task<Void, Never>] {
+        topicRequestIDs.values.compactMap { topicRequests[$0] } + [loadTask].compactMap(\.self)
+    }
+
+    var probeOutstandingTopicTasks: [Task<Void, Never>] { Array(topicRequests.values) }
+    var probeOutstandingTopicReadCount: Int { topicRequests.count }
+    func probeTopicTask(id: Int) -> Task<Void, Never>? { topicRequestIDs[id].flatMap { topicRequests[$0] } }
     var probePageTask: Task<Void, Never>? { loadTask }
 
     static func isolated(
@@ -190,10 +199,10 @@ import TDLibKitDynamic
         generation &+= 1
         loadTask?.cancel()
         loadTask = nil
-        topicRefreshTasks.values.forEach { $0.cancel() }
-        topicRefreshTasks.removeAll()
+        topicRequests.values.forEach { $0.cancel() }
         topicRequestIDs.removeAll()
         pendingTopicRefreshes.removeAll()
+        pendingTopicOrder.removeAll()
         scalarUpdates.removeAll()
         infoUpdates.removeAll()
         acceptedReadOrdinals.removeAll()
@@ -226,9 +235,9 @@ import TDLibKitDynamic
             generation &+= 1
             loadTask?.cancel()
             topicRequestIDs.removeAll()
-            topicRefreshTasks.values.forEach { $0.cancel() }
-            topicRefreshTasks.removeAll()
+            topicRequests.values.forEach { $0.cancel() }
             pendingTopicRefreshes.removeAll()
+            pendingTopicOrder.removeAll()
             scalarUpdates.removeAll()
             infoUpdates.removeAll()
             acceptedReadOrdinals.removeAll()
@@ -459,11 +468,16 @@ import TDLibKitDynamic
 
     private func drainPendingTopicRefreshes() {
         guard contextIsCurrent, !loading else { return }
-        let pending = pendingTopicRefreshes
-        pendingTopicRefreshes.removeAll()
-        for (id, semantic) in pending {
-            if topicRequestIDs[id] != nil { pendingTopicRefreshes[id] = semantic }
-            else { refreshTopic(id: id, afterCurrent: semantic) }
+        pendingTopicOrder.removeAll { pendingTopicRefreshes[$0] == nil }
+        while topicRequests.count < 2,
+              let index = pendingTopicOrder.firstIndex(where: { topicRequestIDs[$0] == nil })
+        {
+            let id = pendingTopicOrder.remove(at: index)
+            pendingTopicRefreshes[id] = nil
+            let retainedName = retainedTopicName(id: id)
+            if let info = infoUpdates[id]?.value,
+               info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { continue }
+            startTopicRefresh(id: id, retainedName: retainedName)
         }
     }
 
@@ -472,13 +486,13 @@ import TDLibKitDynamic
         let retainedName = retainedTopicName(id: id)
         if let info = infoUpdates[id]?.value,
            info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { return }
-        if loading { pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
-            return
-        }
-        if topicRequestIDs[id] != nil {
-            if afterCurrent { pendingTopicRefreshes[id] = true }
-            return
-        }
+        guard loading || topicRequestIDs[id] == nil || afterCurrent else { return }
+        if pendingTopicRefreshes[id] == nil { pendingTopicOrder.append(id) }
+        pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
+        drainPendingTopicRefreshes()
+    }
+
+    private func startTopicRefresh(id: Int, retainedName: String?) {
         let requestID = UUID()
         topicRequestIDs[id] = requestID
         let currentGeneration = generation
@@ -486,14 +500,12 @@ import TDLibKitDynamic
         let location = location
         let readTopic = reads.topic
         let read = beginRead()
-        topicRefreshTasks[id] = Task { [weak self] in
+        let task = Task { [weak self] in
             defer {
-                if let self, topicRequestIDs[id] == requestID {
-                    topicRequestIDs[id] = nil
-                    topicRefreshTasks[id] = nil
-                    if let semantic = pendingTopicRefreshes.removeValue(forKey: id) {
-                        refreshTopic(id: id, afterCurrent: semantic)
-                    }
+                if let self {
+                    topicRequests[requestID] = nil
+                    if topicRequestIDs[id] == requestID { topicRequestIDs[id] = nil }
+                    drainPendingTopicRefreshes()
                 }
             }
             guard !Task.isCancelled, self?.contextIsCurrent == true,
@@ -518,6 +530,7 @@ import TDLibKitDynamic
             }
             sortTopics()
         }
+        topicRequests[requestID] = task
     }
 
     private func retainedTopicName(id: Int) -> String? {
