@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A53b1 explicit notification preview denial and legacy media-read cutoff, then A53b2 verified/versioned cache-only previews and queued actual ChatView mutations.
+Active queue: A53b1a caption-entity concealment, then A53b2 verified/versioned cache-only previews and queued actual ChatView mutations.
 A51a `38b7d06` and A51b `6b187b0` pass isolated cache/worker native probes. Post-worker sample was idle-only, so comparable
 production performance remains unverified; do not infer a speedup or keep repeating unaligned captures. Keep A39's deadline.
 `e70a227` repairs the separately reproduced latest-end sample invalidation: controlled baseline FAIL0.811s becomes PASS;
@@ -208,7 +208,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A50 | P1 | Actual Saved Messages Cancel leaves circles/controls on unselected rows; endMessageSelection only invalidates previously selected IDs, and deselect-last invalidates zero rows | bounded fix `487c0de` updates all snapshot message rows on exit and surviving rows in structural last-selection removal. Actual Cancel/deselect-last screenshots pass; structural removal source-reviewed only |
 | A51 | P1 | At `1c72d3a`, launch sample attributes628/1931 main-thread samples to rich-notification user/chat cache sinks doing source-file reads, image decode/JPEG, directory lookup and atomic writes. Coordinator uses raw events/global td across awaits and disk keys omit account | bounded repairs `38b7d06` account/source isolation and `6b187b0` serial off-main avatars/current-photo ordering; native isolated probes pass. Post-change sample is idle-only, not a performance comparison. Strict NSE write cutoff, photo-removal disk invalidation, registration cardinality and media IO remain open; actual notification delivery unverified |
 | A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | fixed bounded A52a `878e85f`, A52b1 `90d324d`, A52b2 `559a762`: exact identity/single resolver, session publication cutoff and request-owned completion/content producer; native helper cases pass. Actual NSE delivery/TDLib close, RPC termination and completion of already-started donation remain unverified |
-| A53 | P1 | At `38b7d06`, app coordinator caches incoming photo/video/animation without isSecret/hasSpoiler checks; NSE MessageContent resolution excludes them, but shared-cache fallback/attachment construction can reintroduce those bytes | fixed bounded A53a `afed19b`: full-message admission and exact scoped active-job revocation, native publisher/pipeline probe passes. A53b persisted evidence, explicit denial and NSE fallback remain needs-fix. No real notification or concealed-media bytes exercised |
+| A53 | P1 | At `38b7d06`, app coordinator caches incoming photo/video/animation without isSecret/hasSpoiler checks; NSE MessageContent resolution excludes them, but shared-cache fallback/attachment construction can reintroduce those bytes | fixed bounded A53a `afed19b` and A53b1 `805494f`: full-message admission, exact scoped job revocation, explicit preview denial and NSE legacy-read cutoff; native policy/pipeline cases pass. A53b1a caption-entity concealment and A53b2 verified cache-only restoration remain needs-fix. No real notification or concealed-media bytes exercised |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -2232,6 +2232,39 @@ is imported. This source pass does not prove every content's real rendering/acti
   invalidation even without an active job. Missing/evicted evidence must reject late commits. Existing raw JPEGs remain unread;
   full Message media eligibility alone must not be treated as showPreview permission. Unseen server edits/settings stay unverified.
 
+### A53b1 explicit preview evidence — 2026-10-03
+
+- `805494f` (worker `ee6482e`, exact reviewed tree `33dcf2fa`) separates denied/unresolved/allowed media. Every media push
+  requires the exact full Message, even if it carries a thumbnail. Full envelope self-destruct and media secret/spoiler flags
+  are checked; missing evidence stays unresolved. Ordinary full-message families, no-thumbnail caption and chat auto-delete
+  remain permitted. Original body is preserved for denied/unresolved decisions; no generated caption can bypass the decision.
+- Every matching entry in an addedNotifications batch is scanned before resolver admission. Hidden/showPreview=false,
+  content/edited/delete and exact previously bound updateNotification replacements retire the same session authority that
+  owns publication/finish. A held old result cannot overwrite the denied result or publish. Wrong client/chat/raw-message/group
+  identities cannot deny it. This linearizes at the lifetime lock, not callback/decode entry; post-retirement updates are unobserved.
+- NSE builder/fallback/cache-wait no longer read raw media JPEGs; NSE no longer writes them. Builder accepts only explicit
+  allowed bytes and clears pre-existing attachments. Existing disk files are untouched; avatar caches and Intents identifiers
+  are unchanged. Concealment retains the existing metadata quick-reply fallback; it does not imply chat send permission denial.
+- Pinned TDLib td_api.tl8537–8538/8716/8730 supplies Hidden, showPreview and the weaker push model. updateNotification omits
+  chatID and therefore requires a group already bound by an exact target event. Telegram media concealment references above
+  still apply. Caption entity spoilers are a separate remaining body issue, not covered by media.hasSpoiler.
+- Joint worker nine-file format; final build `190516-81039-5600` PASS7s/full1458 lines zero warnings/errors. Explicit Gate
+  MainActor isolation fixes the first probe build warning without suppression. Primary joint eleven-file format0/11;
+  integration `190831-85528-20489` PASS17s/full1601 lines zero warnings/errors. Exact independent and primary reviews pass.
+- Native source `805494f`, Audit59EB535C/iOS26.5, PID87313, fresh container `96D8ED57-42F8-4151-8B55-E846C09499F0`:
+  preview report19:09:41+04 PASS. Production policy/lifetime fixtures cover all ordinary full media, push thumbnail requiring
+  fetch, hidden/showPreview/media flags, both batch orders, bound replacement, missing/wrong identity, held fetch/download
+  revocation and exact late-task publication/finish rejection. Fixture RPC/donation effects0; actual NSE/builder/APNs unverified.
+- Same run all six request/lifetime/target/admission/cache/worker regressions PASS19:09:40–41. idb preinstall count22; wrapper
+  preserved host focus and borrowed Simulator. Evidence: `.build/ui-probe-evidence/astra-a52-a53/preview/`.
+  Transitional limitation: unverified cache-only media remains withheld. A53b2 restoration is mandatory, not optional polish.
+- A53b1a plan at `805494f`: media.hasSpoiler does not cover FormattedText caption entities. The current body formatter reads
+  caption.text directly for photo/video/animation/document, potentially replacing a safe APNs body with concealed text.
+  Preserve original body whenever its caption contains textEntityTypeSpoiler, without denying an otherwise eligible attachment.
+  Keep plain/non-spoiler caption enrichment; test the shared production caption gate with actual TDLib entities. No range
+  rewriting, new notifications or donation fixtures. Pre-Liquid `ChatMessageNotificationItem.swift`219–223/447 retains spoiler
+  entities and hides their text for in-app notifications; this is concealment reference, not proof of remote APNs formatting.
+
 ### A53b2 cache-v2 design gate — reviewed 2026-10-03, not implemented
 
 - At `559a762`, prewarmer active leases do not cover completed entries; `RichNotificationCache` persists only JPEG bytes.
@@ -3122,6 +3155,9 @@ is imported. This source pass does not prove every content's real rendering/acti
 
 ## Checkpoint
 
+- A53b1 `805494f` has exact independent review, warning-free integration and all seven native reports PASS at PID87313.
+  Next bounded A53b1a protects caption-entity spoilers; then required A53b2 restores verified cache-only media. Neither actual
+  APNs delivery nor future/durable edits are proved by the policy fixtures. Previous checkpoint bullets below are historical.
 - Latest notification request slice `559a762`: independent exact review, warning-free build `183542-38148-13783` and all six
   native probes at PID40035 pass with the limits recorded above. A52a/b1/b2 are bounded fixes, not real APNs delivery proof.
   Next is A53b1 denial/legacy-read cutoff, followed immediately by required A53b2 verified cache-only preview restoration.
