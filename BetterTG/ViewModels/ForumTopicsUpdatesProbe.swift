@@ -100,12 +100,14 @@ import UIKit
                 try await verifyDeferredDemand()
                 try await verifyFullReadOrdering()
                 try await verifyPageTombstones()
+                try await verifyServerSearchMembership()
                 result = "Forum updates probe passed: real-VM/injected-page-topic-reads/local-scoped-updates=true; "
                     + "echo-before-after-page-topic/unknown-coalescing/failed-echo-no-retry=true; "
                     + "direct-scalar/no-RPC/native-cell/late-page-scalar/draft-inbox-one-refresh=true; "
                     + "semantic-demand-after-page/individual-to-page/page-failure/hidden-unknown=true; "
                     + "query-source-retirement/request-owner/wrong-response/late-error=true; "
                     + "full-read-order/both-completions/unrelated-event/newer-failure/info-tombstones/raw-cursor=true; "
+                    + "server-query-membership/same-name-info-echo/newer-rename/hidden=true; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -522,6 +524,52 @@ import UIKit
             senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
             suggestedPostInfo: nil, summaryLanguageCode: "", topicId: .messageTopicForum(.init(forumTopicId: topicID)),
             unreadReactions: [], viaBotUserId: 0,
+        )
+    }
+
+    private static func verifyServerSearchMembership() async throws {
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        f.model.search("Geberal")
+        try await until("server search initial page") { f.pages.count == 1 }
+        let initial = [f.model.probePageTask].compactMap(\.self)
+        let serverMatch = topic(id: 1, name: "General")
+        f.postInfo(serverMatch)
+        await events()
+        f.finishPage(0, [serverMatch])
+        try await terminal(initial)
+        try require(
+            f.model.topics.map(\.info.name) == ["General"] && f.topics.isEmpty,
+            "server fuzzy match or its same-name info echo was locally filtered",
+        )
+        f.model.loadMore()
+        try await until("server search append") { f.pages.count == 2 }
+        let append = [f.model.probePageTask].compactMap(\.self)
+        f.postInfo(serverMatch)
+        await events()
+        f.finishPage(1, [serverMatch], cursor: 80)
+        try await terminal(append)
+        try require(f.model.topics.map(\.info.name) == ["General"], "append info echo lost server membership")
+
+        f.model.loadMore()
+        try await until("server search renamed page") { f.pages.count == 3 }
+        let renamed = [f.model.probePageTask].compactMap(\.self)
+        f.postInfo(topic(id: 1, name: "Other"))
+        await events()
+        f.finishPage(2, [serverMatch], cursor: 120)
+        try await terminal(renamed)
+        try require(f.model.topics.isEmpty, "newer different name failed to invalidate old server membership")
+
+        f.model.loadMore()
+        try await until("server search hidden page") { f.pages.count == 4 }
+        let hidden = [f.model.probePageTask].compactMap(\.self)
+        f.finishPage(3, [topic(id: 1, name: "General", hidden: true)], cursor: 160)
+        try await terminal(hidden)
+        try require(
+            f.model.topics.isEmpty && f.model.hasMore && f.topics.isEmpty,
+            "server-membership exception admitted hidden topic or spawned reads",
         )
     }
 
