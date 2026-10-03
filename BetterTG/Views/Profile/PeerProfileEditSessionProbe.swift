@@ -244,6 +244,7 @@ import UIKit
     }
 
     static func runIfRequested() {
+        PeerProfileMemberTagProbe.runIfRequested()
         if ProcessInfo.processInfo.arguments.contains("-ui-probe-navigation-prompt") {
             Task { await runFocusedPromptProbe() }
             return

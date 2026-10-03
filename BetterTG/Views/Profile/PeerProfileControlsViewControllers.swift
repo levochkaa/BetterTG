@@ -54,6 +54,7 @@ import UIKit
     private let source: Source
     private var identity: PeerProfileRestorationIdentity
     private let parentBinding = PeerProfileMembersParentBinding()
+    private let tagRetention = PeerProfileMemberTagRetention()
     private var retired = false
     private var retentionDenied = false
     private var revalidation = PeerProfileMembersRevalidation()
@@ -315,14 +316,15 @@ import UIKit
                     accountID: accountID,
                     accountUserID: accountUserID,
                     chatID: source.chatID,
-                    client: client,
                     initialAuthority: authority,
                     targetTitle: title,
                     targetUserID: targetUserID,
                 )
                 editor.onSaved = { [weak self] in
-                    self?.scheduleReload()
+                    guard let self, contextIsCurrent else { return }
+                    scheduleReload()
                 }
+                tagRetention.editor = editor
                 navigationController?.pushViewController(editor, animated: true)
             } catch is CancellationError {
                 tagPreparationTask = nil
@@ -384,6 +386,20 @@ import UIKit
 
     func transferParent(from parent: PeerProfileViewController, to replacement: PeerProfileViewController) -> Bool {
         parentBinding.transfer(self, from: parent, to: replacement)
+    }
+
+    func retainsMemberTag(parent: PeerProfileViewController, accountID: UUID, actorID: Int64?, chatID: Int64) -> Bool {
+        !retired && !retentionDenied && !identity.revoked && parentBinding.parent === parent
+            && self.accountID == accountID && accountUserID == actorID && source.chatID == chatID
+            && tagRetention.shouldRetain(
+                parent: parent,
+                members: self,
+                accountID: accountID,
+                actorID: actorID,
+                chatID: chatID,
+                currentAccountID: TDLib.shared.activeAccountID,
+                currentActorID: TDLib.shared.activeAccount?.userID,
+            )
     }
 
     func prepareReplacementForReadyClient(_ next: TdUpdateSource) -> PreparedClientNavigationReplacement? {
@@ -1043,7 +1059,7 @@ extension PeerProfileMembersViewController {
 
 // MARK: - PeerProfileMemberTagAuthority
 
-private struct PeerProfileMemberTagAuthority {
+struct PeerProfileMemberTagAuthority {
     let baselineTag: String
     let editorTitle: String
 
@@ -1054,26 +1070,23 @@ private struct PeerProfileMemberTagAuthority {
         targetUserID: Int64,
         client: TDLibClient,
     ) async throws -> Self {
-        guard TDLib.shared.activeAccountID == accountID,
-              TDLib.shared.activeClient.id == client.id
-        else { throw PeerProfileMemberTagError.accountChanged }
-        async let chatRequest = client.getChat(chatId: chatID)
-        async let actorRequest = client.getChatMember(
-            chatId: chatID,
-            memberId: .messageSenderUser(.init(userId: accountUserID)),
+        try await PeerProfileMemberTagAuthorization.live(
+            accountID: accountID,
+            actorID: accountUserID,
+            chatID: chatID,
+            targetID: targetUserID,
+            client: client,
         )
-        async let targetRequest = client.getChatMember(
-            chatId: chatID,
-            memberId: .messageSenderUser(.init(userId: targetUserID)),
-        )
-        let (chat, actor, target) = try await (chatRequest, actorRequest, targetRequest)
-        try Task.checkCancellation()
-        guard TDLib.shared.activeAccountID == accountID,
-              TDLib.shared.activeClient.id == client.id,
-              chat.id == chatID,
-              target.memberId == .messageSenderUser(.init(userId: targetUserID))
-        else { throw PeerProfileMemberTagError.accountChanged }
-        switch chat.type {
+        .load()
+    }
+
+    @MainActor static func validate(
+        _ snapshot: PeerProfileMemberTagAuthorization.Snapshot,
+        actorID: Int64,
+        targetID: Int64,
+    ) throws -> Self {
+        let actor = snapshot.actor, target = snapshot.target
+        switch snapshot.chatType {
         case .chatTypeBasicGroup:
             break
         case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
@@ -1084,8 +1097,8 @@ private struct PeerProfileMemberTagAuthority {
         guard targetIsActive(target.status) else {
             throw PeerProfileMemberTagError.inactiveMember
         }
-        if targetUserID == accountUserID {
-            guard chat.permissions.canEditTag else { throw PeerProfileMemberTagError.permissionDenied }
+        if targetID == actorID {
+            guard snapshot.permissions.canEditTag else { throw PeerProfileMemberTagError.permissionDenied }
         } else {
             let actorIsCreator: Bool
             let actorCanManageTags: Bool
@@ -1139,7 +1152,7 @@ private struct PeerProfileMemberTagAuthority {
 
 // MARK: - PeerProfileMemberTagError
 
-private enum PeerProfileMemberTagError: LocalizedError {
+enum PeerProfileMemberTagError: LocalizedError {
     case accountChanged
     case inactiveMember
     case invalidTag
@@ -1167,40 +1180,60 @@ private enum PeerProfileMemberTagError: LocalizedError {
 
 // MARK: - PeerProfileMemberTagViewController
 
-@MainActor private final class PeerProfileMemberTagViewController: UIViewController, UITextFieldDelegate {
+@MainActor final class PeerProfileMemberTagViewController: UIViewController, UITextFieldDelegate {
     var onSaved: (() -> Void)?
 
-    private let accountID: UUID
-    private let accountUserID: Int64
-    private let baselineTag: String
+    private let session: PeerProfileEditSession
+    private var baselineTag: String
     private let chatID: Int64
-    private let client: TDLibClient
     private let targetUserID: Int64
     private let targetTitle: String
     private let textField = UITextField()
     private let countLabel = UILabel()
     private let errorLabel = UILabel()
-    private var saveTask: Task<Void, Never>?
+    private var editRevision = UInt64.zero
     private var cancellables = Set<AnyCancellable>()
 
-    private var contextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
+    var canRetainStaleParents: Bool { session.state != .revoked }
+
+    private var ownsUncoveredTop: Bool {
+        guard PeerProfileEditSession.isAttached(self),
+              navigationController?.topViewController === self else { return false }
+        var node: UIViewController? = self
+        while let current = node {
+            guard current.presentedViewController == nil else { return false }
+            node = current.parent
+        }
+        return true
     }
 
-    init(
+    convenience init(
         accountID: UUID,
         accountUserID: Int64,
         chatID: Int64,
-        client: TDLibClient,
         initialAuthority: PeerProfileMemberTagAuthority,
         targetTitle: String,
         targetUserID: Int64,
     ) {
-        self.accountID = accountID
-        self.accountUserID = accountUserID
+        self.init(
+            session: .live(accountID: accountID, actorID: accountUserID),
+            chatID: chatID,
+            initialAuthority: initialAuthority,
+            targetTitle: targetTitle,
+            targetUserID: targetUserID,
+        )
+    }
+
+    init(
+        session: PeerProfileEditSession,
+        chatID: Int64,
+        initialAuthority: PeerProfileMemberTagAuthority,
+        targetTitle: String,
+        targetUserID: Int64,
+    ) {
+        self.session = session
         self.baselineTag = initialAuthority.baselineTag
         self.chatID = chatID
-        self.client = client
         self.targetTitle = targetTitle
         self.targetUserID = targetUserID
         super.init(nibName: nil, bundle: nil)
@@ -1208,8 +1241,6 @@ private enum PeerProfileMemberTagError: LocalizedError {
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
-
-    deinit { saveTask?.cancel() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -1258,13 +1289,21 @@ private enum PeerProfileMemberTagError: LocalizedError {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
         ])
-        nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
-            guard let self, !contextIsCurrent else { return }
-            saveTask?.cancel()
-            saveTask = nil
-            view.isUserInteractionEnabled = false
-            navigationItem.rightBarButtonItem?.isEnabled = false
-        }
+        session.publisher
+            .sink { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .ready: navigationItem.prompt = nil
+                case .waiting: navigationItem.prompt = "Reconnecting… Your changes are kept."
+                case .saving: navigationItem.prompt = "Saving…"
+                case .uncertain: navigationItem.prompt = "Result unknown. Check the member before retrying."
+                case .revoked:
+                    navigationItem.prompt = "This account is no longer active."
+                    view.isUserInteractionEnabled = false
+                }
+                updateValidation()
+            }
+            .store(in: &cancellables)
         updateValidation()
     }
 
@@ -1281,19 +1320,25 @@ private enum PeerProfileMemberTagError: LocalizedError {
         }
     }
 
+    func represents(accountID: UUID, actorID: Int64, chatID: Int64) -> Bool {
+        session.accountID == accountID && session.representsActor(actorID) && self.chatID == chatID
+    }
+
     func textFieldShouldReturn(_: UITextField) -> Bool {
         save()
         return true
     }
 
     @objc private func textChanged() {
+        editRevision &+= 1
         errorLabel.isHidden = true
         updateValidation()
     }
 
     @objc private func save() {
+        guard ownsUncoveredTop else { return }
         let tag = textField.text ?? ""
-        guard saveTask == nil, contextIsCurrent, Self.isValid(tag) else {
+        guard session.state == .ready, textField.markedTextRange == nil, Self.isValid(tag) else {
             if !Self.isValid(tag) {
                 showError(PeerProfileMemberTagError.invalidTag.localizedDescription)
             }
@@ -1306,43 +1351,24 @@ private enum PeerProfileMemberTagError: LocalizedError {
         navigationItem.rightBarButtonItem?.isEnabled = false
         view.endEditing(true)
         errorLabel.isHidden = true
-        saveTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let authority = try await PeerProfileMemberTagAuthority.resolve(
-                    accountID: accountID,
-                    accountUserID: accountUserID,
-                    chatID: chatID,
-                    targetUserID: targetUserID,
-                    client: client,
-                )
-                guard authority.baselineTag == baselineTag else {
-                    throw PeerProfileMemberTagError.staleTag
-                }
-                guard !Task.isCancelled, contextIsCurrent else {
-                    throw PeerProfileMemberTagError.accountChanged
-                }
-                _ = try await client.setChatMemberTag(
-                    chatId: chatID,
-                    tag: tag,
-                    userId: targetUserID,
-                )
-                try Task.checkCancellation()
-                guard contextIsCurrent else { return }
-                saveTask = nil
-                navigationItem.rightBarButtonItem?.isEnabled = true
+        let revision = editRevision
+        session.save(
+            [.memberTag(chatID: chatID, targetID: targetUserID, baseline: baselineTag, tag: tag)],
+            owner: self,
+            accepted: { [weak self] mutation in
+                guard let self, case .memberTag(_, _, _, let tag) = mutation else { return }
+                baselineTag = tag
                 onSaved?()
-                _ = navigationController?.popViewController(animated: true)
-            } catch is CancellationError {
-                saveTask = nil
-                navigationItem.rightBarButtonItem?.isEnabled = true
-            } catch {
-                guard contextIsCurrent else { return }
-                saveTask = nil
-                navigationItem.rightBarButtonItem?.isEnabled = true
-                showError(error.localizedDescription)
-            }
-        }
+            },
+            completion: { [weak self] result, _ in
+                guard let self, editRevision == revision, textField.text == tag,
+                      textField.markedTextRange == nil, ownsUncoveredTop else { return }
+                switch result {
+                case .success: navigationController?.popViewController(animated: true)
+                case .failure(let error): showError(error.localizedDescription)
+                }
+            },
+        )
     }
 
     private func updateValidation() {
@@ -1351,7 +1377,8 @@ private enum PeerProfileMemberTagError: LocalizedError {
         let valid = Self.isValid(tag)
         countLabel.text = "\(count)/16"
         countLabel.textColor = valid ? .secondaryLabel : .systemRed
-        navigationItem.rightBarButtonItem?.isEnabled = valid && saveTask == nil
+        navigationItem.rightBarButtonItem?.isEnabled = valid && textField.markedTextRange == nil && session
+            .state == .ready
         textField.accessibilityValue = "\(count) of 16 characters"
     }
 
@@ -1572,6 +1599,7 @@ private enum PeerProfileMemberTagError: LocalizedError {
                 persistedSecond = last
             case .title(_, let value): persistedFirst = value
             case .bio(let value), .description(_, let value): persistedDetail = value
+            case .memberTag: break
             }
         }, completion: { [weak self] result, completed in
             guard let self, editRevision == revision else { return }

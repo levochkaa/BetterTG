@@ -12,6 +12,7 @@ import UIKit
         case bio(String)
         case title(Int64, String)
         case description(Int64, String)
+        case memberTag(chatID: Int64, targetID: Int64, baseline: String, tag: String)
     }
 
     enum State { case waiting, ready, saving, uncertain, revoked }
@@ -98,6 +99,14 @@ import UIKit
                     case .bio(let value):
                         try dispatch()
                         _ = try await client.setBio(bio: value)
+                    case .memberTag(let chatID, let targetID, let baseline, let tag):
+                        let authorization = PeerProfileMemberTagAuthorization.live(
+                            accountID: accountID, actorID: actorID, chatID: chatID, targetID: targetID, client: client,
+                        )
+                        try await authorization.perform(baseline: baseline) {
+                            try dispatch()
+                            _ = try await client.setChatMemberTag(chatId: chatID, tag: tag, userId: targetID)
+                        }
                     case .description(let chatID, let value), .title(let chatID, let value):
                         let authorization = PeerProfileInfoEditAuthorization.live(
                             accountID: accountID, actorUserID: actorID, chatID: chatID,

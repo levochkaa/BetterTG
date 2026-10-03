@@ -1097,6 +1097,9 @@ ClientRestorableNavigationEntry {
         guard !editorRetention.shouldRetain(
             parent: self, accountID: accountID, currentAccountID: TDLib.shared.activeAccountID,
         ) else { return }
+        if !restorationIdentity.revoked, membersChild?.retainsMemberTag(
+            parent: self, accountID: accountID, actorID: accountUserID, chatID: customChat.id,
+        ) == true { return }
         if canWaitForClientRestoration {
             navigationItem.prompt = "Reconnecting…"
             retryClientRestoration()
