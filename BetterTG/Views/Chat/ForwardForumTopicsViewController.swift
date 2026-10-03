@@ -26,6 +26,8 @@ import UIKit
     var probeCursor: ForumTopicPageCursor { cursor }
     var probeLoading: Bool { loading }
     var probeRetired: Bool { retired }
+    var probeWasContained: Bool { wasContained }
+    var probeContextIsCurrent: Bool { contextIsCurrent }
     var probeTask: Task<Void, Never>? { loadTask }
     func probeTopic(_ id: Int) -> ForumTopic? { snapshotState.topic(id: id) }
     func probeSearch(_ text: String) { searchBar(searchBar, textDidChange: text) }
@@ -62,9 +64,13 @@ import UIKit
     private var canManageTopics = false
     private var rightsResolved = false
     private var retired = false
+    private var wasContained = false
 
     private var contextIsCurrent: Bool {
-        guard !retired else { return false }
+        // Initial view loading may precede UIKit's first containment receipt. Once
+        // attached, parent removal revokes admission immediately; didMove(nil) can lag.
+        // Keep an interactive removal with a retained parent nonterminal.
+        guard !retired, !wasContained || parent?.children.contains(where: { $0 === self }) == true else { return false }
         #if DEBUG
         if let probeCurrentContext { return probeCurrentContext() }
         #endif
@@ -111,7 +117,10 @@ import UIKit
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        guard parent == nil else { return }
+        guard parent == nil else {
+            wasContained = true
+            return
+        }
         retired = true
         generation &+= 1
         loadTask?.cancel()
@@ -378,13 +387,13 @@ import UIKit
     }
 
     private func applySnapshot() {
-        guard !retired else { return }
+        guard contextIsCurrent else { return }
         snapshotState.enqueue(topics, client: client)
         drainSnapshot()
     }
 
     private func drainSnapshot() {
-        guard !retired, let batch = snapshotState.begin() else { return }
+        guard contextIsCurrent, let batch = snapshotState.begin() else { return }
         #if DEBUG
         probeSnapshotStarts += 1
         #endif
