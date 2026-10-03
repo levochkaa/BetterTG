@@ -42,6 +42,8 @@ import UIKit
         var deletingBinding: (DisplayedMessageID, UUID)?
         weak var deletingCell: MessageCell?
         var deletingProviderDiagnostics = [String]()
+        var deletingPresentation: (alpha: CGFloat, transform: CGAffineTransform)?
+        var preservedInnerPresentation = true
         var preserved = 0
         var beforeProvider: (() -> Void)?
         var authorities = [DisplayedMessageID: ChatMessageActionAuthority]()
@@ -72,6 +74,9 @@ import UIKit
                         let decision = state.canPreserveDeletingCell(cell, id: id)
                         if id == deletingBinding?.0 {
                             deletingProviderDiagnostics.append(deletionReceipt("preserve=\(decision)", cell: cell))
+                            self
+                                .preservedInnerPresentation = preservedInnerPresentation &&
+                                deletionPresentationMatches(cell)
                         }
                         guard decision else { return false }
                         preserved += 1
@@ -108,6 +113,8 @@ import UIKit
                         "returned",
                         cell: returned as? MessageCell,
                     ))
+                    owner.preservedInnerPresentation = owner.preservedInnerPresentation
+                        && owner.deletionPresentationMatches(returned as? MessageCell)
                 }
                 return returned
             }
@@ -116,11 +123,21 @@ import UIKit
         func deletionReceipt(_ phase: String, cell: MessageCell?) -> String {
             guard let cell else { return "\(phase):cell=nil" }
             let transform = cell.transform
+            let innerTransform = cell.contentView.transform
             let lease = deletingBinding.map { state.ownsDeletingBinding($0.1, id: $0.0) } ?? false
             return "\(phase):same-cell=\(cell === deletingCell),binding=\(cell.timelineRowID == deletingBinding?.1),"
                 + "displayed=\(cell.timelineDisplayedID == deletingBinding?.0),interaction=\(cell.isUserInteractionEnabled),"
                 + "alpha=\(cell.alpha),transform=(\(transform.a),\(transform.b),\(transform.c),\(transform.d),\(transform.tx),\(transform.ty)),"
+                + "inner-alpha=\(cell.contentView.alpha),inner-transform=(\(innerTransform.a),\(innerTransform.b),\(innerTransform.c),\(innerTransform.d),\(innerTransform.tx),\(innerTransform.ty)),"
                 + "reuse=\(cell.probeReuseCount),lease=\(lease),preserved=\(preserved)"
+        }
+
+        func deletionPresentationMatches(_ cell: MessageCell?) -> Bool {
+            guard let cell, let deletingPresentation else { return false }
+            return cell === deletingCell && cell.timelineRowID == deletingBinding?.1
+                && !cell.isUserInteractionEnabled && !cell.isAccessibilityElement && cell.accessibilityElementsHidden
+                && cell.contentView.alpha == deletingPresentation.alpha
+                && cell.contentView.transform == deletingPresentation.transform
         }
 
         func resolve(
@@ -396,6 +413,7 @@ import UIKit
         try await until("fresh post-drag restoration") { rows.held.count == 1 }
         try require(rows.restorationTickets == freshTickets + 1, "fresh post-drag demand could not capture restoration")
         rows.release()
+        try await verifyNormalDeletionReset(rows)
         try await verifyDeletion(rows)
         try await verifyDeletion(rows, queuesFreshHighlight: true)
         try await verifyRetirement(rows)
@@ -407,6 +425,34 @@ import UIKit
         )
     }
 
+    private static func verifyNormalDeletionReset(_ rows: Rows) async throws {
+        guard let cell = rows.collection.cellForItem(at: .init(item: 0, section: 0)) as? MessageCell,
+              let id = cell.timelineDisplayedID else { throw Failure(description: "missing deletion reset cell") }
+        let reuse = cell.probeReuseCount
+        cell.setDeletionPresentation(alpha: 0.375, transform: .init(translationX: 8, y: -3))
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 1
+        animation.toValue = 0.375
+        animation.duration = 60
+        cell.contentView.layer.add(animation, forKey: "probe-normal-deletion-reset")
+        try require(
+            cell.contentView.layer.animationKeys()?.isEmpty == false && !cell.isUserInteractionEnabled
+            && !cell.isAccessibilityElement && cell.accessibilityElementsHidden,
+            "normal reset was not armed",
+        )
+        rows.enqueue(.init(ids: [id], viewportRevision: rows.viewport.invalidationRevision))
+        try await until("native same-cell deletion presentation reset") { rows.held.count == 1 }
+        try require(
+            rows.collection.cellForItem(at: .init(item: 0, section: 0)) === cell
+            && cell.probeReuseCount == reuse && cell.contentView.alpha == 1
+            && cell.contentView.transform == CGAffineTransform(scaleX: 1, y: -1)
+            && cell.contentView.layer.animationKeys()?.isEmpty != false && cell.isUserInteractionEnabled
+            && cell.isAccessibilityElement && !cell.accessibilityElementsHidden,
+            "normal same-cell configure failed to reset inner deletion presentation and AX",
+        )
+        rows.release()
+    }
+
     private static func verifyDeletion(_ rows: Rows, queuesFreshHighlight: Bool = false) async throws {
         guard let canonical = rows.models.first,
               let cell = rows.collection.cellForItem(at: .init(item: 0, section: 0)) as? MessageCell,
@@ -415,14 +461,17 @@ import UIKit
         rows.deletingBinding = (id, binding)
         rows.deletingCell = cell
         rows.deletingProviderDiagnostics.removeAll()
+        rows.preservedInnerPresentation = true
         let preservedBefore = rows.preserved
+        let reuseBefore = cell.probeReuseCount
+        let deletionTransform = CGAffineTransform(translationX: 8, y: -3).scaledBy(x: 0.875, y: 0.875)
+        let expectedContentTransform = CGAffineTransform(scaleX: 1, y: -1).concatenating(deletionTransform)
         var armed = false
         rows.beforeProvider = { [weak rows, weak cell] in
             guard let rows, let cell else { return }
             rows.state.markDeleting([id])
-            cell.isUserInteractionEnabled = false
-            cell.alpha = 0.375
-            cell.transform = .init(translationX: 8, y: -3)
+            cell.setDeletionPresentation(alpha: 0.375, transform: deletionTransform)
+            rows.deletingPresentation = (cell.contentView.alpha, cell.contentView.transform)
             armed = true
             rows.deletingProviderDiagnostics.append(rows.deletionReceipt("armed", cell: cell))
         }
@@ -430,8 +479,11 @@ import UIKit
         try await until("late deleting native provider") { rows.held.count == 1 }
         try require(
             armed && rows.preserved == preservedBefore + 1 && cell.timelineRowID == binding
-            && !cell.isUserInteractionEnabled && cell.alpha == 0.375
-            && cell.transform == CGAffineTransform(translationX: 8, y: -3),
+            && !cell.isUserInteractionEnabled && cell.contentView.alpha == 0.375
+            && cell.contentView.transform == expectedContentTransform
+            && rows.preservedInnerPresentation && rows.deletionPresentationMatches(cell)
+            && rows.collection.cellForItem(at: .init(item: 0, section: 0)) === cell
+            && cell.probeReuseCount == reuseBefore && rows.state.ownsDeletingBinding(binding, id: id),
             "late provider resurrected or rebound the exact deleting cell: armed=\(armed),preserved-delta=\(rows.preserved - preservedBefore); "
                 + rows.deletingProviderDiagnostics.joined(separator: "; ") + "; "
                 + rows.deletionReceipt("native-receipt", cell: cell),
@@ -440,6 +492,20 @@ import UIKit
         try require(
             !rows.state.canPreserveDeletingCell(other, id: id),
             "unbound deleting cell was allowed to expose content",
+        )
+        other.setDeletionPresentation(alpha: 0.375, transform: deletionTransform)
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 1
+        animation.toValue = 0.375
+        animation.duration = 60
+        other.contentView.layer.add(animation, forKey: "probe-deletion")
+        try require(other.contentView.layer.animationKeys()?.isEmpty == false, "inner deletion animation was not armed")
+        other.resetUnavailableContent()
+        try require(
+            other.contentView.alpha == 1
+            && other.contentView.transform == CGAffineTransform(scaleX: 1, y: -1)
+            && other.contentView.layer.animationKeys()?.isEmpty != false,
+            "unavailable reset retained inner deletion animation or lost content flip",
         )
         rows.permitsStructuralDispatch = false
         rows.models.removeAll { $0.displayedID == id }
@@ -489,6 +555,16 @@ import UIKit
         guard let authority = rows.authorities[id], rows.resolve(authority, intent: .media) === reappearing else {
             throw Failure(description: "reappearing same-album row did not regain fresh action authority")
         }
+        guard let restoredCell = rows.collection.cellForItem(at: .init(item: 0, section: 0)) as? MessageCell else {
+            throw Failure(description: "missing reinserted deletion presentation cell")
+        }
+        try require(
+            restoredCell.contentView.alpha == 1
+            && restoredCell.contentView.transform == CGAffineTransform(scaleX: 1, y: -1)
+            && restoredCell.isUserInteractionEnabled && restoredCell.isAccessibilityElement
+            && !restoredCell.accessibilityElementsHidden,
+            "normal reinsert configure retained deletion presentation or lost content flip",
+        )
         try require(
             rows.state.committedContains(rawID: reappearedRawID, displayedID: id) && !rows.state.deleting.contains(id),
             "new same-album member remained under the deleted incarnation tombstone",
