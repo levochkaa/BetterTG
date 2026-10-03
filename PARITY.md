@@ -95,8 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: remaining P1 A44b2 all-messages per-topic receipts; first share and bound existing topic metadata reads (b2a),
-then attach exact per-topic receipts (b2b). P2 A46 pin ordering follows separately.
+Active queue: remaining P1 A44b2b exact per-topic receipts. Shared bounded metadata reader b2a `4a2a190` passes controlled
+native and existing MessageCell regressions; receipt rendering is not yet connected. P2 A46 pin ordering follows separately.
 A45a/b/c echo/direct-scalar, full-read arbitration and known server-query membership have bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
 All-messages topic aggregation stays A44b2; no cross-topic/global watermark fallback.
@@ -1952,6 +1952,34 @@ is imported. This source pass does not prove every content's real rendering/acti
   from this availability check; their controlled production-component proofs and integration remain the next implementation.
 - MainView.swift formatted in one invocation; primary061118-3495-7982 PASS26s, full log zero warnings/errors.
 
+### A44b2a bounded all-messages metadata reader — 2026-10-03
+
+- Worker `0942d9c` integrated as `4a2a190`. `ChatForumTopicReads` owns at most two outstanding reads, including canceled
+  TD continuations until they actually return. Exact entry/request UUID and raw returned chat/topic guard same-ID re-demand;
+  weak captures let the owner deallocate during an uncancelable read. Source/composer-transfer retirement is terminal and
+  clears metadata synchronously. Existing controller-pop draft save can retain permission metadata until VM teardown.
+- Demand includes all canonical raw album members, General as an explicit composer reason, reply/edit, frozen voice/video
+  recording and pending/outgoing drafts. A one-main-turn reconciliation handles callers that request before assigning context;
+  expired reasons and unused cache entries are pruned. Typed forum admission checks matching supergroup identity and excludes
+  channel/direct/saved routes. One controller hook forwards its existing frozen video topic; b1 explicit-topic path is unchanged.
+- Existing scalar reducer rebases post-dispatch updates; per-entry info revision protects newer name/closed/hidden metadata.
+  Predispatch cache cannot overrule a subsequent full read. Scalar/info echoes do not fetch. Failed/malformed reads remain held
+  under unchanged demand; existing user refresh/Ready, explicit composer request or drop/re-add can retry. Failure does not
+  starve the queue. No timer retry; scalar payload does not refresh omitted unreadCount/order/lastMessage. Existing consumers
+  use topic info for headers/permissions; exact-topic receipt authority is the next b2b slice, not inferred from this cache.
+- Native PID22721 on `4a2a190`, audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: fresh06:28:59 (+04)
+  `forum-topic-reads-probe.txt` PASS production reader/demand builder under cancellation-insensitive controlled continuations:
+  max-two outstanding calls, coalescing, pruning/re-demand, canonical album/exact raw identities, late scalar/info overlay,
+  malformed replies, failure hold/progress/explicit retry, retired source ABA and weak owner release. Terminal replies are
+  matched by topic ID rather than assuming Task start order. The fixture explicitly invokes retire; actual source subscription,
+  whole ChatVM, pop draft persistence, header/viewport and live TD RPC behavior remain source-reviewed or unverified.
+- Same PID's fresh `message-delivery-probe.txt` PASS ordinary/explicit-topic reducer and actual MessageCell regression,
+  canonical promotion, stale wrapper rejection, batched stable-ID update and unchanged native fixed-row offset. It does not
+  prove b2b all-messages ticks or live peer-read transitions. Evidence files preserved in
+  `.build/ui-probe-evidence/astra-a44-all-messages/`; earlier safe live availability remains blocked (nine loaded forums, zero candidates).
+- Immutable independent review PASS. Six Swift files formatted together; primary062812-22030-25473 PASS19s, worker062426-17963-24832
+  PASS7s, full logs zero warnings/errors. Earlier worker062209 emitted one DEBUG WeakMutability warning, fixed without suppression.
+
 ### A45c known server-query row lifetime — 2026-10-03
 
 - `0a4c6af` (worker `656e32c`) retains a known row only when accepted query, topic ID and name still match. Same-name info
@@ -2251,9 +2279,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   geometry proof `909f62b`; actual four Read bubbles retain exact frames through a client foreground epoch (PID62893).
   Explicit forum A44b1 `5b9b322` has native PID86336 and actual topic display/foreground PID90037 proof above.
   A45a/b/c through `0a4c6af` have bounded native and actual search proofs above; documentation checkpoint `835d4bd` is clean.
-  Worker is implementing A44b2a shared bounded topic reads before b2b all-messages receipts. Runtime availability PID5126
+  A44b2a `4a2a190` passes production-reader controlled/native regression PID22721; b2b all-messages receipts remain. Runtime availability PID5126
   found nine loaded forums and zero safe base-mode candidates; no route or account preference was changed.
-  Latest DEBUG smoke build `build-Debug-20261003-061118-3495-7982.log` PASS26s; complete log zero warnings/errors.
+  Latest implementation build `build-Debug-20261003-062812-22030-25473.log` PASS19s; complete log zero warnings/errors.
   AGENTS/CLAUDE match; production/dependency scan still has zero VLC, forbidden UI and imported Telegram-infrastructure markers.
   A30d active-search renewal through `501af59`, native proof through `37e08e8`
   (PID27782 PASS) and actual two-epoch search/clear smoke (PID1590). A43 receipt feed has three native root regressions PASS,
@@ -2336,7 +2364,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
   A44b1 `caf406d` is integrated as `5b9b322`; A45a `af3a8bb` is integrated as `e3fb6d9` with bounded native proof.
   A45b `9ec934a`/`c84cb18` are integrated as `597d6f3`/`c9317e5`; A45c `656e32c` as `0a4c6af`, native regressions pass.
-  Worker is implementing remaining P1 A44b2a shared metadata read ownership before b2b per-topic receipts and P2 pin ordering.
+  A44b2a `0942d9c` integrated as `4a2a190`, native reader/MessageCell regressions pass. Worker is designing b2b per-topic receipts;
+  P2 pin ordering remains later.
   A46 pinned ordering is separate.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
@@ -2354,7 +2383,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact current slice: A44b2a shared bounded all-messages topic metadata reads; b2b then adds exact-topic receipts and scalar feed.
+- Exact next slice: A44b2b exact-topic receipts and scalar feed using b2a's existing shared bounded reads.
   Derive scope from canonical source messages, never a global watermark, guessed General ID or another MessageTopic kind.
   Preserve A44a/b1 states, A45 no-echo behavior, source/UUID/revision lifetime, wrapper identity and timeline anchors.
   A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
