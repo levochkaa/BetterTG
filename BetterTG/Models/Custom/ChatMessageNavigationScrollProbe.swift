@@ -7,6 +7,7 @@
     /// adapter is isolated and does not instantiate ChatView or issue TDLib reads.
     @MainActor enum ChatMessageNavigationScrollProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
+        private struct EndOrderSetupFailure: Swift.Error, CustomStringConvertible { let description: String }
 
         private struct GeometryReceipt: CustomStringConvertible {
             let offset: CGPoint
@@ -103,6 +104,7 @@
             var results = [ChatMessageNavigationScroll.Outcome]()
             var commands = [Bool]()
             var ends = 0
+            var lastEndOffset: CGPoint?
             var scrolls = 0
             var blockedWriters = 0
             var quoted = [Int]()
@@ -110,12 +112,15 @@
             var commandHook: (() -> Void)?
             var layoutMutationTask: Task<Void, Never>?
 
-            init(scene: UIWindowScene) {
+            init(scene: UIWindowScene, estimatedHeight: CGFloat = 80) {
                 let item = NSCollectionLayoutItem(layoutSize: .init(
-                    widthDimension: .fractionalWidth(1), heightDimension: .estimated(80),
+                    widthDimension: .fractionalWidth(1), heightDimension: .estimated(estimatedHeight),
                 ))
                 let group = NSCollectionLayoutGroup.vertical(
-                    layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(80)),
+                    layoutSize: .init(
+                        widthDimension: .fractionalWidth(1),
+                        heightDimension: .estimated(estimatedHeight),
+                    ),
                     subitems: [item],
                 )
                 let layout = UICollectionViewCompositionalLayout(section: .init(group: group))
@@ -229,6 +234,7 @@
 
             func scrollViewDidEndScrollingAnimation(_: UIScrollView) {
                 ends += 1
+                lastEndOffset = collection.contentOffset
                 driver.animationEnded()
             }
 
@@ -285,6 +291,28 @@
                     mounted: path.flatMap { collection.cellForItem(at: $0) } != nil,
                     targetPresent: target != nil, sceneState: window.windowScene?.activationState.rawValue,
                 )
+            }
+        }
+
+        static func runEndOrderProbeIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-navigation-end-order") else { return }
+            Task {
+                let result: String
+                do {
+                    try await verifyLatestEndOrder()
+                    result = "Navigation end-order probe passed: native later-end callback after harness relocation; "
+                        + "manual verifier scheduling/real retained display link=true; "
+                        + "two post-latest-end observations before correction=true; "
+                        + "second native animation=injected; full settlement/ChatView/historical failure cause=unverified; RPC=0"
+                } catch let error as EndOrderSetupFailure {
+                    result = "Navigation end-order probe inconclusive: \(error)"
+                } catch { result = "Navigation end-order probe failed: \(error)" }
+                log(result)
+                if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    try? Data(result.utf8).write(
+                        to: root.appendingPathComponent("message-navigation-end-order-probe.txt"), options: .atomic,
+                    )
+                }
             }
         }
 
@@ -447,6 +475,105 @@
                 failure.results == [.failed] && failure.quoted.isEmpty && !failure.driver.ownsViewport,
                 "deadline claimed arrival or kept ownership",
             )
+        }
+
+        private static func verifyLatestEndOrder() async throws {
+            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+                throw EndOrderSetupFailure(description: "missing native scene")
+            }
+            // Accurate estimates isolate end ordering from the natural fixture's
+            // separate self-sizing/deadline behavior. Rows still use UIKit sizing.
+            let fixture = Fixture(scene: scene, estimatedHeight: 48)
+            fixture.driver.debugManualVerification = true
+            defer { fixture.close() }
+            await fixture.install()
+            fixture.request(40, animated: true)
+            do {
+                try await waitForEndOrderSetup("first genuine end") {
+                    fixture.ends > 0 || !fixture.results.isEmpty
+                }
+                try requireEndOrderSetup(
+                    fixture.ends == 1 && fixture.commands == [true] && fixture.results.isEmpty
+                        && fixture.driver.ownsViewport && fixture.driver.debugVerificationReceipt.elapsed < 2,
+                    "first flight did not produce one current end before the unchanged deadline",
+                )
+                try requireEndOrderSetup(fixture.driver.debugAdvanceScheduledFrame(), "first sample not scheduled")
+                let firstSample = fixture.driver.debugVerificationReceipt
+                guard let oldOffset = firstSample.firstOffset,
+                      let targetOffset = fixture.targetOffset(40)
+                else {
+                    throw EndOrderSetupFailure(description: "first sample/target geometry unavailable")
+                }
+                let injectedOffset = CGPoint(x: 0, y: targetOffset + 64)
+                let inset = fixture.collection.adjustedContentInset
+                let maximum = fixture.collection.contentSize.height - fixture.collection.bounds.height + inset.bottom
+                try requireEndOrderSetup(
+                    firstSample.checking && firstSample.receivedEnd
+                        && injectedOffset.y > -inset.top && injectedOffset.y < maximum
+                        && abs(injectedOffset.y - oldOffset.y) > 32,
+                    "manual scheduling or distinct unclamped relocation not armed",
+                )
+                // Deliberately injected second UIKit animation, not a second
+                // driver command or a claim about actual ChatView behavior.
+                fixture.collection.setContentOffset(injectedOffset, animated: true)
+                try await waitForEndOrderSetup("injected native movement") {
+                    abs(fixture.collection.contentOffset.y - oldOffset.y) > 1 || !fixture.results.isEmpty
+                }
+                try await waitForEndOrderSetup("later genuine end") {
+                    fixture.ends >= 2 || !fixture.results.isEmpty
+                }
+                let before = fixture.driver.debugVerificationReceipt
+                try requireEndOrderSetup(
+                    fixture.ends == 2 && fixture.commands == [true] && fixture.results.isEmpty
+                        && before.elapsed < 2 && before.checking && before.receivedEnd
+                        && abs((fixture.lastEndOffset?.y ?? .infinity) - injectedOffset.y) <= 0.75
+                        && abs(fixture.collection.contentOffset.y - injectedOffset.y) <= 0.75,
+                    "later end was not at the injected endpoint before the unchanged deadline",
+                )
+                try requireEndOrderSetup(fixture.driver.debugAdvanceScheduledFrame(), "later-end sample not scheduled")
+                let after = fixture.driver.debugVerificationReceipt
+                try requireEndOrderSetup(after.elapsed < 2, "decisive sample reached the unchanged deadline")
+                try require(
+                    fixture.results.isEmpty && fixture.driver.ownsViewport
+                        && fixture.commands == [true] && fixture.quoted.isEmpty
+                        && abs(fixture.collection.contentOffset.y - (fixture.targetOffset(40) ?? .infinity)) > 0.75,
+                    "first post-latest-end sample prematurely corrected, settled, or retired the residual",
+                )
+                if !after.checking || !after.receivedEnd {
+                    try require(!after.checking && !after.receivedEnd, "unexpected partial checker/end retirement")
+                    let refusedAfterStop = !fixture.driver.debugAdvanceScheduledFrame()
+                    try require(refusedAfterStop, "manual verifier bypassed the stopped production checker")
+                    throw Failure(description: "latest accepted end lost its checker using a pre-end sample; "
+                        + "checking=\(after.checking) receivedEnd=\(after.receivedEnd) manualAfterStopRefused=\(refusedAfterStop) "
+                        + "owner=\(fixture.driver.ownsViewport) driverCommands=\(fixture.commands) nativeEnds=\(fixture.ends) "
+                        + "quotes=\(fixture.quoted.count) elapsed=\(after.elapsed) "
+                        + "injectedOffsetY=\(injectedOffset.y) pre-endSampleY=\(oldOffset.y) "
+                        + "skippedAutomaticFrames=\(after.skippedAutomaticFrames)")
+                }
+                try require(
+                    after.firstOffset == fixture.collection.contentOffset && fixture.commands == [true]
+                        && fixture.quoted.isEmpty,
+                    "first post-latest-end observation prematurely corrected or quoted",
+                )
+                try require(fixture.driver.debugAdvanceScheduledFrame(), "second post-latest-end sample lost checker")
+                try require(
+                    fixture.commands == [true, false] && fixture.results.isEmpty && fixture.quoted.isEmpty,
+                    "second post-latest-end observation did not admit the current residual correction",
+                )
+            } catch let error as EndOrderSetupFailure {
+                throw EndOrderSetupFailure(description: "\(error)\n\(fixture.diagnostics(for: 40))")
+            } catch {
+                throw Failure(description: "\(error)\n\(fixture.diagnostics(for: 40))")
+            }
+        }
+
+        private static func requireEndOrderSetup(_ condition: Bool, _ detail: String) throws {
+            guard condition else { throw EndOrderSetupFailure(description: detail) }
+        }
+
+        private static func waitForEndOrderSetup(_ detail: String, until condition: () -> Bool) async throws {
+            do { try await wait(detail, until: condition) }
+            catch { throw EndOrderSetupFailure(description: "\(detail): \(error)") }
         }
 
         private static func require(_ condition: Bool, _ detail: String) throws {

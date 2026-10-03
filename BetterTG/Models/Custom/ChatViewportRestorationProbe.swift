@@ -136,6 +136,7 @@
         }
 
         static func runDebugProbeIfRequested() {
+            ChatMessageNavigationScrollProbe.runEndOrderProbeIfRequested()
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-viewport-authority") else { return }
             Task {
                 let result: String

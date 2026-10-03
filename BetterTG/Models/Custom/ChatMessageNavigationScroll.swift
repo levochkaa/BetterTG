@@ -41,6 +41,7 @@ import UIKit
 
         @objc func frame() {
             #if DEBUG
+                if owner?.debugSkipAutomaticFrame() == true { return }
                 let timing = owner?.debugFrameBegan()
                 defer { if let timing { owner?.debugFrameEnded(timing) } }
             #endif
@@ -63,6 +64,42 @@ import UIKit
         /// Enabled only by the isolated native probe. Retain values, not layout
         /// callbacks: observing this trace must not resolve or lay out a target.
         var debugTracingEnabled = false
+        var debugManualVerification = false
+
+        struct DebugVerificationReceipt {
+            let elapsed: CFTimeInterval
+            let checking: Bool
+            let receivedEnd: Bool
+            let firstOffset: CGPoint?
+            let skippedAutomaticFrames: Int
+        }
+
+        var debugVerificationReceipt: DebugVerificationReceipt {
+            .init(
+                elapsed: CACurrentMediaTime() - debugStartedAt,
+                checking: frameLink != nil && attempt?.command != nil && attempt?.command == checkCommand,
+                receivedEnd: receivedEnd, firstOffset: firstOffset,
+                skippedAutomaticFrames: debugSkippedAutomaticFrames,
+            )
+        }
+
+        /// The real scheduled link remains owned; no verifier call is admitted
+        /// after the production checker has stopped or changed its command.
+        func debugAdvanceScheduledFrame() -> Bool {
+            guard debugManualVerification, frameLink != nil,
+                  let command = attempt?.command, command == checkCommand else { return false }
+            debugRecord("manual-verifier-frame")
+            verifyFrame()
+            return true
+        }
+
+        private var debugSkippedAutomaticFrames = 0
+
+        private func debugSkipAutomaticFrame() -> Bool {
+            guard debugManualVerification else { return false }
+            debugSkippedAutomaticFrames += 1
+            return true
+        }
 
         private struct DebugFrameTiming {
             let enteredAt: CFTimeInterval
@@ -215,6 +252,7 @@ import UIKit
                 debugOutcome = nil
                 debugCommands.removeAll(keepingCapacity: true)
                 debugNativeEnds = 0
+                debugSkippedAutomaticFrames = 0
                 debugRecord("start")
             }
         #endif
