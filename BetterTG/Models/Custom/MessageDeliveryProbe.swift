@@ -160,6 +160,7 @@ import UIKit
                 try verifyStates()
                 try await verifyCells()
                 try await verifyUnavailableCells()
+                try await verifySelectionTouchBinding()
                 try await ChatMessageActionAuthorityProbe.verify()
                 result = "Message delivery probe passed: production-receipt/read-revision/source-route-retirement=true; "
                     + "pending/failed/final/album-canonical-promotion/seed-reset=true; "
@@ -168,10 +169,11 @@ import UIKit
                     + "shared-provider/exact-dequeue/inert-reconfigure/same-ID-recovery/weak-owner=true; "
                     + "extracted-content-concealed-without-reparenting=true; "
                     + "shared-action-authority/native-cell/old-AX-media-binding/payload-source-permissions/exact-poll=true; "
+                    + "selection-control/synthetic-down-reconfigure-up/cancel-outside-reset/one-shot/AX=true; "
                     + "explicit-forum/raw-topic/revision/echo-dedup/late-draft/targeted-cell=true; "
                     + "all-messages-forum/shared-reader/canonical-topic/targeted-cell/seed-reset=true; "
                     + "final-self/whole-ChatVM/live-peer-read/real-deletion-window/snapshot-ownership=unverified; "
-                    + "loaded-media/suspended-pan/context-menu-actions=unverified; RPC/sends=0"
+                    + "loaded-media/suspended-pan/context-menu-actions/physical-selection-touch=unverified; RPC/sends=0"
             } catch { result = "Message delivery probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -564,6 +566,7 @@ import UIKit
             !cell.probeUnavailableResourcesAreReset && !extracted.isHidden,
             "fallback fixture was not armed with real content",
         )
+        selection.sendActions(for: .touchDown)
         selection.sendActions(for: .touchUpInside)
         try require(owner?.selectionTaps == 1, "initial selection callback missing")
         let reuseCount = cell.probeReuseCount
@@ -626,6 +629,7 @@ import UIKit
             && cell.accessibilityTraits.contains(.selected),
             "same-ID recovery did not restore content/selection",
         )
+        selection.sendActions(for: .touchDown)
         selection.sendActions(for: .touchUpInside)
         try require(owner?.selectionTaps == 2, "recovered selection callback missing")
         owner = nil
@@ -645,6 +649,79 @@ import UIKit
             "provider did not return exactly one dequeue per request",
         )
         try await verifyUnavailableHeaders(scene: scene)
+    }
+
+    private static func verifySelectionTouchBinding() async throws {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            throw Failure(description: "missing selection-touch scene")
+        }
+        let rows = NativeRows()
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(rows.collection)
+        window.isHidden = false
+        defer { window.isHidden = true
+        window.rootViewController = nil
+        }
+        let message = CustomMessage(message: fixture(id: 70), properties: .default)
+        rows.selectionActive = true
+        rows.messages = [message]
+        rows.apply()
+        try await until("selection-touch initial snapshot") { rows.completed == 1 }
+        rows.collection.layoutIfNeeded()
+        let path = IndexPath(item: 0, section: 0)
+        guard let cell = rows.collection.cellForItem(at: path) as? MessageCell,
+              let control = allControls(cell)
+              .first(where: { $0.accessibilityIdentifier == "message-selection-control" }),
+              let oldAX = cell.accessibilityCustomActions?.first(where: { $0.name == "Deselect Message" })
+        else { throw Failure(description: "selection-touch fixture was not armed") }
+        guard let binding = cell.actionBindingID else { throw Failure(description: "selection cell has no binding") }
+        let reuseCount = cell.probeReuseCount
+        control.sendActions(for: .touchDown)
+        try require(cell.probeSelectionTouchBindingID == binding, "selection touchDown did not capture current binding")
+        rows.reconfigure([message.displayedID])
+        try await until("selection-touch held-down reconfigure") { rows.completed == 2 }
+        try require(
+            rows.collection.cellForItem(at: path) === cell && cell.probeReuseCount == reuseCount
+                && allControls(cell).contains(where: { $0 === control }) && cell.actionBindingID != binding
+                && cell.probeSelectionTouchBindingID == nil,
+            "selection-touch reconfigure did not retain exact cell/control with a new binding",
+        )
+        control.sendActions(for: .touchUpInside)
+        control.sendActions(for: .touchUpInside)
+        _ = oldAX.actionHandler?(oldAX)
+        try require(rows.selectionTaps == 0, "old touch/AX invoked an old or rebound selection handler")
+        guard let currentAX = cell.accessibilityCustomActions?.first(where: { $0.name == "Deselect Message" }) else {
+            throw Failure(description: "current selection AX action missing")
+        }
+        _ = currentAX.actionHandler?(currentAX)
+        try require(rows.selectionTaps == 1, "current selection AX incorrectly requires touchDown")
+        control.sendActions(for: .touchDown)
+        control.sendActions(for: .touchUpInside)
+        control.sendActions(for: .touchUpInside)
+        try require(rows.selectionTaps == 2, "fresh selection touch was not consumed exactly once")
+        control.sendActions(for: .touchDown)
+        control.sendActions(for: .touchCancel)
+        control.sendActions(for: .touchUpInside)
+        control.sendActions(for: .touchDown)
+        control.sendActions(for: .touchUpOutside)
+        control.sendActions(for: .touchUpInside)
+        try require(rows.selectionTaps == 2, "canceled/outside selection touch survived")
+        control.sendActions(for: .touchDown)
+        cell.resetUnavailableContent()
+        rows.reconfigure([message.displayedID])
+        try await until("selection-touch unavailable recovery") { rows.completed == 3 }
+        try require(
+            rows.collection.cellForItem(at: path) === cell && allControls(cell).contains(where: { $0 === control }),
+            "selection-touch reset replaced native cell/control",
+        )
+        control.sendActions(for: .touchUpInside)
+        try require(rows.selectionTaps == 2, "reset/rebound cell inherited an old touch")
+        control.sendActions(for: .touchDown)
+        control.sendActions(for: .touchUpInside)
+        try require(rows.selectionTaps == 3, "reset/rebound cell rejected a fresh touch")
     }
 
     private static func inert(_ cell: UICollectionViewCell) -> Bool {

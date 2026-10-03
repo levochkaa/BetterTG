@@ -188,6 +188,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     #if DEBUG
         private(set) var probeReuseCount = 0
+        var probeSelectionTouchBindingID: UUID? { selectionTouchBindingID }
 
         var probeUnavailableResourcesAreReset: Bool {
             onSwipeToReply == nil && onMediaTap == nil && onSelectionToggle == nil && onSelfSizingHeightChange == nil
@@ -199,7 +200,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 && timestampLabel.text == nil && mediaTimestampLabel.text == nil
                 && textView.attributedText.length == 0 && bubbleView.isHidden
                 && selectionControl.isHidden && selectionIndicatorView.isHidden
-                && rowStack.transform == .identity
+                && rowStack.transform == .identity && selectionTouchBindingID == nil
         }
     #endif
 
@@ -210,6 +211,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         private(set) var probeMediaAction: (([Message], Int64) -> Void)?
     #endif
 
+    private var selectionTouchBindingID: UUID?
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
     private let bubbleStack = UIStackView()
@@ -321,6 +323,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     /// UIKit can reconfigure the current cell without calling prepareForReuse.
     func resetUnavailableContent() {
         actionBindingID = nil
+        selectionTouchBindingID = nil
         swipeReplyBindingID = nil
         #if DEBUG
             probeMediaAction = nil
@@ -466,6 +469,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onMediaTap: @escaping ([Message], Int64) -> Void,
         actionBindingID: UUID = UUID(),
     ) {
+        selectionTouchBindingID = nil
         self.actionBindingID = actionBindingID
         alpha = 1
         transform = .identity
