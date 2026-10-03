@@ -532,15 +532,15 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func notificationBody(for content: MessageContent) -> String? {
         switch content {
         case .messagePhoto(let value):
-            captionedMediaBody(icon: "🖼", caption: value.caption.text, fallback: "Photo")
+            RichNotificationPreviewPolicy.captionedBody(icon: "🖼", caption: value.caption, fallback: "Photo")
         case .messageVideo(let value):
-            captionedMediaBody(icon: "📹", caption: value.caption.text, fallback: "Video")
+            RichNotificationPreviewPolicy.captionedBody(icon: "📹", caption: value.caption, fallback: "Video")
         case .messageAnimation(let value):
-            captionedMediaBody(icon: "🎬", caption: value.caption.text, fallback: "GIF")
+            RichNotificationPreviewPolicy.captionedBody(icon: "🎬", caption: value.caption, fallback: "GIF")
         case .messageDocument(let value):
-            captionedMediaBody(
+            RichNotificationPreviewPolicy.captionedBody(
                 icon: "📎",
-                caption: value.caption.text,
+                caption: value.caption,
                 fallback: value.document.fileName.isEmpty ? "File" : value.document.fileName,
             )
         case .messageSticker(let value):
@@ -550,10 +550,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
         default:
             nil
         }
-    }
-
-    private func captionedMediaBody(icon: String, caption: String, fallback: String) -> String {
-        "\(icon) \(caption.isEmpty ? fallback : caption)"
     }
 
     private func finish(_ result: ResolvedTelegramNotification?, reason: String, ticket: Lifetime.Ticket? = nil) {

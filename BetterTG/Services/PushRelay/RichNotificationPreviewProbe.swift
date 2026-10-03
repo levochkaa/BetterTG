@@ -55,12 +55,14 @@
             Task {
                 let report: String
                 do {
+                    try verifyCaptions()
                     try await verifySelection()
                     try verifyBatches()
                     try await verifyRevocation()
                     report = "PASS: production preview policy/conditional lifetime/native TDLib models; "
                         + "full-message evidence required despite push thumbnail; ordinary media/body and nonmedia preserved; "
                         + "hidden/showPreview/secret/spoiler/self-destruct denied; denied/unresolved omit bytes/body; "
+                        + "caption entity spoilers retain original body without revoking allowed media; "
                         + "whole-batch both orders, bound replacement, exact client/chat/raw isolation; "
                         + "held fetch/download revoked by content/edit/delete/hidden, late publish/finish refused; "
                         + "actual NSE/builder/donation/TDLib/durable cache-only restoration=unverified; RPC/donations=0"
@@ -70,6 +72,37 @@
                     try? Data(report.utf8).write(
                         to: documents.appendingPathComponent("notification-preview-probe.txt"), options: .atomic,
                     )
+                }
+            }
+        }
+
+        private static func verifyCaptions() throws {
+            let text = "🙂 private caption"
+            let original = "Original APNs body"
+            for (icon, fallback) in [("🖼", "Photo"), ("📹", "Video"), ("🎬", "GIF"), ("📎", "file.pdf")] {
+                for entities: [TextEntity] in [[], [.init(length: 7, offset: 3, type: .textEntityTypeBold)]] {
+                    try require(Policy.captionedBody(
+                        icon: icon, caption: .init(entities: entities, text: text), fallback: fallback,
+                    ) == "\(icon) \(text)", "ordinary formatted caption changed")
+                }
+                try require(Policy.captionedBody(
+                    icon: icon, caption: .init(entities: [], text: ""), fallback: fallback,
+                ) == "\(icon) \(fallback)", "empty-caption label lost")
+                // Presence of a spoiler suffices; never slice malformed UTF-16
+                // ranges or reveal the text when an offset cannot be decoded.
+                for entity in [
+                    TextEntity(length: 7, offset: 3, type: .textEntityTypeSpoiler),
+                    TextEntity(length: 0, offset: Int.max, type: .textEntityTypeSpoiler),
+                ] {
+                    let body = Policy.captionedBody(
+                        icon: icon, caption: .init(entities: [entity], text: text), fallback: fallback,
+                    )
+                    let allowed = RichNotificationPreview.allowed(bytes)
+                    try require(
+                        body == nil && (allowed.bodyOverride(body) ?? original) == original,
+                        "spoiler caption replaced safe original body",
+                    )
+                    try require(allowed.attachmentData == bytes, "caption spoiler denied unrelated eligible media")
                 }
             }
         }

@@ -63,6 +63,17 @@ enum RichNotificationPreviewPolicy {
         }
     }
 
+    /// Media concealment and caption entities are separate. Keep the original
+    /// APNs body when its replacement would expose spoiler text; this does not
+    /// revoke permission to attach an otherwise eligible image.
+    static func captionedBody(icon: String, caption: FormattedText, fallback: String) -> String? {
+        guard !caption.entities.contains(where: {
+            if case .textEntityTypeSpoiler = $0.type { return true }
+            return false
+        }) else { return nil }
+        return "\(icon) \(caption.text.isEmpty ? fallback : caption.text)"
+    }
+
     /// Called inside the session lifetime's publication lock. Inspect the whole
     /// exact batch before admitting its resolver; a later allowed entry cannot
     /// erase a denial. Unrelated chats/messages cannot revoke this request.
