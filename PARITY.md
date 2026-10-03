@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: confirmed P1 A30h member-tag editor draft retention/renewed explicit Save, before P2 A46 pin ordering.
+Active queue: confirmed P1 A30h member-tag editor draft retention/renewed explicit Save, then A47 bounded topic-list reads,
+before P2 A46 pin ordering.
 A44b2a/b shared bounded reads and exact per-topic receipts `4a2a190`/`2190c4d` pass controlled reader/native MessageCell probes.
 A45a/b/c echo/direct-scalar, full-read arbitration and known server-query membership have bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
@@ -184,6 +185,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | fixed bounded ordinary/forum delivery — `1630ee1`, geometry `909f62b`, explicit-topic `5b9b322`, all-messages shared reads/receipts `4a2a190`/`2190c4d`. Controlled/native cells and actual ordinary/explicit-topic foreground display pass. Live all-messages/peer-read transitions and final self mapping remain separate; broadcast final checks conservatively excluded |
 | A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | fixed bounded echo/read ownership — `e3fb6d9`, `597d6f3`, page-membership correction `c9317e5`, known-row lifetime `0a4c6af`. Real-VM controlled reads/native cell and controller regressions pass; actual search/foreground and fuzzy before/after proof recorded. Actual TDLib request counts, delayed server conflicting updates and one bounded redundant unknown follow-up remain unverified/open |
 | A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | needs-fix — preserve authoritative pinned-topic ordering separately from chronological order. Source-confirmed; actual PID36808 on e3fb6d9 places pinned General third below two ordinary rows. No after-fix proof yet. Separate from A45 fetch ownership |
+| A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | needs-fix — bound outstanding individual reads across query generations while preserving A45 coalescing, full-read ordering and fuzzy membership. Source-confirmed burst fan-out; no live lag/OOM claim. Ordinary page echoes are normally satisfied by the page and are not the trigger |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -2052,6 +2054,28 @@ is imported. This source pass does not prove every content's real rendering/acti
   complete logs zero warnings/errors. Independent immutable review passed. Next P1 is A44b2; A46 remains the separate visible
   pinned-order gap. Unknown-topic page omission may still cause one redundant refresh, not recursive identical-echo fetching.
 
+### A47 topic-list individual read fan-out — 2026-10-03
+
+- Primary and independent source review at `69b0212`: `ForumTopicsVM.swift`339–344/421–429 registers distinct unknown
+  same-chat topic updates; 460–501 drains every pending ID and starts individual reads without a shared outstanding limit.
+  Reset229–234 cancels then drops task registrations, although a TDLib await need not finish on Swift cancellation. Rapid query
+  generations can therefore overlap old and new native work. This is separate from A45's fixed per-ID echo loop.
+- Natural trigger: pinned TDLib `022d6020` `td/telegram/MessagesInfo.cpp`28–79 consumes topic infos from message/history/search
+  responses; `ForumTopicManager.cpp`1139–1148/1358–1375 publishes changed infos. A covered topic-list controller retains its
+  same-source subscription until removal (`ForumTopicsViewController.swift`145–150). An empty-query list accepts these new IDs;
+  `ForumTopicManager.cpp`831–847 dispatches a network getForumTopic for ordinary user clients even when info is cached.
+  Normal getForumTopics page echoes are usually satisfied by the accepted page303–305; do not attribute fan-out to every page.
+- Repair boundary: bound actual outstanding individual reads, including canceled-but-unfinished predecessors; coalesce demand,
+  preserve exact request/source/query ownership, raw page cursors, A45 ordinal/scalar/info overlays and known fuzzy membership.
+  Any cache pruning must retain row/pending/inflight/tombstone authority. Current maps grow within a query and clear on reset or
+  retirement; this is not evidence of a cross-account or permanent leak. No new backend, navigation policy or pin-order change.
+- Reference: Telegram current `6ad963e` and pre-Liquid `8e7e5f`, `submodules/TelegramCore/Sources/ForumChannels.swift`,
+  finite getForumTopics limit/cursor response ownership; A44b2a's loaded-topic reader supplies an existing BetterTG cancellation
+  ownership pattern. A specific concurrency limit is a BetterTG adaptation, not a claimed upstream value.
+- Planned proof: controlled real ForumTopicsVM burst outside a partial/failed page, maximum outstanding count, fair coalesced
+  draining, repeated query reset with uncancellable old completions, source retirement and all A45 regressions. No live lag,
+  OOM, request-count or server mutation proof yet. Queue after A30h and before P2 A46.
+
 ### A46 forum pinned ordering audit — 2026-10-03
 
 - Source `cb723ab`: `ForumTopicPageState.merging` and `ForumTopicsVM.sortTopics` compare only order and topic ID;
@@ -2439,6 +2463,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
 - Exact next implementation: A30h confirmed member-tag editor client renewal under the bounded repair contract above.
+  Then A47's confirmed unbounded individual topic-list reads; preserve the A45 proof contracts while bounding native work.
   A44b2b now derives exact raw-topic receipts with the existing shared reads. Preserve A44a/b1/b2 states and A45 no-echo behavior,
   source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 remains a confirmed separate P2.
   A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
