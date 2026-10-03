@@ -98,11 +98,6 @@ struct RichNotificationAvatarReferences {
         let client: TDLibClient
     }
 
-    private struct Context {
-        let source: RichNotificationCacheSource
-        let client: TDLibClient
-    }
-
     // MARK: Internal
 
     static let shared = RichNotificationCacheCoordinator()
@@ -112,6 +107,7 @@ struct RichNotificationAvatarReferences {
     private let tdlib = TDLib.shared
     private var avatarReferences = RichNotificationAvatarReferences()
     private let avatarWorker = RichNotificationAvatarWorker()
+    private let mediaPrewarmer = RichNotificationMediaPrewarmer()
     private var refreshRequests = [Int64: UUID]()
 
     private init() {}
@@ -122,6 +118,7 @@ struct RichNotificationAvatarReferences {
         #if DEBUG
             RichNotificationCacheProbe.runIfRequested()
             RichNotificationAvatarWorkerProbe.runIfRequested()
+            RichNotificationMediaPrewarmerProbe.runIfRequested()
         #endif
 
         // TDLib publishes this synchronously on its main-queue admission path.
@@ -132,6 +129,7 @@ struct RichNotificationAvatarReferences {
                 if let source = snapshot?.source, context(for: source) != nil { return }
                 avatarReferences.bind(nil)
                 avatarWorker.bind(nil)
+                mediaPrewarmer.bind(nil)
                 refreshRequests.removeAll()
             }
             .store(in: &cancellables)
@@ -148,7 +146,9 @@ struct RichNotificationAvatarReferences {
             guard let self, let context = context(for: update.source) else { return }
             refresh(chatID: update.value.chatId, context: context)
         }
-        nc.scopedPublisher(&cancellables, for: .updateNewMessage) { [weak self] update in
+        // Admission and revocation share TDLib's synchronous accepted-update
+        // order; a queued old message must not start after its edit/delete.
+        mediaPrewarmer.observeNewMessages { [weak self] update in
             guard let self, let context = context(for: update.source) else { return }
             cacheMedia(for: update.value.message, context: context)
         }
@@ -164,6 +164,7 @@ struct RichNotificationAvatarReferences {
                 if context(for: source) == nil {
                     avatarReferences.bind(nil)
                     avatarWorker.bind(nil)
+                    mediaPrewarmer.bind(nil)
                     refreshRequests.removeAll()
                 }
             }
@@ -179,6 +180,7 @@ struct RichNotificationAvatarReferences {
         else { return nil }
         avatarReferences.bind(bound)
         avatarWorker.bind(bound)
+        mediaPrewarmer.bind(bound)
         return Context(source: bound, client: client)
     }
 
@@ -269,54 +271,25 @@ struct RichNotificationAvatarReferences {
     }
 
     private func cacheMedia(for message: Message, context: Context) {
-        guard !message.isOutgoing, let candidate = mediaCandidate(for: message.content) else { return }
-        Task { [weak self] in
-            guard let self, isCurrent(context),
-                  let chat = try? await context.client.getChat(chatId: message.chatId), isCurrent(context),
-                  let peer = peerReference(for: chat),
-                  message.id > 0
-            else { return }
-            let reference = RichNotificationMessageReference(
-                peer: peer,
-                serverMessageID: message.id >> 20,
-            )
-            if let placeholder = candidate.placeholder {
-                RichNotificationCache.cacheMedia(placeholder, for: reference, accountID: context.source.userID)
-            }
-            let file = await (try? context.client.downloadFile(
-                fileId: candidate.file.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: true,
-            )) ?? candidate.file
-            guard isCurrent(context), file.local.isDownloadingCompleted,
-                  !file.local.path.isEmpty,
-                  let data = try? Data(contentsOf: URL(fileURLWithPath: file.local.path))
-            else { return }
-            RichNotificationCache.cacheMedia(data, for: reference, accountID: context.source.userID)
-        }
-    }
-
-    private func mediaCandidate(for content: MessageContent) -> MediaCandidate? {
-        switch content {
-        case .messagePhoto(let value):
-            guard let size = value.photo.sizes.min(by: { lhs, rhs in
-                abs(max(lhs.width, lhs.height) - 1280) < abs(max(rhs.width, rhs.height) - 1280)
-            }) else { return nil }
-            return MediaCandidate(file: size.photo, placeholder: value.photo.minithumbnail?.data)
-        case .messageVideo(let value):
-            guard let thumbnail = value.video.thumbnail else { return nil }
-            return MediaCandidate(file: thumbnail.file, placeholder: value.video.minithumbnail?.data)
-        case .messageAnimation(let value):
-            guard let thumbnail = value.animation.thumbnail else { return nil }
-            return MediaCandidate(file: thumbnail.file, placeholder: value.animation.minithumbnail?.data)
-        case .messageSticker(let value):
-            guard let thumbnail = value.sticker.thumbnail else { return nil }
-            return MediaCandidate(file: thumbnail.file, placeholder: nil)
-        default:
-            return nil
-        }
+        mediaPrewarmer.start(message: message, source: context.source, operations: .init(
+            isCurrent: { [weak self] in self?.isCurrent(context) == true },
+            peer: { [weak self] chatID in
+                guard let chat = try? await context.client.getChat(chatId: chatID),
+                      chat.id == chatID else { return nil }
+                return self?.peerReference(for: chat)
+            },
+            download: { file in
+                await (try? context.client.downloadFile(
+                    fileId: file.id,
+                    limit: 0,
+                    offset: 0,
+                    priority: 1,
+                    synchronous: true,
+                )) ?? file
+            },
+            read: { try? Data(contentsOf: URL(fileURLWithPath: $0)) },
+            cache: { RichNotificationCache.cacheMedia($0, for: $1, accountID: $2) },
+        ))
     }
 
     private func peerReference(for chat: Chat) -> RichNotificationPeerReference? {

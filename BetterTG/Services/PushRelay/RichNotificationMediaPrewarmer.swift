@@ -71,11 +71,7 @@ import TDLibKitDynamic
         guard self.source == source, operations.isCurrent() else { return nil }
         let key = Key(chatID: message.chatId, messageID: message.id)
         active.removeValue(forKey: key)
-        // MessageId.h reserves the low20 bits for local/scheduled variants.
-        // They cannot publish under a relay's ordinary server-message cache key.
-        let serverMessageID = message.id >> 20
-        guard !message.isOutgoing, serverMessageID > 0, serverMessageID <= Int64(Int32.max),
-              message.id == serverMessageID << 20, RichNotificationMediaEligibility.allows(message),
+        guard !message.isOutgoing, message.id > 0, RichNotificationMediaEligibility.allows(message),
               let candidate = candidate(for: message.content) else { return nil }
         let token = UUID()
         active[key] = token
@@ -86,7 +82,7 @@ import TDLibKitDynamic
                 !Task.isCancelled && self.source == source && self.active[key] == token && operations.isCurrent()
             }
             guard current(), let peer = await operations.peer(message.chatId), current() else { return }
-            let reference = RichNotificationMessageReference(peer: peer, serverMessageID: serverMessageID)
+            let reference = RichNotificationMessageReference(peer: peer, serverMessageID: message.id >> 20)
             if let placeholder = candidate.placeholder { operations.cache(placeholder, reference, source.userID) }
             guard current() else { return }
             let file = await operations.download(candidate.file)
