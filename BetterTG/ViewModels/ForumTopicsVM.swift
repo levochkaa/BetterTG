@@ -119,12 +119,13 @@ import TDLibKitDynamic
     static func controlled(
         customChat: CustomChat, location: ChatLocation, client: TDLibClient,
         reads: ForumTopicsReadEnvironment,
+        restoration: ForumTopicsRestorationState? = nil,
     ) -> ForumTopicsVM {
         ForumTopicsVM(
             customChat: customChat,
             location: location,
             client: client,
-            restoration: nil,
+            restoration: restoration,
             usesTransport: true,
             reads: reads,
         )
@@ -477,7 +478,9 @@ import TDLibKitDynamic
 
     private func refreshTopic(id: Int, afterCurrent: Bool = true) {
         guard contextIsCurrent, id > 0 else { return }
-        if let info = infoUpdates[id]?.value, info.isHidden || !topicMatchesQuery(info) { return }
+        let retainedName = retainedTopicName(id: id)
+        if let info = infoUpdates[id]?.value,
+           info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { return }
         if loading { pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
             return
         }
@@ -511,7 +514,9 @@ import TDLibKitDynamic
             else { return }
             guard let response, response.info.forumTopicId == id,
                   let topic = acceptFullTopic(response, read: read) else { return }
-            if topic.info.isHidden || !topicMatchesQuery(topic.info) {
+            let currentName = retainedTopicName(id: id)
+            let unchangedName = currentName == retainedName ? retainedName : nil
+            if topic.info.isHidden || !topicMatchesQuery(topic.info, retaining: unchangedName) {
                 topics.removeAll { $0.info.forumTopicId == id }
                 return
             }
