@@ -203,6 +203,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     var onSelfSizingHeightChange: (() -> Void)?
 
+    private(set) var actionBindingID: UUID?
+    #if DEBUG
+        private(set) var probeMediaAction: (([Message], Int64) -> Void)?
+    #endif
+
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
     private let bubbleStack = UIStackView()
@@ -240,6 +245,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var bubbleContentNeedsMeasurement = true
     private var measuredCellWidth = CGFloat.zero
     private var centeredSpacerConstraint: NSLayoutConstraint?
+    private var swipeReplyBindingID: UUID?
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
     private var onSelectionToggle: (() -> Void)?
@@ -311,6 +317,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     /// UIKit can reconfigure the current cell without calling prepareForReuse.
     func resetUnavailableContent() {
+        actionBindingID = nil
+        swipeReplyBindingID = nil
+        #if DEBUG
+            probeMediaAction = nil
+        #endif
         layer.removeAllAnimations()
         rowStack.layer.removeAllAnimations()
         bubbleContainerView.layer.removeAllAnimations()
@@ -450,7 +461,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onReplyQuoteExpand: @escaping () -> Void,
         onContentAction: @escaping (MessageContentAction) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
+        actionBindingID: UUID = UUID(),
     ) {
+        self.actionBindingID = actionBindingID
         alpha = 1
         transform = .identity
         bubbleView.isHidden = false
@@ -558,14 +571,20 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             replyView.isHidden = true
         }
 
+        let mediaAction: ([Message], Int64) -> Void = { [weak self] messages, selection in
+            guard self?.actionBindingID == actionBindingID else { return }
+            onMediaTap(messages, selection)
+        }
+        #if DEBUG
+            probeMediaAction = mediaAction
+        #endif
         let hasMedia = mediaView.configure(
             message: message,
             client: client,
             mediaRevealSession: mediaRevealSession,
             videoPlaybackOwners: videoPlaybackOwners,
-        ) { [weak self] messages, selection in
-            self?.onMediaTap?(messages, selection)
-        }
+            onTap: mediaAction,
+        )
         mediaView.isHidden = !hasMedia
 
         let hasStructuredContent = structuredContentView.configure(
@@ -699,7 +718,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             metadataAccessibilityActions.append(UIAccessibilityCustomAction(
                 name: selected ? "Deselect Message" : "Select Message",
             ) { [weak self] _ in
-                self?.onSelectionToggle?()
+                guard self?.actionBindingID == actionBindingID else { return false }
+                onSelectionToggle?()
                 return true
             })
             if selected {
@@ -875,6 +895,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     @objc private func swipeToReply(_ recognizer: TelegramSwipeToReplyRecognizer) {
         switch recognizer.state {
         case .began:
+            swipeReplyBindingID = actionBindingID
             suspendHistoryScrolling()
             swipeReplyFeedbackArmed = true
             let feedback = UIImpactFeedbackGenerator(style: .heavy)
@@ -895,9 +916,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 swipeReplyFeedback?.impactOccurred(intensity: 0.8)
             }
         case .cancelled, .ended, .failed:
-            let shouldReply = recognizer.state == .ended
+            let shouldReply = swipeReplyBindingID != nil && swipeReplyBindingID == actionBindingID
+                && recognizer.state == .ended
                 && recognizer.translation(in: contentView).x < -swipeReplyThreshold
             swipeReplyFeedback = nil
+            swipeReplyBindingID = nil
             resumeHistoryScrolling()
             resetSwipeToReply(animated: true)
             if shouldReply {

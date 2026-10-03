@@ -1429,8 +1429,9 @@ import UIKit
         }
     }
 
-    func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
-        guard let submission = pollInteractionStore.currentSubmission(messageID: messageID) else { return }
+    func submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission) {
+        guard submission.messageID == messageID,
+              pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
         guard !isReadOnlyTopic,
               locationContextIsCurrent,
               messages.contains(where: { message in

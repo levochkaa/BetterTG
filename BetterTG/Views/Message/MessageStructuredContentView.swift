@@ -11,7 +11,11 @@ enum MessageContentAction {
     case openDocument(URL)
     case openContact(Contact)
     case openLocation(location: Location, title: String)
-    case submitPollAnswer(messageID: Int64, optionIDs: [Int])
+    case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
+
+    @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
+        if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
+    }
 }
 
 // MARK: - MessagePollInteractionStore
@@ -70,9 +74,9 @@ enum MessageContentAction {
         changes.send(messageID)
     }
 
-    @discardableResult func beginSubmission(messageID: Int64, sourceSelection: Set<Int>) -> Bool {
+    @discardableResult func beginSubmission(messageID: Int64, sourceSelection: Set<Int>) -> Submission? {
         var entry = entry(messageID: messageID, sourceSelection: sourceSelection)
-        guard !entry.isSubmitting, entry.pendingSelection != sourceSelection else { return false }
+        guard !entry.isSubmitting, entry.pendingSelection != sourceSelection else { return nil }
         let submission = Submission(messageID: messageID, id: UUID())
         entry.submission = submission
         entries[messageID] = entry
@@ -84,7 +88,7 @@ enum MessageContentAction {
         timeoutWorkItems[messageID] = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: workItem)
         changes.send(messageID)
-        return true
+        return submission
     }
 
     func currentSubmission(messageID: Int64) -> Submission? {
@@ -129,15 +133,15 @@ enum MessageContentAction {
             let messageID = Int64(31)
             let source = Set<Int>()
             store.setPendingSelection([1], messageID: messageID, sourceSelection: source)
-            require(store.beginSubmission(messageID: messageID, sourceSelection: source))
+            require(store.beginSubmission(messageID: messageID, sourceSelection: source) != nil)
             if let first = store.currentSubmission(messageID: messageID),
                let timeout = store.timeoutWorkItems[messageID]
             {
-                require(!store.beginSubmission(messageID: messageID, sourceSelection: source))
+                require(store.beginSubmission(messageID: messageID, sourceSelection: source) == nil)
                 // Run the actual registered deadline before retry, without waiting ten seconds.
                 timeout.perform()
                 require(!store.state(messageID: messageID, sourceSelection: source).isSubmitting)
-                require(store.beginSubmission(messageID: messageID, sourceSelection: source))
+                require(store.beginSubmission(messageID: messageID, sourceSelection: source) != nil)
                 if let second = store.currentSubmission(messageID: messageID),
                    let secondTimeout = store.timeoutWorkItems[messageID]
                 {
@@ -152,7 +156,7 @@ enum MessageContentAction {
                     require(!store.state(messageID: messageID, sourceSelection: [1]).isSubmitting)
                     _ = store.state(messageID: messageID, sourceSelection: source)
                     store.setPendingSelection([2], messageID: messageID, sourceSelection: source)
-                    require(store.beginSubmission(messageID: messageID, sourceSelection: source))
+                    require(store.beginSubmission(messageID: messageID, sourceSelection: source) != nil)
                     if let third = store.currentSubmission(messageID: messageID) {
                         require(!store.failSubmission(second))
                         store.submissionTimedOut(second)
@@ -1286,9 +1290,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         let selection = pendingSelection
         guard canVote,
               selection != currentSelection,
-              interactionStore.beginSubmission(messageID: messageID, sourceSelection: currentSelection)
+              let submission = interactionStore.beginSubmission(messageID: messageID, sourceSelection: currentSelection)
         else { return }
-        onAction(.submitPollAnswer(messageID: messageID, optionIDs: selection.sorted()))
+        onAction(.submitPollAnswer(messageID: messageID, optionIDs: selection.sorted(), submission: submission))
     }
 
     private func pollRestrictionText(_ restriction: PollVoteRestrictionReason) -> String {
@@ -1843,7 +1847,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("document")
                     case .openLocation:
                         actions.append("location")
-                    case .submitPollAnswer(_, let optionIDs):
+                    case .submitPollAnswer(_, let optionIDs, _):
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
                     }
                 }

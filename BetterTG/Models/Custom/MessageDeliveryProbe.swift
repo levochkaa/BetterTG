@@ -160,12 +160,14 @@ import UIKit
                 try verifyStates()
                 try await verifyCells()
                 try await verifyUnavailableCells()
+                try await ChatMessageActionAuthorityProbe.verify()
                 result = "Message delivery probe passed: production-receipt/read-revision/source-route-retirement=true; "
                     + "pending/failed/final/album-canonical-promotion/seed-reset=true; "
                     + "actual-MessageCell/text-footer/media-overlay/spoken-state=true; "
                     + "native-stable-ID-owner-replacement/queued-old-owner/batched-receipt/offset=true; "
                     + "shared-provider/exact-dequeue/inert-reconfigure/same-ID-recovery/weak-owner=true; "
                     + "extracted-content-concealed-without-reparenting=true; "
+                    + "shared-action-authority/native-cell/old-AX-media-binding/payload-source-permissions/exact-poll=true; "
                     + "explicit-forum/raw-topic/revision/echo-dedup/late-draft/targeted-cell=true; "
                     + "all-messages-forum/shared-reader/canonical-topic/targeted-cell/seed-reset=true; "
                     + "final-self/whole-ChatVM/live-peer-read/real-deletion-window/snapshot-ownership=unverified; "
