@@ -95,7 +95,7 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: P2 A46 authoritative pinned-topic ordering; higher-priority newly confirmed defects take precedence.
+Active queue: P1 A48 forwarding-topic snapshot ownership before P2 A46b pin ordering; primary-list A46a is verified below.
 A47 individual topic-list reads `09db3f5` pass max-two/FIFO/reset native checks and existing forum regressions.
 A30h member-tag draft retention/renewed explicit Save `c895a8c` passes bounded native checks and existing profile regressions.
 A44b2a/b shared bounded reads and exact per-topic receipts `4a2a190`/`2190c4d` pass controlled reader/native MessageCell probes.
@@ -185,8 +185,9 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
 | A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | fixed bounded ordinary/forum delivery — `1630ee1`, geometry `909f62b`, explicit-topic `5b9b322`, all-messages shared reads/receipts `4a2a190`/`2190c4d`. Controlled/native cells and actual ordinary/explicit-topic foreground display pass. Live all-messages/peer-read transitions and final self mapping remain separate; broadcast final checks conservatively excluded |
 | A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | fixed bounded echo/read ownership — `e3fb6d9`, `597d6f3`, page-membership correction `c9317e5`, known-row lifetime `0a4c6af`. Real-VM controlled reads/native cell and controller regressions pass; actual search/foreground and fuzzy before/after proof recorded. Actual TDLib request counts, delayed server conflicting updates and one bounded redundant unknown follow-up remain unverified/open |
-| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | needs-fix — preserve authoritative pinned-topic ordering separately from chronological order. Source-confirmed; actual PID36808 on e3fb6d9 places pinned General third below two ordinary rows. No after-fix proof yet. Separate from A45 fetch ownership |
+| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | partial — primary list `34b7868` preserves raw-head ranks across append/individual updates and matching-query restoration. Native PID88745 and actual PID92862 put General first; Forward selector A46b and live multi-pin/reorder behavior remain open. Changed-pin echo can require a second stable head; pure remote reorder needs explicit refresh |
 | A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | fixed bounded in `09db3f5`: max two individual native reads per VM across canceled query generations, exact-UUID retirement and coalesced FIFO demand. Native PID97812 and existing forum regressions pass. Page concurrency, global cross-VM limits and queue hard memory cap are outside this slice; no live lag/OOM claim |
+| A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; an earlier reconfigure can request a removed ID and receive a new fallback cell | needs-fix — source-confirmed A42-class cell-model ownership defect; no actual Forward crash reproduced. Freeze models per apply, retain outgoing rows, serialize/coalesce snapshots, and gate selection through settlement/current source before A46b |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -2124,6 +2125,26 @@ is imported. This source pass does not prove every content's real rendering/acti
   passed. Queue has one record per distinct current-query demand and clears on reset/retire; no hard memory bound is claimed.
   Page requests and distinct VM instances do not share this limit. A46 remains a separate ordering repair.
 
+### A48 forwarding-topic snapshot ownership — 2026-10-03
+
+- Source `34b7868`, `ForwardForumTopicsViewController.swift:205–212,288–331`: cell provider reads latest `topics`,
+  falling back to a newly created cell on a miss. A page replaces that array and clears `loading` before an animated apply;
+  a subsequent accepted query/page may replace it again while UIKit still reconfigures the previous snapshot.
+  Reachable sequence: settled [1,2] → accepted [1,3] reconfigures1 → accepted [4] before completion → older provider asks1.
+  RPC generation/query checks cannot retire already accepted UIKit work. This matches A42's independently observed failure
+  mechanism, but no live forwarding crash is claimed.
+  Unlike A42's queued Combine publications, Forward assigns topics and starts apply synchronously on MainActor; the precise
+  deferred UIKit callback schedule remains unverified. Separately, a failed query reset retains the previous query's topics;
+  a cursor-zero `load(reset:false)` retry then merges old and new query results. The accepted-query boundary is part of this repair.
+- Repair boundary: forwarding topic selector only. Reuse `ForumTopicsSnapshotState` for transaction-owned models/clients,
+  keep outgoing models through exact completion, and coalesce only the next payload. Preserve raw TDLib cursor, rights checks,
+  selected topic identities and final forwarding service revalidation. Selection must wait for a settled/current displayed row;
+  fallback must return the exact dequeued cell. Do not combine A46b pin ranking or unrelated forwarding UX in this slice.
+- Proof plan: native production-controller/table probe with held apply completion, rapid accepted page/query changes, retained
+  reconfigure IDs, stale completion, selection gates and teardown; existing forum snapshot/active-search regressions.
+  Use injected read-only endpoints, no real forwarding/server writes. Telegram's separate UI infrastructure is not imported;
+  this is UIKit transaction correctness under the established A42 contract, not a new server ordering claim.
+
 ### A46 forum pinned ordering audit — 2026-10-03
 
 - Source `cb723ab`: `ForumTopicPageState.merging` and `ForumTopicsVM.sortTopics` compare only order and topic ID;
@@ -2150,6 +2171,25 @@ is imported. This source pass does not prove every content's real rendering/acti
   have the TDLib limitation above. Shared merge defaults and the forwarding topic selector remain a separate A46b follow-up.
   Plan: four files plus real-VM head/append/unpin/re-pin/query/restore/late-head regressions; source-confirmed ordering does not
   establish actual multi-pin/viewport behavior. A46 remains partial until remaining consumers and update behavior are addressed.
+
+- Integrated A46a `34b7868` (worker `7573412`), independently reviewed tree
+  `3613000505747ce3eee4dc0b979739dca64965da`. Query-owned `ForumTopicPinnedOrder` uses eligible exact-chat raw head IDs;
+  non-head reads cannot assign rank, membership edges invalidate older tickets, and display restoration carries matching ranks.
+  Shared chronological merge and forwarding selector remain unchanged. An initially unknown pin echo is admitted, but a known
+  unpinned→pinned echo during a head read is indistinguishable from a concurrent change: it conservatively requires a second
+  explicit stable head. No automatic pin-fetch loop or invented position is introduced.
+- Integrated SwiftFormat0/4; primary `build-Debug-20261003-110934-87641-16429.log`: PASS15s, full log zero warnings/errors.
+  Native PID88745 on `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone17Pro/iOS26.5, fresh forum-updates report11:10:15+04:
+  PASS raw head order against chronology/ID, duplicate pin, append/individual preservation, unpin/re-pin, failed head, query and
+  display seed, initial/equal/changed echo, scalar/individual membership races and source ABA. Existing A45/A47 cases also pass;
+  exact injected native-task terminals are awaited, not evidence of real RPC timing or global transport bounds.
+- Existing native restoration/snapshot regressions PID92263 (11:12:37/39) and active-search PID92585 (11:13:32) pass.
+  Actual read-only forum list baseline on be6052b/PID84938 reproduced IDs153,196,1,134,94,37 with pinned General third.
+  After `34b7868`, PID92862 shows1,153,196,134,94,37: General first at y116, row61.33pt, width402pt.
+  `astra-a46-pinned-order/after.png` was inspected. No pin changes, topic selection or forwarding; native Back/search islands
+  remain A32. Controlled multi-pin ordering is proven; live configured multi-pin changes and scrolled prepend/resize are not.
+  Same PID92862 Home→foreground keeps the exact order/frames, with `ForumTopics client restoration: replacement accepted`
+  at11:16:16.793+04. This proves one quiescent display-rank renewal on that loaded list, not active remote pin mutation.
 
 ### A30d ForumTopics client recovery — 2026-10-02
 
@@ -2519,12 +2559,13 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next implementation: A46 authoritative pinned-topic ordering, preserving raw pagination, exact query/source ownership,
-  A45 arbitration and A47's native read bound. Use raw head-response rank, never infer configured pin positions from timestamps
-  or topic IDs. A47 `09db3f5` and A30h `c895a8c` have bounded native/regression proofs above; their live/runtime limitations remain.
+- Exact next implementation: P1 A48 forwarding-topic snapshot/accepted-query ownership, then A46b forwarding pin order.
+  A46a `34b7868` has bounded native/actual-list/foreground proof above. Preserve raw pagination, exact query/source ownership,
+  A45 arbitration and A47's native read bound; never infer configured pin positions from timestamps or topic IDs.
+  A47 `09db3f5` and A30h `c895a8c` have bounded native/regression proofs above; their live/runtime limitations remain.
   A44b2b now derives exact raw-topic receipts with the existing shared reads. Preserve A44a/b1/b2 states and A45 no-echo behavior,
-  source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 remains a confirmed separate P2.
-  A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
+  source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 remains partial for other consumers/live rank updates.
+  A45a/b/c have bounded real-VM/native-cell proof above. A44a/A44b1 have bounded native/actual proofs above;
   A44b2 has controlled/native proof, live all-messages data remains unavailable; final self/broadcast checks conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
   live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
