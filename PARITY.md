@@ -95,11 +95,11 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: remaining P1 A44b2b exact per-topic receipts. Shared bounded metadata reader b2a `4a2a190` passes controlled
-native and existing MessageCell regressions; receipt rendering is not yet connected. P2 A46 pin ordering follows separately.
+Active queue: recheck remaining concrete P1 work (A30 member-tag editor renewal first) before P2 A46 pin ordering.
+A44b2a/b shared bounded reads and exact per-topic receipts `4a2a190`/`2190c4d` pass controlled reader/native MessageCell probes.
 A45a/b/c echo/direct-scalar, full-read arbitration and known server-query membership have bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
-All-messages topic aggregation stays A44b2; no cross-topic/global watermark fallback.
+All-messages receipt aggregation now has bounded proof; live history/peer-read behavior remains unverified. No cross-topic/global fallback.
 At `72d74b0`, the integrated
 `982245f` navigation driver passes cold, loaded and same-PID foreground target checks with actual visible/centered cells.
 A30g source review and actual same-PID basic-group smoke confirmed an open member list lost its parent profile and route during client replacement.
@@ -180,9 +180,9 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
-| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | partial — ordinary states/feed `1630ee1`, geometry proof `909f62b`, explicit-topic receipts/ChatVM echo `5b9b322`; native and actual ordinary/topic foreground display proofs pass. All-messages b2, actual peer-read transitions and final self/broadcast mapping remain separate |
+| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | fixed bounded ordinary/forum delivery — `1630ee1`, geometry `909f62b`, explicit-topic `5b9b322`, all-messages shared reads/receipts `4a2a190`/`2190c4d`. Controlled/native cells and actual ordinary/explicit-topic foreground display pass. Live all-messages/peer-read transitions and final self mapping remain separate; broadcast final checks conservatively excluded |
 | A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | fixed bounded echo/read ownership — `e3fb6d9`, `597d6f3`, page-membership correction `c9317e5`, known-row lifetime `0a4c6af`. Real-VM controlled reads/native cell and controller regressions pass; actual search/foreground and fuzzy before/after proof recorded. Actual TDLib request counts, delayed server conflicting updates and one bounded redundant unknown follow-up remain unverified/open |
-| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | needs-fix — preserve authoritative pinned-topic ordering separately from chronological order. Source-confirmed in primary and independent review; no native or live pinned-order proof yet. Separate from A45 fetch ownership |
+| A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | needs-fix — preserve authoritative pinned-topic ordering separately from chronological order. Source-confirmed; actual PID36808 on e3fb6d9 places pinned General third below two ordinary rows. No after-fix proof yet. Separate from A45 fetch ownership |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1980,6 +1980,35 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Immutable independent review PASS. Six Swift files formatted together; primary062812-22030-25473 PASS19s, worker062426-17963-24832
   PASS7s, full logs zero warnings/errors. Earlier worker062209 emitted one DEBUG WeakMutability warning, fixed without suppression.
 
+### A44b2b exact per-topic receipts in all-messages history — 2026-10-03
+
+- Worker `76f6f73` integrated as `2190c4d`. Each existing reader entry owns `ChatDeliveryReceiptState` for its exact positive
+  forum topic. Its receipt ticket starts with the same metadata request and consumes the raw response before metadata admission;
+  no second RPC or queue is added. Direct scoped scalar updates change receipts even when metadata is absent or failed.
+  Identical receipts advance the revision fence without publishing an unchanged state. Prune/retire revokes both owners before
+  notifying current wrappers; re-demand starts with no inherited watermark. Cached/restored display metadata grants no receipt.
+- ChatVM uses the canonical raw album member's chat/topic, not the newest display representative. Unknown current exact-topic
+  watermark shows Delivered; nil/thread/saved/direct/foreign-chat and broadcast final states are excluded. Raw Pending/Failed
+  precedence remains unchanged. A separate receipt callback derives only matching current wrappers, independent of metadata
+  equality; existing Equatable publication and stable-ID batching repaint cells without scroll intent or per-row reads.
+- Review found two additional initialization gaps: restored history assignment bypasses didSet, and new supergroup eligibility
+  originally derived status before demand sync. Both now synchronize first, as does messages.didSet. A small b2a follow-up moves
+  restored video metadata demand after the async reply lookup and current-source guard, immediately before installing its draft;
+  the queued reconciliation can no longer prune that still-unassigned context. These ChatVM ordering paths are source-reviewed.
+- Native PID34441 on `2190c4d`, same audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: both reports fresh06:41:21
+  (+04) PASS. Reader probe covers distinct topic watermarks, direct update before/after failed metadata, duplicate update versus
+  late baseline, wrong raw scopes while valid control topics remain Read, nil-cache pruning/re-demand and source retirement.
+  Existing b2a queue/concurrency/lifetime cases also pass. No live TDLib RPCs or global source mutation were injected.
+- MessageCell native adapter uses the production reader/projection and current raw wrappers: topic11 changes only its canonical
+  album row to Read while topic12 stays Delivered, preserving the actual cell and fixed-row collection offset. Same stable-ID
+  album promotion switches to topic12/Delivered; callbacks from the removed wrapper cannot repaint its replacement. Pending,
+  failure, final-ID replacement, seed reset and retirement pass. Ordinary/explicit-topic/native batching regressions remain PASS.
+  The adapter does not execute the entire ChatVM, live source subscription, self-sizing history or peer-read transport.
+- Five changed Swift files formatted together. Primary064029-33247-16763 PASS14s; exact final worker063739-30512-24107 PASS11s,
+  full logs zero warnings/errors. Independent immutable review PASS. Proof files:
+  `.build/ui-probe-evidence/astra-a44-all-messages/forum-topic-receipts-probe.txt` and `message-delivery-b2b-probe.txt`.
+  Safe live all-messages availability remains blocked as above; no server preference was changed to manufacture a fixture.
+
 ### A45c known server-query row lifetime — 2026-10-03
 
 - `0a4c6af` (worker `656e32c`) retains a known row only when accepted query, topic ID and name still match. Same-name info
@@ -2279,9 +2308,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   geometry proof `909f62b`; actual four Read bubbles retain exact frames through a client foreground epoch (PID62893).
   Explicit forum A44b1 `5b9b322` has native PID86336 and actual topic display/foreground PID90037 proof above.
   A45a/b/c through `0a4c6af` have bounded native and actual search proofs above; documentation checkpoint `835d4bd` is clean.
-  A44b2a `4a2a190` passes production-reader controlled/native regression PID22721; b2b all-messages receipts remain. Runtime availability PID5126
+  A44b2a/b `4a2a190`/`2190c4d` pass production-reader/MessageCell regressions PID22721/PID34441. Runtime availability PID5126
   found nine loaded forums and zero safe base-mode candidates; no route or account preference was changed.
-  Latest implementation build `build-Debug-20261003-062812-22030-25473.log` PASS19s; complete log zero warnings/errors.
+  Latest implementation build `build-Debug-20261003-064029-33247-16763.log` PASS14s; complete log zero warnings/errors.
   AGENTS/CLAUDE match; production/dependency scan still has zero VLC, forbidden UI and imported Telegram-infrastructure markers.
   A30d active-search renewal through `501af59`, native proof through `37e08e8`
   (PID27782 PASS) and actual two-epoch search/clear smoke (PID1590). A43 receipt feed has three native root regressions PASS,
@@ -2364,8 +2393,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
   A44b1 `caf406d` is integrated as `5b9b322`; A45a `af3a8bb` is integrated as `e3fb6d9` with bounded native proof.
   A45b `9ec934a`/`c84cb18` are integrated as `597d6f3`/`c9317e5`; A45c `656e32c` as `0a4c6af`, native regressions pass.
-  A44b2a `0942d9c` integrated as `4a2a190`, native reader/MessageCell regressions pass. Worker is designing b2b per-topic receipts;
-  P2 pin ordering remains later.
+  A44b2a `0942d9c` as `4a2a190`, b2b `76f6f73` as `2190c4d`: native reader/MessageCell regressions pass.
+  Reviewer is checking remaining concrete P1 renewal work before P2 pin ordering; implementation worker is clean.
   A46 pinned ordering is separate.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
@@ -2383,11 +2412,11 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: A44b2b exact-topic receipts and scalar feed using b2a's existing shared bounded reads.
-  Derive scope from canonical source messages, never a global watermark, guessed General ID or another MessageTopic kind.
-  Preserve A44a/b1 states, A45 no-echo behavior, source/UUID/revision lifetime, wrapper identity and timeline anchors.
+- Exact next audit cursor: remaining A30 member-tag editor client renewal; confirm a concrete bounded P1 before implementing.
+  A44b2b now derives exact raw-topic receipts with the existing shared reads. Preserve A44a/b1/b2 states and A45 no-echo behavior,
+  source/UUID/revision lifetime, wrapper identity and timeline anchors. A46 remains a confirmed separate P2.
   A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
-  A44b2 all-messages per-topic receipt queue remains separate, final self/broadcast checks conservatively absent.
+  A44b2 has controlled/native proof, live all-messages data remains unavailable; final self/broadcast checks conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
   live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
   A30g bounded recovery is verified; larger member lists, server permission changes and tag-editor/Save restoration stay open.
