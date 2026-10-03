@@ -30,8 +30,8 @@ final class NotificationService: UNNotificationServiceExtension {
         logger.log("rich_notification.received event=\(metadata.event ?? "unknown", privacy: .public)")
         RichNotificationDiagnostics.record("received", fields: ["event": metadata.event ?? "unknown"])
 
-        let processingTask = Task { [weak self] in
-            guard let self, isCurrent(ticket) else { return }
+        processingTask = Task { [weak self] in
+            guard let self, !Task.isCancelled else { return }
             let fallback = RichNotificationContentBuilder.fallback(
                 metadata: metadata,
                 canQuickReply: canQuickReplyUsingMetadata(metadata),
@@ -39,12 +39,12 @@ final class NotificationService: UNNotificationServiceExtension {
             var resolved = fallback
 
             do {
-                guard isCurrent(ticket) else { return }
+                guard !Task.isCancelled else { return }
                 logger.log("rich_notification.tdlib_lock_wait_started")
                 RichNotificationDiagnostics.record("tdlib_lock_wait_started")
                 if let processLock = try TDLibProcessLock.acquire(waitingUpTo: 6) {
                     defer { processLock.unlock() }
-                    guard isCurrent(ticket) else { return }
+                    guard !Task.isCancelled else { return }
                     logger.log("rich_notification.tdlib_lock_acquired")
                     RichNotificationDiagnostics.record("tdlib_lock_acquired")
                     if let token = metadata.notificationPayloadToken,
@@ -54,7 +54,7 @@ final class NotificationService: UNNotificationServiceExtension {
                        })
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
-                        guard isCurrent(ticket) else { return }
+                        guard !Task.isCancelled else { return }
                         logger.log("rich_notification.payload_fetched")
                         RichNotificationDiagnostics.record("payload_fetched")
                         if let tdlibResolved = await NotificationTDLibSession(
@@ -93,22 +93,20 @@ final class NotificationService: UNNotificationServiceExtension {
                 RichNotificationDiagnostics.record("resolved_error")
             }
 
-            guard isCurrent(ticket) else { return }
-            requests.finish(ticket) {
-                let content = RichNotificationContentBuilder.content(
-                    from: request.content,
-                    metadata: metadata,
-                    resolved: resolved,
-                )
-                self.logger.log(
-                    "rich_notification.attachment_added success=\(!content.attachments.isEmpty, privacy: .public)",
-                )
-                RichNotificationDiagnostics.record(
-                    "attachment_added",
-                    fields: ["success": String(!content.attachments.isEmpty)],
-                )
-                return content
-            }
+            guard !Task.isCancelled else { return }
+            let content = RichNotificationContentBuilder.content(
+                from: request.content,
+                metadata: metadata,
+                resolved: resolved,
+            )
+            logger.log(
+                "rich_notification.attachment_added success=\(!content.attachments.isEmpty, privacy: .public)",
+            )
+            RichNotificationDiagnostics.record(
+                "attachment_added",
+                fields: ["success": String(!content.attachments.isEmpty)],
+            )
+            finish(with: content)
         }
         requests.install(processingTask, for: ticket)
     }
