@@ -95,19 +95,19 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: attribute A39 launch-time scheduling delay with one bounded native profile, then actual queued ChatView
-mutation/viewport coverage. Do not repeat unchanged PASS/FAIL launches indefinitely or relax the deadline.
+Active queue: A51b bounded off-main avatar work and comparable launch profile, after the A51a account/source prerequisite
+`38b7d06` passes its isolated native probe. Queued actual ChatView mutations follow. Do not relax A39's deadline.
 `e70a227` repairs the separately reproduced latest-end sample invalidation: controlled baseline FAIL0.811s becomes PASS;
 the ordinary native viewport/settlement regression also passes. Actual ChatView repeated-end behavior is unverified.
 Passive timing at `31e497a` identifies delayed native callbacks and wait resumptions, not expensive target resolution;
-the specific source of scheduling delay remains unverified. Keep the2s deadline and strict settlement predicates.
+the A51 sample identifies substantial synchronous main-thread cache work but does not prove sole causality. Keep the2s deadline and strict settlement predicates.
 `f799d29` integrates frozen rendering/serialized applies after value prerequisite `d8512b5`; exact reviewed worker tree
 `bac0ab6f`, primary build `151812-44934-6936` PASS23s/fullzero. Provider callback authority `eeb93b2`, selection touch
 binding `9961aba` and A49a fallback retain bounded native proof; physical touch across same-cell reconfiguration is unverified.
 `724bf32` repairs the measured UIKit deletion reset through inner presentation ownership. Native scheduler PID79368,
 final delivery/action and actual A22 PID79903 pass. Same-PID Saved Select→Cancel and deselect-last remove every visible
 selector. Standalone A39 PID50146 repeats the earlier unresolved native settlement failure; no timeout was relaxed.
-Goal remains active; no sends/deletes/forwards or host focus activation. Final checkpoint/build and proof limits are in A49c2.
+Goal remains active; no sends/deletes/forwards or host focus activation. Latest checkpoint/build and proof limits are in A51.
 A22 actual ChatView completion/control/ended-delegate-drag proof passes at `41f87a5`; physical mutation races remain open.
 A46b forwarding pin ordering and A32 top search placement have bounded native/actual proof below.
 A32 still has native capsule/shadow/Back limitations; A48's early-detachment callback has bounded native proof.
@@ -205,6 +205,8 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; failed query retry can also merge older-query rows. Native teardown exposed a detached-parent interval before didMove(nil) | fixed bounded through `fe9424c`/`727103c`, diagnostic `1fa99a9`: transaction-owned models, serialized page/toggle applies, accepted-query and immediate containment gates. Native PID68845 passes late-callback/cursor/pending-drain checks before retirement. Natural baseline crash, live permission/TDLib races, modal dismiss and actual interactive cancellation remain unverified |
 | A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | bounded repairs — A49a exact-cell fallback, A49b provider/touch authority, A49c1 values and A49c2 `f799d29` shared frozen transactions; `724bf32` repairs measured UIKit deletion reset. Scheduler/action native probes and actual selection/viewport checks pass. Natural Chat crash was not reproduced; actual queued mutation/delete timing/player and physical touch races remain unverified |
 | A50 | P1 | Actual Saved Messages Cancel leaves circles/controls on unselected rows; endMessageSelection only invalidates previously selected IDs, and deselect-last invalidates zero rows | bounded fix `487c0de` updates all snapshot message rows on exit and surviving rows in structural last-selection removal. Actual Cancel/deselect-last screenshots pass; structural removal source-reviewed only |
+| A51 | P1 | At `1c72d3a`, launch sample attributes628/1931 main-thread samples to rich-notification user/chat cache sinks doing source-file reads, image decode/JPEG, directory lookup and atomic writes. Coordinator uses raw events/global td across awaits and disk keys omit account | partial fix — A51a `38b7d06` account/source boundary passes isolated real-cache/scoped-publisher probe. Bounded off-main avatar work and photo-version ordering remain. Same profiled launch hits A39 deadline; sample weights are not CPU time or sole-cause proof. Actual notification delivery remains unverified |
+| A52 | P1 | Source follow-up at `1c72d3a`: NSE chooses addedNotifications.last when no notification matches expected message; nested unstructured resolution tasks are not retired by canceling the outer service task | needs-fix/source-reviewed — A51a account namespace does not prove message/peer correlation or expiry teardown. Real notification delivery/cancellation is unverified; keep separate from the cache performance repair |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1945,6 +1947,68 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Documentation checkpoint `build-Debug-20261003-010725-3164-28383.log`: PASS5s, zero warnings. AGENTS/CLAUDE remain identical;
   prohibited production/dependency marker scan is empty. The reusable prompt also records background-only Simulator activation.
 
+### A51 rich-notification cache work and account boundary — 2026-10-03
+
+- Baseline `1c72d3a`/production `e70a227`; unchanged product from final build `163857-71725-11058`. ETTrace runner/framework
+  are absent, so one bounded native `sample` capture uses the existing binary with no temporary dependency or project patch.
+  Audit Simulator59EB535C/iOS26.5, PID74960, launch16:41:43.101; sample starts16:41:43.211 for4s at requested1ms interval.
+  Installed/product `BetterTG.debug.dylib` UUID both `C0AB6393-0C4C-3302-822B-E0934568680C`; installed bundle UUID-directory
+  `037BB6D0-97E9-4552-A392-244CC9CD9041` matches the sampled executable path. First-party hot stacks have source symbols.
+  Sample omits its binary-images table; retain that limit. Artifact: `.build/ui-probe-evidence/astra-a39-diagnostics/startup-sample.txt`.
+- Independent full first-thread tree audit:1931 main-thread observations,8243 parsed nodes at sample lines24–8266;
+  disjoint notification sinks628/1931=32.5% (chat418,user210). Inside those628: normalize/decode/JPEG266; atomicwrite197;
+  cache URL/AppGroup/directory lookup139; source Data read19; other7. Do not add nested inclusive counts. UIKit accessibility
+  startup381/1931=19.7% and earlier dyld bootstrap182/1931=9.4% are separate branches. Sample weights include waits and are
+  not CPU milliseconds; instrumentation, startup/cache/network state and AX activity limit timing claims.
+- Same-PID report16:41:47/container `72E59F99-2256-47EA-A19B-AC074DA6EA0F` fails A39 deadline. Motion wait0.520s;
+  completion maxGap0.532s. Last verifier arrives2.271s for display timestamp1.645s; deadline2.293s. Target is mounted/visible
+  at0.167pt residual after two corrections, without the final pair of observations. This correlates cache work and delayed
+  delivery in one launch; it does not prove a sole cause or quantitative speedup. Full report: `startup-profile-probe.txt` nearby.
+- Source: `RichNotificationCacheCoordinator.swift`30–41 receives raw TD updates on main;74–93 performs placeholder/full-avatar
+  normalization/write and loads completed files before checking registered references. Each unrelated completed file may
+  therefore be read. Refresh/media closures reuse global `td` across awaits. `RichNotificationCache.swift`48–62 uses shared
+  peer/message keys; `NotificationService.swift`53–54 falls back to active account for an unmatched notification account.
+- Bounded A51a prerequisite: require positive Telegram account-user ID for cache reads/writes, new account namespace,
+  nil/mismatch fail closed, no legacy lookup/deletion. Preserve logical peer/message keys, JPEG format/dimensions and intent
+  identifiers. Scoped current-source event admission and captured immutable client/account around awaits; clear file mappings
+  on client replacement. NSE session/account selection must not put another account's bytes in metadata's namespace.
+- Then A51b: move complete avatar jobs (source read, directory lookup, normalization and write) to a bounded serial utility
+  worker, coalescing latest pending work per scoped destination. Preserve fallback/update ordering and invalidate old demand.
+  Do not dispatch an unbounded block per event or move only JPEG conversion. Media work and full notification lifecycle
+  remain explicit until separately covered. Preserve no-server mutation probes and before/after source/build/UUID proof.
+- Adjacent source findings stay open: avatar file mappings currently retain superseded same-account photos; source namespace
+  alone does not provide photo-version ordering. NSE's unmatched-message fallback and unstructured resolution task/expiry
+  ownership are A52, outside the cache-namespace prerequisite. Do not label this flow fully account/lifecycle-verified.
+- Telegram references: official `6ad963e5`, `Telegram/NotificationService/Sources/NotificationService.swift`467–491 uses
+  the selected account's MediaBox cache,855–880 selects notification account by payload key,902–934 keeps state on its queue.
+  Pre-Liquid `8e7e5fe` same path459–483/785/849–872 retains account cache/queue behavior. Adapt contracts only; no MediaBox,
+  Postbox or SignalKit copied. TDLibKit `1.5.2-tdlib-1.8.66-022d6020` models/APIs remain unchanged.
+- A51a fix `38b7d06` (worker `47ec08e`, exact reviewed tree `e07df0d`): all avatar/media cache callers now require a positive
+  Telegram user ID; disk paths use `RichNotifications/accounts/<userID>`, without changing logical peer/message/Intents keys.
+  NSE selects only an exact metadata-account match. Five coordinator TD update sinks use scoped publication, capture the
+  original client and recheck source/account/client after awaits; completed files are read only when references exist.
+  Reference maps reset on client generation change. Invalid scope exits before lazy container resolution. JPEG contracts remain.
+- Worker joint six-file SwiftFormat and build `170232-12469-13006` pass. Primary integration build `170800-18896-18037`
+  passes10s; complete log has zero warnings/errors (success at line1560). Independent peer reviews the exact tree; no unrelated files included.
+- Native isolated probe at `38b7d06`: Audit Simulator59EB535C/iOS26.5, PID19449, fresh container
+  `2466B327-A10B-4455-814E-5AB9A0A10601`, report17:08:34+04. `-ui-probe-notification-cache-scope` passes actual JPEG/cache IO
+  in a UUID temporary root, exact red/blue avatar/media bytes for colliding IDs across accounts, nil/0/negative zero resolver
+  calls, no legacy fallback or mutation of130 legacy media entries, queued scoped publication, independent wrong-client/user
+  negatives and reused file IDs after account/client replacement. Fixture RPC/account-store writes=0; owned fixtures are removed.
+  Report: `.build/ui-probe-evidence/astra-a51/cache-scope.txt`. Actual coordinator delayed RPCs, NSE delivery/expiry, media task
+  bounds and main-thread relief are unverified. No performance claim belongs to this prerequisite.
+- Next bounded slice: A51b serial utility avatar worker with bounded/coalesced pending jobs, current-photo reference replacement,
+  and same-photo candidate quality ordering. Entire read/normalize/path/write must leave main; no unbounded dispatch block per
+  event or main-contended lock held during disk IO. Keep account/client invalidation and fail-closed cache scope. Then one
+  comparable startup capture, with cache/startup variance retained; A52 and actual queued ChatView proof stay open.
+- A51b design boundary before implementation: one active job and at most128 pending scoped destinations; revoke on synchronous
+  authorization invalidation as well as source replacement. Success-only bounded dedupe must allow failed writes to retry.
+  Generation checks can reject work before publication, but an already-entered atomic write may finish in its captured account
+  namespace. Serial order prevents an older app job overwriting a newer app commit; strict no-write-after-NSE-handoff needs
+  a separate drain/versioned-publication contract. Media IO, task/RPC lifetime and full NSE correctness are outside this slice.
+- A51a checkpoint build `171052-22021-9011` passes4s, full1385-line log zero warnings/errors. AGENTS/CLAUDE remain identical;
+  prohibited production/dependency marker scan is empty. Goal remains active; next implementation is the bounded A51b slice.
+
 ### A40 complete build-warning visibility — 2026-10-03
 
 - Fix commit: `eff2876`.
@@ -2809,6 +2873,9 @@ is imported. This source pass does not prove every content's real rendering/acti
 
 ## Checkpoint
 
+- Latest A51a `38b7d06` account/source namespace repair passes isolated native cache/scoped-publisher probe PID19449 and
+  warning-free checkpoint build `171052-22021-9011`. A51b off-main avatar work is next; strict NSE handoff/A52 and actual
+  queued ChatView mutation proof remain open. The A51 section records measured baseline and proof limits.
 - Active continuous work resumed explicitly after `8268947`; no further resume is required. A01/A02/A03/A07 have bounded
   warning-free build/probe proof; `909215a` repairs A11 with production navigation/relaunch/Delete proof. A13 `c356513` has
   accepted-event transport proof; A04 through `ef8f4ba` has native and Simulator decoder/controller proof. A12 `847b838` and
