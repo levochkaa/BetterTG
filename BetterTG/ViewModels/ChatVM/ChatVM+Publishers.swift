@@ -132,14 +132,14 @@ extension ChatVM {
             else { return }
             updateForumTopicInfo(update.info)
         }
-        observeCurrentUpdate(.updateForumTopic) { [weak self] update, _ in
+        observeCurrentUpdate(.updateForumTopic) { [weak self] update, authority in
             guard let self,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id,
                   update.chatId == location.chatID,
                   update.forumTopicId == location.forumTopicID
             else { return }
-            loadForumTopic()
+            receiveForumTopicUpdate(update, authority: authority)
         }
         observeCurrentUpdate(.updateMessageSendSucceeded) { [weak self] update, authority in
             guard let self,

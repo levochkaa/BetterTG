@@ -99,13 +99,15 @@ import UIKit
             let result: String
             do {
                 try verifyReceipts()
+                try verifyForumReceipts()
                 try verifyStates()
                 try await verifyCells()
                 result = "Message delivery probe passed: production-receipt/read-revision/source-route-retirement=true; "
                     + "pending/failed/final/album-canonical-promotion/seed-reset=true; "
                     + "actual-MessageCell/text-footer/media-overlay/spoken-state=true; "
                     + "native-stable-ID-owner-replacement/queued-old-owner/batched-receipt/offset=true; "
-                    + "forum-receipts/final-self/whole-ChatVM/live-peer-read=unverified; RPC/sends=0"
+                    + "explicit-forum/raw-topic/revision/echo-dedup/late-draft/targeted-cell=true; "
+                    + "all-messages-forum/final-self/whole-ChatVM/live-peer-read=unverified; RPC/sends=0"
             } catch { result = "Message delivery probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -123,6 +125,10 @@ import UIKit
         var state = ChatDeliveryReceiptState(location: location)
         let old = state.beginRead(source: source, location: location)!
         try require(state.lastReadOutbox == nil, "cached restoration data seeded receipt")
+        try require(
+            !state.finishForumRead(old, topic: forumTopic(outbox: .max), source: source, location: location),
+            "ordinary route accepted forum completion",
+        )
         try require(
             state.receive(.init(chatId: 100, lastReadOutboxMessageId: 10), source: source, location: location),
             "current update rejected",
@@ -244,6 +250,142 @@ import UIKit
         let seed = ChatHistoryMessageValue(wrapper).makeMessage()
         try require(seed.deliveryState == .none, "derived current-client receipt crossed history restoration")
         subscription.cancel()
+    }
+
+    private static func verifyForumReceipts() throws {
+        let location = ChatLocation(accountID: UUID(), chatID: 100, clientID: 1, topic: nil).withForumTopic(id: 7)
+        let source = TdUpdateSource(accountID: location.accountID!, clientID: 1)
+        var state = ChatDeliveryReceiptState(location: location)
+        let first = state.beginRead(source: source, location: location)!
+        try require(state.lastReadOutbox == nil, "forum route inherited a restoration watermark")
+        try require(
+            !state.receive(.init(chatId: 100, lastReadOutboxMessageId: .max), source: source, location: location)
+                && !state.receive(forumUpdate(id: 8, outbox: .max), source: source, location: location)
+                && !state.finishRead(first, value: .max, source: source, location: location),
+            "forum route accepted a global/other-topic baseline",
+        )
+        try require(
+            state.finishForumRead(first, topic: forumTopic(outbox: 10), source: source, location: location),
+            "unrelated topic advanced this receipt revision",
+        )
+        let late = state.beginRead(source: source, location: location)!
+        try require(
+            !state.receive(forumUpdate(outbox: 10), source: source, location: location),
+            "duplicate republished",
+        )
+        try require(
+            !state.finishForumRead(late, topic: forumTopic(outbox: 1), source: source, location: location)
+                && state.lastReadOutbox == 10,
+            "same-call/duplicate topic update failed to fence old baseline",
+        )
+        for wrong in [forumTopic(id: 8, outbox: .max), forumTopic(chatID: 101, outbox: .max)] {
+            let read = state.beginRead(source: source, location: location)!
+            try require(
+                !state.finishForumRead(read, topic: wrong, source: source, location: location),
+                "wrong raw topic identity seeded receipt",
+            )
+        }
+        for wrongTopic in [
+            MessageTopic.messageTopicThread(.init(messageThreadId: 7)),
+            .messageTopicDirectMessages(.init(directMessagesChatTopicId: 7)),
+            .messageTopicSavedMessages(.init(savedMessagesTopicId: 7)),
+            .messageTopicForum(.init(forumTopicId: 0)),
+        ] {
+            let wrong = ChatLocation(accountID: location.accountID, chatID: 100, clientID: 1, topic: wrongTopic)
+            var unsupported = ChatDeliveryReceiptState(location: wrong)
+            try require(
+                unsupported.beginRead(source: source, location: wrong) == nil,
+                "numeric topic collision accepted",
+            )
+        }
+        let wrongRawTopics: [MessageTopic?] = [
+            nil, location.withForumTopic(id: 8).topic, .messageTopicThread(.init(messageThreadId: 7)),
+        ]
+        for rawTopic in wrongRawTopics {
+            try require(
+                MessageDeliveryState.resolve(
+                    fixture(id: 5, topic: rawTopic), permitsFinalStatus: true, readOutbox: .max, topic: location.topic,
+                ) == .none,
+                "unknown/other raw topic received route receipt or General fallback",
+            )
+        }
+        let album = CustomMessage(
+            message: fixture(id: 12, album: 4, topic: location.withForumTopic(id: 8).topic),
+            album: [
+                fixture(id: 12, album: 4, topic: location.withForumTopic(id: 8).topic),
+                fixture(id: 10, album: 4, topic: location.topic),
+            ], properties: .default,
+        )
+        album.updateDeliveryState(permitsFinalStatus: true, readOutbox: 10, topic: location.topic)
+        try require(album.deliveryState == .read, "album used representative topic instead of canonical raw member")
+        album.album = [album.message]
+        album.updateDeliveryState(permitsFinalStatus: true, readOutbox: .max, topic: location.topic)
+        try require(album.deliveryState == .none, "album promotion retained another topic's Read")
+        let retiring = state.beginRead(source: source, location: location)!
+        state.retire()
+        try require(
+            !state.finishForumRead(retiring, topic: forumTopic(outbox: .max), source: source, location: location)
+                && !state.receive(forumUpdate(outbox: .max), source: source, location: location),
+            "retired forum key revived after source ABA",
+        )
+
+        var metadata = ForumTopicLiveUpdateState(location: location)
+        let base = forumTopic(outbox: 10, draft: "initial")
+        let echo = forumUpdate(outbox: 10, draft: "initial")
+        var requests = 1
+        let read = metadata.beginRead(source: source)!
+        if metadata.receive(echo, current: base, source: source)!.refreshUnreadCount { requests += 1 }
+        let accepted = metadata.finishRead(read, topic: base, source: source)!
+        if metadata.receive(echo, current: accepted, source: source)!.refreshUnreadCount { requests += 1 }
+        try require(requests == 1, "identical response echo scheduled another full fetch")
+        let older = metadata.beginRead(source: source)!
+        let changed = metadata.receive(forumUpdate(outbox: 12, draft: "newer"), current: accepted, source: source)!
+        let merged = metadata.finishRead(older, topic: base, source: source)!
+        try require(
+            changed.draftChanged && !changed.refreshUnreadCount && merged.lastReadOutboxMessageId == 12
+                && merged.draftMessage == draft("newer") && merged.info == base.info
+                && merged.lastMessage == base.lastMessage && merged.order == base.order && merged.unreadCount == base
+                    .unreadCount,
+            "late full topic reverted draft/scalars or direct payload discarded absent fields",
+        )
+        let clearing = metadata.beginRead(source: source)!
+        _ = metadata.receive(forumUpdate(outbox: 12), current: merged, source: source)
+        try require(
+            metadata.finishRead(clearing, topic: base, source: source)?.draftMessage == nil,
+            "late baseline revived cleared draft",
+        )
+        let inbox = forumUpdate(outbox: 12, inbox: 3)
+        if metadata.receive(inbox, current: merged, source: source)!.refreshUnreadCount { requests += 1 }
+        if metadata.receive(inbox, current: merged, source: source)!.refreshUnreadCount { requests += 1 }
+        try require(requests == 2, "changed inbox edge was lost or repeated")
+        let superseded = metadata.beginRead(source: source)!
+        let current = metadata.beginRead(source: source)!
+        try require(
+            metadata.finishRead(superseded, topic: base, source: source) == nil,
+            "superseded full read accepted",
+        )
+        let foreign = TdUpdateSource(accountID: UUID(), clientID: 1)
+        try require(
+            metadata.receive(echo, current: base, source: foreign) == nil
+                && metadata.receive(forumUpdate(id: 8), current: base, source: source) == nil,
+            "foreign source/topic changed metadata",
+        )
+        try require(
+            metadata.finishRead(current, topic: base, source: source) != nil,
+            "other topic/source consumed current metadata ticket",
+        )
+        let malformed = metadata.beginRead(source: source)!
+        try require(
+            metadata.finishRead(malformed, topic: forumTopic(chatID: 101), source: source) == nil,
+            "malformed full topic changed metadata",
+        )
+        let retiringMetadata = metadata.beginRead(source: source)!
+        metadata.retire()
+        try require(
+            metadata.finishRead(retiringMetadata, topic: base, source: source) == nil
+                && metadata.beginRead(source: source) == nil,
+            "retired metadata key revived",
+        )
     }
 
     private static func verifyCells() async throws {
@@ -377,6 +519,90 @@ import UIKit
                 )
             }
         }
+        let location = ChatLocation(accountID: UUID(), chatID: 100, clientID: 1, topic: nil).withForumTopic(id: 7)
+        let source = TdUpdateSource(accountID: location.accountID!, clientID: 1)
+        var receipts = ChatDeliveryReceiptState(location: location)
+        rows.messages = [location.topic, location.withForumTopic(id: 8).topic, nil].enumerated().map { index, topic in
+            let message = CustomMessage(
+                message: fixture(id: Int64(index + 1), topic: topic),
+                formattedText: .init(entities: [], text: "topic row"), properties: .default,
+            )
+            message.updateDeliveryState(permitsFinalStatus: true, readOutbox: nil, topic: location.topic)
+            return message
+        }
+        rows.apply()
+        try await until("explicit-topic MessageCells") { rows.completed == 4 }
+        await events()
+        rows.collection.layoutIfNeeded()
+        let topicOffset = rows.collection.contentOffset
+        var topicIDs = [DisplayedMessageID]()
+        let topicSubscriptions = rows.messages.map { message in
+            message.objectWillChange.receive(on: DispatchQueue.main).sink {
+                guard invalidations.enqueue(message, owner: rows) else { return }
+                DispatchQueue.main.async {
+                    topicIDs = invalidations.drain(current: rows.messages, owner: rows)
+                    rows.reconfigure(topicIDs)
+                }
+            }
+        }
+        _ = receipts.receive(forumUpdate(outbox: 1), source: source, location: location)
+        for message in rows.messages {
+            message.updateDeliveryState(
+                permitsFinalStatus: true, readOutbox: receipts.lastReadOutbox, topic: location.topic,
+            )
+        }
+        try await until("targeted explicit-topic receipt") { rows.completed == 5 }
+        await events()
+        try require(
+            topicIDs == [rows.messages[0].displayedID] && rows.collection.contentOffset == topicOffset
+                && rows.collection
+.cellForItem(at: IndexPath(item: 0, section: 0))?
+.accessibilityLabel?
+                    .contains("Read") == true
+                && rows.collection
+.cellForItem(at: IndexPath(item: 1, section: 0))?
+.accessibilityLabel?
+                    .contains("Read") != true
+                && rows.collection
+.cellForItem(at: IndexPath(item: 2, section: 0))?
+.accessibilityLabel?
+                    .contains("Read") != true,
+            "explicit-topic update reconfigured or marked a foreign/unknown topic, or moved viewport",
+        )
+        topicSubscriptions.forEach { $0.cancel() }
+    }
+
+    private static func draft(_ text: String?) -> DraftMessage? {
+        text.map { DraftMessage(
+            content: .draftMessageContentText(.init(linkPreviewOptions: nil, text: .init(entities: [], text: $0))),
+            date: 1, effectId: 0, replyTo: nil, suggestedPostInfo: nil,
+        ) }
+    }
+
+    private static func forumTopic(
+        id: Int = 7, chatID: Int64 = 100, outbox: Int64 = 0, inbox: Int64 = 2, draft text: String? = nil,
+    ) -> ForumTopic {
+        let base = ForumTopicsRestorationProbe.topic(id: id)
+        return ForumTopic(
+            draftMessage: draft(text), info: .init(
+                chatId: chatID, creationDate: 1, creatorId: base.info.creatorId, forumTopicId: id, icon: base.info.icon,
+                isClosed: false, isGeneral: false, isHidden: false, isNameImplicit: false, isOutgoing: true,
+                name: "topic",
+            ), isPinned: false, lastMessage: nil, lastReadInboxMessageId: inbox, lastReadOutboxMessageId: outbox,
+            notificationSettings: base.notificationSettings, order: 10, unreadCount: 4,
+            unreadMentionCount: 0, unreadPollVoteCount: 0, unreadReactionCount: 0,
+        )
+    }
+
+    private static func forumUpdate(
+        id: Int = 7, outbox: Int64 = 0, inbox: Int64 = 2, draft text: String? = nil,
+    ) -> UpdateForumTopic {
+        UpdateForumTopic(
+            chatId: 100, draftMessage: draft(text), forumTopicId: id, isPinned: false,
+            lastReadInboxMessageId: inbox, lastReadOutboxMessageId: outbox,
+            notificationSettings: forumTopic().notificationSettings, unreadMentionCount: 0,
+            unreadPollVoteCount: 0, unreadReactionCount: 0,
+        )
     }
 
     private static func fixture(
