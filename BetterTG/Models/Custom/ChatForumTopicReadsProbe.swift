@@ -5,17 +5,20 @@ import Foundation
 import TDLibKitDynamic
 
 @MainActor enum ChatForumTopicReadsProbe {
-    private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
-
-    @MainActor private final class Transport {
+    @MainActor final class Transport {
         let source = TdUpdateSource(accountID: UUID(), clientID: 1)
+        let chatID: Int64
         var current: TdUpdateSource?
         var calls = [(id: Int, continuation: CheckedContinuation<ForumTopic, Swift.Error>)]()
         var completed = Set<Int>()
         var values = [Int: ForumTopic]()
         var peak = 0
+        var receiptEvents = [Int]()
 
-        init() { self.current = source }
+        init(chatID: Int64 = 7) {
+            self.chatID = chatID
+            self.current = source
+        }
 
         func read(_ id: Int) async throws -> ForumTopic {
             try await withCheckedThrowingContinuation { continuation in
@@ -44,15 +47,21 @@ import TDLibKitDynamic
             }
         }
 
-        func reader() -> ChatForumTopicReads {
+        func reader(receiptChanged: @escaping (Int) -> Void = { _ in }) -> ChatForumTopicReads {
             ChatForumTopicReads(
-                location: .init(accountID: source.accountID, chatID: 7, clientID: 1, topic: nil),
+                location: .init(accountID: source.accountID, chatID: chatID, clientID: 1, topic: nil),
                 currentSource: { [self] in current },
                 read: { [self] in try await read($0) },
                 publish: { [self] in values[$0] = $1 },
+                receiptChanged: { [self] id in
+                    receiptEvents.append(id)
+                    receiptChanged(id)
+                },
             )
         }
     }
+
+    private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
 
     static func runIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-forum-topic-reads") else { return }
@@ -65,10 +74,12 @@ import TDLibKitDynamic
                 try await verifyIdentityAndRetry()
                 try await verifyFailureProgress()
                 try await verifyRetirement()
+                try await verifyReceipts()
                 result = "Forum topic reads probe passed: production-reader/max-two-uncancellable-RPCs/coalescing=true; "
                     + "exact-raw-demand/canonical-album/composer-reasons/pruning/re-demand=true; "
                     + "scalar-info-after-dispatch/raw-identity/failure-hold/explicit-retry=true; "
                     + "terminal-retire/ABA/weak-lifetime/late-cleanup=true; "
+                    + "shared-read/per-topic-receipt/direct-before-metadata/late-baseline/re-demand=true; "
                     + "source-subscription/whole-ChatVM/pop-draft/receipt-UI/live-RPC=unverified; injected-reads-only"
             } catch { result = "Forum topic reads probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -288,6 +299,118 @@ import TDLibKitDynamic
         try await until("failed head explicit retry") { transport.calls.count == 4 }
         try await complete(41, topic(41), reader: reader, transport: transport)
         try require(Set(transport.values.keys) == [41, 42, 43], "explicit retry did not recover failed head")
+    }
+
+    private static func verifyReceipts() async throws {
+        let transport = Transport()
+        let reader = transport.reader()
+        defer { reader.retire()
+        transport.clear()
+        }
+        let first = MessageDeliveryProbe.fixture(id: 50, chatID: 7, topic: forum(11))
+        let second = MessageDeliveryProbe.fixture(id: 50, chatID: 7, topic: forum(12))
+        reader.synchronize([11, 12])
+        try await until("shared receipt reads") { transport.calls.count == 2 }
+        try require(
+            state(first, reader) == .delivered && state(second, reader) == .delivered,
+            "unknown current-topic baseline guessed Read",
+        )
+        reader.receive(payload(id: 11, outbox: 60), source: transport.source)
+        reader.receive(payload(id: 11, outbox: 60), source: transport.source)
+        try require(
+            state(first, reader) == .read && state(second, reader) == .delivered
+                    && transport.values.isEmpty && transport.receiptEvents == [11] && transport.calls.count == 2,
+            "direct receipt required metadata, crossed topic, or refetched",
+        )
+        try await complete(11, topic(11), reader: reader, transport: transport)
+        try await complete(12, nil, reader: reader, transport: transport)
+        try require(
+            state(first, reader) == .read && state(second, reader) == .delivered,
+            "late/failing baseline reverted scoped update",
+        )
+        reader.receive(payload(id: 12, outbox: 80), source: transport.source)
+        try require(
+            state(second, reader) == .read && transport.values[12] == nil,
+            "failed metadata suppressed live Read",
+        )
+
+        let before = transport.receiptEvents.count
+        reader.request(11)
+        try await until("same-value baseline revision") { transport.calls.count == 3 }
+        reader.receive(payload(id: 11, outbox: 60), source: transport.source)
+        try await complete(
+            11,
+            topic(11).applying(update: payload(id: 11, outbox: 1)),
+            reader: reader,
+            transport: transport,
+        )
+        try require(
+            state(first, reader) == .read && transport.receiptEvents.count == before,
+            "same-value update failed to fence a stale baseline or republished",
+        )
+
+        reader.synchronize([11])
+        try require(
+            !reader.receipt(for: second).permitsFinalStatus && transport.receiptEvents.last == 12,
+            "pruning nil-metadata entry omitted receipt invalidation",
+        )
+        reader.synchronize([11, 12])
+        try await until("new receipt generation") { transport.calls.count == 4 }
+        try require(state(second, reader) == .delivered, "re-demand inherited old receipt")
+        try await complete(12, topic(12), reader: reader, transport: transport)
+        reader.receive(payload(id: 12, outbox: 80), source: transport.source)
+        for invalid in [
+            MessageDeliveryProbe.fixture(id: 1, chatID: 8, topic: forum(11)),
+            MessageDeliveryProbe.fixture(id: 1, chatID: 7),
+            MessageDeliveryProbe.fixture(id: 1, chatID: 7, topic: forum(0)),
+            MessageDeliveryProbe.fixture(id: 1, chatID: 7, topic: forum(-1)),
+            MessageDeliveryProbe.fixture(id: 1, chatID: 7, topic: .messageTopicThread(.init(messageThreadId: 11))),
+            MessageDeliveryProbe.fixture(
+                id: 1,
+                chatID: 7,
+                topic: .messageTopicSavedMessages(.init(savedMessagesTopicId: 11)),
+            ),
+            MessageDeliveryProbe.fixture(
+                id: 1,
+                chatID: 7,
+                topic: .messageTopicDirectMessages(.init(directMessagesChatTopicId: 11)),
+            ),
+        ] {
+            try require(!reader.receipt(for: invalid).permitsFinalStatus, "invalid raw receipt scope accepted")
+        }
+        try require(
+            state(first, reader) == .read && state(second, reader) == .read,
+            "invalid-scope checks ran without live valid receipt controls",
+        )
+        try require(
+            state(MessageDeliveryProbe.fixture(id: 1, chatID: 7, channel: true, topic: forum(11)), reader) == .none,
+            "broadcast raw message gained final checks",
+        )
+        transport.current = .init(accountID: transport.source.accountID, clientID: 2)
+        try require(!reader.receipt(for: first).permitsFinalStatus, "departed source still projected Delivered/Read")
+        reader.retire()
+        transport.current = transport.source
+        try require(
+            !reader.receipt(for: first).permitsFinalStatus && !reader.receipt(for: second).permitsFinalStatus,
+            "source ABA restored read authority",
+        )
+        let pending = MessageDeliveryProbe.fixture(
+            id: -1,
+            chatID: 7,
+            state: .messageSendingStatePending(.init(sendingId: 1)),
+            topic: forum(11),
+        )
+        try require(state(pending, reader) == .sending, "retired receipts hid raw pending state")
+    }
+
+    private static func state(_ message: Message, _ reader: ChatForumTopicReads) -> MessageDeliveryState {
+        let projection = reader.receipt(for: message)
+        return MessageDeliveryState.resolve(
+            message,
+            permitsFinalStatus: projection.permitsFinalStatus,
+            readOutbox: projection.readOutbox,
+            topic: projection.topic,
+        )
     }
 
     private static func complete(

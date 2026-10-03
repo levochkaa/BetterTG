@@ -128,8 +128,6 @@ import UIKit
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
         didSet {
-            refreshDeliveryStates()
-            messagesDidChange.send()
             refreshAllMessagesForumTopicsIfNeeded()
             refreshDeliveryStates()
             messagesDidChange.send()
@@ -738,11 +736,11 @@ import UIKit
 
         setPublishers()
         loadDeliveryReceiptIfNeeded()
+        refreshAllMessagesForumTopicsIfNeeded()
         refreshDeliveryStates()
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
-        refreshAllMessagesForumTopicsIfNeeded()
         if isReadOnlyTopic, forumTopicInfo == nil, forumTopicTask == nil {
             loadForumTopic()
         }
@@ -882,6 +880,10 @@ import UIKit
     }
 
     func refreshDeliveryStates() {
+        if isAllMessagesForum {
+            refreshAllMessagesForumDeliveryStates()
+            return
+        }
         let current = locationContextIsCurrent
             && deliveryReceipts.permits(TDLib.shared.activeUpdateSource, location: location)
         for message in messages {
@@ -3273,6 +3275,23 @@ import UIKit
         ))
     }
 
+    private func refreshAllMessagesForumDeliveryStates(topicID: Int? = nil) {
+        let current = isAllMessagesForum && locationContextIsCurrent && !allMessagesTopicReadsRetired
+        for message in messages {
+            let raw = message.deliverySourceMessage
+            if let topicID {
+                guard raw.chatId == location.chatID,
+                      raw.topicId == .messageTopicForum(.init(forumTopicId: topicID)) else { continue }
+            }
+            let projection = current ? allMessagesTopicReads?.receipt(for: raw) : nil
+            message.updateDeliveryState(
+                permitsFinalStatus: projection?.permitsFinalStatus == true,
+                readOutbox: projection?.readOutbox,
+                topic: projection?.topic,
+            )
+        }
+    }
+
     private func preserveVoiceRecordingCheckpoint() {
         stopVoiceRecordingPreviewPlayback()
         guard recordingVoiceNote else { return }
@@ -3828,6 +3847,9 @@ import UIKit
                 guard forumTopicsByID[id] != value else { return }
                 forumTopicsByID[id] = value
                 messagesDidChange.send()
+            },
+            receiptChanged: { [weak self] id in
+                self?.refreshAllMessagesForumDeliveryStates(topicID: id)
             },
         )
         allMessagesTopicReads = reader
