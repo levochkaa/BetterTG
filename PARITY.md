@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A22 actual ChatView automatic-snapshot completion ownership, then the next useful gap.
+Active queue: P1 A49 ChatView dequeued-cell fallback, then its separate snapshot-model ownership boundary.
+A22 actual ChatView completion/control/ended-delegate-drag proof passes at `41f87a5`; physical mutation races remain open.
 A46b forwarding pin ordering and A32 top search placement have bounded native/actual proof below.
 A32 still has native capsule/shadow/Back limitations; A48's early-detachment callback has bounded native proof.
 A47 individual topic-list reads `09db3f5` pass max-two/FIFO/reset native checks and existing forum regressions.
@@ -161,7 +162,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A19 | P1 | `GalleryPictureInPictureCoordinator.presentRestoredGallery` retains messages/owner but rebuilds gallery with mutable shared `tdlib` only, omitting original `actionClient`, `sourceLocation` and `contextIsCurrent`; restore has no account/client guard, and dismissed PiP ownership survives context teardown | fixed in `d8ed16e` (worker `1ea2594`) — frozen account/client/chat/topic/ranges/delete authority, route callbacks and same-tab pagination, every-activation revocation, bounded exactly-once restoration. Isolated context and existing owner probes pass; actual system PiP and action transport remain unverified |
 | A20 | P1 | At `176eab9`, `MessageMediaView`/album tiles drop `MessagePhoto/Video/Animation.hasSpoiler`; no production display consumer checks this flag. Photos/previews and eligible videos/FFmpeg animations render before any reveal | fixed bounded concealment — `05c2b49` gates timeline/album/gallery; `d8f9b36`/`bdd19cd` gate profile-grid thumbnails, revision replacement and snapshots. Actual UIKit/native fixture probes and ordinary own-profile navigation pass. Real spoiler gestures, transport and visual polish remain unverified. Distinct from caption/text spoiler A10 |
 | A21 | P1 | `MessagePhoto.isSecret` is lost by `SinglePhotoView.configure(photo:)`; animation paths likewise omit it. Video inline autoplay and export/PiP are gated, but preview/fullscreen presentation still uses the ordinary tap route; only video-note playback calls `openMessageContent` | partial — A20a denies ordinary secret photo/video/animation pixels. `0e4e1e1`/`437d7c7` repair timed video-note per-hold/client/ACK/expiry authority; actual UIKit/native probe passes through `4c3fc5e`. Photo/video/animation hold and immediate/view-once playback remain open; unsupported note forms stay concealed. No real secret content consumed |
-| A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | partial bounded repair — `6869382` one-shot geometry authority cancels obsolete automatic restoration after gestures, navigation and newer layout. Policy/Chat/composer probes and ordinary Saved scroll/latest smoke pass. Controlled overlapping diffable/rotation/keyboard/media-resize and prepend-during-drag pixel proof remain unverified |
+| A22 | P1 | `ChatView.updateSnapshot` (1329–1367 at `3b566dd`) captures latest/anchor without checking tracking/drag/deceleration, then unconditionally restores it after asynchronous diffable apply. Reconfigure/rotation completions also reuse a captured anchor without a fresh interaction/revision check | partial bounded repair — `6869382` one-shot geometry authority; `41f87a5` proves actual ChatView unchanged-snapshot completion with nonvacuous control and ended delegate-drag rejection, exact stable-ID offsets and cleanup. Actual inserted history/physical drag, rotation, keyboard and media-resize overlap remain unverified |
 | A23 | P1 | At `19a6f94`, RootVM's non-outcome TD notifications still lose source before main delivery; `updateChatLastMessage`/draft/unread/user handlers mutate current folders by numeric ID. `refreshChat` awaits dynamic `td.getChat` then writes current folders without captured account/client/generation validation; an A response may overwrite B's same-ID chat after switching | partial — Root/list `e1d295e`, Chat `df9eb7a`, ForumTopics `78f0f8a`, static-image `ba0e192` and auth `097b488` have bounded authority proofs. `7426478`/`b3aa790` add static-image origin/shared demand with actual UIImageView/native/profile proof. `1cd9ecf` fences pending-list membership; suspended production-helper probe passes. Remaining subscribers/non-position ordering and real multi-account RPC races stay open; bulk rebuild/settings are A34/A35 |
 | A24 | P1 | At `bb01b8f`, `ChatVM.sendMessage` dispatches by `canEditMessage`; an empty text edit falls through to preserved ordinary text/attachments. A successful edit clears by message ID only, discarding newer typing or a reopened same-ID edit session | fixed in `b18da97` (worker `8aa914f`) — explicit edit intent, immutable payload and session/revision gates on success/error; invalid text edit disabled, empty media caption allowed. Integrated suspended-callback policy probe passes; full ChatVM/UI/server edit remains unverified |
 | A25 | P1 | `Utils/Text.swift` maps independent bold/italic to one font, collapses pre/preCode to code and drops quote/mention/custom-emoji identity; loading and saving a formatted message can remove entities unrelated to the edit | fixed bounded semantic round trip — `a022017` codec/scoped bridges, `fb15c25` caret refresh and `26d5f48` programmatic marked-input/UIKit undo proof pass. Live IME/keyboard shortcuts, clipboard and server round trips remain unverified. Separate from A10 display concealment |
@@ -190,6 +191,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | fixed bounded in primary list `34b7868` and Forward `e2dd664`: query-owned raw-head ranks, membership-edge revocation and unchanged raw cursor. Native multi-pin/append/query/selection and actual single-pin lists pass. Live multi-pin/reorder remains unverified; changed-pin echo can need a second stable head and pure remote reorder needs explicit refresh |
 | A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | fixed bounded in `09db3f5`: max two individual native reads per VM across canceled query generations, exact-UUID retirement and coalesced FIFO demand. Native PID97812 and existing forum regressions pass. Page concurrency, global cross-VM limits and queue hard memory cap are outside this slice; no live lag/OOM claim |
 | A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; failed query retry can also merge older-query rows. Native teardown exposed a detached-parent interval before didMove(nil) | fixed bounded through `fe9424c`/`727103c`, diagnostic `1fa99a9`: transaction-owned models, serialized page/toggle applies, accepted-query and immediate containment gates. Native PID68845 passes late-callback/cursor/pending-drain checks before retirement. Natural baseline crash, live permission/TDLib races, modal dismiss and actual interactive cancellation remain unverified |
+| A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | needs-fix — source-confirmed A42/A48-class fallback/ownership defect; no natural Chat crash reproduced. A49a will return the exact dequeued object with inert total cleanup and native reconfigure proof; outgoing-model lifetime/serialized applies remain separate A49b |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1168,6 +1170,36 @@ is imported. This source pass does not prove every content's real rendering/acti
   No typing, sends, links or message actions. Interactive dismissal, simultaneous prepend/resize, rotation, send flights and
   nonempty composer remain unverified. No Swift change was needed for this bounded check.
   Documentation build `build-Debug-20261003-034905-77575-16672.log`: PASS5s, complete log zero warnings/errors.
+- `41f87a5` (worker `2aba07b`, reviewed tree `44a14cfc`) adds opt-in `-ui-probe-viewport-completion` to an actual already-open
+  Saved Messages controller. No mock rows/VM or history writes: unchanged production snapshot, held exact native completion,
+  stable original item ID and geometry, matched control and ended delegate-drag cases. Probe motion suppresses its own willDisplay
+  read-receipt/history demand; real entry/scroll remains normal UI. Interference is SKIP, invariant failure is FAIL.
+  Review rejected an initial diagnostic global-invalidate cleanup; final cleanup consumes only its captured ticket before releasing
+  held completion and cannot retire a newer real capture/quote ticket. No production authority algorithm was changed.
+- Single SwiftFormat0/2; integrated build `build-Debug-20261003-123000-86500-18926.log`: PASS13s, full log zero warnings/errors.
+  Audit59EB535C/iOS26.5 PID88609: first run expired before the manual scroll (12:32:54 SKIP, no assertion failure). Reopened actual
+  Saved Messages and scrolled once: fresh run96B73C04 report12:34:25+04 PASS. Control offset475.6667→539.6667→475.6667,
+  stable-ID pixel354.3333→290.3333→354.3333. Ended delegate drag retains539.6667/pixel290.3333 after the old completion.
+  Native/release counts2/2, restoration counts1 total, each layout depth1→0, cleanup returns initial viewport and holds no closure.
+  `astra-a22-completion/after-pass.png` inspected. Actual inserted older rows, physical drag during apply, resize/keyboard/rotation
+  overlap and interrupted cleanup transport are not established by this bounded unchanged-snapshot test.
+- Supplementary PID93318 reports12:36:16/19: Chat restoration state and composer pass; viewport helper FAILS A39 animated
+  target/quote settlement after resize. Standalone rerun PID316, fresh report12:40:56 PASS, with unchanged build/source. Preserve
+  the first failure: its cause is unresolved; concurrent fixtures are not a proven cause. This is not a full clean runtime-suite claim.
+
+### A49 ChatView snapshot fallback — 2026-10-03
+
+- Source `41f87a5`: `ChatView.swift`1553–1559 dequeues before resolving `message(for:)` from current `chatVM.messages`.
+  `messagesDidChange` defers structural apply to the main queue; visible delete adds a140ms delay after the VM removes rows.
+  Thus an outgoing snapshot ID can lack a live model. The current miss returns a fresh cell; weak-owner/cast exits also need
+  exact registered dequeue behavior. `ChatMessageRenderOwners` detects wrapper changes only and is not a snapshot model store.
+- Reference: local UIKit26.5 `UICollectionView.h`471–473 requires reconfiguration to keep existing cells. Telegram pre-Liquid
+  `8e7e5fe`, `ChatHistoryListNode.swift`4226–4241 carries the transition's history view/opaque state into its transaction/completion.
+  Adapt ownership to UIKit/TDLib; no Texture/Postbox/Display import and no TDLib schema change.
+- Bounded A49a plan: shared production dequeue/configure path, exact same cell on model miss, inert media/callback/selection/AX
+  cleanup, normal same-ID reconfiguration recovery. Native production MessageCell/diffable probe removes only its fixture model
+  while retaining its snapshot ID. No real message delete/send. A49b must separately retain outgoing models through exact apply
+  completion and gate stale callbacks; A49a alone must not be reported as complete transaction ownership or a reproduced Chat crash.
 
 ### A23e login authorization authority — 2026-10-02
 
@@ -2632,8 +2664,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: A22 opt-in real ChatView snapshot-completion proof, using unchanged real rows and a matched control/drag
-  invalidation schedule. Do not introduce a fake VM or claim actual prepend/keyboard/media-resize coverage from it.
+- Exact next slice: P1 A49a exact-dequeued inert message fallback/native reconfiguration; then A49b snapshot model lifetime.
+  A22 `41f87a5` has real unchanged-snapshot control/ended-delegate-drag proof; actual prepend/keyboard/media-resize remains open.
+  Keep the initial A39 helper failure and passing standalone retry as separate observations; cause remains unresolved.
   A46b `e2dd664` and A32 placement `1ef0935` have bounded native/actual proof above; native chrome remains partial.
   A48 `fe9424c`/`727103c` has bounded native/regression proof above.
   A46a `34b7868` has bounded native/actual-list/foreground proof above. Preserve raw pagination, exact query/source ownership,
