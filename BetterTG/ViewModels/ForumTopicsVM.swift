@@ -268,9 +268,19 @@ import TDLibKitDynamic
                       query == self.query,
                       contextIsCurrent
                 else { return }
-                let incoming = result.topics.compactMap { self.acceptFullTopic($0, read: read) }
-                let removed = Set(incoming.filter { $0.info.isHidden || !self.topicMatchesQuery($0.info) }
-                    .map(\.info.forumTopicId))
+                var removed = Set<Int>()
+                let incoming = result.topics.compactMap { response -> ForumTopic? in
+                    guard let topic = self.acceptFullTopic(response, read: read) else { return nil }
+                    let renamed = self.infoUpdates[topic.info.forumTopicId].map {
+                        $0.revision > read.revision && $0.value.name != response.info.name
+                    } ?? false
+                    // The server may match fuzzy/transliterated queries. Only a newer
+                    // different name can invalidate that returned membership locally.
+                    if topic.info.isHidden || (renamed && !self.topicMatchesQuery(topic.info)) {
+                        removed.insert(topic.info.forumTopicId)
+                    }
+                    return topic
+                }
                 let retained = reset
                     ? topics.filter { (self.acceptedReadOrdinals[$0.info.forumTopicId] ?? 0) > read.ordinal }
                     : topics
