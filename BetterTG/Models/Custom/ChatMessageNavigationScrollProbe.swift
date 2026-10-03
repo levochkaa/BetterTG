@@ -8,6 +8,36 @@
     @MainActor enum ChatMessageNavigationScrollProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
 
+        private struct GeometryReceipt: CustomStringConvertible {
+            let offset: CGPoint
+            let bounds: CGRect
+            let size: CGSize
+            let inset: UIEdgeInsets
+            let targetFrame: CGRect?
+            let targetOffset: CGFloat?
+            let intersects: Bool
+            let visibleIndex: Bool
+            let mounted: Bool
+            let targetPresent: Bool
+            let sceneState: Int?
+
+            var description: String {
+                "offset=\(offset) bounds=\(bounds) size=\(size) inset=\(inset)"
+                    + " targetFrame=\(String(describing: targetFrame)) targetOffset=\(String(describing: targetOffset))"
+                    + " errorY=\(String(describing: targetOffset.map { offset.y - $0 }))"
+                    + " intersects=\(intersects) visibleIndex=\(visibleIndex) mounted=\(mounted)"
+                    + " targetPresent=\(targetPresent) sceneState=\(String(describing: sceneState))"
+            }
+        }
+
+        private struct CompletionReceipt {
+            let outcome: ChatMessageNavigationScroll.Outcome
+            let geometry: GeometryReceipt
+            let commands: [Bool]
+            let ends: Int
+            let scrolls: Int
+        }
+
         private final class Cell: UICollectionViewCell {
             var rowHeight: CGFloat = 48
 
@@ -48,6 +78,7 @@
             var scrolls = 0
             var blockedWriters = 0
             var quoted = [Int]()
+            var completionReceipt: CompletionReceipt?
             var commandHook: (() -> Void)?
             var layoutMutationTask: Task<Void, Never>?
 
@@ -66,6 +97,7 @@
                 )
                 self.window = UIWindow(windowScene: scene)
                 super.init()
+                driver.debugTracingEnabled = true
                 collection.contentInsetAdjustmentBehavior = .never
                 collection.transform = .init(scaleX: 1, y: -1)
                 collection.register(Cell.self, forCellWithReuseIdentifier: "row")
@@ -114,6 +146,12 @@
                     },
                     completion: { [weak self] outcome in
                         guard let self, target == id else { return }
+                        // Observe before retiring the consumer target. Do not force
+                        // layout or resolve again to obtain this diagnostic receipt.
+                        completionReceipt = .init(
+                            outcome: outcome, geometry: geometryReceipt(for: targetDisplay),
+                            commands: commands, ends: ends, scrolls: scrolls,
+                        )
                         target = nil
                         results.append(outcome)
                         if outcome == .settled { quoted.append(id) }
@@ -193,6 +231,33 @@
                     max(minimum, frame.midY - (collection.bounds.height + inset.top - inset.bottom) / 2),
                 )
             }
+
+            func diagnostics(for display: Int) -> String {
+                let completion = completionReceipt.map {
+                    "completion outcome=\($0.outcome) commands=\($0.commands) ends=\($0.ends) scrolls=\($0.scrolls) \($0.geometry)"
+                } ?? "completion=none"
+                return "\(completion)\npost results=\(results) commands=\(commands) ends=\(ends) scrolls=\(scrolls)"
+                    + " quoteCount=\(quoted.count) \(geometryReceipt(for: display))\n\(driver.debugReport)"
+            }
+
+            private func geometryReceipt(for display: Int?) -> GeometryReceipt {
+                let path = display.flatMap { dataSource.indexPath(for: $0) }
+                let frame = path.flatMap { collection.layoutAttributesForItem(at: $0)?.frame }
+                let inset = collection.adjustedContentInset
+                let minimum = -inset.top
+                let maximum = max(minimum, collection.contentSize.height - collection.bounds.height + inset.bottom)
+                return .init(
+                    offset: collection.contentOffset, bounds: collection.bounds, size: collection.contentSize,
+                    inset: inset, targetFrame: frame,
+                    targetOffset: frame.map {
+                        min(maximum, max(minimum, $0.midY - (collection.bounds.height + inset.top - inset.bottom) / 2))
+                    },
+                    intersects: frame?.intersects(collection.bounds.inset(by: inset)) ?? false,
+                    visibleIndex: path.map { collection.indexPathsForVisibleItems.contains($0) } ?? false,
+                    mounted: path.flatMap { collection.cellForItem(at: $0) } != nil,
+                    targetPresent: target != nil, sceneState: window.windowScene?.activationState.rawValue,
+                )
+            }
         }
 
         static func verify() async throws {
@@ -202,32 +267,39 @@
             }
             let native = Fixture(scene: scene)
             defer { native.close() }
-            await native.install()
-            native.request(92, animated: true)
-            try require(
-                native.target == 92 && native.driver.ownsViewport && native.quoted.isEmpty,
-                "intent/quote retired before native arrival",
-            )
-            try await wait("native animation never moved") { native.collection.contentOffset.y > 20 }
-            try require(native.driver.ownsViewport, "animation lost ownership while moving")
-            native.automaticWrite() // Snapshot anchor.
-            native.automaticWrite() // Latest pin.
-            native.collection.contentInset = .init(top: 30, left: 0, bottom: 55, right: 0)
-            native.automaticWrite() // Inset previousOffset fallback.
-            native.targetHeight = 156
-            await native.install() // Estimated-height reconfiguration while native animation runs.
-            try await wait("native animated resize did not finish") { !native.results.isEmpty }
-            try require(
-                native.results == [.settled] && native.targetIsVisible(92) && native.quoted == [92],
-                "animated target/quote did not settle after resize",
-            )
-            try require(
-                native.blockedWriters == 3 && native.commands.first == true
-                    && native.commands.dropFirst().allSatisfy { !$0 }
-                    && native.commands.count <= ChatMessageNavigationScroll.CorrectionBudget.maximum + 1,
-                "automatic writers escaped or correction budget exceeded",
-            )
-            try require(native.scrolls > 2 && native.ends > 0, "fixture did not exercise UIKit native animation")
+            do {
+                await native.install()
+                native.request(92, animated: true)
+                try require(
+                    native.target == 92 && native.driver.ownsViewport && native.quoted.isEmpty,
+                    "intent/quote retired before native arrival",
+                )
+                try await wait("native animation never moved") { native.collection.contentOffset.y > 20 }
+                try require(native.driver.ownsViewport, "animation lost ownership while moving")
+                native.automaticWrite() // Snapshot anchor.
+                native.automaticWrite() // Latest pin.
+                native.collection.contentInset = .init(top: 30, left: 0, bottom: 55, right: 0)
+                native.automaticWrite() // Inset previousOffset fallback.
+                native.targetHeight = 156
+                await native.install() // Estimated-height reconfiguration while native animation runs.
+                try await wait("native animated resize did not finish") { !native.results.isEmpty }
+                let settled = native.results == [.settled]
+                let visible = native.targetIsVisible(92)
+                let quoted = native.quoted == [92]
+                try require(
+                    settled && visible && quoted,
+                    "animated target/quote did not settle after resize: outcomeSettled=\(settled) postVisible=\(visible) quoted=\(quoted)",
+                )
+                try require(
+                    native.blockedWriters == 3 && native.commands.first == true
+                        && native.commands.dropFirst().allSatisfy { !$0 }
+                        && native.commands.count <= ChatMessageNavigationScroll.CorrectionBudget.maximum + 1,
+                    "automatic writers escaped or correction budget exceeded",
+                )
+                try require(native.scrolls > 2 && native.ends > 0, "fixture did not exercise UIKit native animation")
+            } catch {
+                throw Failure(description: "\(error)\n\(native.diagnostics(for: 92))")
+            }
 
             try await verifySuccessiveSizing(scene: scene)
 
