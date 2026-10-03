@@ -142,6 +142,7 @@
                 do {
                     try await verify(f)
                     result = "PASS: full-message concealment/self-destruct gate before injected peer/download/cache; ordinary positives; "
+                        + "exact ordinary cloud IDs before IO; local/scheduled/overflow aliases refused; "
                         + "exact production publishers and async leases; held edit/delete/source/replacement refusal; own-token cleanup; "
                         + "real TDLib/NSE/durable cache revocation=unverified; legacy fallback remains open; RPC/disk-media=0"
                 } catch { result = "FAIL: \(error)" }
@@ -157,6 +158,9 @@
         }
 
         private static func verify(_ f: Fixture) async throws {
+            for id: Int64 in [0, -1, 1, (88 << 20) + 1, (88 << 20) + 4, (Int64(Int32.max) + 1) << 20, Int64.max] {
+                try require(f.start(message(content(.photo), id: id)) == nil, "noncloud ID acquired a prewarming task")
+            }
             for kind in [Kind.photo, .video, .animation] {
                 for flags in [(true, false), (false, true), (true, true)] {
                     let denied = message(content(kind, secret: flags.0, spoiler: flags.1, placeholder: true))
@@ -200,6 +204,15 @@
                 f.peerCalls == 4 && f.downloadCalls == 4 && f.reads == 4 && f.writes.count == 4
                 && f.writes.allSatisfy { $0.0.serverMessageID == 88 && $0.1 == 101 && $0.2 == Data([7, 8, 9]) },
                 "ordinary app families did not follow the original positive path",
+            )
+            let beforeMaximum = f.writes.count
+            guard let maximumTask = f.start(message(content(.photo), id: Int64(Int32.max) << 20)) else {
+                throw Failure(description: "maximum valid cloud ID was denied")
+            }
+            await maximumTask.value
+            try require(
+                f.writes.count == beforeMaximum + 1 && f.writes.last?.0.serverMessageID == Int64(Int32.max),
+                "maximum valid cloud ID cache key was not preserved",
             )
             let beforePlaceholder = f.writes.count
             guard let placeholderTask = f.start(message(content(.photo, placeholder: true))) else {
