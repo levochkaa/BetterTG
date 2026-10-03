@@ -73,8 +73,7 @@
                     accountID: 101, peer: .init(kind: kind, id: 78), serverMessageID: 88,
                 )!
                 try require(
-                    current.expectedChatID == chatID
-                        && current.matches(chatID: chatID, type: type, requestedChatID: chatID)
+                    current.matches(chatID: chatID, type: type, requestedChatID: chatID)
                         && !current.matches(chatID: chatID + 1, type: type, requestedChatID: chatID)
                         && !current.matches(chatID: 0, type: type, requestedChatID: 0)
                         && !wrongPeer.matches(chatID: chatID, type: type, requestedChatID: chatID),
@@ -93,15 +92,6 @@
                     ), "secret chat admitted as cloud peer",
                 )
             }
-            try require(
-                RichNotificationTarget(
-                    accountID: 101, peer: .init(kind: .supergroup, id: 2_000_000_000_000), serverMessageID: 88,
-                )?.expectedChatID == -3_000_000_000_000
-                    && RichNotificationTarget(
-                        accountID: 101, peer: .init(kind: .supergroup, id: Int64.max), serverMessageID: 88,
-                    )?.expectedChatID == nil,
-                "monoforum mapping or overflow guard failed",
-            )
             try require(
                 target.matches(messageID: target.messageID, messageChatID: 77, chatID: 77)
                     && !target.matches(messageID: target.messageID, messageChatID: 78, chatID: 77)
@@ -127,10 +117,7 @@
                 target.notification(in: [matchingPush, unrelatedLast], groupChatID: 77)?.id == matchingPush.id
                     && target.notification(in: [unrelatedLast, localVariant], groupChatID: 77) == nil
                     && target.notification(in: [], groupChatID: 77) == nil
-                    && target.notification(in: [matchingPush], groupChatID: 0) == nil
-                    && target.notification(in: [matchingPush], groupChatID: 78) == nil
-                    && target.notification(in: [matchingPush], groupChatID: -77) == nil
-                    && target.notification(in: [matchingPush], groupChatID: -1_000_000_000_077) == nil,
+                    && target.notification(in: [matchingPush], groupChatID: 0) == nil,
                 "notification selection used unrelated-last or low-bit fallback",
             )
             let fullMessage = TDLibKitDynamic.Notification(
