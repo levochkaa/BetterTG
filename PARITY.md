@@ -2079,6 +2079,15 @@ is imported. This source pass does not prove every content's real rendering/acti
   stage; identity is not preview permission. No RPC/account-store/notification/INInteraction donation in the probe.
 - A52b remains open: unstructured nested session tasks, timeout/expiry and cache-publication lifetime. This helper/model
   proof does not exercise actual NSE delivery or TDLib RPC. Evidence: `.build/ui-probe-evidence/astra-a52-a53/`.
+- A52b1 repair boundary reviewed before implementation: one lifetime authority owns continuation, client bootstrap and
+  configure/process/resolver task tickets. Exact raw group-chat prefilter precedes the sole resolver; getChat's type/peer
+  validation remains. Cancellation/timeout revokes tickets and synchronous cache-publication authority, then closes on a
+  separate utility task without joining pending RPC tasks. No locks across await, continuation resume, task cancellation
+  or close. Retirement may wait for already-entered synchronous cache IO; no hard real-time expiry guarantee.
+- Pinned TDLibKit `TDLibApi.swift`31051–31069 uses a checked continuation without Swift cancellation propagation;
+  manager `closeClients`133–138 waits for clients removal, and queryQueue177–178 removes before the queued client update
+  handler necessarily runs. Canceling a Swift Task or completing close is not a callback-drain proof. A52b2 service request
+  generation, builder/INInteraction donation and callback ownership remain separate from the session-only repair.
 
 ### A53 notification media concealment — source finding 2026-10-03
 
@@ -2130,7 +2139,17 @@ is imported. This source pass does not prove every content's real rendering/acti
   notificationTypeNewMessage.showPreview=false is also not yet enforced by the resolver. Versioned evidence plus bytes,
   known-edit/delete invalidation and explicit unresolved/denied/allowed selection depend on A52b session authority.
   App media work remains uncapped and reads/writes on main; this slice revokes leases, not the underlying TDLib download.
-  Future exact app cache keys should reject low-bit local/scheduled variants too; A52a currently hardens NSE only.
+- Follow-up `a2be588` rejects zero/negative, low-bit local/scheduled and out-of-range raw IDs before app prewarmer getChat/
+  download/read/cache. It derives the persisted server-message key once from the admitted ordinary cloud ID. Pinned
+  MessageId.h27–75 supplies the encoding; maximum Int32 server ID remains valid. Independent exact review passes tree
+  `c6bf1b7c`; joint two-file format0/2, build `180821-97791-18988` PASS10s/full1454-line log zero warnings/errors.
+- Native follow-up at `a2be588`, same Audit Simulator/runtime, PID2426, fresh container
+  `1EF3238E-91C2-4DD2-94CF-5B75DD6ECD24`, media-admission report18:10:29+04 PASS. Negative IDs cause no injected IO;
+  maximum valid ID round-trips the cache key. Saved `media-cloud-id-native.txt` with the other A52/A53 evidence.
+- A53b must also treat pinned `pushMessageContentHidden` (td_api.tl8537–8538) as explicit denial before fetchMessage:
+  the current nil-candidate path can fetch full media/body despite a hidden push. Backend
+  `apns-payload-mapper.service.ts` forwards loc_key as metadata.event without independent preview permission. This is
+  source evidence, not demonstrated push exposure. Content eligibility and notification preview permission are distinct.
 
 ### A40 complete build-warning visibility — 2026-10-03
 
