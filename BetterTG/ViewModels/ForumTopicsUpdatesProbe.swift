@@ -24,8 +24,8 @@ import UIKit
         var completedTopics = Set<Int>()
         var model: ForumTopicsVM!
 
-        init() {
-            self.source = TdUpdateSource(accountID: UUID(), clientID: client.id)
+        init(restoration: ForumTopicsRestorationState? = nil) {
+            self.source = TdUpdateSource(accountID: restoration?.location.accountID ?? UUID(), clientID: client.id)
             self.current = source
             let chat = RootChatInsertionProbe.chat(
                 .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
@@ -51,7 +51,7 @@ import UIKit
                         self.topics.append((id, continuation))
                     }
                 },
-            ))
+            ), restoration: restoration)
         }
 
         func post(_ topic: ForumTopic, source: TdUpdateSource? = nil) {
@@ -101,6 +101,7 @@ import UIKit
                 try await verifyFullReadOrdering()
                 try await verifyPageTombstones()
                 try await verifyServerSearchMembership()
+                try await verifyRetainedSearchMembership()
                 result = "Forum updates probe passed: real-VM/injected-page-topic-reads/local-scoped-updates=true; "
                     + "echo-before-after-page-topic/unknown-coalescing/failed-echo-no-retry=true; "
                     + "direct-scalar/no-RPC/native-cell/late-page-scalar/draft-inbox-one-refresh=true; "
@@ -108,6 +109,7 @@ import UIKit
                     + "query-source-retirement/request-owner/wrong-response/late-error=true; "
                     + "full-read-order/both-completions/unrelated-event/newer-failure/info-tombstones/raw-cursor=true; "
                     + "server-query-membership/same-name-info-echo/newer-rename/hidden=true; "
+                    + "retained-query-name/closed-info/inbox-draft-read/rename-hide-query-source-ABA/display-seed=true; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -288,7 +290,7 @@ import UIKit
 
     private static func topic(
         id: Int, name: String = "Swift", outbox: Int64 = 0, inbox: Int64 = 0,
-        draft: String? = nil, mentions: Int = 0, hidden: Bool = false,
+        draft: String? = nil, mentions: Int = 0, hidden: Bool = false, closed: Bool = false,
         unreadCount: Int = 0, order: Int64 = 10, lastID: Int64? = nil,
     ) -> ForumTopic {
         let base = ForumTopicsRestorationProbe.topic(id: id, name: name)
@@ -305,7 +307,7 @@ import UIKit
             draftMessage: result.draftMessage,
             info: .init(
                 chatId: 7, creationDate: 1, creatorId: base.info.creatorId, forumTopicId: id, icon: base.info.icon,
-                isClosed: false, isGeneral: false, isHidden: hidden, isNameImplicit: false, isOutgoing: false,
+                isClosed: closed, isGeneral: false, isHidden: hidden, isNameImplicit: false, isOutgoing: false,
                 name: name,
             ), isPinned: result.isPinned, lastMessage: lastID.map { lastMessage(id: $0, topicID: id) },
             lastReadInboxMessageId: inbox,
@@ -571,6 +573,133 @@ import UIKit
             f.model.topics.isEmpty && f.model.hasMore && f.topics.isEmpty,
             "server-membership exception admitted hidden topic or spawned reads",
         )
+    }
+
+    private static func loadFuzzyResult(_ f: Fixture) async throws {
+        f.model.search("Geberal")
+        try await until("retained fuzzy initial page") { f.pages.count == 1 }
+        let task = [f.model.probePageTask].compactMap(\.self)
+        f.finishPage(0, [topic(id: 1, name: "General")])
+        try await terminal(task)
+    }
+
+    private static func verifyRetainedSearchMembership() async throws {
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        try await loadFuzzyResult(f)
+        f.postInfo(topic(id: 1, name: "General", closed: true))
+        await events()
+        try require(
+            f.model.topics.count == 1 && f.model.topics[0].info.isClosed && f.topics.isEmpty,
+            "same-name changed info removed server-admitted row or started read",
+        )
+        f.post(topic(id: 1, name: "General", inbox: 1))
+        try await until("known fuzzy inbox refresh") { f.topics.count == 1 }
+        let inbox = f.model.probeReadTasks
+        f.finishTopic(0, topic(id: 1, name: "General", inbox: 1, closed: true, unreadCount: 5, order: 50, lastID: 50))
+        try await terminal(inbox)
+        try require(f.model.topics.first?.lastMessage?.id == 50, "known fuzzy individual result was removed")
+        let drafted = topic(id: 1, name: "General", inbox: 1, draft: "draft", closed: true, unreadCount: 5, order: 60)
+        f.post(drafted)
+        try await until("known fuzzy draft refresh") { f.topics.count == 2 }
+        let draft = f.model.probeReadTasks
+        f.finishTopic(1, drafted)
+        try await terminal(draft)
+        f.post(drafted)
+        f.postInfo(drafted)
+        await events()
+        try require(
+            f.model.topics.first?.order == 60 && f.topics.count == 2,
+            "known fuzzy membership or echo dedup failed after semantic refresh",
+        )
+
+        let seed = f.model.restorationState(rawQuery: "Geberal")
+        let restored = Fixture(restoration: seed)
+        defer { restored.model.retire()
+        restored.cancelOutstanding()
+        }
+        restored.model.start()
+        restored.postInfo(topic(id: 1, name: "General"))
+        await events()
+        try require(
+            restored.model.topics.first?.info.name == "General" && restored.pages.isEmpty,
+            "accepted-query display seed lost unchanged-name membership",
+        )
+        restored.post(topic(id: 1, name: "General", inbox: 2, draft: "draft"))
+        try await until("restored display row current read") { restored.topics.count == 1 }
+        let restoredRead = restored.model.probeReadTasks
+        restored.finishTopic(0, topic(id: 1, name: "General", inbox: 2, draft: "draft", unreadCount: 2))
+        try await terminal(restoredRead)
+        try require(restored.model.topics.first?.unreadCount == 2, "restored current read removed unchanged-name row")
+
+        // Another ID with the same fuzzy name has never been admitted by the server page.
+        f.post(topic(id: 2, name: "General"))
+        try await until("unknown fuzzy individual") { f.topics.count == 3 }
+        let unknown = f.model.probeReadTasks
+        f.finishTopic(2, topic(id: 2, name: "General"))
+        try await terminal(unknown)
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [1],
+            "unknown fuzzy lookup borrowed known row membership",
+        )
+
+        for hides in [false, true] {
+            let changed = Fixture()
+            defer { changed.model.retire()
+            changed.cancelOutstanding()
+            }
+            try await loadFuzzyResult(changed)
+            changed.post(topic(id: 1, name: "General", inbox: 1))
+            try await until("fuzzy read before identity departure") { changed.topics.count == 1 }
+            let pending = changed.model.probeReadTasks
+            changed.postInfo(topic(id: 1, name: hides ? "General" : "Other", hidden: hides))
+            changed.postInfo(topic(id: 1, name: "General"))
+            await events()
+            try require(changed.model.topics.isEmpty, "rename/hide ABA retained departed fuzzy membership")
+            changed.finishTopic(0, topic(id: 1, name: "General", inbox: 1, unreadCount: 9))
+            try await terminal(pending)
+            try require(
+                changed.model.topics.isEmpty && changed.topics.count == 1,
+                "late unchanged-name result revived removed fuzzy row",
+            )
+        }
+        for changesSource in [false, true] {
+            let changed = Fixture()
+            defer { changed.model.retire()
+            changed.cancelOutstanding()
+            }
+            try await loadFuzzyResult(changed)
+            changed.post(topic(id: 1, name: "General", inbox: 1))
+            try await until("fuzzy read before query/source departure") { changed.topics.count == 1 }
+            let pending = changed.model.probeReadTasks
+            if changesSource {
+                let other = TdUpdateSource(accountID: UUID(), clientID: changed.source.clientID)
+                changed.current = other
+                changed.changes.send(other)
+                changed.current = changed.source
+                changed.changes.send(changed.source)
+            } else {
+                changed.model.search("Other")
+                try await until("fuzzy different query") { changed.pages.count == 2 }
+                let departed = [changed.model.probePageTask].compactMap(\.self)
+                changed.model.search("Geberal")
+                try await until("fuzzy query ABA") { changed.pages.count == 3 }
+                let current = [changed.model.probePageTask].compactMap(\.self)
+                changed.finishPage(2, [topic(id: 1, name: "General", unreadCount: 2)])
+                try await terminal(current)
+                changed.finishPage(1, [topic(id: 2, name: "Other")])
+                try await terminal(departed)
+            }
+            changed.finishTopic(0, topic(id: 1, name: "General", unreadCount: 9))
+            try await terminal(pending)
+            try require(
+                changed.model.topics.map(\.info.forumTopicId) == [1]
+                    && changed.model.topics[0].unreadCount == (changesSource ? 0 : 2),
+                "late fuzzy read crossed query/source ABA",
+            )
+        }
     }
 
     private static func terminal(_ tasks: [Task<Void, Never>]) async throws {

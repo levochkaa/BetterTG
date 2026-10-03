@@ -118,12 +118,13 @@ import TDLibKitDynamic
     static func controlled(
         customChat: CustomChat, location: ChatLocation, client: TDLibClient,
         reads: ForumTopicsReadEnvironment,
+        restoration: ForumTopicsRestorationState? = nil,
     ) -> ForumTopicsVM {
         ForumTopicsVM(
             customChat: customChat,
             location: location,
             client: client,
-            restoration: nil,
+            restoration: restoration,
             usesTransport: true,
             reads: reads,
         )
@@ -344,7 +345,8 @@ import TDLibKitDynamic
                 }
                 return
             }
-            if update.info.isHidden || !topicMatchesQuery(update.info) {
+            let retainedName = acceptedQuery == query ? topics[index].info.name : nil
+            if update.info.isHidden || !topicMatchesQuery(update.info, retaining: retainedName) {
                 topics.remove(at: index)
             } else if topics[index].info != update.info {
                 topics[index] = topics[index].replacing(info: update.info)
@@ -467,7 +469,9 @@ import TDLibKitDynamic
 
     private func refreshTopic(id: Int, afterCurrent: Bool = true) {
         guard contextIsCurrent, id > 0 else { return }
-        if let info = infoUpdates[id]?.value, info.isHidden || !topicMatchesQuery(info) { return }
+        let retainedName = retainedTopicName(id: id)
+        if let info = infoUpdates[id]?.value,
+           info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { return }
         if loading { pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
             return
         }
@@ -501,7 +505,9 @@ import TDLibKitDynamic
             else { return }
             guard let response, response.info.forumTopicId == id,
                   let topic = acceptFullTopic(response, read: read) else { return }
-            if topic.info.isHidden || !topicMatchesQuery(topic.info) {
+            let currentName = retainedTopicName(id: id)
+            let unchangedName = currentName == retainedName ? retainedName : nil
+            if topic.info.isHidden || !topicMatchesQuery(topic.info, retaining: unchangedName) {
                 topics.removeAll { $0.info.forumTopicId == id }
                 return
             }
@@ -514,8 +520,15 @@ import TDLibKitDynamic
         }
     }
 
-    private func topicMatchesQuery(_ info: ForumTopicInfo) -> Bool {
-        query.isEmpty || info.name.localizedCaseInsensitiveContains(query)
+    private func retainedTopicName(id: Int) -> String? {
+        guard acceptedQuery == query else { return nil }
+        // Retain display membership already accepted for this query, including
+        // restoration seeds. This does not make metadata or permissions fresh.
+        return topics.first { $0.info.forumTopicId == id }?.info.name
+    }
+
+    private func topicMatchesQuery(_ info: ForumTopicInfo, retaining name: String? = nil) -> Bool {
+        query.isEmpty || info.name.localizedCaseInsensitiveContains(query) || name == info.name
     }
 
     private func refreshTopicContainingLastMessage(chatID: Int64, messageID: Int64) {
