@@ -95,8 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A45c known fuzzy-row update lifetime, then A46 pin ordering.
-A45a echo/direct-scalar repair and A45b full-read arbitration have bounded native proof.
+Active queue: remaining P1 A44b2 all-messages per-topic receipts; P2 A46 pin ordering follows separately.
+A45a/b/c echo/direct-scalar, full-read arbitration and known server-query membership have bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
 All-messages topic aggregation stays A44b2; no cross-topic/global watermark fallback.
 At `72d74b0`, the integrated
@@ -180,7 +180,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
 | A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | partial — ordinary states/feed `1630ee1`, geometry proof `909f62b`, explicit-topic receipts/ChatVM echo `5b9b322`; native and actual ordinary/topic foreground display proofs pass. All-messages b2, actual peer-read transitions and final self/broadcast mapping remain separate |
-| A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | partial — `e3fb6d9` coalesces echoes and fences reads; `597d6f3` arbitrates full responses/info tombstones with real-VM native proof. Primary caught its introduced local filtering of server fuzzy matches; `c9317e5` corrects page membership with native and actual before/after proof. Legacy known fuzzy-row update lifetime is A45c. Actual TDLib request counts remain unverified |
+| A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | fixed bounded echo/read ownership — `e3fb6d9`, `597d6f3`, page-membership correction `c9317e5`, known-row lifetime `0a4c6af`. Real-VM controlled reads/native cell and controller regressions pass; actual search/foreground and fuzzy before/after proof recorded. Actual TDLib request counts, delayed server conflicting updates and one bounded redundant unknown follow-up remain unverified/open |
 | A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | needs-fix — preserve authoritative pinned-topic ordering separately from chronological order. Source-confirmed in primary and independent review; no native or live pinned-order proof yet. Separate from A45 fetch ownership |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
@@ -1922,10 +1922,27 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Builds: primary053808-44178-22355 PASS23s, correction054358-59116-5045 PASS8s; worker053416-40099-30375 PASS11s,
   correction054200-53359-6587 PASS10s. Each two-file Swift delta formatted together; full logs zero warnings/errors and
   immutable review passed. The original review missed server-versus-local search semantics; the runtime failure is preserved.
-- Remaining A45c: legacy info observer and individual refresh still apply contains to a known server-matched row, so same-name
+- Follow-up identified as A45c: legacy info observer and individual refresh still apply contains to a known server-matched row, so same-name
   notifications can remove fuzzy results. Preserve only exact query/topic/name membership already granted by a current page;
   unknown lookups must not gain invented fuzzy authority. A bounded extra unknown refresh after page omission is also recorded;
   it is not the former unbounded echo loop. A46 pin ordering remains separate.
+
+### A45c known server-query row lifetime — 2026-10-03
+
+- `0a4c6af` (worker `656e32c`) retains a known row only when accepted query, topic ID and name still match. Same-name info
+  changes and inbox/draft refreshes no longer discard a server fuzzy match. Individual dispatch captures that name and verifies
+  it against both current and admitted response after existing source/generation/UUID/ordinal checks. No fuzzy algorithm or
+  transferable membership cache is added; unknown IDs keep the conservative matcher. Rename/hide/name ABA revoke the exception.
+  Restored accepted-query rows retain display membership only, not fresh server metadata or permissions.
+- Native PID76193 on 0a4c6af PASS all A45a/b/c cases: same-name changed closed state, inbox/draft reads and echoes, unknown
+  same-name ID exclusion, rename/hide/query/source ABA, late replies and a rebuilt VM from the accepted display seed. The seed
+  fixture uses the same captured client, not a real client epoch. Actual source-renewal/search smoke at earlier e3fb6d9 and
+  fuzzy before/after c9317e5 remain separately scoped; no live remote edit/counting claim is inferred from these controlled reads.
+- Native PID76765 active-search/restoration regressions PASS on 0a4c6af. Fresh result files timestamp05:56:14/05:56:07 (+04)
+  were checked, then preserved as final probe outputs. All A45 evidence is under `.build/ui-probe-evidence/astra-a45-topic-updates/`.
+- Two changed Swift files formatted together; primary055412-75499-10026 PASS10s, worker055207-73770-18802 PASS22s,
+  complete logs zero warnings/errors. Independent immutable review passed. Next P1 is A44b2; A46 remains the separate visible
+  pinned-order gap. Unknown-topic page omission may still cause one redundant refresh, not recursive identical-echo fetching.
 
 ### A46 forum pinned ordering audit — 2026-10-03
 
@@ -2291,7 +2308,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   `e5979fd`/`c9e2169`/`37e08e8`. Bounded native/actual proof passes. A44a `52d7e33` is integrated as `1630ee1`;
   primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
   A44b1 `caf406d` is integrated as `5b9b322`; A45a `af3a8bb` is integrated as `e3fb6d9` with bounded native proof.
-  A45b `9ec934a`/`c84cb18` are integrated as `597d6f3`/`c9317e5`; A45c known server-match lifetime is next.
+  A45b `9ec934a`/`c84cb18` are integrated as `597d6f3`/`c9317e5`; A45c `656e32c` as `0a4c6af`, native regressions pass.
+  Worker is designing remaining P1 A44b2 all-messages receipts before the P2 pin-order repair.
   A46 pinned ordering is separate.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
@@ -2309,10 +2327,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact current slice: preserve known fuzzy-row lifetime in A45c; c9317e5 now passes native and actual before/after search.
-  Keep exact query/topic/name membership, reject stale ownership and unknown lookup authority, revoke on genuine rename/hide.
-  Preserve raw cursors, request ordinals, scalar/info overlays and A45a semantic demand; rejection must not trigger an echo loop.
-  A45a/b have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
+- Exact next slice: A44b2 all-messages forum delivery receipts, with a bounded exact-topic baseline queue and direct scalar feed.
+  Derive scope from canonical source messages, never a global watermark, guessed General ID or another MessageTopic kind.
+  Preserve A44a/b1 states, A45 no-echo behavior, source/UUID/revision lifetime, wrapper identity and timeline anchors.
+  A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
   A44b2 all-messages per-topic receipt queue remains separate, final self/broadcast checks conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
   live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
