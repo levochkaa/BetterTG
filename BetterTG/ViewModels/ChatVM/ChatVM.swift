@@ -128,6 +128,8 @@ import UIKit
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
         didSet {
+            refreshDeliveryStates()
+            messagesDidChange.send()
             refreshAllMessagesForumTopicsIfNeeded()
             refreshDeliveryStates()
             messagesDidChange.send()
@@ -542,18 +544,6 @@ import UIKit
         return customChat.supergroup == nil
     }
 
-    private var usesForumDeliveryReceipts: Bool {
-        guard let id = location.forumTopicID, id > 0, !customChat.isSavedMessages else { return false }
-        switch customChat.chat.type {
-        case .chatTypeSupergroup(let type):
-            guard let group = customChat.supergroup, group.id == type.supergroupId else { return false }
-            return group.isForum && !type.isChannel && !group.isChannel && !group.isDirectMessagesGroup
-        case .chatTypePrivate(let type):
-            return customChat.user?.id == type.userId && customChat.bot?.hasTopics == true
-        default: return false
-        }
-    }
-
     private var pendingVideoRetryStatusMessage: String? {
         guard let failed = pendingVideoNote?.failedSendState else { return nil }
         if failed.requiredPaidMessageStarCount > 0 {
@@ -698,7 +688,6 @@ import UIKit
         self.accountID = resolvedLocation.accountID
         self.location = resolvedLocation
         self.deliveryReceipts = ChatDeliveryReceiptState(location: resolvedLocation)
-        self.forumTopicLiveUpdates = ForumTopicLiveUpdateState(location: resolvedLocation)
         self.client = client
         self.chatOpenLease = ChatOpenLeaseCoordinator.shared.acquire(
             location: resolvedLocation,
@@ -736,7 +725,6 @@ import UIKit
 
         setPublishers()
         loadDeliveryReceiptIfNeeded()
-        refreshAllMessagesForumTopicsIfNeeded()
         refreshDeliveryStates()
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
@@ -880,18 +868,12 @@ import UIKit
     }
 
     func refreshDeliveryStates() {
-        if isAllMessagesForum {
-            refreshAllMessagesForumDeliveryStates()
-            return
-        }
         let current = locationContextIsCurrent
             && deliveryReceipts.permits(TDLib.shared.activeUpdateSource, location: location)
         for message in messages {
             message.updateDeliveryState(
-                permitsFinalStatus: (usesOrdinaryDeliveryReceipts || usesForumDeliveryReceipts) && current
-                    && message.deliverySourceMessage.chatId == location.chatID,
+                permitsFinalStatus: usesOrdinaryDeliveryReceipts && current,
                 readOutbox: current ? deliveryReceipts.lastReadOutbox : nil,
-                topic: location.topic,
             )
         }
     }
@@ -902,36 +884,7 @@ import UIKit
         refreshDeliveryStates()
     }
 
-    func receiveDeliveryReceipt(_ update: UpdateForumTopic, authority: ChatUpdateDeliveryAuthority) {
-        guard locationContextIsCurrent,
-              deliveryReceipts.receive(update, source: authority.source, location: authority.location) else { return }
-        refreshDeliveryStates()
-    }
-
-    func receiveForumTopicUpdate(_ update: UpdateForumTopic, authority: ChatUpdateDeliveryAuthority) {
-        guard locationContextIsCurrent,
-              let change = forumTopicLiveUpdates.receive(update, current: forumTopic, source: authority.source)
-        else { return }
-        receiveDeliveryReceipt(update, authority: authority)
-        if change.metadataChanged, let forumTopic {
-            self.forumTopic = forumTopicLiveUpdates.applyingLatest(to: forumTopic)
-        }
-        if awaitingAuthoritativeDraftClear, update.draftMessage == nil {
-            awaitingAuthoritativeDraftClear = false
-            composerIsDirty = false
-        } else if change.draftChanged, !awaitingAuthoritativeDraftClear, canWriteBasicMessages {
-            applyAuthoritativeDraft(update.draftMessage, expectedRevision: composerRevision)
-        }
-        if change.refreshUnreadCount { loadForumTopic() }
-    }
-
     func loadDeliveryReceiptIfNeeded() {
-        if let id = location.forumTopicID, id > 0 {
-            guard locationContextIsCurrent, forumTopicTask == nil,
-                  deliveryReceipts.lastReadOutbox == nil else { return }
-            loadForumTopic()
-            return
-        }
         guard usesOrdinaryDeliveryReceipts, locationContextIsCurrent, deliveryReadTask == nil,
               deliveryReceipts.lastReadOutbox == nil,
               let read = deliveryReceipts.beginRead(source: TDLib.shared.activeUpdateSource, location: location)
@@ -957,17 +910,8 @@ import UIKit
     }
 
     func retireDeliveryReceipts() {
-        allMessagesTopicReadsRetired = true
-        allMessagesTopicReads?.retire()
-        forumTopicsByID.removeAll()
         deliveryReadTask?.cancel()
         deliveryReadTask = nil
-        if location.forumTopicID != nil {
-            forumTopicLiveUpdates.retire()
-            forumTopicRequestID = nil
-            forumTopicTask?.cancel()
-            forumTopicTask = nil
-        }
         deliveryReceipts.retire()
         refreshDeliveryStates()
     }

@@ -28,39 +28,19 @@ enum MessageDeliveryState: Equatable {
         }
     }
 
-    static func resolve(
-        _ message: Message,
-        permitsFinalStatus: Bool,
-        readOutbox: Int64?,
-        topic: MessageTopic? = nil,
-    ) -> Self {
+    static func resolve(_ message: Message, permitsFinalStatus: Bool, readOutbox: Int64?) -> Self {
         // Temporary IDs are never compared with a read watermark.
         if case .messageSendingStateFailed = message.sendingState { return .failed }
         if case .messageSendingStatePending = message.sendingState { return .sending }
         guard permitsFinalStatus, message.isOutgoing, !message.isChannelPost,
-              MessageDeliveryReceiptScope(topic: topic) != nil, message.topicId == topic else { return .none }
+              message.topicId == nil else { return .none }
         return readOutbox.map { message.id <= $0 } == true ? .read : .delivered
-    }
-}
-
-// MARK: - MessageDeliveryReceiptScope
-
-enum MessageDeliveryReceiptScope: Equatable {
-    case chat
-    case forum(Int)
-
-    init?(topic: MessageTopic?) {
-        switch topic {
-        case nil: self = .chat
-        case .messageTopicForum(let forum) where forum.forumTopicId > 0: self = .forum(forum.forumTopicId)
-        default: return nil
-        }
     }
 }
 
 // MARK: - ChatDeliveryReceiptState
 
-/// One immutable chat or explicit forum-topic receipt key. Cached history values are not
+/// One immutable ordinary-chat receipt key. Cached Chat/history values are not
 /// accepted here: only a scoped update or a revision-fenced fresh read can seed it.
 struct ChatDeliveryReceiptState {
     struct Read {
@@ -78,8 +58,7 @@ struct ChatDeliveryReceiptState {
     init(location: ChatLocation) { self.location = location }
 
     func permits(_ source: TdUpdateSource?, location: ChatLocation) -> Bool {
-        !retired && self.location == location && MessageDeliveryReceiptScope(topic: location.topic) != nil
-            && source?.matches(location) == true
+        !retired && self.location == location && location.topic == nil && source?.matches(location) == true
     }
 
     mutating func beginRead(source: TdUpdateSource?, location: ChatLocation) -> Read? {
@@ -95,59 +74,6 @@ struct ChatDeliveryReceiptState {
         source: TdUpdateSource?,
         location: ChatLocation,
     ) -> Bool {
-        guard location.topic == nil else { return false }
-        return finishValue(read, value: value, source: source, location: location)
-    }
-
-    @discardableResult mutating func receive(
-        _ update: UpdateChatReadOutbox,
-        source: TdUpdateSource?,
-        location: ChatLocation,
-    ) -> Bool {
-        guard permits(source, location: location), location.topic == nil,
-              update.chatId == location.chatID else { return false }
-        return acceptUpdate(update.lastReadOutboxMessageId)
-    }
-
-    @discardableResult mutating func receive(
-        _ update: UpdateForumTopic,
-        source: TdUpdateSource?,
-        location: ChatLocation,
-    ) -> Bool {
-        guard permits(source, location: location), update.chatId == location.chatID,
-              update.forumTopicId == location.forumTopicID else { return false }
-        return acceptUpdate(update.lastReadOutboxMessageId)
-    }
-
-    @discardableResult mutating func finishForumRead(
-        _ read: Read,
-        topic: ForumTopic?,
-        source: TdUpdateSource?,
-        location: ChatLocation,
-    ) -> Bool {
-        guard location.forumTopicID != nil else { return false }
-        let matches = topic?.info.chatId == location.chatID
-            && topic?.info.forumTopicId == location.forumTopicID
-        return finishValue(
-            read,
-            value: matches ? topic?.lastReadOutboxMessageId : nil,
-            source: source,
-            location: location,
-        )
-    }
-
-    mutating func retire() {
-        retired = true
-        readID = nil
-        lastReadOutbox = nil
-    }
-
-    private mutating func finishValue(
-        _ read: Read,
-        value: Int64?,
-        source: TdUpdateSource?,
-        location: ChatLocation,
-    ) -> Bool {
         guard permits(source, location: location), readID == read.id else { return false }
         readID = nil
         guard revision == read.revision, let value else { return false }
@@ -156,11 +82,22 @@ struct ChatDeliveryReceiptState {
         return changed
     }
 
-    private mutating func acceptUpdate(_ value: Int64) -> Bool {
+    @discardableResult mutating func receive(
+        _ update: UpdateChatReadOutbox,
+        source: TdUpdateSource?,
+        location: ChatLocation,
+    ) -> Bool {
+        guard permits(source, location: location), update.chatId == location.chatID else { return false }
         revision &+= 1 // Even a repeated accepted update supersedes an earlier read.
-        let changed = lastReadOutbox != value
-        lastReadOutbox = value
+        let changed = lastReadOutbox != update.lastReadOutboxMessageId
+        lastReadOutbox = update.lastReadOutboxMessageId
         return changed
+    }
+
+    mutating func retire() {
+        retired = true
+        readID = nil
+        lastReadOutbox = nil
     }
 }
 

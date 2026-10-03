@@ -122,7 +122,6 @@ extension ChatVM {
                   update.supergroup.id == customChat.supergroup?.id
             else { return }
             customChat.type = .supergroup(update.supergroup)
-            refreshAllMessagesForumTopicsIfNeeded()
             refreshDeliveryStates()
             objectWillChange.send()
         }

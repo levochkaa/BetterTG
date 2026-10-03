@@ -111,7 +111,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var cancellables = Set<AnyCancellable>()
     private var messageCancellables = Set<AnyCancellable>()
     private var messageRenderOwners = ChatMessageRenderOwners()
-    private let timelineSnapshots = ChatTimelineSnapshotState()
     private var messageRenderInvalidations = ChatMessageRenderInvalidations()
     private var prefetchTasks = [DisplayedMessageID: PrefetchTaskEntry]()
     private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
@@ -2056,10 +2055,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         var snapshot = NSDiffableDataSourceSnapshot<Section, ChatTimelineItemID>()
         snapshot.appendSections([.messages])
-        snapshot.appendItems(batch.content.ids)
-        snapshot.reconfigureItems(Array(batch.content.reconfigure.filter { item in
-            item.displayedMessageID.map { !timelineSnapshots.deleting.contains($0) } ?? true
-        }))
+        snapshot.appendItems(itemIDs)
+        let headerIDs = itemIDs.filter {
+            if case .dateHeader = $0 {
+                true
+            } else if case .topicHeader = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        snapshot.reconfigureItems(headerIDs)
+        let changedOwners = messageRenderOwners.replace(chatVM.messages)
+        snapshot.reconfigureItems(itemIDs.filter { item in
+            item.displayedMessageID.map(changedOwners.contains) == true
+        })
         timelineLayoutMutationDepth += 1
         recordMessageNavigationGeometry("snapshot-before")
         #if DEBUG

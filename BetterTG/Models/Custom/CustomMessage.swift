@@ -64,27 +64,9 @@ import TDLibKitDynamic
         self.isPinned = isPinned ?? message.isPinned
     }
 
-    /// A detached rendering copy, never a live message or a restored history seed.
-    convenience init(renderOnly value: ChatMessageRenderValue) {
-        self.init(
-            message: value.message, senderUser: value.senderUser,
-            replyPresentation: value.replyPresentation, forwardPresentation: value.forwardPresentation,
-            album: value.album, sendFailed: value.sendFailed, formattedText: value.formattedText,
-            properties: value.properties, reactions: value.reactions, unreadReactions: value.unreadReactions,
-            isPinned: value.isPinned,
-        )
-        // Preserve explicit nil rather than the normal initializer's raw fallback.
-        self.reactions = value.reactions
-        self.deliveryState = value.deliveryState
-        self.reactionMutationInFlight = value.reactionMutationInFlight
-        self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
-    }
-
-    func updateDeliveryState(permitsFinalStatus: Bool, readOutbox: Int64?, topic: MessageTopic? = nil) {
+    func updateDeliveryState(permitsFinalStatus: Bool, readOutbox: Int64?) {
         let source = deliverySourceMessage
-        let next = MessageDeliveryState.resolve(
-            source, permitsFinalStatus: permitsFinalStatus, readOutbox: readOutbox, topic: topic,
-        )
+        let next = MessageDeliveryState.resolve(source, permitsFinalStatus: permitsFinalStatus, readOutbox: readOutbox)
         if deliveryState != next { deliveryState = next }
     }
 }
