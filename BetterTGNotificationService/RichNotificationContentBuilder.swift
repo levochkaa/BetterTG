@@ -19,7 +19,7 @@ enum RichNotificationContentBuilder {
         }
 
         if let mediaData = resolved.mediaData ?? metadata.messageReference
-            .flatMap(RichNotificationCache.mediaURL)
+            .flatMap({ RichNotificationCache.mediaURL(for: $0, accountID: metadata.accountID) })
             .flatMap({ try? Data(contentsOf: $0) }),
             let url = RichNotificationCache.writeTemporaryAttachment(mediaData),
             let attachment = try? UNNotificationAttachment(identifier: "telegram-media", url: url)
@@ -28,7 +28,7 @@ enum RichNotificationContentBuilder {
         }
 
         let senderAvatar = resolved.senderAvatarData
-            ?? RichNotificationCache.avatarData(for: metadata.sender)
+            ?? RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID)
             ?? generatedAvatar(name: resolved.senderName, id: metadata.sender.id)
         let sender = INPerson(
             personHandle: INPersonHandle(value: metadata.sender.cacheKey, type: .unknown),
@@ -62,7 +62,7 @@ enum RichNotificationContentBuilder {
         }
         if groupName != nil,
            let groupAvatar = resolved.conversationAvatarData
-           ?? RichNotificationCache.avatarData(for: metadata.peer)
+           ?? RichNotificationCache.avatarData(for: metadata.peer, accountID: metadata.accountID)
         {
             intent.setImage(INImage(imageData: groupAvatar), forParameterNamed: \.speakableGroupName)
         }
@@ -85,13 +85,13 @@ enum RichNotificationContentBuilder {
         canQuickReply: Bool,
     ) -> ResolvedTelegramNotification {
         let mediaData = metadata.messageReference
-            .flatMap(RichNotificationCache.mediaURL)
+            .flatMap { RichNotificationCache.mediaURL(for: $0, accountID: metadata.accountID) }
             .flatMap { try? Data(contentsOf: $0) }
         return ResolvedTelegramNotification(
             senderName: metadata.senderName?.isEmpty == false ? metadata.senderName! : "Telegram",
             conversationTitle: metadata.conversationTitle,
-            senderAvatarData: RichNotificationCache.avatarData(for: metadata.sender),
-            conversationAvatarData: RichNotificationCache.avatarData(for: metadata.peer),
+            senderAvatarData: RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID),
+            conversationAvatarData: RichNotificationCache.avatarData(for: metadata.peer, accountID: metadata.accountID),
             mediaData: mediaData,
             body: nil,
             canQuickReply: canQuickReply,

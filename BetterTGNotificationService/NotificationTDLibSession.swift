@@ -43,6 +43,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
     // MARK: Internal
 
     func resolve() async -> ResolvedTelegramNotification? {
+        guard RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
         let result = await withCheckedContinuation { continuation in
             stateLock.lock()
             resolutionContinuation = continuation
@@ -235,9 +236,9 @@ final class NotificationTDLibSession: @unchecked Sendable {
         )
 
         let resolvedSenderAvatar = await senderAvatar
-            ?? RichNotificationCache.avatarData(for: metadata.sender)
+            ?? RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID)
         let resolvedConversationAvatar = await conversationAvatar
-            ?? RichNotificationCache.avatarData(for: metadata.peer)
+            ?? RichNotificationCache.avatarData(for: metadata.peer, accountID: metadata.accountID)
         let resolvedMedia = await mediaData
         if expectsMedia {
             logger.log(
@@ -257,14 +258,20 @@ final class NotificationTDLibSession: @unchecked Sendable {
             } else {
                 false
             }
+        guard !Task.isCancelled,
+              RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
         if let resolvedMedia, let message = metadata.messageReference {
-            RichNotificationCache.cacheMedia(resolvedMedia, for: message)
+            RichNotificationCache.cacheMedia(resolvedMedia, for: message, accountID: metadata.accountID)
         }
         if let resolvedSenderAvatar {
-            RichNotificationCache.cacheAvatar(resolvedSenderAvatar, for: metadata.sender)
+            RichNotificationCache.cacheAvatar(resolvedSenderAvatar, for: metadata.sender, accountID: metadata.accountID)
         }
         if let resolvedConversationAvatar {
-            RichNotificationCache.cacheAvatar(resolvedConversationAvatar, for: metadata.peer)
+            RichNotificationCache.cacheAvatar(
+                resolvedConversationAvatar,
+                for: metadata.peer,
+                accountID: metadata.accountID,
+            )
         }
 
         return ResolvedTelegramNotification(

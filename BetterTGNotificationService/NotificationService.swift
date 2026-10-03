@@ -50,8 +50,9 @@ final class NotificationService: UNNotificationServiceExtension {
                     RichNotificationDiagnostics.record("tdlib_lock_acquired")
                     if let token = metadata.notificationPayloadToken,
                        let state = try TelegramAccountRegistry().loadExisting(),
-                       let account = state.accounts.first(where: { $0.userID == metadata.accountID })
-                       ?? state.accounts.first(where: { $0.id == state.activeAccountID })
+                       let account = state.accounts.first(where: {
+                           RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: $0.userID)
+                       })
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
                         logger.log("rich_notification.payload_fetched")
@@ -117,7 +118,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard metadata.isQuickReplyCandidate,
               let state = try? TelegramAccountRegistry().loadExisting(),
               let activeAccount = state.accounts.first(where: { $0.id == state.activeAccountID }),
-              metadata.accountID == nil || metadata.accountID == activeAccount.userID
+              RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: activeAccount.userID)
         else { return false }
         return true
     }
@@ -130,7 +131,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard metadata.expectsMedia, let reference = metadata.messageReference else { return fallback }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if let url = RichNotificationCache.mediaURL(for: reference),
+            if let url = RichNotificationCache.mediaURL(for: reference, accountID: metadata.accountID),
                let data = try? Data(contentsOf: url)
             {
                 logger.log("rich_notification.media_resolved source=shared_cache")
