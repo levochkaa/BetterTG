@@ -81,6 +81,40 @@ import UIKit
         }
     }
 
+    @MainActor private final class ForumReceiptRows {
+        let rows: NativeRows
+        let transport = ChatForumTopicReadsProbe.Transport(chatID: 100)
+        lazy var reader = transport.reader { [weak self] id in self?.refresh(topicID: id) }
+
+        init(rows: NativeRows) { self.rows = rows }
+
+        func refresh(topicID: Int? = nil) {
+            for message in rows.messages {
+                let raw = message.deliverySourceMessage
+                if let topicID, raw.topicId != .messageTopicForum(.init(forumTopicId: topicID)) { continue }
+                let projection = reader.receipt(for: raw)
+                message.updateDeliveryState(
+                    permitsFinalStatus: projection.permitsFinalStatus,
+                    readOutbox: projection.readOutbox,
+                    topic: projection.topic,
+                )
+            }
+        }
+
+        func install(_ messages: [CustomMessage]) {
+            rows.messages = messages
+            reader.synchronize(ChatForumTopicReads.demandedIDs(
+                chatID: 100, messages: messages.flatMap(\.sourceMessages), composerTopics: [],
+            ))
+            refresh()
+            rows.apply()
+        }
+
+        func stop() { reader.retire()
+        transport.clear()
+        }
+    }
+
     private static var failure: MessageSendingState {
         .messageSendingStateFailed(.init(
             canRetry: true,
@@ -108,7 +142,8 @@ import UIKit
                     + "actual-MessageCell/text-footer/media-overlay/spoken-state=true; "
                     + "native-stable-ID-owner-replacement/queued-old-owner/batched-receipt/offset=true; "
                     + "explicit-forum/raw-topic/revision/echo-dedup/late-draft/targeted-cell=true; "
-                    + "all-messages-forum/final-self/whole-ChatVM/live-peer-read=unverified; RPC/sends=0"
+                    + "all-messages-forum/shared-reader/canonical-topic/targeted-cell/seed-reset=true; "
+                    + "final-self/whole-ChatVM/live-peer-read=unverified; RPC/sends=0"
             } catch { result = "Message delivery probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -632,6 +667,131 @@ import UIKit
             "explicit-topic update reconfigured or marked a foreign/unknown topic, or moved viewport",
         )
         topicSubscriptions.forEach { $0.cancel() }
+        try await verifyAllMessagesForumCells(rows)
+    }
+
+    private static func verifyAllMessagesForumCells(_ rows: NativeRows) async throws {
+        let owner = ForumReceiptRows(rows: rows)
+        defer { owner.stop() }
+        let firstTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 11))
+        let secondTopic = MessageTopic.messageTopicForum(.init(forumTopicId: 12))
+        let oldest = fixture(id: 10, album: 4, topic: firstTopic)
+        let newest = fixture(id: 12, album: 4, topic: secondTopic)
+        let album = CustomMessage(message: newest, album: [newest, oldest], properties: .default)
+        let second = CustomMessage(message: fixture(id: 20, topic: secondTopic), properties: .default)
+        let unknown = CustomMessage(message: fixture(id: 30), properties: .default)
+        let before = rows.completed
+        owner.install([album, second, unknown])
+        try await until("all-forum rows and shared reads") {
+            rows.completed == before + 1 && owner.transport.calls.count == 2
+        }
+        await events()
+        rows.collection.layoutIfNeeded()
+        let offset = rows.collection.contentOffset
+        let original = rows.collection.cellForItem(at: .init(item: 0, section: 0))
+        try require(
+            original != nil && album.deliveryState == .delivered && second.deliveryState == .delivered
+                    && unknown.deliveryState == .none,
+            "unknown watermark or raw topic guessed read authority",
+        )
+
+        var invalidations = ChatMessageRenderInvalidations()
+        var changedIDs = [DisplayedMessageID]()
+        let subscriptions = rows.messages.map { message in
+            message.objectWillChange.receive(on: DispatchQueue.main).sink { [weak owner] in
+                guard let owner, invalidations.enqueue(message, owner: owner) else { return }
+                DispatchQueue.main.async { [weak owner] in
+                    guard let owner else { return }
+                    changedIDs = invalidations.drain(current: owner.rows.messages, owner: owner)
+                    if !changedIDs.isEmpty { owner.rows.reconfigure(changedIDs) }
+                }
+            }
+        }
+        defer { subscriptions.forEach { $0.cancel() } }
+        owner.reader.receive(forumUpdate(id: 11, outbox: 10), source: owner.transport.source)
+        owner.reader.receive(forumUpdate(id: 12, outbox: 5), source: owner.transport.source)
+        try await until("independent topic MessageCells") { rows.completed == before + 2 }
+        await events()
+        try require(
+            changedIDs == [album.displayedID] && album.deliveryState == .read && second.deliveryState == .delivered
+                    && owner.transport.values.isEmpty && original === rows.collection.cellForItem(at: .init(
+                        item: 0,
+                        section: 0,
+                    ))
+                    && original?.accessibilityLabel?.contains("Read") == true && rows.collection
+                        .contentOffset == offset,
+            "canonical topic update crossed topic, replaced cell, or moved viewport",
+        )
+        let terminal = owner.reader.probeCompletedCount
+        try owner.transport.finish(owner.transport.pendingIndex(topicID: 11), forumTopic(id: 11, outbox: 0))
+        try owner.transport.finish(owner.transport.pendingIndex(topicID: 12), nil)
+        try await until("late/failing forum baselines") { owner.reader.probeCompletedCount == terminal + 2 }
+        try require(
+            album.deliveryState == .read && second.deliveryState == .delivered && owner.transport.calls.count == 2,
+            "metadata baseline failure rewrote live receipts or started extra RPC",
+        )
+
+        // Replace the stable album wrapper before subscriptions can publish. The
+        // canonical source is now topic 12; the structural apply must repaint it.
+        let replacement = CustomMessage(message: newest, album: [newest], properties: .default)
+        owner.install([replacement, second, unknown])
+        try await until("canonical promotion same-ID owner") { rows.completed == before + 3 }
+        await events()
+        try require(
+            replacement.displayedID == album.displayedID && replacement.deliveryState == .delivered
+                    && original === rows.collection.cellForItem(at: .init(item: 0, section: 0))
+                    && original?.accessibilityLabel?.contains("Delivered") == true,
+            "same-ID canonical promotion retained removed topic Read",
+        )
+        album.updateDeliveryState(permitsFinalStatus: true, readOutbox: nil, topic: firstTopic)
+        await events()
+        try require(
+            replacement.deliveryState == .delivered && rows.completed == before + 3,
+            "queued removed wrapper reconfigured the current stable-ID owner",
+        )
+        owner.reader.receive(forumUpdate(id: 11, outbox: .max), source: owner.transport.source)
+        try require(
+            replacement.deliveryState == .delivered && !owner.reader.probeDemandIDs.contains(11),
+            "pruned old canonical topic affected replacement",
+        )
+        replacement.message = fixture(
+            id: -1,
+            album: 4,
+            state: .messageSendingStatePending(.init(sendingId: 3)),
+            topic: secondTopic,
+        )
+        replacement.album = [replacement.message]
+        owner.refresh()
+        try require(replacement.deliveryState == .sending, "temporary album compared against topic watermark")
+        replacement.message = fixture(id: -1, album: 4, state: failure, topic: secondTopic)
+        replacement.album = [replacement.message]
+        owner.refresh()
+        try require(replacement.deliveryState == .failed, "raw album failure hidden")
+        replacement.message = fixture(id: 4, album: 4, topic: secondTopic)
+        replacement.album = [replacement.message]
+        owner.refresh()
+        try require(replacement.deliveryState == .read, "final alias did not acquire exact current-topic watermark")
+        let seed = ChatHistoryMessageValue(replacement).makeMessage()
+        let newTransport = ChatForumTopicReadsProbe.Transport(chatID: 100)
+        let newReader = newTransport.reader()
+        defer { newReader.retire()
+        newTransport.clear()
+        }
+        try require(seed.deliveryState == .none, "restoration carried derived Read")
+        newReader.synchronize([12])
+        let projection = newReader.receipt(for: seed.deliverySourceMessage)
+        seed.updateDeliveryState(
+            permitsFinalStatus: projection.permitsFinalStatus,
+            readOutbox: projection.readOutbox,
+            topic: projection.topic,
+        )
+        try require(seed.deliveryState == .delivered, "fresh source inferred Read from seed")
+        owner.reader.retire()
+        try require(
+            replacement.deliveryState == .none && second.deliveryState == .none,
+            "retirement kept old-source final receipt status",
+        )
+        await events()
     }
 
     private static func draft(_ text: String?) -> DraftMessage? {
