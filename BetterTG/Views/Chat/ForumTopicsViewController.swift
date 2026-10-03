@@ -33,6 +33,7 @@ import UIKit
     var probeRetired: Bool { retired }
     var probePrepared: Bool { preparedClient != nil }
     private(set) var probeSearchDismissals = 0
+    var probePreparationTask: Task<Void, Never>? { preparationTask }
     var probeActor: Int64? { actorID }
     var probePages: ForumTopicsRestorationState { restorationState().pages }
     func probeRetryEvent() { retryClientRestoration() }
