@@ -119,6 +119,7 @@ import UIKit
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
         didSet {
+            refreshDeliveryStates()
             messagesDidChange.send()
             refreshAllMessagesForumTopicsIfNeeded()
         }
@@ -129,6 +130,8 @@ import UIKit
     @Published private var pendingVoiceDraftIsFinalizing = false
 
     private let chatOpenLease: ChatOpenLease
+    private var deliveryReceipts: ChatDeliveryReceiptState
+    private var deliveryReadTask: Task<Void, Never>?
     private var currentChatPermissions: ChatPermissions
 
     private var voiceRecordingTimerBaseline = 0.0
@@ -492,6 +495,15 @@ import UIKit
         return formatVoiceDuration(range.upperBound - range.lowerBound)
     }
 
+    private var usesOrdinaryDeliveryReceipts: Bool {
+        guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
+        if case .chatTypeSupergroup(let type) = customChat.chat.type {
+            guard let group = customChat.supergroup, group.id == type.supergroupId else { return false }
+            return !type.isChannel && !group.isForum && !group.isDirectMessagesGroup && !group.isChannel
+        }
+        return customChat.supergroup == nil
+    }
+
     private var pendingVideoRetryStatusMessage: String? {
         guard let failed = pendingVideoNote?.failedSendState else { return nil }
         if failed.requiredPaidMessageStarCount > 0 {
@@ -573,6 +585,7 @@ import UIKit
     }
 
     deinit {
+        deliveryReadTask?.cancel()
         log("deinit \(chatID)")
         loadingMessagesTask?.cancel()
         messageRefreshTask?.cancel()
@@ -634,6 +647,7 @@ import UIKit
         self.chatID = resolvedLocation.chatID
         self.accountID = resolvedLocation.accountID
         self.location = resolvedLocation
+        self.deliveryReceipts = ChatDeliveryReceiptState(location: resolvedLocation)
         self.client = client
         self.chatOpenLease = ChatOpenLeaseCoordinator.shared.acquire(
             location: resolvedLocation,
@@ -670,6 +684,8 @@ import UIKit
         configureMessageRefresh(seedIDs: history?.sourceMessageIDs ?? [], visibleIDs: visibleMessageIDs)
 
         setPublishers()
+        loadDeliveryReceiptIfNeeded()
+        refreshDeliveryStates()
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadMessages()
@@ -813,6 +829,55 @@ import UIKit
         }
     }
 
+    func refreshDeliveryStates() {
+        let current = locationContextIsCurrent
+            && deliveryReceipts.permits(TDLib.shared.activeUpdateSource, location: location)
+        for message in messages {
+            message.updateDeliveryState(
+                permitsFinalStatus: usesOrdinaryDeliveryReceipts && current,
+                readOutbox: current ? deliveryReceipts.lastReadOutbox : nil,
+            )
+        }
+    }
+
+    func receiveDeliveryReceipt(_ update: UpdateChatReadOutbox, authority: ChatUpdateDeliveryAuthority) {
+        guard usesOrdinaryDeliveryReceipts, locationContextIsCurrent,
+              deliveryReceipts.receive(update, source: authority.source, location: authority.location) else { return }
+        refreshDeliveryStates()
+    }
+
+    func loadDeliveryReceiptIfNeeded() {
+        guard usesOrdinaryDeliveryReceipts, locationContextIsCurrent, deliveryReadTask == nil,
+              deliveryReceipts.lastReadOutbox == nil,
+              let read = deliveryReceipts.beginRead(source: TDLib.shared.activeUpdateSource, location: location)
+        else { return }
+        let client = client
+        let location = location
+        deliveryReadTask = Task { [weak self] in
+            defer { self?.deliveryReadTask = nil }
+            guard !Task.isCancelled, self?.locationContextIsCurrent == true else { return }
+            let chat = try? await client.getChat(chatId: location.chatID)
+            guard let self, !Task.isCancelled, locationContextIsCurrent else { return }
+            if deliveryReceipts.finishRead(
+                read,
+                value: chat?.id == location.chatID
+                    ? chat?.lastReadOutboxMessageId
+                    : nil,
+                source: TDLib.shared.activeUpdateSource,
+                location: location,
+            ) {
+                refreshDeliveryStates()
+            }
+        }
+    }
+
+    func retireDeliveryReceipts() {
+        deliveryReadTask?.cancel()
+        deliveryReadTask = nil
+        deliveryReceipts.retire()
+        refreshDeliveryStates()
+    }
+
     /// Foundation only: the controller must also fence navigation and local
     /// picker/recorder work before committing. No route opts into this yet.
     func prepareComposerRestoration() -> ChatComposerRestorationTransfer? {
@@ -827,6 +892,7 @@ import UIKit
             composerEditState.changeSession()
             composerRevision &+= 1
             cancellables.removeAll()
+            retireDeliveryReceipts()
             voiceRecordingPreviewCancellables.removeAll()
             stopVoiceRecordingPreviewPlayback()
             loadingMessagesTask?.cancel()

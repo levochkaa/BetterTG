@@ -6,9 +6,21 @@ import TDLibKitDynamic
 
 extension ChatVM {
     func setPublishers() {
+        // Install the receipt listener before issuing the current-client baseline read.
+        observeCurrentUpdate(.updateChatReadOutbox) { [weak self] update, authority in
+            self?.receiveDeliveryReceipt(update, authority: authority)
+        }
+        TDLib.shared
+            .activeClientChanges
+            .sink { [weak self] source in
+                guard let self, !source.matches(location) else { return }
+                retireDeliveryReceipts()
+            }
+            .store(in: &cancellables)
         observeCurrentUpdate(.updateConnectionState) { [weak self] update, _ in
             guard case .connectionStateReady = update.state else { return }
             self?.retryMessageRefresh()
+            self?.loadDeliveryReceiptIfNeeded()
         }
         observeCurrentUpdate(.updateChatReadInbox) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
@@ -110,6 +122,7 @@ extension ChatVM {
                   update.supergroup.id == customChat.supergroup?.id
             else { return }
             customChat.type = .supergroup(update.supergroup)
+            refreshDeliveryStates()
             objectWillChange.send()
         }
         observeCurrentUpdate(.updateForumTopicInfo) { [weak self] update, _ in

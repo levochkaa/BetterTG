@@ -512,8 +512,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let displayedFormattedText = structuredContentView.handlesAlbumCaptions ? nil : message.formattedText
 
         let timestamp = Self.timeFormatter.string(from: message.date)
-        let timestampText = message.sendFailed ? "Failed • \(timestamp)" : timestamp
-        let timestampColor: UIColor = message.sendFailed ? .systemRed : .secondaryLabel
+        let delivery = message.deliveryState
+        let timestampText = [timestamp, delivery.symbol].filter { !$0.isEmpty }.joined(separator: " ")
+        let timestampColor: UIColor = delivery == .failed ? .systemRed : .secondaryLabel
         if let formatted = displayedFormattedText {
             textView.isHidden = false
             textView.configure(
@@ -545,7 +546,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timestampLabel.text = timestampText
         timestampLabel.textColor = timestampColor
         mediaTimestampLabel.text = timestampText
-        mediaTimestampLabel.textColor = message.sendFailed ? .systemRed : .white
+        mediaTimestampLabel.textColor = delivery == .failed ? .systemRed : .white
         let hasVisualMedia = hasMedia && message.hasVisualMedia
         timestampLabel.isHidden = displayedFormattedText != nil || hasVisualMedia || presentation.isService
         mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || presentation.isService
@@ -573,7 +574,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             message.forwardPresentation?.accessibilityDescription,
             message.replyPresentation?.accessibilityDescription,
         ]
-        let suffix = [hasReactions ? reactionAccessibilityDescription(visibleReactions) : nil, timestampLabel.text]
+        let suffix = [
+            hasReactions ? reactionAccessibilityDescription(visibleReactions) : nil,
+            timestamp,
+            delivery.spoken,
+        ]
         var metadataAccessibilityActions = [UIAccessibilityCustomAction]()
         for (index, source) in message.sourceMessages.enumerated()
             where !MediaRevealPermit.allows(source, permit: mediaRevealSession?.permit(for: source))

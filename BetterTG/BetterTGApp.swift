@@ -23,6 +23,7 @@ import UIKit
             ChatClientRestorationProbe.runDebugProbeIfRequested()
             ChatViewportRestorationProbe.runDebugProbeIfRequested()
             MessageTextSpoilerProbe.runDebugProbeIfRequested()
+            MessageDeliveryProbe.runIfRequested()
             ChatUpdateDeliveryProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
             FolderFlowSessionProbe.runDebugProbeIfRequested()

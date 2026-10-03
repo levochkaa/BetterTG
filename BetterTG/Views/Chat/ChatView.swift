@@ -110,6 +110,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var dataSource: UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>!
     private var cancellables = Set<AnyCancellable>()
     private var messageCancellables = Set<AnyCancellable>()
+    private var messageRenderOwners = ChatMessageRenderOwners()
+    private var messageRenderInvalidations = ChatMessageRenderInvalidations()
     private var prefetchTasks = [DisplayedMessageID: PrefetchTaskEntry]()
     private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
@@ -1644,11 +1646,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         for message in chatVM.messages {
             message.objectWillChange
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, messageID = message.id] in
+                .sink { [weak self, weak message, weak model = chatVM] in
+                    guard let self, let message, let model,
+                          messageRenderInvalidations.enqueue(message, owner: model) else { return }
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
+                        let model = chatVM
+                        let ids = messageRenderInvalidations.drain(current: model.messages, owner: model)
+                        guard !ids.isEmpty, !clientOwnerRetired, model.locationContextIsCurrent else { return }
                         mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
-                        reconfigureMessage(id: messageID)
+                        reconfigureMessages(ids: ids)
                     }
                 }
                 .store(in: &messageCancellables)
@@ -1779,6 +1786,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         snapshot.reconfigureItems(headerIDs)
+        let changedOwners = messageRenderOwners.replace(chatVM.messages)
+        snapshot.reconfigureItems(itemIDs.filter { item in
+            item.displayedMessageID.map(changedOwners.contains) == true
+        })
         timelineLayoutMutationDepth += 1
         recordMessageNavigationGeometry("snapshot-before")
         #if DEBUG

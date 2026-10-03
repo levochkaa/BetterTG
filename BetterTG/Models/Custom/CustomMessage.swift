@@ -19,6 +19,7 @@ import TDLibKitDynamic
     @Published var unreadReactions: [UnreadReaction]
     @Published var reactionMutationInFlight = false
     @Published var isPinned: Bool
+    @Published private(set) var deliveryState = MessageDeliveryState.none
 
     var isReplyQuoteExpanded = false
 
@@ -29,6 +30,12 @@ import TDLibKitDynamic
 
     var date: Foundation.Date {
         Foundation.Date(timeIntervalSince1970: TimeInterval(message.date))
+    }
+
+    /// Telegram's grouped status follows its first chronological member, not
+    /// BetterTG's newest-first display representative. IDs only break date ties.
+    var deliverySourceMessage: Message {
+        sourceMessages.min { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date } ?? message
     }
 
     init(
@@ -55,5 +62,11 @@ import TDLibKitDynamic
         self.reactions = reactions ?? message.interactionInfo?.reactions
         self.unreadReactions = unreadReactions ?? message.unreadReactions
         self.isPinned = isPinned ?? message.isPinned
+    }
+
+    func updateDeliveryState(permitsFinalStatus: Bool, readOutbox: Int64?) {
+        let source = deliverySourceMessage
+        let next = MessageDeliveryState.resolve(source, permitsFinalStatus: permitsFinalStatus, readOutbox: readOutbox)
+        if deliveryState != next { deliveryState = next }
     }
 }
