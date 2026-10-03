@@ -4,7 +4,7 @@ import TDLibKitDynamic
 
 /// Exact in-process rendering state. Unlike a history seed, this retains derived
 /// delivery and in-flight flags. It grants no client, route, or action authority.
-struct ChatMessageRenderValue {
+struct ChatMessageRenderValue: Equatable {
     let message: Message
     let senderUser: User?
     let replyPresentation: MessageReplyPresentation?

@@ -207,6 +207,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     var onSelfSizingHeightChange: (() -> Void)?
 
     private(set) var actionBindingID: UUID?
+    private(set) var timelineRowID: UUID?
+    private(set) var timelineDisplayedID: DisplayedMessageID?
     #if DEBUG
         private(set) var probeMediaAction: (([Message], Int64) -> Void)?
     #endif
@@ -323,6 +325,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     /// UIKit can reconfigure the current cell without calling prepareForReuse.
     func resetUnavailableContent() {
         actionBindingID = nil
+        timelineRowID = nil
+        timelineDisplayedID = nil
         selectionTouchBindingID = nil
         swipeReplyBindingID = nil
         #if DEBUG
@@ -468,7 +472,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onContentAction: @escaping (MessageContentAction) -> Void,
         onMediaTap: @escaping ([Message], Int64) -> Void,
         actionBindingID: UUID = UUID(),
+        timelineRowID: UUID? = nil,
+        showsProfileImage: Bool? = nil,
     ) {
+        self.timelineRowID = timelineRowID
+        timelineDisplayedID = message.displayedID
+        let showsProfileImage = showsProfileImage ?? chat.shouldShowProfileImage
         selectionTouchBindingID = nil
         self.actionBindingID = actionBindingID
         alpha = 1
