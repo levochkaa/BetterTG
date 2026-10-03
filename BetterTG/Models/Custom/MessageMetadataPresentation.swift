@@ -120,7 +120,7 @@ enum MessageReplyInputBuilder {
 
 // MARK: - MessageMetadataAvatar
 
-struct MessageMetadataAvatar {
+struct MessageMetadataAvatar: Equatable {
     let file: File?
     let initials: String
     let minithumbnailData: Data?
@@ -128,7 +128,7 @@ struct MessageMetadataAvatar {
 
 // MARK: - MessageReplyThumbnail
 
-struct MessageReplyThumbnail {
+struct MessageReplyThumbnail: Equatable {
     let file: File
     let isRound: Bool
     let minithumbnailData: Data?
@@ -197,7 +197,7 @@ enum MessageReplyAvailability: Equatable {
 
 // MARK: - MessageReplyPresentation
 
-struct MessageReplyPresentation {
+struct MessageReplyPresentation: Equatable {
     let availability: MessageReplyAvailability
     let body: FormattedText
     let navigationTarget: MessageMetadataNavigationTarget?
@@ -273,7 +273,7 @@ extension MessageReplyPresentation {
 
 // MARK: - MessageForwardPresentation
 
-struct MessageForwardPresentation {
+struct MessageForwardPresentation: Equatable {
     let avatar: MessageMetadataAvatar?
     let headline: String
     let navigationTarget: MessageMetadataNavigationTarget?

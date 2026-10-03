@@ -151,6 +151,7 @@ import UIKit
 
     static func runIfRequested() {
         ChatForumTopicReadsProbe.runIfRequested()
+        ChatTimelineSnapshotProbe.runIfRequested()
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-delivery") else { return }
         Task { @MainActor in
             let result: String

@@ -7,6 +7,8 @@ import Foundation
 struct ChatViewportRestorationAuthority {
     struct Ticket: Equatable { fileprivate let id = UUID() }
 
+    private(set) var invalidationRevision = UInt64.zero
+
     private var current: Ticket?
 
     /// A pending explicit target can retry when the final geometry owner leaves.
@@ -22,7 +24,10 @@ struct ChatViewportRestorationAuthority {
         return ticket
     }
 
-    mutating func invalidate() { current = nil }
+    mutating func invalidate() {
+        current = nil
+        invalidationRevision &+= 1
+    }
 
     mutating func consume(_ ticket: Ticket, contextIsCurrent: Bool, userIsScrolling: Bool) -> Bool {
         guard current == ticket else { return false }

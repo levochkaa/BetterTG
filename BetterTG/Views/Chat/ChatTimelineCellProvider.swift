@@ -9,6 +9,7 @@ import UIKit
         from collection: UICollectionView,
         at indexPath: IndexPath,
         reuseIdentifier: String,
+        preserve: (Cell) -> Bool = { _ in false },
         configure: (Cell) -> Bool,
         unavailable: (Cell) -> Void,
     ) -> UICollectionViewCell {
@@ -17,6 +18,7 @@ import UIKit
             makeInert(dequeued)
             return dequeued
         }
+        if preserve(cell) { return cell }
         if configure(cell) {
             cell.contentView.isHidden = false
             cell.accessibilityElementsHidden = false
