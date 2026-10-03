@@ -12,6 +12,27 @@ import UIKit
 
     var onToggle: ((ForumTopic, Bool) -> Void)?
 
+    #if DEBUG
+    var probeReadPage: ((String, ForumTopicPageCursor) async throws -> ForumTopics)?
+    var probeCurrentContext: (() -> Bool)?
+    var probeInitialRights: Bool?
+    var probeSnapshotCompletion: ((@escaping () -> Void) -> Void)?
+    var probeError: ((String) -> Void)?
+    var probeOmitCellModel = false
+    private(set) var probeSnapshotStarts = 0
+    var probeTable: UITableView { tableView }
+    var probeSnapshotBusy: Bool { snapshotState.isApplying || snapshotState.hasPending }
+    var probeIDs: [Int] { snapshotState.displayedIDs }
+    var probeCursor: ForumTopicPageCursor { cursor }
+    var probeLoading: Bool { loading }
+    var probeTask: Task<Void, Never>? { loadTask }
+    func probeTopic(_ id: Int) -> ForumTopic? { snapshotState.topic(id: id) }
+    func probeSearch(_ text: String) { searchBar(searchBar, textDidChange: text) }
+    func probeLoadMore() { load(reset: false) }
+    func probeSelect(_ row: Int) { tableView(tableView, didSelectRowAt: IndexPath(row: row, section: 0)) }
+    func probeReconfigure() { applySnapshot() }
+    #endif
+
     private let chat: Chat
     private let preparedForward: PreparedMessageForward
     private let client: TDLibClient
@@ -25,6 +46,7 @@ import UIKit
     private let titleLabel = UILabel()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
+    private var snapshotState = ForumTopicsSnapshotState()
     private var topics = [ForumTopic]()
     private var selectedTopicIDs: Set<Int>
     private var allowedTopicIDs = Set<Int>()
@@ -35,11 +57,17 @@ import UIKit
     private var hasMore = true
     private var loading = false
     private var query = ""
+    private var acceptedQuery: String?
     private var canManageTopics = false
     private var rightsResolved = false
+    private var retired = false
 
     private var contextIsCurrent: Bool {
-        TDLib.shared.activeAccountID == accountID
+        guard !retired else { return false }
+        #if DEBUG
+        if let probeCurrentContext { return probeCurrentContext() }
+        #endif
+        return TDLib.shared.activeAccountID == accountID
             && TDLib.shared.activeClient.id == client.id
     }
 
@@ -80,6 +108,18 @@ import UIKit
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        guard parent == nil else { return }
+        retired = true
+        generation &+= 1
+        loadTask?.cancel()
+        loadTask = nil
+        loading = false
+        // UIKit may still ask for an outgoing row until its exact apply completes.
+        if !snapshotState.isApplying { snapshotState.retire() }
+    }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + 50
@@ -101,9 +141,10 @@ import UIKit
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let topicID = dataSource.itemIdentifier(for: indexPath),
+        guard contextIsCurrent, snapshotState.canSelect, acceptedQuery == query,
+              let topicID = dataSource.itemIdentifier(for: indexPath),
               allowedTopicIDs.contains(topicID),
-              let topic = topics.first(where: { $0.info.forumTopicId == topicID })
+              let topic = snapshotState.topic(id: topicID)
         else { return }
         let selected = !selectedTopicIDs.contains(topicID)
         if selected {
@@ -112,13 +153,13 @@ import UIKit
             selectedTopicIDs.remove(topicID)
         }
         onToggle?(topic, selected)
-        var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems([topicID])
-        dataSource.apply(snapshot, animatingDifferences: false)
+        applySnapshot()
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if indexPath.row >= max(0, topics.count - 5) {
+        if contextIsCurrent, snapshotState.canSelect,
+           indexPath.row >= max(0, snapshotState.displayedIDs.count - 5)
+        {
             load(reset: false)
         }
     }
@@ -203,16 +244,16 @@ import UIKit
         dataSource = UITableViewDiffableDataSource<Section, Int>(
             tableView: tableView,
         ) { [weak self] tableView, indexPath, topicID in
-            guard let self,
-                  let cell = tableView.dequeueReusableCell(
-                      withIdentifier: ForumTopicCell.reuseID,
-                      for: indexPath,
-                  ) as? ForumTopicCell,
-                  let topic = topics.first(where: { $0.info.forumTopicId == topicID })
-            else { return UITableViewCell() }
-            let allowed = allowedTopicIDs.contains(topicID)
-            let selected = selectedTopicIDs.contains(topicID)
-            cell.configure(topic: topic, client: client)
+            var topic = self?.snapshotState.topic(id: topicID)
+            #if DEBUG
+            if self?.probeOmitCellModel == true { topic = nil }
+            #endif
+            let cell = ForumTopicCell.dequeue(
+                from: tableView, at: indexPath, topic: topic, client: self?.snapshotState.client(id: topicID),
+            )
+            // Decoration uses the same transaction-owned model as the cell contents.
+            let allowed = topic.map { self?.canPost(to: $0) == true } ?? false
+            let selected = topic != nil && self?.selectedTopicIDs.contains(topicID) == true
             cell.accessoryType = selected ? .checkmark : .none
             cell.tintColor = .systemBlue
             cell.contentView.alpha = allowed ? 1 : 0.48
@@ -225,6 +266,14 @@ import UIKit
     }
 
     private func resolveRightsAndLoad() {
+        #if DEBUG
+        if let probeInitialRights {
+            canManageTopics = probeInitialRights
+            rightsResolved = true
+            load(reset: true)
+            return
+        }
+        #endif
         loadTask = Task { [weak self] in
             guard let self else { return }
             guard case .chatTypeSupergroup(let type) = chat.type,
@@ -272,31 +321,21 @@ import UIKit
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let page = try await client.getForumTopics(
-                    chatId: chat.id,
-                    limit: 50,
-                    offsetDate: requestedCursor.date,
-                    offsetForumTopicId: requestedCursor.forumTopicID,
-                    offsetMessageId: requestedCursor.messageID,
-                    query: currentQuery,
-                )
+                let page = try await readPage(query: currentQuery, cursor: requestedCursor)
                 guard !Task.isCancelled,
                       currentGeneration == generation,
                       currentQuery == query,
                       contextIsCurrent
                 else { return }
                 topics = ForumTopicPageState.merging(
-                    existing: reset ? [] : topics,
+                    // A failed reset can be retried through loadMore with reset=false.
+                    // A raw head always replaces the preceding query's accepted rows.
+                    existing: requestedCursor == .zero || acceptedQuery != currentQuery ? [] : topics,
                     incoming: page.topics,
                 )
-                let chatEligibility = MessageForwardingService.localEligibility(
-                    of: chat,
-                    for: preparedForward,
-                )
+                acceptedQuery = currentQuery
                 allowedTopicIDs = Set(topics.compactMap { topic in
-                    let restricted = topic.info.isClosed || topic.info.isHidden
-                    let canPost = !restricted || topic.info.isOutgoing || self.canManageTopics
-                    return chatEligibility.isAllowed && canPost ? topic.info.forumTopicId : nil
+                    self.canPost(to: topic) ? topic.info.forumTopicId : nil
                 })
                 cursor = ForumTopicPageCursor(response: page)
                 hasMore = ForumTopicPageState.hasMore(
@@ -309,27 +348,77 @@ import UIKit
             } catch is CancellationError {
                 return
             } catch {
-                guard currentGeneration == generation else { return }
+                guard currentGeneration == generation, currentQuery == query, contextIsCurrent else { return }
                 requestedCursors.remove(requestedCursor)
                 loading = false
                 loadTask = nil
+                updateBackground()
                 showError("Topics couldn't be loaded.")
             }
         }
     }
 
+    private func readPage(query: String, cursor: ForumTopicPageCursor) async throws -> ForumTopics {
+        #if DEBUG
+        if let probeReadPage { return try await probeReadPage(query, cursor) }
+        #endif
+        return try await client.getForumTopics(
+            chatId: chat.id, limit: 50, offsetDate: cursor.date,
+            offsetForumTopicId: cursor.forumTopicID, offsetMessageId: cursor.messageID, query: query,
+        )
+    }
+
+    private func canPost(to topic: ForumTopic) -> Bool {
+        let restricted = topic.info.isClosed || topic.info.isHidden
+        return MessageForwardingService.localEligibility(of: chat, for: preparedForward).isAllowed
+            && (!restricted || topic.info.isOutgoing || canManageTopics)
+    }
+
     private func applySnapshot() {
+        guard !retired else { return }
+        snapshotState.enqueue(topics, client: client)
+        drainSnapshot()
+    }
+
+    private func drainSnapshot() {
+        guard !retired, let batch = snapshotState.begin() else { return }
+        #if DEBUG
+        probeSnapshotStarts += 1
+        #endif
         let previous = Set(dataSource.snapshot().itemIdentifiers)
-        let ids = topics.map(\.info.forumTopicId)
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int>()
         snapshot.appendSections([.topics])
-        snapshot.appendItems(ids)
-        let retained = ids.filter(previous.contains)
+        snapshot.appendItems(batch.ids)
+        let retained = batch.ids.filter(previous.contains)
         if !retained.isEmpty {
             snapshot.reconfigureItems(retained)
         }
-        dataSource.apply(snapshot, animatingDifferences: true)
+        dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
+            let finish: () -> Void = { [weak self] in self?.completeSnapshot(batch.token) }
+            #if DEBUG
+            if let hold = self?.probeSnapshotCompletion { hold(finish)
+                return
+            }
+            #endif
+            finish()
+        }
         updateBackground()
+    }
+
+    private func completeSnapshot(_ token: UUID) {
+        guard snapshotState.complete(token) else { return }
+        guard !retired else { snapshotState.retire()
+            return
+        }
+        if snapshotState.hasPending { drainSnapshot()
+            return
+        }
+        // willDisplay is ignored while UIKit owns a transaction. Resume pagination
+        // once the latest displayed rows settle, without a second scroll gesture.
+        if contextIsCurrent, view.window != nil, navigationController?.topViewController === self,
+           tableView.indexPathsForVisibleRows?.contains(where: {
+               $0.row >= max(0, snapshotState.displayedIDs.count - 5)
+           }) == true { load(reset: false) }
     }
 
     private func updateBackground() {
@@ -351,6 +440,12 @@ import UIKit
     }
 
     private func showError(_ message: String) {
+        guard !retired, contextIsCurrent else { return }
+        #if DEBUG
+        if let probeError { probeError(message)
+            return
+        }
+        #endif
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(title: "Forward", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
