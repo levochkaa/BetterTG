@@ -1961,6 +1961,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return
         }
         subscribeToMessages()
+        let wasSelectingMessages = isSelectingMessages
         if isSelectingMessages {
             let displayedIDs = Set(chatVM.messages.map(\.displayedID))
             selectedDisplayedMessageIDs.formIntersection(displayedIDs)
@@ -1990,7 +1991,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         snapshot.reconfigureItems(headerIDs)
         let changedOwners = messageRenderOwners.replace(chatVM.messages)
         snapshot.reconfigureItems(itemIDs.filter { item in
-            item.displayedMessageID.map(changedOwners.contains) == true
+            guard let id = item.displayedMessageID else { return false }
+            return wasSelectingMessages && !isSelectingMessages || changedOwners.contains(id)
         })
         timelineLayoutMutationDepth += 1
         recordMessageNavigationGeometry("snapshot-before")
@@ -3651,7 +3653,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         selectionCapabilityTask?.cancel()
         selectionCapabilityTask = nil
         selectionCapabilityGeneration = nil
-        let previouslySelected = selectedDisplayedMessageIDs
         isSelectingMessages = false
         selectedDisplayedMessageIDs.removeAll()
         messageContextGesture.isEnabled = presentationMode == .full
@@ -3675,7 +3676,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             view.setNeedsLayout()
         }
         if reconfigure {
-            reconfigureMessages(ids: Array(previouslySelected))
+            reconfigureMessages(ids: dataSource.snapshot().itemIdentifiers.compactMap(\.displayedMessageID))
         }
         updateScrollToLatestButtonVisibility(animated: false)
         view.setNeedsLayout()
