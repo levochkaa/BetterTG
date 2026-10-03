@@ -201,6 +201,8 @@ import UIKit
                 Task { @MainActor in await runDebugProbe(in: window) }
             } else if arguments.contains("-media-probe-vod-main-track") {
                 Task { @MainActor in await runMainTrackProbe(in: window) }
+            } else if arguments.contains("-media-probe-vod-partial-coverage") {
+                Task { @MainActor in await TDLibVODPartialCoverageProbe.run(in: window) }
             }
         }
     #endif
@@ -818,10 +820,18 @@ import UIKit
         guard isPrepared,
               !isClosed,
               failureSubject.value == nil,
-              metadataOperationGeneration == operationGeneration,
               let snapshot = latestSnapshot,
               snapshot.generation == rendererGeneration
         else { return }
+
+        guard metadataOperationGeneration == operationGeneration else {
+            // Initial lookahead may be waiting for an uncached seek range before
+            // the decoder can publish metadata. That wait is buffering too.
+            if isPlaybackRequested, isPlaybackVisible, decodeTask != nil {
+                requestBufferingTransition()
+            }
+            return
+        }
 
         let current = timeSubject.value
         let rawBufferedEnd = commonBufferedEnd(snapshot: snapshot)

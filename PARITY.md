@@ -135,7 +135,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A01 | P1 | `TDLibVODRangeSource.waitForSignal/timeoutWaiter`: canceled sleep still invokes timeout; a repeated wait reuses read ID and seek generation, allowing an old callback to consume its replacement | fixed in `37c8b44`: per-registration token, cancellation return; obsolete/current-deadline probe passed |
 | A02 | P1 | `ensureAvailable` can receive `updateFile` while awaiting an older zero-prefix RPC result, then register after the only wakeup; bytes wait for timeout despite being cached | fixed in `37c8b44`: compare update sequence before registering at all three wait sites; suspended-prefix production-read regression passed |
 | A03 | P1 | `FFmpegSampleBufferRenderer.pause` publishes on every call; player snapshot delivery calls `updatePlaybackGate`, which pauses again in paused/buffering/EOF states | fixed in `3005369`: deduplicate complete identical snapshots while preserving every pause transport command; settled feedback, seek/rate/EOF/offline/retry probes passed |
-| A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | fixed by `83103ba`, `14a01c5`, `ef8f4ba` — explicit video-main end, estimated-versus-final duration authority and verified EOF/watchdog teardown; native and integrated decoder/controller probes pass, including under/overestimated metadata. Cold large-file partial-range proof remains separate |
+| A04 | P1 | Decoder/controller expose maximum A/V duration, but readiness always requires video; a 5s-video/60s-audio file accepts a 20s seek with no possible video frame and reaches watchdog failure | fixed by `83103ba`, `14a01c5`, `ef8f4ba` — explicit video-main end, estimated-versus-final duration authority and verified EOF/watchdog teardown. Follow-up below repairs missing-metadata buffering and proves native playback/seek with incomplete coverage of a 13.3 MB file; live server streaming and lookahead estimate authority remain separate |
 | A05 | P1 | TGS/WebP/FFmpeg animation views use global `nc.updateFile` plus numeric file ID and deferred dynamic `td`; account switch precedes root teardown. Custom-emoji fetch also resolves a dynamic client | fixed bounded source/transport — `128ada2` freezes requests and scopes delivery/decode; `6e5b287` requires originating clients through every animated consumer and custom-emoji fetch, clears reused thumbnails. Isolated transport/native/PiP regressions pass; real multi-account sticker playback unverified. A06 has its separate shared-demand repair |
 | A06 | P1 | Animation view teardown/prefetch calls global file cancellation without shared demand ownership; one reused copy can cancel another visible copy's pending download | fixed bounded animated demand — `09fa140` shares account/client/file leases across TGS/WebP/WebM views and animated prefetch; last-owner cancellation/reacquisition and queued terminal updates pass isolated production-pool probes. Static `.none` prefetch and VOD-range arbitration remain separate; actual TDLib/view scheduling is unverified |
 | A07 | P1 | `FFmpegAnimatedVideoView.show` constructs its decoder on MainActor; initializer opens/probes FFmpeg input and codecs synchronously, even on asset-cache hits | fixed in `3917128`: native-free init, worker-isolated prepare/read/reset/deinit and setup/reuse fences; actual native-operation thread/lifecycle probe passed before and after integration |
@@ -438,6 +438,42 @@ is imported. This source pass does not prove every content's real rendering/acti
   advance playback independently after the initial scan. Follow-up: reconcile lookahead duration authority and test >2 MiB media
   with unavailable/delayed tail ranges, seek beyond an estimate and explicit incomplete-byte-coverage assertions. Live Telegram
   streaming and active system PiP remain unverified; do not promote this bounded proof to global VOD parity.
+
+### A04 cold partial-file playback and pre-metadata buffering — 2026-10-03
+
+- Base `4f9b3d6`; reviewed `TDLibVODFFmpegSampleBufferPlayer`, range source/DEBUG transport and new
+  `TDLibVODPartialCoverageProbe`. Existing small-file proofs remain valid within their limits. A new native AVAssetWriter
+  fixture contains 24s of actual H.264 video (480×270/15fps), 13,324,774 bytes, not padding around a tiny clip. Generation and
+  hashing run off main with one pixel buffer at a time. TDLib availability is injected into the real range source/FFmpeg/player.
+- Confirmed P2: `updatePlaybackGate` returned before current decoder metadata existed. Initial lookahead can wait on missing
+  seek bytes before that metadata arrives, so `.preparing` never became `.buffering`. PID47925 reproduces
+  `preparing → failed`, no buffering, and the 12s no-video watchdog. The fixture deliberately withheld tail bytes until buffering;
+  this is evidence of the missing state transition, not evidence that delayed downloads always fail in production.
+- Repair is a guard split only: for a current prepared/open/error-free renderer, missing metadata schedules the existing
+  generation-fenced 300ms transition when playback is requested, visible and has a decode task. No decode/range/seek-completion
+  or renderer-readiness rule is relaxed. Pause/offscreen/seek/close cancellation is retained. Reference: current official
+  `6ad963e5` and pre-Liquid `8e7e5fef`, `MediaPlayer/Sources/ChunkMediaPlayerV2.swift:599–613,708–722`: unavailable/new direct
+  reader is buffering; display delay is 0.3s. TDLib remains pinned to `022d6020`; real transport contracts remain
+  `downloadFile(offset/limit)`, `getFileDownloadedPrefixSize`, `updateFile` and `cancelDownloadFile`.
+- Native PASS PID54595 at 04:40:26 +04, audit Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, iOS26.5:
+  display-ready playback reached 0.3468s with 5,852,379/13,324,774 cached bytes and the second half unavailable. Seek18s
+  requested `10206788..<12303940`, stayed buffering without completing, respected 400ms pause and 400ms offscreen intervals,
+  then made a new request on visibility return. Revealing the requested range plus a source update resumed display-ready playback
+  at 18.237s with 8,970,365 cached bytes, still incomplete. Six nonempty finite in-file requests, no full-download call, drained
+  transport/cancellation and temporary-file cleanup. Unique coverage is a union, not an overlapping-range sum.
+- Preserve failed fixture evidence: PID42870 first reproduced the missing transition without detailed failure logging;
+  PID47925 captured the watchdog/state sequence. After the guard fix, PID50903 passed buffering/resume but failed an incorrect
+  DEBUG `limit <= 2MiB` assertion: existing fetchPlan intentionally extends overlapping ranges. The corrected assertion checks
+  nonzero finite in-file bounds, with incomplete coverage checked independently. No production fetch policy was changed.
+- Existing FFmpeg controller/main-track regression PASS PID55178: pause/rate/offscreen/last-seek, persistent 10-window/one-open
+  session, EOF, offline/retry, explicit short-video end, under/overestimated duration and beyond-EOF clamp; zero renderer errors.
+  Real root list was visible after teardown (`after-controller.png`). No sends, account switch, reset, Simulator focus activation
+  or shutdown. Saved results: `.build/ui-probe-evidence/astra-a04-partial-coverage/`.
+- One three-file SwiftFormat invocation, wrapper build `build-Debug-20261003-043953-54182-14840.log` PASS6s; complete log has
+  zero warnings/errors. Independent read-only review accepted production guard, actual prefix-gated file reads, teardown and
+  proof limits. This proves injected availability with real native decoding/display readiness; not live TDLib/server delivery,
+  A/V sync for the large video-only fixture, physical hardware or active PiP. Reveal + update jointly precede recovery; this
+  does not isolate updateFile as the sole wakeup rather than timeout/refetch. Lookahead estimate authority remains open.
 
 ### Exact media-draft delivery and client streams — 2026-10-02
 
@@ -2122,7 +2158,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   The full A30 transaction
   spans too many ownership boundaries for one bounded slice. Continue A05–A10/A15 and A20–A23/A25/A32.
   Own A26 draft recovery/reinstall/discard is complete; keep its backups, do not restore it again.
-  A12 crash before registration retains unresolved ownership; do not guess an outcome. Retain A04's cold partial-range/lookahead proof gap.
+  A12 crash before registration retains unresolved ownership; do not guess an outcome. A04 cold partial-file native playback/seek
+  now passes with explicit incomplete coverage; retain live-server, large-file A/V and lookahead-estimate limits above.
   B01 needs a data-preserving TDLib investigation. Continue owner/PiP, complete MessageContent/actions, composer/timeline,
   profile/gallery and account/list/shell audit
   coverage. Retain completed range/renderer checks; do not restart source review unless code/dependencies change.

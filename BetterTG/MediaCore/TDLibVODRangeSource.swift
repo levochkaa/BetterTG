@@ -1562,6 +1562,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
         private let fileURL: URL
         private var autoFulfill = false
         private var downloadDelay: Duration?
+        private var automaticDownloadCeiling: Int64?
         private var reportsExactSize = true
         private var suspendCancel = false
         private var cachedRanges = [Range<Int64>]()
@@ -1592,6 +1593,20 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
             )
         }
 
+        var cachedByteCount: Int64 {
+            var count = Int64.zero
+            var cursor = Int64.zero
+            for range in cachedRanges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+                let lowerBound = max(cursor, range.lowerBound, 0)
+                let upperBound = min(fileSize, range.upperBound)
+                if upperBound > lowerBound {
+                    count += upperBound - lowerBound
+                    cursor = upperBound
+                }
+            }
+            return count
+        }
+
         init(fileURL: URL, fileSize: Int64, network: TDLibVODProbeNetwork) {
             self.fileURL = fileURL
             self.fileSize = fileSize
@@ -1608,6 +1623,10 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
 
         func setDownloadDelay(_ value: Duration?) {
             downloadDelay = value
+        }
+
+        func setAutomaticDownloadCeiling(_ value: Int64?) {
+            automaticDownloadCeiling = value
         }
 
         func setSuspendCancel(_ value: Bool) {
@@ -1678,7 +1697,10 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                 try? await Task<Never, Never>.sleep(for: downloadDelay)
             }
             if autoFulfill {
-                cachedRanges.append(range)
+                let upperBound = min(range.upperBound, automaticDownloadCeiling ?? fileSize)
+                if upperBound > range.lowerBound {
+                    cachedRanges.append(range.lowerBound..<upperBound)
+                }
             }
             return makeFile(
                 downloadOffset: range.lowerBound,
@@ -1738,9 +1760,7 @@ private final class TDLibVODNetworkMonitor: @unchecked Sendable {
                     canBeDownloaded: true,
                     downloadOffset: downloadOffset,
                     downloadedPrefixSize: downloadedPrefixSize,
-                    downloadedSize: cachedRanges.reduce(Int64.zero) {
-                        $0 + $1.upperBound - $1.lowerBound
-                    },
+                    downloadedSize: cachedByteCount,
                     isDownloadingActive: isActive,
                     isDownloadingCompleted: isCompleted,
                     path: fileURL.path,
