@@ -95,7 +95,9 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A39 native settlement failure diagnostics, then actual queued ChatView mutation/viewport coverage.
+Active queue: A39 controlled latest-animation-end ordering, then actual queued ChatView mutation/viewport coverage.
+Passive timing at `31e497a` identifies delayed native callbacks and wait resumptions, not expensive target resolution;
+the specific source of scheduling delay remains unverified. Keep the2s deadline and strict settlement predicates.
 `f799d29` integrates frozen rendering/serialized applies after value prerequisite `d8512b5`; exact reviewed worker tree
 `bac0ab6f`, primary build `151812-44934-6936` PASS23s/fullzero. Provider callback authority `eeb93b2`, selection touch
 binding `9961aba` and A49a fallback retain bounded native proof; physical touch across same-cell reconfiguration is unverified.
@@ -188,7 +190,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | unresolved intermittent — later focused baseline and actual delayed settled geometry are clean. Preserve the original failure; require a fresh measured reproduction before repair. Data/caret retention passes; root stack replacement/prompt updates remain unproven causes |
 | A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
-| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | bounded target repair `6a29431`/`982245f` has actual cold/loaded/foreground proof at `72d74b0`; native animated resize settlement now has intermittent failures, including standalone PID50146 at `f799d29`. Diagnostic follow-up is next; unchanged helper and earlier passing runs do not explain this failure. Live quote, album remap, user interruption and rotation remain separate proof limits |
+| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | bounded target repair `6a29431`/`982245f` has actual cold/loaded/foreground proof at `72d74b0`; intermittent native animated-resize deadlines remain open. `31e497a` timing measures delayed callback delivery/wait resumptions with sub-millisecond resolver/callback work; root scheduling cause unverified. Separate latest-end sample invalidation counterexample is next. Live quote, album remap, user interruption and rotation remain separate proof limits |
 | A40 | P1 | `6a29431` integration log contains an AppIntents metadata warning for the notification extension; both wrapper output paths concealed this warning | fixed — `eff2876` removes warning filters and unused extension import, skips its inapplicable AppIntents stage. Complete signed/unsigned/final-signed logs are warning-free after A41. Compact-only historical claims are not proof of zero warnings |
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
@@ -1869,6 +1871,40 @@ is imported. This source pass does not prove every content's real rendering/acti
 - References: pinned current/pre `ChatControllerNavigateToMessage.swift`342–422,474–507/333–360 distinguishes loaded target
   navigation from cancellable 50-message initial search and target/missing completion. Pinned TDLibKit `getChatHistory`,
   `getMessage`, captured ChatLocation and current history revision admission remain unchanged. No Telegram infrastructure copied.
+- Follow-up diagnostic `f8bcab3` (worker `fd1ae68`, reviewed tree `265e323d`) adds an opt-in192-event DEBUG value trace,
+  terminal deadline/budget reasons, geometry before consumer target clear and separate post-result outcome/visibility/quote.
+  No extra driver resolve/layout calls;2s watchdog,3s probe wait,0.75pt threshold, correction budget and predicates unchanged.
+  Worker format/build `155938-6424-25004` PASS14s/fullzero; primary joint format0/2/build `160215-12692-11186`
+  PASS11s/full1486-line log zero warnings/errors. Current reference `6ad963e5` and pre `8e7e5fe`,
+  `submodules/TelegramUI/Sources/Chat/ChatControllerNavigateToMessage.swift`342–380/333–365 rechecked read-only.
+- Audit59EB535C/iOS26.5 standalone run1 PID15417/container `BABBC350-720B-4207-8832-1DDA59F3166D`, report16:03:20 PASS;
+  run2 PID18301/container `D3CFE2EE-CACA-4105-B7D5-13427693DC49`, report16:04:15 PASS. Run3 PID22802/container
+  `BB7C17B1-AF0D-43A6-B547-E42A60414EE4`, report16:06:29 FAIL on unchanged source/product. Full content-free receipts are
+  preserved under `.build/ui-probe-evidence/astra-a39-diagnostics/{first,second,third-failure}.txt`; no UI gesture or server mutation.
+- Run3 identifies a deadline failure, not correction-budget rejection or a post-result-only oracle failure: commands `[true]`,
+  no corrections, target not intersecting/mounted/visible both before clear and after completion, residual304.5pt. Native ends
+  arrive0.342s and1.299s. First verifier observation0.591s sees offset4626.6667/target4258.5; second2.151s sees4563/4258.5,
+  stops checking and clears receivedEnd. Deadline fires2.156s. The second accepted end retained the old first observation.
+  End-reset is observed, but that frame was already after the2s budget: this does not prove it caused the timeout.
+- Timing follow-up `31e497a` (worker `b3c1d2c`, exact peer-reviewed tree `b1abbf3a`) adds callback entry/display-link timestamps,
+  timing around existing resolve calls and bounded aggregates from existing10ms wait resumptions. No extra timer, task,
+  resolver/layout call, deadline extension or predicate change. Joint format0/2; primary build `161829-36511-3066` PASS11s,
+  full1482-line log zero warnings/errors; worker `161246-31131-24056` PASS9s/fullzero.
+- Same Audit Simulator timing run1 PID37004/container `7CAE36F2-8631-458B-A80C-59907020F3CE`, report16:19:13 PASS;
+  run2 PID38384/container `261CC0A4-26C1-45F0-B685-AC69CF6AE3DF`, report16:20:15 FAIL. Native end0.343s; callback entries
+  1.2465/2.2683s with display timestamps0.5304/1.3458s: delivery delays0.716/0.922s. Callback durations0.118/0.295ms,
+  resolver spans0.054/0.027ms. Completion wait has20 resumptions/maxGap0.670s, including378/430/670/347ms gaps.
+  This establishes main-actor/run-loop scheduling delay in this run, not continuous thread blocking or its source.
+- Run2 reaches a mounted/visible target with0.167pt residual after correction at2.268s, but deadline2.316s precedes the next
+  two-frame recheck. Commands `[true,false]`; no end-reset or correction rejection. Thus earlier end-reset is not necessary
+  for this intermittent deadline. Full content-free reports: `.build/ui-probe-evidence/astra-a39-diagnostics/timing-{first,second}.txt`.
+  No actual ChatView navigation or server mutation is exercised by this isolated native fixture; no production timeout fix claimed.
+- Next bounded counterexample: hold only verifier delivery, accept genuine native end1 and one sample, inject a separately
+  labeled native offset animation, then accept genuine end2 before the next sample. Establish whether retained pre-end2
+  geometry loses the current checker. Keep natural animation/cancellation checks; a repair must retain stale-end protection,
+  exact visible/centered settlement, correction budget and deadline. This is separate from scheduling-delay diagnosis above.
+- Timing checkpoint build `162308-41757-22286` PASS8s; complete1385-line log zero warnings/errors. Production/dependency
+  prohibited-marker scan empty; AGENTS/CLAUDE identical; only this checkpoint document remained uncommitted before recording.
 - Documentation checkpoint `build-Debug-20261003-010725-3164-28383.log`: PASS5s, zero warnings. AGENTS/CLAUDE remain identical;
   prohibited production/dependency marker scan is empty. The reusable prompt also records background-only Simulator activation.
 
