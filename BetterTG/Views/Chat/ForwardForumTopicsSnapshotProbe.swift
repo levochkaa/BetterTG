@@ -120,12 +120,14 @@ import UIKit
             do {
                 try await verifyTransactions()
                 try await verifyQueryRetryAndSource()
+                try await verifyRetainedParent()
                 let teardown = try await verifyTeardown()
                 result = "Forward forum snapshot probe passed: production-controller/native-table/provider=true; "
                     + "serialized/coalesced/outgoing-models/exact-completion/selection-reconfigure=true; "
                     + "accepted-query/failed-head-retry/raw-cursor/stale-query-source/teardown=true; "
+                    + "initial-containment/synthetic-retained-parent-removal=true; "
                     + "same-instance/fallback-cleanup=true; read-only-injection/server-writes=0; "
-                    + "baseline-UIKit-crash/live-TDLib/real-forward-delivery=unverified; \(teardown)"
+                    + "baseline-UIKit-crash/live-TDLib/real-forward-delivery/interactive-pop-gesture=unverified; \(teardown)"
             } catch { result = "Forward forum snapshot probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -321,22 +323,54 @@ import UIKit
         try await until("teardown held completion") { f.reads.completions.count == 1 }
         c.probeSearch("pending")
         try await f.readCount(3)
+        try await f.finish(2, page([topic(3, "Queued")]))
+        c.probeSearch("late")
+        try await f.readCount(4)
         guard let task = c.probeTask else { throw Failure(description: "missing teardown task") }
         let starts = c.probeSnapshotStarts
         func state() -> String {
-            "retired=\(c.probeRetired), parent-nil=\(c.parent == nil), "
+            "retired=\(c.probeRetired), owner=\(c.probeContextIsCurrent), contained=\(c.probeWasContained), parent-nil=\(c.parent == nil), "
                 + "in-stack=\(f.navigation.viewControllers.contains(where: { $0 === c })), "
                 + "top=\(f.navigation.topViewController === c), transition=\(f.navigation.transitionCoordinator != nil), "
-                + "ids=\(c.probeIDs), models=\([1, 2, 3].filter { c.probeTopic($0) != nil }), "
+                + "ids=\(c.probeIDs), models=\([1, 2, 3, 4].filter { c.probeTopic($0) != nil }), "
                 + "busy=\(c.probeSnapshotBusy), starts=\(c.probeSnapshotStarts)/\(starts), "
                 + "held=\(f.reads.completions.count), selections=\(f.reads.selections.count)"
         }
+        try require(c.probeWasContained && c.parent === f.navigation, "initial containment receipt missing: \(state())")
+        let cursorBeforePop = c.probeCursor
         let beforePop = state()
         let popped = f.navigation.popViewController(animated: false)
         let afterPop = state()
         try require(
             popped === c,
             "native pop did not remove fixture controller: before={\(beforePop)} after={\(afterPop)}",
+        )
+        try require(
+            !c.probeContextIsCurrent,
+            "detached owner retained admission before lifecycle retirement: \(state())",
+        )
+        try require(
+            c.probeTopic(1) != nil && c.probeTopic(2) != nil,
+            "detachment removed UIKit-owned rows before completion: \(state())",
+        )
+        c.probeSelect(0)
+        c.probeReconfigure()
+        // Complete the outstanding native read and release UIKit's held receipt
+        // before awaiting didMove(nil), reproducing the original failing ordering.
+        let lateCursor = ForumTopicPageCursor(date: 91, forumTopicID: 44, messageID: 900)
+        try f.reads.finish(3, page([topic(4, "Late")], cursor: lateCursor))
+        await task.value
+        try require(
+            c.probeCursor == cursorBeforePop && c.probeSnapshotStarts == starts,
+            "detached late page mutated cursor or began an apply: \(state())",
+        )
+        let completion = try f.reads.release()
+        completion()
+        let beforeRetirementWait = state()
+        try require(
+            c.probeSnapshotStarts == starts && c.probeTopic(3) == nil && c.probeTopic(4) == nil
+                    && f.reads.selections.isEmpty,
+            "detached callback/enqueue/pending drain was admitted: \(beforeRetirementWait)",
         )
         // A nonanimated pop may finish UIKit containment on a later run-loop turn.
         // Wait for the actual lifecycle receipt, not an arbitrary delay or empty rows.
@@ -351,21 +385,44 @@ import UIKit
             )
         }
         try require(
-            c.probeTopic(1) != nil && c.probeTopic(2) != nil,
-            "teardown removed UIKit-owned rows before completion: \(state())",
-        )
-        c.probeSelect(0)
-        try f.reads.finish(2, page([topic(3, "Late")]))
-        await task.value
-        let completion = try f.reads.release()
-        completion()
-        try require(
             c.probeIDs.isEmpty && c.probeTopic(1) == nil && c.probeTopic(2) == nil
             && !c.probeSnapshotBusy && c.probeSnapshotStarts == starts && f.reads.selections.isEmpty,
             "retired callback revived rows, selection, or pending apply: before={\(beforePop)} "
                 + "after-pop={\(afterPop)} final={\(state())}",
         )
-        return "teardown-receipts: immediate={\(afterPop)} settled={\(state())}; pre-retirement-admission=unverified"
+        return "teardown-receipts: immediate={\(afterPop)} before-retirement-wait={\(beforeRetirementWait)} settled={\(state())}"
+    }
+
+    private static func verifyRetainedParent() async throws {
+        let f = try Fixture()
+        defer { f.close() }
+        let c = f.controller
+        try await f.readCount(1)
+        try await until("initial native containment receipt") {
+            c.probeWasContained && c.parent === f.navigation
+        }
+        try require(
+            c.probeWasContained && c.parent === f.navigation && c.probeContextIsCurrent,
+            "initial attached picker did not admit its first read",
+        )
+        // Synthetic cancellation contract only: a willMove(nil) notification does
+        // not remove the parent. This is not an actual interactive swipe gesture.
+        c.willMove(toParent: nil)
+        try require(
+            c.parent === f.navigation && c.probeContextIsCurrent && !c.probeRetired,
+            "retained-parent transition revoked or retired the owner",
+        )
+        try await f.finish(0, page([topic(1, "Retained")]))
+        try await f.settle()
+        c.willMove(toParent: f.navigation)
+        c.didMove(toParent: f.navigation)
+        c.probeSelect(0)
+        try await f.settle()
+        try require(
+            c.probeIDs == [1] && c.probeContextIsCurrent && !c.probeRetired
+                    && f.reads.selections.count == 1 && f.reads.selections[0].1,
+            "canceled retained-parent removal lost load or selection",
+        )
     }
 }
 #endif
