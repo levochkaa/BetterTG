@@ -10,6 +10,18 @@ struct RichNotificationTarget: Equatable {
     let peer: RichNotificationPeerReference
     let messageID: Int64
 
+    /// Pinned TDLib DialogId.cpp: cloud peer IDs have disjoint chat-ID mappings.
+    /// Keep monoforum IDs valid; only arithmetic overflow is rejected here.
+    var expectedChatID: Int64? {
+        switch peer.kind {
+        case .privateChat: return peer.id
+        case .basicGroup: return -peer.id
+        case .supergroup:
+            let result = Int64(-1_000_000_000_000).subtractingReportingOverflow(peer.id)
+            return result.overflow ? nil : result.partialValue
+        }
+    }
+
     init?(accountID: Int64?, peer: RichNotificationPeerReference, serverMessageID: Int64?) {
         guard let accountID, accountID > 0, peer.id > 0,
               let serverMessageID, serverMessageID > 0, serverMessageID <= Int64(Int32.max)
@@ -52,7 +64,7 @@ struct RichNotificationTarget: Equatable {
     }
 
     func matches(notification: TDLibKitDynamic.Notification, groupChatID: Int64) -> Bool {
-        guard groupChatID != 0 else { return false }
+        guard groupChatID != 0, groupChatID == expectedChatID else { return false }
         switch notification.type {
         case .notificationTypeNewPushMessage(let value):
             return value.messageId == messageID

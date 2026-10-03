@@ -34,7 +34,7 @@ final class NotificationService: UNNotificationServiceExtension {
         RichNotificationDiagnostics.record("received", fields: ["event": metadata.event ?? "unknown"])
 
         processingTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             let fallback = RichNotificationContentBuilder.fallback(
                 metadata: metadata,
                 canQuickReply: canQuickReplyUsingMetadata(metadata),
@@ -42,10 +42,12 @@ final class NotificationService: UNNotificationServiceExtension {
             var resolved = fallback
 
             do {
+                guard !Task.isCancelled else { return }
                 logger.log("rich_notification.tdlib_lock_wait_started")
                 RichNotificationDiagnostics.record("tdlib_lock_wait_started")
                 if let processLock = try TDLibProcessLock.acquire(waitingUpTo: 6) {
                     defer { processLock.unlock() }
+                    guard !Task.isCancelled else { return }
                     logger.log("rich_notification.tdlib_lock_acquired")
                     RichNotificationDiagnostics.record("tdlib_lock_acquired")
                     if let token = metadata.notificationPayloadToken,
@@ -55,6 +57,7 @@ final class NotificationService: UNNotificationServiceExtension {
                        })
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
+                        guard !Task.isCancelled else { return }
                         logger.log("rich_notification.payload_fetched")
                         RichNotificationDiagnostics.record("payload_fetched")
                         if let tdlibResolved = await NotificationTDLibSession(
@@ -91,6 +94,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 RichNotificationDiagnostics.record("resolved_error")
             }
 
+            guard !Task.isCancelled else { return }
             let content = RichNotificationContentBuilder.content(
                 from: request.content,
                 metadata: metadata,

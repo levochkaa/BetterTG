@@ -13,6 +13,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
         let kind: String
     }
 
+    private typealias Lifetime = RichNotificationSessionLifetime<ResolvedTelegramNotification>
+
     private let account: TelegramAccount
     private let payload: String
     private let metadata: RelayNotificationMetadata
@@ -20,12 +22,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private let allowsQuickReply: Bool
     private let logger: os.Logger
     private let manager = TDLibClientManager()
-    private let stateLock = NSLock()
-    private var client: TDLibClient?
-    private var resolutionContinuation: CheckedContinuation<ResolvedTelegramNotification?, Never>?
-    private var configured = false
-    private var processingStarted = false
-    private var finished = false
+    private let lifetime = Lifetime()
 
     init(
         account: TelegramAccount,
@@ -47,25 +44,31 @@ final class NotificationTDLibSession: @unchecked Sendable {
     // MARK: Internal
 
     func resolve() async -> ResolvedTelegramNotification? {
-        guard let target, target.matches(accountUserID: account.userID) else { return nil }
-        let result = await withCheckedContinuation { continuation in
-            stateLock.lock()
-            resolutionContinuation = continuation
-            stateLock.unlock()
-
-            client = manager.createClient { [weak self] data, client in
-                self?.handle(data: data, client: client)
+        guard let target, target.expectedChatID != nil,
+              target.matches(accountUserID: account.userID) else { return nil }
+        return await withTaskCancellationHandler {
+            let result = await withCheckedContinuation { continuation in
+                guard lifetime.begin({ continuation.resume(returning: $0) }) else { return }
+                guard lifetime.createClient({
+                    manager.createClient { [weak self] data, client in
+                        self?.handle(data: data, client: client)
+                    }
+                    .id
+                }) else { return }
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 14) { [weak self] in
+                    self?.finish(nil, reason: "timeout")
+                }
             }
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 14) { [weak self] in
-                self?.finish(nil, reason: "timeout")
-            }
+            await close()
+            return result
+        } onCancel: {
+            self.finish(nil, reason: "cancelled")
         }
-        await close()
-        return result
     }
 
     private func handle(data: Data, client: TDLibClient) {
-        guard let update = try? client.decoder.decode(Update.self, from: data) else { return }
+        guard lifetime.isCurrent(clientID: client.id),
+              let update = try? client.decoder.decode(Update.self, from: data) else { return }
         switch update {
         case .updateAuthorizationState(let value):
             handle(authorizationState: value.authorizationState, client: client)
@@ -73,13 +76,19 @@ final class NotificationTDLibSession: @unchecked Sendable {
             guard let target,
                   let notification = target.notification(in: value.addedNotifications, groupChatID: value.chatId)
             else { return }
-            Task { [weak self] in
-                guard let self,
-                      let chat = try? await client.getChat(chatId: value.chatId),
+            start(.resolve, client: client) { [self] ticket in
+                guard isCurrent(ticket) else { return }
+                guard let chat = try? await client.getChat(chatId: value.chatId), isCurrent(ticket),
                       target.matches(chat: chat, requestedChatID: value.chatId)
-                else { return }
-                let resolved = await resolve(notification: notification, chat: chat, target: target, client: client)
-                finish(resolved, reason: resolved == nil ? "unresolved" : "notification")
+                else {
+                    finish(nil, reason: "chat", ticket: ticket)
+                    return
+                }
+                let resolved = await resolve(
+                    notification: notification, chat: chat, target: target, client: client, ticket: ticket,
+                )
+                guard isCurrent(ticket) else { return }
+                finish(resolved, reason: resolved == nil ? "unresolved" : "notification", ticket: ticket)
             }
         default:
             break
@@ -89,22 +98,12 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func handle(authorizationState: AuthorizationState, client: TDLibClient) {
         switch authorizationState {
         case .authorizationStateWaitTdlibParameters:
-            stateLock.lock()
-            let shouldConfigure = !configured
-            configured = true
-            stateLock.unlock()
-            guard shouldConfigure else { return }
-            Task { [weak self] in
-                await self?.configure(client: client)
+            start(.configure, client: client) { [self] ticket in
+                await configure(client: client, ticket: ticket)
             }
         case .authorizationStateReady:
-            stateLock.lock()
-            let shouldProcess = !processingStarted
-            processingStarted = true
-            stateLock.unlock()
-            guard shouldProcess else { return }
-            Task { [weak self] in
-                await self?.process(client: client)
+            start(.process, client: client) { [self] ticket in
+                await process(client: client, ticket: ticket)
             }
         case .authorizationStateClosed,
              .authorizationStateClosing,
@@ -118,9 +117,28 @@ final class NotificationTDLibSession: @unchecked Sendable {
         }
     }
 
-    private func configure(client: TDLibClient) async {
+    private func start(
+        _ role: Lifetime.Role, client: TDLibClient, operation: @escaping (Lifetime.Ticket) async -> Void,
+    ) {
+        guard let ticket = lifetime.reserve(role, clientID: client.id) else { return }
+        let lifetime = lifetime
+        let task = Task {
+            guard !Task.isCancelled, lifetime.isCurrent(ticket) else { return }
+            await operation(ticket)
+            lifetime.complete(ticket)
+        }
+        lifetime.install(task, for: ticket)
+    }
+
+    private func isCurrent(_ ticket: Lifetime.Ticket) -> Bool {
+        !Task.isCancelled && lifetime.isCurrent(ticket)
+    }
+
+    private func configure(client: TDLibClient, ticket: Lifetime.Ticket) async {
+        guard isCurrent(ticket) else { return }
         do {
             let directory = try TelegramAccountRegistry().databaseDirectory(for: account.id)
+            guard isCurrent(ticket) else { return }
             try await client.setTdlibParameters(
                 apiHash: Secret.apiHash,
                 apiId: Secret.apiId,
@@ -139,24 +157,30 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 useTestDc: false,
             )
         } catch {
+            guard isCurrent(ticket) else { return }
             logger.error("rich_notification.tdlib_config_failed")
-            finish(nil, reason: "configuration")
+            finish(nil, reason: "configuration", ticket: ticket)
         }
     }
 
-    private func process(client: TDLibClient) async {
+    private func process(client: TDLibClient, ticket: Lifetime.Ticket) async {
+        guard isCurrent(ticket) else { return }
         do {
             _ = try await client.setOption(
                 name: "notification_group_count_max",
                 value: .optionValueInteger(.init(value: 20)),
             )
+            guard isCurrent(ticket) else { return }
             _ = try await client.setOption(
                 name: "notification_group_size_max",
                 value: .optionValueInteger(.init(value: 10)),
             )
+            guard isCurrent(ticket) else { return }
             _ = try await client.processPushNotification(payload: payload)
+            guard isCurrent(ticket) else { return }
             logger.log("rich_notification.tdlib_processed")
         } catch {
+            guard isCurrent(ticket) else { return }
             logger.log("rich_notification.tdlib_processing_waiting_for_updates")
         }
     }
@@ -166,8 +190,9 @@ final class NotificationTDLibSession: @unchecked Sendable {
         chat: Chat,
         target: RichNotificationTarget,
         client: TDLibClient,
+        ticket: Lifetime.Ticket,
     ) async -> ResolvedTelegramNotification? {
-        guard target.matches(notification: notification, groupChatID: chat.id),
+        guard isCurrent(ticket), target.matches(notification: notification, groupChatID: chat.id),
               target.matches(chat: chat, requestedChatID: chat.id) else { return nil }
         let chatID = chat.id
         var senderID: MessageSender
@@ -188,20 +213,24 @@ final class NotificationTDLibSession: @unchecked Sendable {
                    chatID: chatID,
                    target: target,
                    client: client,
+                   ticket: ticket,
                )
             {
+                guard isCurrent(ticket) else { return nil }
                 senderID = message.senderId
-                senderName = await displayName(for: message.senderId, client: client)
+                senderName = await displayName(for: message.senderId, client: client, ticket: ticket)
                     ?? senderName
+                guard isCurrent(ticket) else { return nil }
                 media = mediaCandidate(for: message.content)
                 body = notificationBody(for: message.content) ?? body
                 expectsMedia = isMediaContent(message.content)
             }
         case .notificationTypeNewMessage(let value):
             senderID = value.message.senderId
-            senderName = await displayName(for: value.message.senderId, client: client)
+            senderName = await displayName(for: value.message.senderId, client: client, ticket: ticket)
                 ?? metadata.senderName
                 ?? "Telegram"
+            guard isCurrent(ticket) else { return nil }
             media = mediaCandidate(for: value.message.content)
             body = notificationBody(for: value.message.content)
             expectsMedia = isMediaContent(value.message.content)
@@ -209,6 +238,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
             return nil
         }
 
+        guard isCurrent(ticket) else { return nil }
         logger.log(
             "rich_notification.media_resolved available=\(media != nil, privacy: .public) expected=\(expectsMedia, privacy: .public)",
         )
@@ -220,23 +250,30 @@ final class NotificationTDLibSession: @unchecked Sendable {
         let resolvedSenderID = senderID
         let resolvedMediaCandidate = media
         let conversation = chat
-        async let senderAvatar = avatarData(for: resolvedSenderID, client: client)
+        async let senderAvatar = avatarData(for: resolvedSenderID, client: client, ticket: ticket)
         async let conversationAvatar = imageData(
             file: conversation.photo?.small,
             placeholder: conversation.photo?.minithumbnail?.data,
             client: client,
+            ticket: ticket,
         )
         async let mediaData = imageData(
             file: resolvedMediaCandidate?.file,
             placeholder: resolvedMediaCandidate?.placeholder,
             client: client,
+            ticket: ticket,
         )
 
-        let resolvedSenderAvatar = await senderAvatar
+        let senderAvatarData = await senderAvatar
+        guard isCurrent(ticket) else { return nil }
+        let resolvedSenderAvatar = senderAvatarData
             ?? RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID)
-        let resolvedConversationAvatar = await conversationAvatar
+        let conversationAvatarData = await conversationAvatar
+        guard isCurrent(ticket) else { return nil }
+        let resolvedConversationAvatar = conversationAvatarData
             ?? RichNotificationCache.avatarData(for: metadata.peer, accountID: metadata.accountID)
         let resolvedMedia = await mediaData
+        guard isCurrent(ticket) else { return nil }
         if expectsMedia {
             logger.log(
                 "rich_notification.media_downloaded success=\(resolvedMedia != nil, privacy: .public) kind=\(resolvedMediaCandidate?.kind ?? "none", privacy: .public)",
@@ -255,21 +292,25 @@ final class NotificationTDLibSession: @unchecked Sendable {
             } else {
                 false
             }
-        guard !Task.isCancelled,
+        guard isCurrent(ticket),
               RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
-        if let resolvedMedia, let message = metadata.messageReference {
-            RichNotificationCache.cacheMedia(resolvedMedia, for: message, accountID: metadata.accountID)
-        }
-        if let resolvedSenderAvatar {
-            RichNotificationCache.cacheAvatar(resolvedSenderAvatar, for: metadata.sender, accountID: metadata.accountID)
-        }
-        if let resolvedConversationAvatar {
-            RichNotificationCache.cacheAvatar(
-                resolvedConversationAvatar,
-                for: metadata.peer,
-                accountID: metadata.accountID,
-            )
-        }
+        guard lifetime.publish(ticket, {
+            if let resolvedMedia, let message = metadata.messageReference {
+                RichNotificationCache.cacheMedia(resolvedMedia, for: message, accountID: metadata.accountID)
+            }
+            if let resolvedSenderAvatar {
+                RichNotificationCache.cacheAvatar(
+                    resolvedSenderAvatar,
+                    for: metadata.sender,
+                    accountID: metadata.accountID,
+                )
+            }
+            if let resolvedConversationAvatar {
+                RichNotificationCache.cacheAvatar(
+                    resolvedConversationAvatar, for: metadata.peer, accountID: metadata.accountID,
+                )
+            }
+        }) else { return nil }
 
         return ResolvedTelegramNotification(
             senderName: senderName.isEmpty ? (metadata.senderName ?? "Telegram") : senderName,
@@ -286,24 +327,29 @@ final class NotificationTDLibSession: @unchecked Sendable {
         chatID: Int64,
         target: RichNotificationTarget,
         client: TDLibClient,
+        ticket: Lifetime.Ticket,
     ) async -> Message? {
+        guard isCurrent(ticket) else { return nil }
         let messageIDs = [target.messageID]
 
         for messageID in messageIDs {
             if let message = try? await client.getMessage(chatId: chatID, messageId: messageID),
+               isCurrent(ticket),
                target.matches(message: message, chatID: chatID)
             {
                 logger.log("rich_notification.message_fetched source=get_message")
                 RichNotificationDiagnostics.record("message_fetched", fields: ["source": "get_message"])
                 return message
             }
+            guard isCurrent(ticket) else { return nil }
             if let history = try? await client.getChatHistory(
                 chatId: chatID,
                 fromMessageId: messageID,
                 limit: 3,
                 offset: -1,
                 onlyLocal: false,
-            ), let message = history.messages?.first(where: { target.matches(message: $0, chatID: chatID) }) {
+            ), isCurrent(ticket),
+            let message = history.messages?.first(where: { target.matches(message: $0, chatID: chatID) }) {
                 logger.log("rich_notification.message_fetched source=chat_history")
                 RichNotificationDiagnostics.record("message_fetched", fields: ["source": "chat_history"])
                 return message
@@ -311,13 +357,14 @@ final class NotificationTDLibSession: @unchecked Sendable {
         }
 
         for _ in 0..<3 {
+            guard isCurrent(ticket) else { return nil }
             if let history = try? await client.getChatHistory(
                 chatId: chatID,
                 fromMessageId: 0,
                 limit: 10,
                 offset: 0,
                 onlyLocal: false,
-            ), let messages = history.messages {
+            ), isCurrent(ticket), let messages = history.messages {
                 if let message = messages.first(where: { target.matches(message: $0, chatID: chatID) }) {
                     logger.log("rich_notification.message_fetched source=latest_history")
                     RichNotificationDiagnostics.record("message_fetched", fields: ["source": "latest_history"])
@@ -325,7 +372,9 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 }
             }
             for messageID in messageIDs {
+                guard isCurrent(ticket) else { return nil }
                 if let message = try? await client.getMessage(chatId: chatID, messageId: messageID),
+                   isCurrent(ticket),
                    target.matches(message: message, chatID: chatID)
                 {
                     logger.log("rich_notification.message_fetched source=get_message_after_history")
@@ -336,8 +385,10 @@ final class NotificationTDLibSession: @unchecked Sendable {
                     return message
                 }
             }
+            guard isCurrent(ticket) else { return nil }
             try? await Task.sleep(for: .milliseconds(250))
         }
+        guard isCurrent(ticket) else { return nil }
         logger.log("rich_notification.message_fetched source=network success=false")
         RichNotificationDiagnostics.record(
             "message_fetched",
@@ -346,37 +397,48 @@ final class NotificationTDLibSession: @unchecked Sendable {
         return nil
     }
 
-    private func avatarData(for sender: MessageSender, client: TDLibClient) async -> Data? {
+    private func avatarData(for sender: MessageSender, client: TDLibClient, ticket: Lifetime.Ticket) async -> Data? {
+        guard isCurrent(ticket) else { return nil }
         switch sender {
         case .messageSenderUser(let value):
-            guard let user = try? await client.getUser(userId: value.userId) else { return nil }
+            guard let user = try? await client.getUser(userId: value.userId), isCurrent(ticket) else { return nil }
             return await imageData(
                 file: user.profilePhoto?.small,
                 placeholder: user.profilePhoto?.minithumbnail?.data,
                 client: client,
+                ticket: ticket,
             )
         case .messageSenderChat(let value):
-            guard let chat = try? await client.getChat(chatId: value.chatId) else { return nil }
+            guard let chat = try? await client.getChat(chatId: value.chatId), isCurrent(ticket) else { return nil }
             return await imageData(
                 file: chat.photo?.small,
                 placeholder: chat.photo?.minithumbnail?.data,
                 client: client,
+                ticket: ticket,
             )
         }
     }
 
-    private func displayName(for sender: MessageSender, client: TDLibClient) async -> String? {
+    private func displayName(for sender: MessageSender, client: TDLibClient, ticket: Lifetime.Ticket) async -> String? {
+        guard isCurrent(ticket) else { return nil }
         switch sender {
         case .messageSenderUser(let value):
-            guard let user = try? await client.getUser(userId: value.userId) else { return nil }
+            guard let user = try? await client.getUser(userId: value.userId), isCurrent(ticket) else { return nil }
             let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
             return name.isEmpty ? nil : name
         case .messageSenderChat(let value):
-            return try? await client.getChat(chatId: value.chatId).title
+            let chat = try? await client.getChat(chatId: value.chatId)
+            return isCurrent(ticket) ? chat?.title : nil
         }
     }
 
-    private func imageData(file: File?, placeholder: Data?, client: TDLibClient) async -> Data? {
+    private func imageData(
+        file: File?,
+        placeholder: Data?,
+        client: TDLibClient,
+        ticket: Lifetime.Ticket,
+    ) async -> Data? {
+        guard isCurrent(ticket) else { return nil }
         if let file {
             let resolved = await (try? client.downloadFile(
                 fileId: file.id,
@@ -385,6 +447,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 priority: 32,
                 synchronous: true,
             )) ?? file
+            guard isCurrent(ticket) else { return nil }
             if resolved.local.isDownloadingCompleted,
                let data = try? Data(contentsOf: URL(fileURLWithPath: resolved.local.path)),
                RichNotificationCache.normalizedJPEG(data, maximumPixelSize: 1280) != nil
@@ -555,23 +618,17 @@ final class NotificationTDLibSession: @unchecked Sendable {
         "\(icon) \(caption.isEmpty ? fallback : caption)"
     }
 
-    private func finish(_ result: ResolvedTelegramNotification?, reason: String) {
-        stateLock.lock()
-        guard !finished else {
-            stateLock.unlock()
-            return
-        }
-        finished = true
-        let continuation = resolutionContinuation
-        resolutionContinuation = nil
-        stateLock.unlock()
+    private func finish(_ result: ResolvedTelegramNotification?, reason: String, ticket: Lifetime.Ticket? = nil) {
+        guard lifetime.finish(result, ticket: ticket) else { return }
         logger.log("rich_notification.tdlib_finished reason=\(reason, privacy: .public)")
         RichNotificationDiagnostics.record("tdlib_finished", fields: ["reason": reason])
-        continuation?.resume(returning: result)
     }
 
     private func close() async {
+        guard lifetime.claimClose() else { return }
         let manager = manager
+        // Pinned TDLibKit async RPCs do not observe Task cancellation. Close
+        // without joining those tasks, and retain the process lock until closed.
         await Task.detached(priority: .utility) {
             manager.closeClients()
         }.value
