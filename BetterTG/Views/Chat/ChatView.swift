@@ -2249,9 +2249,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 delay: 0,
                 options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseIn],
             ) {
-                cell.alpha = 0
-                cell.transform = CGAffineTransform(translationX: horizontalOffset, y: 0)
-                    .scaledBy(x: 0.98, y: 0.98)
+                cell.setDeletionPresentation(
+                    alpha: 0,
+                    transform: CGAffineTransform(translationX: horizontalOffset, y: 0)
+                        .scaledBy(x: 0.98, y: 0.98),
+                )
             }
         }
         guard animatedVisibleCell else { return }

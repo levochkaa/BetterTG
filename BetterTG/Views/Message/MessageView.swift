@@ -178,6 +178,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     // MARK: Private
 
+    private static let timelineContentTransform = CGAffineTransform(scaleX: 1, y: -1)
+
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
@@ -199,6 +201,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 && textView.attributedText.length == 0 && bubbleView.isHidden
                 && selectionControl.isHidden && selectionIndicatorView.isHidden
                 && rowStack.transform == .identity && selectionTouchBindingID == nil
+                && contentView.alpha == 1 && contentView.transform == Self.timelineContentTransform
         }
     #endif
 
@@ -279,7 +282,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        contentView.transform = Self.timelineContentTransform
         configureViews()
         configureConstraints()
         configureSwipeToReply()
@@ -320,6 +323,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
+    /// Collection layout attributes own the cell's alpha/transform. Keep deletion
+    /// inside that boundary while retaining the inverted timeline's content flip.
+    func setDeletionPresentation(alpha: CGFloat, transform: CGAffineTransform) {
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        accessibilityElementsHidden = true
+        contentView.alpha = alpha
+        contentView.transform = Self.timelineContentTransform.concatenating(transform)
+    }
+
     /// UIKit can reconfigure the current cell without calling prepareForReuse.
     func resetUnavailableContent() {
         actionBindingID = nil
@@ -344,6 +357,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         selectionIndicatorView.layer.removeAllAnimations()
         alpha = 1
         transform = .identity
+        resetDeletionPresentation()
         contentView.isHidden = false
         isUserInteractionEnabled = true
         isAccessibilityElement = false
@@ -480,6 +494,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         self.actionBindingID = actionBindingID
         alpha = 1
         transform = .identity
+        resetDeletionPresentation()
         bubbleView.isHidden = false
         contentView.isHidden = false
         accessibilityElementsHidden = false
@@ -811,6 +826,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             return false
         }
         return gestureRecognizer.view is UIScrollView || otherGestureRecognizer.view is UIScrollView
+    }
+
+    private func resetDeletionPresentation() {
+        contentView.layer.removeAllAnimations()
+        contentView.alpha = 1
+        contentView.transform = Self.timelineContentTransform
     }
 
     private func configureViews() {
