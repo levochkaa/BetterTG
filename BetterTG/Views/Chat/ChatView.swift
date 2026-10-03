@@ -1574,6 +1574,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     configure: { [weak self] cell in
                         guard let self, let message = message(for: displayedMessageID) else { return false }
                         let messageSelectable = canSelectMessage(message)
+                        let authority = ChatMessageActionAuthority(
+                            message: message, cell: cell, source: navigationClientSource, location: location,
+                            selected: selectedDisplayedMessageIDs.contains(displayedMessageID),
+                        )
                         mediaRevealSession?.reconcile(message.sourceMessages)
                         cell.configure(
                             message: message,
@@ -1593,42 +1597,67 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                 && !isSelectingMessages
                                 && !chatVM.isReadOnlyTopic
                                 && message.properties.canBeReplied
-                                ? { [weak self] in self?.chatVM.beginReply(to: message) }
-                                : nil,
-                            onSelectionToggle: isSelectingMessages && messageSelectable
-                                ? { [weak self] in
-                                    self?.toggleMessageSelection(displayedMessageID: displayedMessageID)
+                                ? { [weak self, weak cell] in
+                                    guard let self, let current = currentActionMessage(
+                                        authority,
+                                        cell: cell,
+                                        intent: .reply,
+                                    )
+                                    else { return }
+                                    chatVM.beginReply(to: current)
                                 }
                                 : nil,
-                            onReactionTap: { [weak self] type in
+                            onSelectionToggle: isSelectingMessages && messageSelectable
+                                ? { [weak self, weak cell] in
+                                    guard let self,
+                                          currentActionMessage(authority, cell: cell, intent: .selection) != nil
+                                    else { return }
+                                    toggleMessageSelection(displayedMessageID: displayedMessageID)
+                                }
+                                : nil,
+                            onReactionTap: { [weak self, weak cell] type in
+                                guard let self, let current = currentActionMessage(
+                                    authority,
+                                    cell: cell,
+                                    intent: .reaction(type),
+                                )
+                                else { return }
+                                chatVM.toggleReaction(on: current, type: type, isBig: false)
+                            },
+                            onMetadataNavigate: { [weak self, weak cell] target in
                                 guard let self,
-                                      presentationMode == .full,
-                                      !isSelectingMessages,
-                                      !chatVM.isReadOnlyTopic
+                                      currentActionMessage(authority, cell: cell, intent: .metadata(target)) != nil
                                 else { return }
-                                chatVM.toggleReaction(on: message, type: type, isBig: false)
+                                navigate(to: target)
                             },
-                            onMetadataNavigate: { [weak self] target in
-                                guard self?.presentationMode == .full,
-                                      self?.isSelectingMessages == false
+                            onReplyQuoteExpand: { [weak self, weak cell] in
+                                guard let self, let current = currentActionMessage(
+                                    authority,
+                                    cell: cell,
+                                    intent: .quote,
+                                )
                                 else { return }
-                                self?.navigate(to: target)
+                                expandReplyQuote(for: current)
                             },
-                            onReplyQuoteExpand: { [weak self] in
-                                self?.expandReplyQuote(for: message)
+                            onContentAction: { [
+                                weak self,
+                                weak cell,
+                                weak polls = chatVM.pollInteractionStore,
+                            ] action in
+                                guard let self,
+                                      currentActionMessage(authority, cell: cell, intent: .content(action)) != nil
+                                else {
+                                    action.rejectPollSubmission(in: polls)
+                                    return
+                                }
+                                performContentAction(action)
                             },
-                            onContentAction: { [weak self] action in
-                                guard self?.presentationMode == .full,
-                                      self?.isSelectingMessages == false
+                            onMediaTap: { [weak self, weak cell] messages, selection in
+                                guard let self, currentActionMessage(authority, cell: cell, intent: .media) != nil
                                 else { return }
-                                self?.performContentAction(action)
+                                showMedia(messages, selection: selection)
                             },
-                            onMediaTap: { [weak self] messages, selection in
-                                guard self?.presentationMode == .full,
-                                      self?.isSelectingMessages == false
-                                else { return }
-                                self?.showMedia(messages, selection: selection)
-                            },
+                            actionBindingID: authority.bindingID,
                         )
                         cell.onSelfSizingHeightChange = { [weak self] in
                             self?.messageCellWillChangeHeight()
@@ -1654,8 +1683,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ownerIsCurrent: routeIsRetained && chatVM.locationContextIsCurrent
                 && chatListActionOwnerIsAttached && navigationController?.topViewController === self
                 && presentedViewController == nil,
-            rowIsCurrent: !timelineSnapshots.deleting.contains(authority.displayedID)
-                && path.map { dataSource.itemIdentifier(for: $0) == .message(authority.displayedID) } == true,
+            rowIsCurrent: path.map { dataSource.itemIdentifier(for: $0) == .message(authority.displayedID) } == true,
             state: .init(
                 isFull: presentationMode == .full, isSelecting: isSelectingMessages,
                 isReadOnly: chatVM.isReadOnlyTopic, canAddReactions: chatVM.canAddReactions,

@@ -57,10 +57,9 @@ import UIKit
             }
         }
 
-        func configure(_ cell: MessageCell, message: CustomMessage, renderValue: ChatMessageRenderValue? = nil) {
+        func configure(_ cell: MessageCell, message: CustomMessage) {
             let authority = ChatMessageActionAuthority(
                 message: message, cell: cell, source: source, location: location, selected: isSelected,
-                renderValue: renderValue,
             )
             self.authority = authority
             let action: (MessageContentAction) -> Void = { [weak self, weak polls] action in
@@ -72,7 +71,7 @@ import UIKit
             }
             contentAction = action
             cell.configure(
-                message: renderValue?.makeRenderOnlyMessage() ?? message,
+                message: message,
                 chat: RootChatInsertionProbe.chat(
                     .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
                     id: 100,
@@ -230,166 +229,6 @@ import UIKit
         try require(!rows.invoke(latest, .media), "unavailable cell kept binding")
         newMedia(message.sourceMessages, 70)
         try require(rows.calls == calls, "reset cell retained media bridge authority")
-        try await verifyRenderValues(rows)
-    }
-
-    private static func verifyRenderValues(_ rows: Rows) async throws {
-        let type = ReactionType.reactionTypeEmoji(.init(emoji: "👍"))
-        let rawReactions = MessageReactions(areTags: false, canGetAddedReactions: false, paidReactors: [], reactions: [
-            .init(isChosen: true, recentSenderIds: [], totalCount: 1, type: type, usedSenderId: nil),
-        ])
-        let unread = UnreadReaction(isBig: true, senderId: .messageSenderUser(.init(userId: 2)), type: type)
-        var rawFields = try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(MessageDeliveryProbe.fixture(id: 70, album: 77)),
-        ) as! [String: Any]
-        rawFields["interactionInfo"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-            MessageInteractionInfo(forwardCount: 0, reactions: rawReactions, replyInfo: nil, viewCount: 0),
-        ))
-        rawFields["unreadReactions"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode([unread]))
-        let raw = try JSONDecoder().decode(Message.self, from: JSONSerialization.data(withJSONObject: rawFields))
-        let older = MessageDeliveryProbe.fixture(id: 69, album: 77)
-        let canonical = try CustomMessage(
-            message: raw, senderUser: sender(), replyPresentation: reply(target: 99),
-            forwardPresentation: forward(target: 200), album: [raw, older], sendFailed: true,
-            formattedText: .init(entities: [], text: "frozen caption"), properties: replyProperties(),
-            unreadReactions: [], isPinned: true,
-        )
-        canonical.reactions = nil
-        canonical.reactionMutationInFlight = true
-        canonical.isReplyQuoteExpanded = true
-        canonical.updateDeliveryState(permitsFinalStatus: true, readOutbox: 70)
-        let frozen = ChatMessageRenderValue(canonical)
-        try require(
-            frozen.message.interactionInfo?.reactions == rawReactions && frozen.reactions == nil
-                && frozen.message.unreadReactions == [unread] && frozen.unreadReactions.isEmpty
-                && frozen.deliveryState == .read && frozen.reactionMutationInFlight,
-            "render value explicit nil/derived-state fixture was not armed",
-        )
-        canonical.message = older
-        canonical.album = [older]
-        canonical.senderUser = nil
-        canonical.replyPresentation = nil
-        canonical.forwardPresentation = nil
-        canonical.formattedText = nil
-        canonical.sendFailed = false
-        canonical.properties = .default
-        canonical.reactions = rawReactions
-        canonical.unreadReactions = [unread]
-        canonical.isPinned = false
-        canonical.isReplyQuoteExpanded = false
-        canonical.reactionMutationInFlight = false
-        canonical.updateDeliveryState(permitsFinalStatus: true, readOutbox: 0)
-        let copy = frozen.makeRenderOnlyMessage()
-        try require(
-            copy !== canonical && frozen.displayedID == .album(77) && copy.displayedID == frozen.displayedID
-                && frozen.message == raw && frozen.album == [raw, older]
-                && frozen.sourceMessages == [raw, older] && frozen.senderUser == sender()
-                && sameReply(frozen.replyPresentation, reply(target: 99))
-                && sameForward(frozen.forwardPresentation, forward(target: 200))
-                && frozen.formattedText == .init(entities: [], text: "frozen caption")
-                && copy.message == frozen.message && copy.album == frozen.album && copy.senderUser == frozen.senderUser
-                && sameReply(copy.replyPresentation, frozen.replyPresentation)
-                && sameForward(copy.forwardPresentation, frozen.forwardPresentation)
-                && copy.formattedText == frozen.formattedText && copy.sendFailed && frozen.sendFailed
-                && copy.properties == frozen.properties && copy.properties.canBeReplied
-                && copy.reactions == nil && copy.unreadReactions.isEmpty
-                && copy.isPinned && frozen.isPinned && copy.isReplyQuoteExpanded && frozen.isReplyQuoteExpanded
-                && copy.deliveryState == .read && frozen.deliveryState == .read
-                && copy.reactionMutationInFlight && frozen.reactionMutationInFlight,
-            "canonical promotion or materialization changed immutable complete rendering state",
-        )
-        copy.album.removeAll()
-        copy.message = MessageDeliveryProbe.fixture(id: 123)
-        copy.reactions = rawReactions
-        copy.isReplyQuoteExpanded = false
-        copy.reactionMutationInFlight = false
-        copy.updateDeliveryState(permitsFinalStatus: false, readOutbox: nil)
-        try require(
-            canonical.message == older && canonical.album == [older] && canonical.deliveryState == .delivered
-                && frozen.message == raw && frozen.album == [raw, older] && frozen.reactions == nil
-                && frozen.isReplyQuoteExpanded && frozen.reactionMutationInFlight && frozen.deliveryState == .read,
-            "render clone mutation escaped into canonical or frozen state",
-        )
-        rows.current = canonical
-        var snapshot = NSDiffableDataSourceSnapshot<Int, DisplayedMessageID>()
-        snapshot.appendSections([0])
-        snapshot.appendItems([canonical.displayedID])
-        var completed = false
-        rows.data.apply(snapshot, animatingDifferences: false) { completed = true }
-        try await until { completed }
-        rows.collection.layoutIfNeeded()
-        guard let cell = rows.collection.cellForItem(at: IndexPath(item: 0, section: 0)) as? MessageCell else {
-            throw Failure(description: "render-value native album cell missing")
-        }
-        rows.configure(cell, message: canonical, renderValue: frozen)
-        try require(!rows.invoke(rows.authority!, .media), "old render baseline was recaptured from current canonical")
-        let current = ChatMessageRenderValue(canonical)
-        let currentCopy = current.makeRenderOnlyMessage()
-        try require(
-            currentCopy.reactions == rawReactions && currentCopy.unreadReactions == [unread]
-                    && currentCopy.deliveryState == .delivered && !currentCopy.reactionMutationInFlight,
-            "fresh materialization lost reactions/unread/delivery or mutation state",
-        )
-        rows.configure(cell, message: canonical, renderValue: current)
-        try require(rows.invoke(rows.authority!, .media), "fresh render baseline rejected same canonical")
-        rows.current = current.makeRenderOnlyMessage()
-        try require(!rows.invoke(rows.authority!, .media), "render-only clone acquired canonical action authority")
-        rows.current = canonical
-        try require(rows.invoke(rows.authority!, .media), "canonical identity did not recover with fresh baseline")
-    }
-
-    private static func sameReply(_ lhs: MessageReplyPresentation?, _ rhs: MessageReplyPresentation?) -> Bool {
-        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
-        return lhs.availability == rhs.availability && lhs.body == rhs.body && lhs.navigationTarget == rhs
-            .navigationTarget
-            && lhs.quote == rhs.quote && lhs.referencedChatID == rhs.referencedChatID
-            && lhs.referencedUserID == rhs.referencedUserID && lhs.targetChatID == rhs.targetChatID
-            && lhs.targetMessageID == rhs.targetMessageID && lhs.title == rhs.title
-            && lhs.thumbnail?.file == rhs.thumbnail?.file && lhs.thumbnail?.isRound == rhs.thumbnail?.isRound
-            && lhs.thumbnail?.minithumbnailData == rhs.thumbnail?.minithumbnailData
-    }
-
-    private static func sameForward(_ lhs: MessageForwardPresentation?, _ rhs: MessageForwardPresentation?) -> Bool {
-        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
-        return lhs.avatar?.file == rhs.avatar?.file && lhs.avatar?.initials == rhs.avatar?.initials
-            && lhs.avatar?.minithumbnailData == rhs.avatar?.minithumbnailData && lhs.headline == rhs.headline
-            && lhs.navigationTarget == rhs.navigationTarget && lhs.originalSourceTitle == rhs.originalSourceTitle
-            && lhs.publicServiceAnnouncementType == rhs.publicServiceAnnouncementType
-            && lhs.referencedChatIDs == rhs.referencedChatIDs && lhs.referencedUserIDs == rhs.referencedUserIDs
-            && lhs.sourceTitle == rhs.sourceTitle && lhs.targetChatID == rhs.targetChatID
-            && lhs.targetMessageID == rhs.targetMessageID
-    }
-
-    private static func sender() -> User {
-        .init(
-            accentColorId: 1,
-            activeStoryState: nil,
-            addedToAttachmentMenu: false,
-            backgroundCustomEmojiId: 0,
-            emojiStatus: nil,
-            firstName: "Render sender",
-            haveAccess: true,
-            id: 1,
-            isCloseFriend: false,
-            isContact: false,
-            isMutualContact: false,
-            isPremium: false,
-            isSupport: false,
-            languageCode: "",
-            lastName: "",
-            paidMessageStarCount: 0,
-            phoneNumber: "",
-            profileAccentColorId: -1,
-            profileBackgroundCustomEmojiId: 0,
-            profilePhoto: nil,
-            restrictionInfo: nil,
-            restrictsNewChats: false,
-            status: .userStatusEmpty,
-            type: .userTypeRegular,
-            upgradedGiftColors: nil,
-            usernames: nil,
-            verificationStatus: nil,
-        )
     }
 
     private static func verifyReaction(_ rows: Rows, cell: MessageCell, message: CustomMessage) throws {
