@@ -54,6 +54,7 @@ import UIKit
     private let source: Source
     private var identity: PeerProfileRestorationIdentity
     private let parentBinding = PeerProfileMembersParentBinding()
+    private let tagRetention = PeerProfileMemberTagRetention()
     private var retired = false
     private var retentionDenied = false
     private var revalidation = PeerProfileMembersRevalidation()
@@ -385,6 +386,20 @@ import UIKit
 
     func transferParent(from parent: PeerProfileViewController, to replacement: PeerProfileViewController) -> Bool {
         parentBinding.transfer(self, from: parent, to: replacement)
+    }
+
+    func retainsMemberTag(parent: PeerProfileViewController, accountID: UUID, actorID: Int64?, chatID: Int64) -> Bool {
+        !retired && !retentionDenied && !identity.revoked && parentBinding.parent === parent
+            && self.accountID == accountID && accountUserID == actorID && source.chatID == chatID
+            && tagRetention.shouldRetain(
+                parent: parent,
+                members: self,
+                accountID: accountID,
+                actorID: actorID,
+                chatID: chatID,
+                currentAccountID: TDLib.shared.activeAccountID,
+                currentActorID: TDLib.shared.activeAccount?.userID,
+            )
     }
 
     func prepareReplacementForReadyClient(_ next: TdUpdateSource) -> PreparedClientNavigationReplacement? {
