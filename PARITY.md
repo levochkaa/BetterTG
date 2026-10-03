@@ -95,8 +95,9 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A44b1 explicit forum-topic receipts and its ChatVM fetch-echo prerequisite; A45 topic-list fetch echo next.
-A44a ordinary-chat bubble states have bounded native and real-history/foreground proof. All-messages topic aggregation stays A44b2.
+Active queue: A45a topic-list fetch echo/direct scalar and individual-read ownership, then A45b page/full arbitration.
+A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
+All-messages topic aggregation stays A44b2; no cross-topic/global watermark fallback.
 At `72d74b0`, the integrated
 `982245f` navigation driver passes cold, loaded and same-PID foreground target checks with actual visible/centered cells.
 A30g source review and actual same-PID basic-group smoke confirmed an open member list lost its parent profile and route during client replacement.
@@ -177,7 +178,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
 | A43 | P1 | At `d8e2bb0`, list delivery UI reads `Chat.lastReadOutboxMessageId`, but `updateChatReadOutbox` has no production consumer. TDLib emits this update independently; ticks stay Delivered until unrelated hydration | fixed bounded receipt feed — scoped Root observer, direct typed update of exact chat instances across folders/archive and revision-stamped protection for in-flight reads. Native cell AX/scoped delivery/projection regressions pass; live peer-read transport and full RootVM/UI wiring remain source-reviewed |
-| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | partial — ordinary nonforum states/feed fixed `1630ee1`, native geometry proof corrected `909f62b`; actual four Read bubbles retain frames through foreground client renewal. Explicit forum b1, all-messages b2 and final self/broadcast mapping remain separate |
+| A44 | P1 | At `596e895`, MessageCell's shared text/media/footer status is only timestamp or Failed; bubbles never render Sending/Delivered/Read. ChatVM has no outbox feed and all-messages forum rejects scalar topic updates | partial — ordinary states/feed `1630ee1`, geometry proof `909f62b`, explicit-topic receipts/ChatVM echo `5b9b322`; native and actual ordinary/topic foreground display proofs pass. All-messages b2, actual peer-read transitions and final self/broadcast mapping remain separate |
 | A45 | P1 | `ForumTopicsVM.observeUpdates` unconditionally calls getForumTopic on updateForumTopic; pinned TDLib emits updateForumTopic after every fetched topic, even unchanged | needs-fix — direct update or semantic reconciliation must break RPC echo, preserve omitted lastMessage/order/unread count and reject late stale reads. Source-confirmed at `909f62b`; no instrumented runtime request-count proof yet. ChatVM has the same prerequisite being addressed within A44b1, not a topic-list fix |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
@@ -1816,6 +1817,40 @@ is imported. This source pass does not prove every content's real rendering/acti
   `045008-60058-31007` PASS6s, each after one all-changed-Swift formatting invocation. A04 range regression PID58294 also passes
   with the unique-byte-coverage backend. A04 production/probe repair is committed as `8be1c9a`.
 
+### A44b1 explicit forum-topic receipts and ChatVM echo repair — 2026-10-03
+
+- Worker `caf406d` integrated as `5b9b322`, independently reviewed. Exact positive `.messageTopicForum` route/account/client
+  consumes its own updateForumTopic outbox watermark. Canonical raw message topic and chat must match; other topics, numeric
+  collisions with saved/direct/thread kinds and missing topic identity cannot borrow it. Pending/Failed precedence stays intact.
+  All-messages aggregation remains unimplemented; neither chat-global nor nil-to-General fallback was added.
+- Subscribe before the reused fresh getForumTopic baseline, even with restored metadata. Receipt UUID/revision, exact returned
+  info.chatId/forumTopicId, current source and request-owner UUID fence completion/cleanup. Initial readonly loading cannot start
+  a duplicate request. Restored ForumTopic/history is not receipt authority; source departure cancels and terminally retires it.
+- Review found the existing scalar observer refetched after every update, including TDLib's own getForumTopic response echo.
+  ChatVM now consumes direct scalar/draft payload, preserving omitted info/lastMessage/order/unreadCount; only a changed inbox
+  edge requests the omitted unread count once. Identical/outbox/draft echoes do not fetch. Later accepted scalar/draft (including
+  nil clearing) overlays a late full response; separate info revision preserves newer info. Composer dirty/revision policy remains.
+  This does not repair the independent ForumTopicsVM list cycle, tracked as A45.
+- References: TDLib022d6020 `td_api.tl:2980–2992,10539–10552`, `ForumTopic.cpp:48–54,137–160`,
+  `ForumTopicManager.cpp:617–636,831–880,1180–1190`. Official current6ad963e5/pre8e7e5f:
+  `TelegramCore/Sources/State/AccountViewTracker.swift:1931–1959/1873–1901` and
+  `Postbox/Sources/MessageHistoryView.swift:1155–1210,1364–1376/1128–1183,1333–1345` use exact-thread read state,
+  with no global fallback for absent thread data. No upstream infrastructure imported.
+- Native PID86336 `-ui-probe-message-delivery` PASS, including all A44a cases plus exact-topic/global/kind exclusion,
+  duplicate-update read fence, wrong returned identity, canonical promotion, source/UUID retirement, late draft overlay/clear,
+  identical echo before/after full response and changed-inbox decisions. Three actual MessageCells reconfigure only the matching
+  topic status, retaining foreign/unknown rows and offset. The request-count assertions model production reducer decisions;
+  they do not count whole-ChatVM or live TDLib requests. Saved result `.build/ui-probe-evidence/astra-a44-forum/`.
+- Actual PID90037 on source5b9b322: existing DEBUG `-ui-smoke-forum-topic-write` only navigated to an existing writable General
+  topic1; despite the flag's historical name, no text or messages were written. A pre-existing text and photo show single checks;
+  three AX rows report Delivered (one is the service row whose visible status is intentionally hidden). After Home/foreground,
+  ownership released05:06:29.414, restored05:07:55.499, Chat viewport settled/fresh history05:07:57.745 (+04); same PID,
+  empty topic composer, same status/geometry: x8/w386, y93.3333/128.6667/563.6667, heights30.3333/391/208.
+  Screenshots before/after inspected. This is route/display/source-renewal smoke, not proof of receipt freshness, peer Read
+  transition, actual RPC counts, remote draft edits or forum send/retry. Native fixture covers exact watermark decisions separately.
+- Six changed Swift files formatted together; primary `050253-84583-2008.log` PASS12s, worker `045916-78400-10799.log`
+  PASS13s, complete logs zero warnings/errors. No data reset, focus activation or Simulator shutdown.
+
 ### A45 forum fetch-response echo audit — 2026-10-03
 
 - Source `909f62b`: `ForumTopicsVM.swift:281–286` invokes refresh for every scalar topic update;341–365 cancels/replaces its
@@ -1824,9 +1859,14 @@ is imported. This source pass does not prove every content's real rendering/acti
   `send_update_forum_topic` (including the literal `topic_ == nullptr || true` branch). Thus an unchanged response can provoke
   another request. Independent reviewer and primary confirmed this; request-count/runtime impact has not been measured.
 - A44b1's ChatVM loader has the analogous edge and must break it before receipt baseline integration. The list owner is a
-  separate next slice: consume scalar fields directly, preserve fields absent from update (lastMessage/order/unreadCount/info),
+  separate slice: consume scalar fields directly, preserve fields absent from update (lastMessage/order/unreadCount/info),
   reconcile only true semantic changes requiring a read, and revision-fence stale full responses. Preserve query, pagination,
   current-client authority and stable topic rows. Prior A30d restoration proof does not cover or repair this cycle.
+- Additional pinned-source evidence: `ForumTopicManager.cpp:930–961` emits the same update for every page row before
+  getForumTopics resolves; `ForumTopic.cpp:117–133` derives order from both lastMessage and draft date. A45a must suppress/coalesce
+  page-created unknown demands, refresh omitted count/order only for relevant semantic changes, and overlay exact-topic scalar
+  events accepted after either page or individual dispatch. Full page-vs-individual ordering of omitted fields and later
+  hidden/renamed-info resurrection are separate A45b. Reset must preserve raw TD pagination cursor semantics and exact owners.
 
 ### A30d ForumTopics client recovery — 2026-10-02
 
@@ -2090,7 +2130,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   B01 still blocks the original Simulator database; the separate audit Simulator is now logged in and usable without data reset.
 - Latest verified implementation includes A04 partial-file buffering `8be1c9a`, A44a ordinary receipts `1630ee1` and native
   geometry proof `909f62b`; actual four Read bubbles retain exact frames through a client foreground epoch (PID62893).
-  Explicit forum A44b1 is in the worker; A45 list fetch echo is source-confirmed and queued next.
+  Explicit forum A44b1 `5b9b322` has native PID86336 and actual topic display/foreground PID90037 proof above.
+  Worker is implementing bounded A45a list echo/individual ownership; A45b page/full arbitration and A44b2 aggregation remain.
   Checkpoint build `build-Debug-20261003-050026-80761-652.log` PASS6s; complete log zero warnings/errors.
   AGENTS/CLAUDE match; production/dependency scan still has zero VLC, forbidden UI and imported Telegram-infrastructure markers.
   A30d active-search renewal through `501af59`, native proof through `37e08e8`
@@ -2171,7 +2212,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   `55ff037`/`f9b5dad`/`e049da3`, with native/actual proof above. A30d `5c65406`/`465cf12`/`a75f667`/`8a08600`
   are integrated as `f551b40`/`1f959bb`/`cc6ad7e`/`501af59`; probe corrections `f8e40b1`/`655698c`/`7097a76` as
   `e5979fd`/`c9e2169`/`37e08e8`. Bounded native/actual proof passes. A44a `52d7e33` is integrated as `1630ee1`;
-  primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick). Worker implements A44b1 only.
+  primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
+  A44b1 `caf406d` is integrated as `5b9b322`; worker continues with A45a only.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
   A20b profile-grid concealment and A30d ForumTopics recovery are integrated. A32 explicit-button policy is integrated; native Back
@@ -2188,11 +2230,11 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact current slice: A44b1 explicit forum-topic delivery and ChatVM fetch-echo prerequisite, under independent review in worker.
-  Consume exact scalar update before revision-fenced reused getForumTopic baseline; no global/nil/General-topic fallback or
-  restored receipt authority. Raw canonical message topic must match route. Identical fetch echoes cannot trigger another read;
-  late full responses cannot revert newer scalar/draft/info. A44b2 all-messages per-topic queue remains separate; A45 list echo
-  is next. A44a ordinary delivery has bounded native/actual proof above; final self/broadcast checks remain conservatively absent.
+- Exact current slice: A45a ForumTopicsVM echo/direct scalar and individual read ownership, under independent review in worker.
+  Include minimal post-dispatch exact-topic scalar overlay for pages to avoid introducing a stale direct-update regression.
+  Preserve raw cursors and current query/source; no duplicate or recursive fetch from unchanged response echoes.
+  A45b omitted-field page/full arbitration and info tombstones stay separate. A44a/A44b1 have bounded native/actual proofs above;
+  A44b2 all-messages per-topic receipt queue remains separate, final self/broadcast checks conservatively absent.
   A30d active-search renewal now passes exact-task native and actual two-epoch focused/keyboard-hidden query/clear checks;
   live pagination/metadata failure and overlapping dismissal+pop remain separate limits.
   A30g bounded recovery is verified; larger member lists, server permission changes and tag-editor/Save restoration stay open.
