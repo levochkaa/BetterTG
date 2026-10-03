@@ -39,7 +39,13 @@ import UIKit
     @MainActor private final class FrameObserver: NSObject {
         weak var owner: ChatMessageNavigationScroll?
 
-        @objc func frame() { owner?.verifyFrame() }
+        @objc func frame() {
+            #if DEBUG
+                let timing = owner?.debugFrameBegan()
+                defer { if let timing { owner?.debugFrameEnded(timing) } }
+            #endif
+            owner?.verifyFrame()
+        }
     }
 
     private struct Attempt {
@@ -57,6 +63,13 @@ import UIKit
         /// Enabled only by the isolated native probe. Retain values, not layout
         /// callbacks: observing this trace must not resolve or lay out a target.
         var debugTracingEnabled = false
+
+        private struct DebugFrameTiming {
+            let enteredAt: CFTimeInterval
+            let timestamp: CFTimeInterval
+            let targetTimestamp: CFTimeInterval
+            let duration: CFTimeInterval
+        }
 
         private struct DebugEvent {
             let elapsed: CFTimeInterval
@@ -77,6 +90,8 @@ import UIKit
             let tracking: Bool
             let dragging: Bool
             let decelerating: Bool
+            let frameTiming: DebugFrameTiming?
+            let callbackDuration: CFTimeInterval?
         }
 
         private var debugStartedAt: CFTimeInterval = 0
@@ -105,10 +120,35 @@ import UIKit
                     + " checking=\(event.checking) animated=\(String(describing: event.commandAnimated)) corrections=\(event.corrections)"
                     + " firstOffset=\(String(describing: event.firstOffset)) firstTarget=\(String(describing: event.firstTarget))"
                     + " tracking=\(event.tracking) dragging=\(event.dragging) decelerating=\(event.decelerating)"
+                    + " displayTimestamp=\(String(describing: event.frameTiming?.timestamp))"
+                    + " displayTargetTimestamp=\(String(describing: event.frameTiming?.targetTimestamp))"
+                    + " displayDuration=\(String(describing: event.frameTiming?.duration))"
+                    + " callbackDuration=\(String(describing: event.callbackDuration))"
             }).joined(separator: "\n")
         }
 
-        private func debugRecord(_ event: String, resolution: Resolution? = nil, target: Target? = nil) {
+        private func debugFrameBegan() -> DebugFrameTiming? {
+            guard debugTracingEnabled, let frameLink else { return nil }
+            let timing = DebugFrameTiming(
+                enteredAt: CACurrentMediaTime(), timestamp: frameLink.timestamp - debugStartedAt,
+                targetTimestamp: frameLink.targetTimestamp - debugStartedAt, duration: frameLink.duration,
+            )
+            debugRecord("display-link-enter", frameTiming: timing)
+            return timing
+        }
+
+        private func debugFrameEnded(_ timing: DebugFrameTiming) {
+            debugRecord(
+                "display-link-return",
+                frameTiming: timing,
+                callbackDuration: CACurrentMediaTime() - timing.enteredAt,
+            )
+        }
+
+        private func debugRecord(
+            _ event: String, resolution: Resolution? = nil, target: Target? = nil,
+            frameTiming: DebugFrameTiming? = nil, callbackDuration: CFTimeInterval? = nil,
+        ) {
             guard debugTracingEnabled else { return }
             if let resolution {
                 switch resolution {
@@ -134,6 +174,7 @@ import UIKit
                 corrections: attempt?.corrections.count ?? 0, firstOffset: firstOffset, firstTarget: firstTarget,
                 tracking: scrollView?.isTracking ?? false, dragging: scrollView?.isDragging ?? false,
                 decelerating: scrollView?.isDecelerating ?? false,
+                frameTiming: frameTiming, callbackDuration: callbackDuration,
             ))
         }
     #endif
@@ -211,10 +252,13 @@ import UIKit
 
     func layoutDidSettle() {
         guard let current = attempt, !issuingCommand else { return }
+        #if DEBUG
+            debugRecord("layout-resolve-enter")
+        #endif
         let resolution = current.resolve()
         guard attempt?.id == current.id else { return }
         #if DEBUG
-            debugRecord("layout", resolution: resolution)
+            debugRecord("layout-resolve-return", resolution: resolution)
         #endif
         switch resolution {
         case .missing: finish(.missing)
@@ -229,10 +273,13 @@ import UIKit
 
     func didScroll() {
         guard !issuingCommand, let current = attempt, current.command != nil else { return }
+        #if DEBUG
+            debugRecord("scroll-resolve-enter")
+        #endif
         let resolution = current.resolve()
         guard attempt?.id == current.id else { return }
         #if DEBUG
-            debugRecord("scroll", resolution: resolution)
+            debugRecord("scroll-resolve-return", resolution: resolution)
         #endif
         switch resolution {
         case .missing: finish(.missing)
@@ -306,10 +353,13 @@ import UIKit
             finish(.cancelled)
             return
         }
+        #if DEBUG
+            debugRecord("frame-resolve-enter")
+        #endif
         let resolution = current.resolve()
         guard attempt?.id == current.id, attempt?.command == current.command else { return }
         #if DEBUG
-            debugRecord("frame", resolution: resolution)
+            debugRecord("frame-resolve-return", resolution: resolution)
         #endif
         switch resolution {
         case .missing: finish(.missing)
