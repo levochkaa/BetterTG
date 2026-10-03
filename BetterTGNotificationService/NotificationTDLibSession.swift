@@ -23,6 +23,19 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private let logger: os.Logger
     private let manager = TDLibClientManager()
     private let lifetime = Lifetime()
+    private var previewObservation = RichNotificationPreviewPolicy.Observation()
+
+    private var deniedResult: ResolvedTelegramNotification {
+        ResolvedTelegramNotification(
+            senderName: metadata.senderName?.isEmpty == false ? metadata.senderName! : "Telegram",
+            conversationTitle: metadata.conversationTitle,
+            senderAvatarData: nil,
+            conversationAvatarData: nil,
+            preview: .denied,
+            body: nil,
+            canQuickReply: allowsQuickReply && metadata.isQuickReplyCandidate,
+        )
+    }
 
     init(
         account: TelegramAccount,
@@ -69,6 +82,12 @@ final class NotificationTDLibSession: @unchecked Sendable {
     private func handle(data: Data, client: TDLibClient) {
         guard lifetime.isCurrent(clientID: client.id),
               let update = try? client.decoder.decode(Update.self, from: data) else { return }
+        if let target, lifetime.finish(deniedResult, clientID: client.id, when: {
+            previewObservation.revokes(update, target: target)
+        }) {
+            logger.log("rich_notification.tdlib_finished reason=preview_revoked")
+            return
+        }
         switch update {
         case .updateAuthorizationState(let value):
             handle(authorizationState: value.authorizationState, client: client)
@@ -199,45 +218,45 @@ final class NotificationTDLibSession: @unchecked Sendable {
         var senderName: String
         var media: MediaCandidate?
         var body: String?
-        var expectsMedia = false
+
+        let selection = await RichNotificationPreviewPolicy.select(
+            notification: notification, target: target, chatID: chatID,
+            isCurrent: { self.isCurrent(ticket) },
+            fetch: { await self.fetchMessage(chatID: chatID, target: target, client: client, ticket: ticket) },
+        )
+        guard isCurrent(ticket) else { return nil }
+        if case .denied = selection {
+            finish(deniedResult, reason: "concealed_message", ticket: ticket)
+            return nil
+        }
 
         switch notification.type {
         case .notificationTypeNewPushMessage(let value):
             senderID = value.senderId
             senderName = value.senderName
-            media = mediaCandidate(for: value.content)
-            body = notificationBody(for: value.content)
-            expectsMedia = isMediaContent(value.content)
-            if media == nil,
-               let message = await fetchMessage(
-                   chatID: chatID,
-                   target: target,
-                   client: client,
-                   ticket: ticket,
-               )
-            {
-                guard isCurrent(ticket) else { return nil }
-                senderID = message.senderId
-                senderName = await displayName(for: message.senderId, client: client, ticket: ticket)
-                    ?? senderName
-                guard isCurrent(ticket) else { return nil }
-                media = mediaCandidate(for: message.content)
-                body = notificationBody(for: message.content) ?? body
-                expectsMedia = isMediaContent(message.content)
-            }
         case .notificationTypeNewMessage(let value):
             senderID = value.message.senderId
-            senderName = await displayName(for: value.message.senderId, client: client, ticket: ticket)
-                ?? metadata.senderName
-                ?? "Telegram"
-            guard isCurrent(ticket) else { return nil }
-            media = mediaCandidate(for: value.message.content)
-            body = notificationBody(for: value.message.content)
-            expectsMedia = isMediaContent(value.message.content)
+            senderName = metadata.senderName ?? "Telegram"
         default:
             return nil
         }
 
+        if case .message(let message) = selection {
+            senderID = message.senderId
+            media = mediaCandidate(for: message.content)
+            body = notificationBody(for: message.content)
+        }
+        if case .notificationTypeNewMessage = notification.type {
+            senderName = await displayName(for: senderID, client: client, ticket: ticket) ?? senderName
+        } else if case .message = selection {
+            senderName = await displayName(for: senderID, client: client, ticket: ticket) ?? senderName
+        }
+        let expectsMedia: Bool =
+            switch selection {
+            case .message: true
+            case .unresolved: metadata.expectsMedia
+            case .denied, .nonMedia: false
+            }
         guard isCurrent(ticket) else { return nil }
         logger.log(
             "rich_notification.media_resolved available=\(media != nil, privacy: .public) expected=\(expectsMedia, privacy: .public)",
@@ -295,9 +314,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
         guard isCurrent(ticket),
               RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
         guard lifetime.publish(ticket, {
-            if let resolvedMedia, let message = metadata.messageReference {
-                RichNotificationCache.cacheMedia(resolvedMedia, for: message, accountID: metadata.accountID)
-            }
             if let resolvedSenderAvatar {
                 RichNotificationCache.cacheAvatar(
                     resolvedSenderAvatar,
@@ -317,8 +333,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
             conversationTitle: conversation.title,
             senderAvatarData: resolvedSenderAvatar,
             conversationAvatarData: resolvedConversationAvatar,
-            mediaData: resolvedMedia,
-            body: body,
+            preview: selection.preview(data: resolvedMedia),
+            body: selection.preview(data: nil).bodyOverride(body),
             canQuickReply: canQuickReply,
         )
     }
@@ -458,37 +474,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
         return placeholder
     }
 
-    private func mediaCandidate(for content: PushMessageContent) -> MediaCandidate? {
-        switch content {
-        case .pushMessageContentPhoto(let value):
-            guard !value.isSecret else { return nil }
-            return value.photo.flatMap { photoCandidate($0, kind: "photo") }
-        case .pushMessageContentVideo(let value):
-            guard !value.isSecret else { return nil }
-            return value.video.flatMap {
-                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "video")
-            }
-        case .pushMessageContentAnimation(let value):
-            return value.animation.flatMap {
-                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "animation")
-            }
-        case .pushMessageContentDocument(let value):
-            return value.document.flatMap {
-                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "document")
-            }
-        case .pushMessageContentSticker(let value):
-            return value.sticker.flatMap {
-                thumbnailCandidate($0.thumbnail, placeholder: nil, kind: "sticker")
-            }
-        case .pushMessageContentVideoNote(let value):
-            return value.videoNote.flatMap {
-                thumbnailCandidate($0.thumbnail, placeholder: $0.minithumbnail?.data, kind: "video_note")
-            }
-        default:
-            return nil
-        }
-    }
-
     private func mediaCandidate(for content: MessageContent) -> MediaCandidate? {
         switch content {
         case .messagePhoto(let value):
@@ -542,53 +527,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
     ) -> MediaCandidate? {
         guard let thumbnail else { return nil }
         return MediaCandidate(file: thumbnail.file, placeholder: placeholder, kind: kind)
-    }
-
-    private func isMediaContent(_ content: PushMessageContent) -> Bool {
-        switch content {
-        case .pushMessageContentAnimation,
-             .pushMessageContentDocument,
-             .pushMessageContentPhoto,
-             .pushMessageContentSticker,
-             .pushMessageContentVideo,
-             .pushMessageContentVideoNote:
-            true
-        default:
-            false
-        }
-    }
-
-    private func isMediaContent(_ content: MessageContent) -> Bool {
-        switch content {
-        case .messageAnimation,
-             .messageDocument,
-             .messagePhoto,
-             .messageSticker,
-             .messageVideo,
-             .messageVideoNote:
-            true
-        default:
-            false
-        }
-    }
-
-    private func notificationBody(for content: PushMessageContent) -> String? {
-        switch content {
-        case .pushMessageContentPhoto(let value):
-            captionedMediaBody(icon: "🖼", caption: value.caption, fallback: "Photo")
-        case .pushMessageContentVideo(let value):
-            captionedMediaBody(icon: "📹", caption: value.caption, fallback: "Video")
-        case .pushMessageContentAnimation(let value):
-            captionedMediaBody(icon: "🎬", caption: value.caption, fallback: "GIF")
-        case .pushMessageContentDocument:
-            "📎 File"
-        case .pushMessageContentSticker(let value):
-            value.emoji.isEmpty ? "Sticker" : "\(value.emoji) Sticker"
-        case .pushMessageContentVideoNote:
-            "Video message"
-        default:
-            nil
-        }
     }
 
     private func notificationBody(for content: MessageContent) -> String? {

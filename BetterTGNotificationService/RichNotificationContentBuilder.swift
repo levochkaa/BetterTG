@@ -14,15 +14,14 @@ enum RichNotificationContentBuilder {
     ) -> UNNotificationContent {
         guard let mutable = original.mutableCopy() as? UNMutableNotificationContent else { return original }
 
-        if let body = resolved.body, !body.isEmpty {
+        if let body = resolved.preview.bodyOverride(resolved.body), !body.isEmpty {
             mutable.body = body
         }
 
-        if let mediaData = resolved.mediaData ?? metadata.messageReference
-            .flatMap({ RichNotificationCache.mediaURL(for: $0, accountID: metadata.accountID) })
-            .flatMap({ try? Data(contentsOf: $0) }),
-            let url = RichNotificationCache.writeTemporaryAttachment(mediaData),
-            let attachment = try? UNNotificationAttachment(identifier: "telegram-media", url: url)
+        mutable.attachments = []
+        if let mediaData = resolved.preview.attachmentData,
+           let url = RichNotificationCache.writeTemporaryAttachment(mediaData),
+           let attachment = try? UNNotificationAttachment(identifier: "telegram-media", url: url)
         {
             mutable.attachments = [attachment]
         }
@@ -84,15 +83,12 @@ enum RichNotificationContentBuilder {
         metadata: RelayNotificationMetadata,
         canQuickReply: Bool,
     ) -> ResolvedTelegramNotification {
-        let mediaData = metadata.messageReference
-            .flatMap { RichNotificationCache.mediaURL(for: $0, accountID: metadata.accountID) }
-            .flatMap { try? Data(contentsOf: $0) }
-        return ResolvedTelegramNotification(
+        ResolvedTelegramNotification(
             senderName: metadata.senderName?.isEmpty == false ? metadata.senderName! : "Telegram",
             conversationTitle: metadata.conversationTitle,
             senderAvatarData: RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID),
             conversationAvatarData: RichNotificationCache.avatarData(for: metadata.peer, accountID: metadata.accountID),
-            mediaData: mediaData,
+            preview: .unresolved,
             body: nil,
             canQuickReply: canQuickReply,
         )

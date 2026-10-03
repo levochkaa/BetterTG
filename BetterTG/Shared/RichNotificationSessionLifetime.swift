@@ -101,9 +101,13 @@ final class RichNotificationSessionLifetime<Value>: @unchecked Sendable {
         return true
     }
 
-    @discardableResult func finish(_ value: Value?, ticket: Ticket? = nil) -> Bool {
+    @discardableResult func finish(
+        _ value: Value?, ticket: Ticket? = nil, clientID: Int32? = nil, when condition: () -> Bool = { true },
+    ) -> Bool {
         lock.lock()
-        guard !retired, ticket.map(isCurrentLocked) ?? true else {
+        guard !retired, ticket.map(isCurrentLocked) ?? true,
+              clientID.map({ started && self.clientID == $0 }) ?? true, condition()
+        else {
             lock.unlock()
             return false
         }

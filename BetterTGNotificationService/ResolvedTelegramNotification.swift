@@ -7,7 +7,7 @@ struct ResolvedTelegramNotification {
     let conversationTitle: String?
     let senderAvatarData: Data?
     let conversationAvatarData: Data?
-    let mediaData: Data?
+    let preview: RichNotificationPreview
     let body: String?
     let canQuickReply: Bool
 }

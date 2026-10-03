@@ -5,6 +5,8 @@
     import TDLibKitDynamic
 
     @MainActor enum RichNotificationMediaPrewarmerProbe {
+        enum Kind { case photo, video, animation, videoNote, document, sticker }
+
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
 
         @MainActor private final class Gate {
@@ -131,8 +133,6 @@
             }
         }
 
-        private enum Kind { case photo, video, animation, videoNote, document, sticker }
-
         static func runIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-notification-media-admission") else { return }
             Task {
@@ -144,7 +144,7 @@
                     result = "PASS: full-message concealment/self-destruct gate before injected peer/download/cache; ordinary positives; "
                         + "exact ordinary cloud IDs before IO; local/scheduled/overflow aliases refused; "
                         + "exact production publishers and async leases; held edit/delete/source/replacement refusal; own-token cleanup; "
-                        + "real TDLib/NSE/durable cache revocation=unverified; legacy fallback remains open; RPC/disk-media=0"
+                        + "real TDLib/NSE/durable cache revocation=unverified; verified cache-only media restoration=pending; RPC/disk-media=0"
                 } catch { result = "FAIL: \(error)" }
                 await f.finish()
                 log(result)
@@ -155,6 +155,163 @@
                     )
                 }
             }
+        }
+
+        static func content(
+            _ kind: Kind,
+            secret: Bool = false,
+            spoiler: Bool = false,
+            placeholder: Bool = false,
+        ) -> MessageContent {
+            let file = Fixture.file
+            let thumbnail = Thumbnail(file: file, format: .thumbnailFormatJpeg, height: 16, width: 16)
+            let mini: Minithumbnail? = placeholder ? .init(data: Data([1, 2]), height: 2, width: 2) : nil
+            let caption = FormattedText(entities: [], text: "")
+            switch kind {
+            case .photo:
+                return .messagePhoto(.init(
+                    caption: caption,
+                    hasSpoiler: spoiler,
+                    isSecret: secret,
+                    photo: .init(
+                        hasStickers: false,
+                        minithumbnail: mini,
+                        sizes: [.init(height: 16, photo: file, progressiveSizes: [], type: "x", width: 16)],
+                    ),
+                    showCaptionAboveMedia: false,
+                    video: nil,
+                ))
+            case .video:
+                return .messageVideo(.init(
+                    alternativeVideos: [],
+                    caption: caption,
+                    cover: nil,
+                    hasSpoiler: spoiler,
+                    isSecret: secret,
+                    showCaptionAboveMedia: false,
+                    startTimestamp: 0,
+                    storyboards: [],
+                    video: .init(
+                        duration: 1,
+                        fileName: "probe",
+                        hasStickers: false,
+                        height: 16,
+                        mimeType: "video/mp4",
+                        minithumbnail: mini,
+                        supportsStreaming: false,
+                        thumbnail: thumbnail,
+                        video: file,
+                        width: 16,
+                    ),
+                ))
+            case .animation:
+                return .messageAnimation(.init(
+                    animation: .init(
+                        animation: file,
+                        duration: 1,
+                        fileName: "probe",
+                        hasStickers: false,
+                        height: 16,
+                        mimeType: "video/mp4",
+                        minithumbnail: mini,
+                        thumbnail: thumbnail,
+                        width: 16,
+                    ),
+                    caption: caption,
+                    hasSpoiler: spoiler,
+                    isSecret: secret,
+                    showCaptionAboveMedia: false,
+                ))
+            case .videoNote:
+                return .messageVideoNote(.init(
+                    isSecret: secret,
+                    isViewed: false,
+                    videoNote: .init(
+                        duration: 1,
+                        length: 16,
+                        minithumbnail: mini,
+                        speechRecognitionResult: nil,
+                        thumbnail: thumbnail,
+                        video: file,
+                        waveform: Data(),
+                    ),
+                ))
+            case .document:
+                return .messageDocument(.init(caption: caption, document: .init(
+                    document: file,
+                    fileName: "probe",
+                    mimeType: "application/pdf",
+                    minithumbnail: mini,
+                    thumbnail: thumbnail,
+                )))
+            case .sticker:
+                return .messageSticker(.init(isPremium: false, sticker: .init(
+                    emoji: "",
+                    format: .stickerFormatWebp,
+                    fullType: .stickerFullTypeRegular(.init(premiumAnimation: nil)),
+                    height: 16,
+                    id: 1,
+                    setId: 0,
+                    sticker: file,
+                    thumbnail: thumbnail,
+                    width: 16,
+                )))
+            }
+        }
+
+        static func message(
+            _ content: MessageContent,
+            chatID: Int64 = 7,
+            id: Int64 = 88 << 20,
+            destruction: MessageSelfDestructType? = nil,
+            destructionIn: Double = 0,
+            autoDeleteIn: Double = 0,
+        ) -> Message {
+            .init(
+                authorSignature: "",
+                autoDeleteIn: autoDeleteIn,
+                canBeSaved: true,
+                chatId: chatID,
+                containsUnreadMention: false,
+                containsUnreadPollVotes: false,
+                content: content,
+                date: 0,
+                editDate: 0,
+                effectId: 0,
+                ephemeralMessageId: 0,
+                factCheck: nil,
+                forwardInfo: nil,
+                guestBotCallerId: nil,
+                hasTimestampedMedia: false,
+                id: id,
+                importInfo: nil,
+                interactionInfo: nil,
+                isChannelPost: false,
+                isFromOffline: false,
+                isOutgoing: false,
+                isPaidGramSuggestedPost: false,
+                isPaidStarSuggestedPost: false,
+                isPinned: false,
+                mediaAlbumId: 0,
+                paidMessageStarCount: 0,
+                receiverId: nil,
+                replyMarkup: nil,
+                replyTo: nil,
+                restrictionInfo: nil,
+                schedulingState: nil,
+                selfDestructIn: destructionIn,
+                selfDestructType: destruction,
+                senderBoostCount: 0,
+                senderBusinessBotUserId: 0,
+                senderId: .messageSenderUser(.init(userId: 1)),
+                senderTag: "",
+                sendingState: nil,
+                suggestedPostInfo: nil,
+                summaryLanguageCode: "",
+                topicId: nil,
+                unreadReactions: [],
+                viaBotUserId: 0,
+            )
         }
 
         private static func verify(_ f: Fixture) async throws {
@@ -312,163 +469,6 @@
             await fresh.value
             try require(f.writes.count == before + 1, "old cleanup or nonmatching update revoked replacement")
             f.gate = nil
-        }
-
-        private static func content(
-            _ kind: Kind,
-            secret: Bool = false,
-            spoiler: Bool = false,
-            placeholder: Bool = false,
-        ) -> MessageContent {
-            let file = Fixture.file
-            let thumbnail = Thumbnail(file: file, format: .thumbnailFormatJpeg, height: 16, width: 16)
-            let mini: Minithumbnail? = placeholder ? .init(data: Data([1, 2]), height: 2, width: 2) : nil
-            let caption = FormattedText(entities: [], text: "")
-            switch kind {
-            case .photo:
-                return .messagePhoto(.init(
-                    caption: caption,
-                    hasSpoiler: spoiler,
-                    isSecret: secret,
-                    photo: .init(
-                        hasStickers: false,
-                        minithumbnail: mini,
-                        sizes: [.init(height: 16, photo: file, progressiveSizes: [], type: "x", width: 16)],
-                    ),
-                    showCaptionAboveMedia: false,
-                    video: nil,
-                ))
-            case .video:
-                return .messageVideo(.init(
-                    alternativeVideos: [],
-                    caption: caption,
-                    cover: nil,
-                    hasSpoiler: spoiler,
-                    isSecret: secret,
-                    showCaptionAboveMedia: false,
-                    startTimestamp: 0,
-                    storyboards: [],
-                    video: .init(
-                        duration: 1,
-                        fileName: "probe",
-                        hasStickers: false,
-                        height: 16,
-                        mimeType: "video/mp4",
-                        minithumbnail: mini,
-                        supportsStreaming: false,
-                        thumbnail: thumbnail,
-                        video: file,
-                        width: 16,
-                    ),
-                ))
-            case .animation:
-                return .messageAnimation(.init(
-                    animation: .init(
-                        animation: file,
-                        duration: 1,
-                        fileName: "probe",
-                        hasStickers: false,
-                        height: 16,
-                        mimeType: "video/mp4",
-                        minithumbnail: mini,
-                        thumbnail: thumbnail,
-                        width: 16,
-                    ),
-                    caption: caption,
-                    hasSpoiler: spoiler,
-                    isSecret: secret,
-                    showCaptionAboveMedia: false,
-                ))
-            case .videoNote:
-                return .messageVideoNote(.init(
-                    isSecret: secret,
-                    isViewed: false,
-                    videoNote: .init(
-                        duration: 1,
-                        length: 16,
-                        minithumbnail: mini,
-                        speechRecognitionResult: nil,
-                        thumbnail: thumbnail,
-                        video: file,
-                        waveform: Data(),
-                    ),
-                ))
-            case .document:
-                return .messageDocument(.init(caption: caption, document: .init(
-                    document: file,
-                    fileName: "probe",
-                    mimeType: "application/pdf",
-                    minithumbnail: mini,
-                    thumbnail: thumbnail,
-                )))
-            case .sticker:
-                return .messageSticker(.init(isPremium: false, sticker: .init(
-                    emoji: "",
-                    format: .stickerFormatWebp,
-                    fullType: .stickerFullTypeRegular(.init(premiumAnimation: nil)),
-                    height: 16,
-                    id: 1,
-                    setId: 0,
-                    sticker: file,
-                    thumbnail: thumbnail,
-                    width: 16,
-                )))
-            }
-        }
-
-        private static func message(
-            _ content: MessageContent,
-            chatID: Int64 = 7,
-            id: Int64 = 88 << 20,
-            destruction: MessageSelfDestructType? = nil,
-            destructionIn: Double = 0,
-            autoDeleteIn: Double = 0,
-        ) -> Message {
-            .init(
-                authorSignature: "",
-                autoDeleteIn: autoDeleteIn,
-                canBeSaved: true,
-                chatId: chatID,
-                containsUnreadMention: false,
-                containsUnreadPollVotes: false,
-                content: content,
-                date: 0,
-                editDate: 0,
-                effectId: 0,
-                ephemeralMessageId: 0,
-                factCheck: nil,
-                forwardInfo: nil,
-                guestBotCallerId: nil,
-                hasTimestampedMedia: false,
-                id: id,
-                importInfo: nil,
-                interactionInfo: nil,
-                isChannelPost: false,
-                isFromOffline: false,
-                isOutgoing: false,
-                isPaidGramSuggestedPost: false,
-                isPaidStarSuggestedPost: false,
-                isPinned: false,
-                mediaAlbumId: 0,
-                paidMessageStarCount: 0,
-                receiverId: nil,
-                replyMarkup: nil,
-                replyTo: nil,
-                restrictionInfo: nil,
-                schedulingState: nil,
-                selfDestructIn: destructionIn,
-                selfDestructType: destruction,
-                senderBoostCount: 0,
-                senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)),
-                senderTag: "",
-                sendingState: nil,
-                suggestedPostInfo: nil,
-                summaryLanguageCode: "",
-                topicId: nil,
-                unreadReactions: [],
-                viaBotUserId: 0,
-            )
         }
 
         private static func require(_ condition: Bool, _ detail: String) throws {

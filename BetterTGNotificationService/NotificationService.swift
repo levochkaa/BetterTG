@@ -76,14 +76,10 @@ final class NotificationService: UNNotificationServiceExtension {
                 } else {
                     logger.log("rich_notification.tdlib_lock_timed_out")
                     RichNotificationDiagnostics.record("tdlib_lock_timed_out")
-                    resolved = await waitForCachedMedia(
-                        metadata: metadata,
-                        fallback: fallback,
-                        timeout: 4,
-                        ticket: ticket,
-                    )
-                    logger.log("rich_notification.resolved source=cache_after_lock_timeout")
-                    RichNotificationDiagnostics.record("resolved", fields: ["source": "cache_after_lock_timeout"])
+                    // Raw JPEGs have no concealment/revision evidence. Leave
+                    // media unresolved until the verified v2 cache is available.
+                    logger.log("rich_notification.resolved source=metadata_after_lock_timeout")
+                    RichNotificationDiagnostics.record("resolved", fields: ["source": "metadata_after_lock_timeout"])
                 }
             } catch {
                 logger
@@ -130,40 +126,5 @@ final class NotificationService: UNNotificationServiceExtension {
               RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: activeAccount.userID)
         else { return false }
         return true
-    }
-
-    private func waitForCachedMedia(
-        metadata: RelayNotificationMetadata,
-        fallback: ResolvedTelegramNotification,
-        timeout: TimeInterval,
-        ticket: Requests.Ticket,
-    ) async -> ResolvedTelegramNotification {
-        guard metadata.expectsMedia, let reference = metadata.messageReference else { return fallback }
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            guard isCurrent(ticket) else { return fallback }
-            if let url = RichNotificationCache.mediaURL(for: reference, accountID: metadata.accountID),
-               let data = try? Data(contentsOf: url)
-            {
-                logger.log("rich_notification.media_resolved source=shared_cache")
-                RichNotificationDiagnostics.record("media_resolved", fields: ["source": "shared_cache"])
-                return ResolvedTelegramNotification(
-                    senderName: fallback.senderName,
-                    conversationTitle: fallback.conversationTitle,
-                    senderAvatarData: fallback.senderAvatarData,
-                    conversationAvatarData: fallback.conversationAvatarData,
-                    mediaData: data,
-                    body: fallback.body,
-                    canQuickReply: fallback.canQuickReply,
-                )
-            }
-            try? await Task.sleep(for: .milliseconds(100))
-        } while isCurrent(ticket) && Date() < deadline
-        logger.log("rich_notification.media_resolved source=shared_cache success=false")
-        RichNotificationDiagnostics.record(
-            "media_resolved",
-            fields: ["source": "shared_cache", "success": "false"],
-        )
-        return fallback
     }
 }
