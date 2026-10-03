@@ -573,6 +573,12 @@ import UIKit
         container.alpha = 0.7
         extracted.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
         extracted.alpha = 0.8
+        let externalTransform = extracted.transform
+        let externalAlpha = extracted.alpha
+        try require(
+            externalTransform != .identity && externalAlpha > 0 && externalAlpha < 1,
+            "external extraction presentation baseline was not armed",
+        )
         owner?.messages = []
         owner?.reconfigure([id])
         try await until("missing-model native reconfigure") { owner?.completed == 2 }
@@ -589,13 +595,13 @@ import UIKit
         )
         try require(
             extracted.superview === externalHost && extracted.isHidden
-                && extracted.transform == CGAffineTransform(scaleX: 1.1, y: 1.1) && extracted.alpha == 0.8
+                && extracted.transform == externalTransform && extracted.alpha == externalAlpha
                 && container.transform == .identity && container.alpha == 1,
             "fallback stole or exposed extracted content: "
                 + "externalHost=\(extracted.superview === externalHost), hidden=\(extracted.isHidden), "
-                + "extractedTransform=\(extracted.transform), expectedTransform=\(CGAffineTransform(scaleX: 1.1, y: 1.1)), "
+                + "extractedTransform=\(extracted.transform), expectedTransform=\(externalTransform), "
                 + "extractedAlpha=\(String(format: "%.17g", Double(extracted.alpha))), "
-                + "expectedAlpha=\(String(format: "%.17g", Double(CGFloat(0.8)))), "
+                + "expectedAlpha=\(String(format: "%.17g", Double(externalAlpha))), "
                 + "containerTransform=\(container.transform), "
                 + "containerAlpha=\(String(format: "%.17g", Double(container.alpha)))",
         )
