@@ -27,32 +27,20 @@ import UIKit
     private weak var cell: MessageCell?
     private let source: TdUpdateSource?
     private let location: ChatLocation
-    private let sources: [Message]
-    private let representative: Message
-    private let formattedText: FormattedText?
-    private let replyTarget: MessageMetadataNavigationTarget?
-    private let replyBody: FormattedText?
-    private let replyQuote: TextQuote?
-    private let quoteExpanded: Bool
-    private let forwardTarget: MessageMetadataNavigationTarget?
-    private let reactions: MessageReactions?
+    private let renderValue: ChatMessageRenderValue
     private let selected: Bool
 
-    init(message: CustomMessage, cell: MessageCell, source: TdUpdateSource?, location: ChatLocation, selected: Bool) {
+    init(
+        message: CustomMessage, cell: MessageCell, source: TdUpdateSource?, location: ChatLocation, selected: Bool,
+        renderValue: ChatMessageRenderValue? = nil,
+    ) {
+        let value = renderValue ?? ChatMessageRenderValue(message)
         self.message = message
         self.cell = cell
         self.source = source
         self.location = location
-        self.displayedID = message.displayedID
-        self.representative = message.message
-        self.sources = message.sourceMessages
-        self.formattedText = message.formattedText
-        self.replyTarget = message.replyPresentation?.navigationTarget
-        self.replyBody = message.replyPresentation?.body
-        self.replyQuote = message.replyPresentation?.quote
-        self.quoteExpanded = message.isReplyQuoteExpanded
-        self.forwardTarget = message.forwardPresentation?.navigationTarget
-        self.reactions = message.reactions
+        self.displayedID = value.displayedID
+        self.renderValue = value
         self.selected = selected
     }
 
@@ -65,19 +53,22 @@ import UIKit
         rowIsCurrent: Bool,
         state: State,
     ) -> CustomMessage? {
+        let sources = renderValue.sourceMessages
+        let replyTarget = renderValue.replyPresentation?.navigationTarget
+        let forwardTarget = renderValue.forwardPresentation?.navigationTarget
         guard ownerIsCurrent, rowIsCurrent, let source, source == currentSource,
               location == currentLocation, source.accountID == location.accountID,
               source.clientID == location.clientID,
               let cell, cell.actionBindingID == bindingID, cell.window != nil,
               cell.isUserInteractionEnabled, !cell.contentView.isHidden,
               let message, current === message, message.displayedID == displayedID,
-              message.message == representative, message.sourceMessages == sources,
+              message.message == renderValue.message, message.sourceMessages == sources,
               sources.allSatisfy({ location.matches(message: $0) }),
-              message.formattedText == formattedText,
+              message.formattedText == renderValue.formattedText,
               message.replyPresentation?.navigationTarget == replyTarget,
-              message.replyPresentation?.body == replyBody,
-              message.replyPresentation?.quote == replyQuote,
-              message.isReplyQuoteExpanded == quoteExpanded,
+              message.replyPresentation?.body == renderValue.replyPresentation?.body,
+              message.replyPresentation?.quote == renderValue.replyPresentation?.quote,
+              message.isReplyQuoteExpanded == renderValue.isReplyQuoteExpanded,
               message.forwardPresentation?.navigationTarget == forwardTarget
         else { return nil }
         if case .selection = intent {
@@ -94,7 +85,7 @@ import UIKit
             guard !state.isReadOnly, !type.isPaid, !message.reactionMutationInFlight,
                   !message.contentPresentation.isService, message.message.selfDestructType == nil,
                   message.message.ephemeralMessageId == 0, message.message.sendingState == nil,
-                  chosen == MessageReactionStateReducer.isChosen(type, in: reactions),
+                  chosen == MessageReactionStateReducer.isChosen(type, in: renderValue.reactions),
                   message.reactions?.reactions.contains(where: { $0.type == type }) == true,
                   state.canAddReactions || chosen else { return nil }
         case .metadata(let target):
