@@ -27,19 +27,14 @@ import TDLibKitDynamic
 
     private let chatOpenLease: ChatOpenLease?
     private let usesTransport: Bool
+    private let reads: ForumTopicsReadEnvironment
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
-    // Canceling a Swift task doesn't end TDLib's continuation. Old generations
-    // occupy these transport slots until their exact tasks return.
-    private var topicRequests = [UUID: Task<Void, Never>]()
+    private var topicRefreshTasks = [Int: Task<Void, Never>]()
     private var topicRequestIDs = [Int: UUID]()
     // true is a semantic invalidation; a page can satisfy only a false/unknown echo.
     private var pendingTopicRefreshes = [Int: Bool]()
-    private var pendingTopicOrder = [Int]()
     private var liveRevision = UInt64.zero
-    private var readOrdinal = UInt64.zero
-    private var acceptedReadOrdinals = [Int: UInt64]()
-    private var pinnedOrder = ForumTopicPinnedOrder()
     private var scalarUpdates = [Int: (revision: UInt64, value: UpdateForumTopic)]()
     private var infoUpdates = [Int: (revision: UInt64, value: ForumTopicInfo)]()
     private var generation = UInt64.zero
@@ -55,8 +50,7 @@ import TDLibKitDynamic
     private var retired = false
 
     private var contextIsCurrent: Bool {
-        usesTransport && !retired && TDLib.shared.activeAccountID == location.accountID
-            && TDLib.shared.activeClient.id == location.clientID
+        usesTransport && !retired && reads.currentSource()?.matches(location) == true
             && client.id == location.clientID
     }
 
@@ -87,11 +81,13 @@ import TDLibKitDynamic
         client: TDLibClient,
         restoration: ForumTopicsRestorationState?,
         usesTransport: Bool,
+        reads: ForumTopicsReadEnvironment? = nil,
     ) {
         self.customChat = customChat
         self.location = location
         self.client = client
         self.usesTransport = usesTransport
+        self.reads = reads ?? .live(client: client)
         if let restoration, restoration.accepts(location) {
             self.topics = restoration.topics
             self.pinnedOrder = ForumTopicPinnedOrder(ids: restoration.pinnedTopicIDs)
@@ -108,7 +104,7 @@ import TDLibKitDynamic
                 ForumTopicPageRequest(cursor: restoration.cursor, resets: $0)
             }
         }
-        self.chatOpenLease = usesTransport
+        self.chatOpenLease = usesTransport && self.reads.opensChat
             ? ChatOpenLeaseCoordinator.shared.acquire(
                 location: location,
                 client: client,
@@ -118,6 +114,22 @@ import TDLibKitDynamic
     }
 
     #if DEBUG
+    static func controlled(
+        customChat: CustomChat, location: ChatLocation, client: TDLibClient,
+        reads: ForumTopicsReadEnvironment,
+    ) -> ForumTopicsVM {
+        ForumTopicsVM(
+            customChat: customChat,
+            location: location,
+            client: client,
+            restoration: nil,
+            usesTransport: true,
+            reads: reads,
+        )
+    }
+
+    var probeReadTasks: [Task<Void, Never>] { Array(topicRefreshTasks.values) + [loadTask].compactMap(\.self) }
+
     static func isolated(
         customChat: CustomChat,
         location: ChatLocation,
@@ -176,14 +188,12 @@ import TDLibKitDynamic
         generation &+= 1
         loadTask?.cancel()
         loadTask = nil
-        topicRequests.values.forEach { $0.cancel() }
+        topicRefreshTasks.values.forEach { $0.cancel() }
+        topicRefreshTasks.removeAll()
         topicRequestIDs.removeAll()
         pendingTopicRefreshes.removeAll()
-        pendingTopicOrder.removeAll()
         scalarUpdates.removeAll()
         infoUpdates.removeAll()
-        acceptedReadOrdinals.removeAll()
-        pinnedOrder.reset(keepingRanks: false)
         cancellables.removeAll()
         chatOpenLease?.invalidate()
     }
@@ -213,13 +223,11 @@ import TDLibKitDynamic
             generation &+= 1
             loadTask?.cancel()
             topicRequestIDs.removeAll()
-            topicRequests.values.forEach { $0.cancel() }
+            topicRefreshTasks.values.forEach { $0.cancel() }
+            topicRefreshTasks.removeAll()
             pendingTopicRefreshes.removeAll()
-            pendingTopicOrder.removeAll()
             scalarUpdates.removeAll()
             infoUpdates.removeAll()
-            acceptedReadOrdinals.removeAll()
-            pinnedOrder.reset(keepingRanks: query == self.query)
             self.query = query
             nextOffsetDate = 0
             nextOffsetForumTopicID = 0
@@ -247,8 +255,7 @@ import TDLibKitDynamic
         pendingPageRequest = ForumTopicPageRequest(cursor: cursor, resets: reset)
         let readPage = reads.page
         let location = location
-        let read = beginRead()
-        let pinRevision = pinnedOrder.revision
+        let readRevision = liveRevision
         loadTask = Task { [weak self] in
             guard !Task.isCancelled, self?.contextIsCurrent == true else { return }
             do {
@@ -258,26 +265,18 @@ import TDLibKitDynamic
                       query == self.query,
                       contextIsCurrent
                 else { return }
-                var removed = Set<Int>()
-                let incoming = result.topics.compactMap { response -> ForumTopic? in
-                    guard let topic = self.acceptFullTopic(response, read: read, head: cursor == .zero)
-                    else { return nil }
-                    let renamed = self.infoUpdates[topic.info.forumTopicId].map {
-                        $0.revision > read.revision && $0.value.name != response.info.name
-                    } ?? false
-                    // The server may match fuzzy/transliterated queries. Only a newer
-                    // different name can invalidate that returned membership locally.
-                    if topic.info.isHidden || (renamed && !self.topicMatchesQuery(topic.info)) {
-                        removed.insert(topic.info.forumTopicId)
-                    }
-                    return topic
+                let incoming = result.topics.filter { $0.info.chatId == location.chatID }.map {
+                    self.rebaseScalars($0, after: readRevision)
                 }
-                let retained = reset
-                    ? topics.filter { (self.acceptedReadOrdinals[$0.info.forumTopicId] ?? 0) > read.ordinal }
-                    : topics
-                let merged = ForumTopicPageState.merging(
-                    existing: retained.filter { !removed.contains($0.info.forumTopicId) },
-                    incoming: incoming.filter { !removed.contains($0.info.forumTopicId) },
+                for topic in incoming {
+                    let id = topic.info.forumTopicId
+                    if scalarUpdates[id].map({ $0.revision <= readRevision }) ?? true {
+                        scalarUpdates[id] = (liveRevision, topic.updatePayload)
+                    }
+                }
+                topics = ForumTopicPageState.merging(
+                    existing: reset ? [] : topics,
+                    incoming: incoming,
                 )
                 if cursor == .zero {
                     pinnedOrder.acceptHead(
@@ -417,10 +416,8 @@ import TDLibKitDynamic
         liveRevision &+= 1
         scalarUpdates[id] = (liveRevision, update)
         guard previous != update else { return }
-        pinnedOrder.observeMembership(id: id, previous: previous?.isPinned, pinned: update.isPinned)
         if let index = topics.firstIndex(where: { $0.info.forumTopicId == id }) {
             topics[index] = topics[index].applying(update: update)
-            if previous?.isPinned != update.isPinned { sortTopics() }
         }
         let needsFull = previous.map {
             $0.lastReadInboxMessageId != update.lastReadInboxMessageId || $0.draftMessage != update.draftMessage
@@ -433,76 +430,41 @@ import TDLibKitDynamic
         return topic.applying(update: update.value)
     }
 
-    private func beginRead() -> ReadStamp {
-        readOrdinal &+= 1
-        return ReadStamp(ordinal: readOrdinal, revision: liveRevision)
-    }
-
-    /// Admission records removals too. A stale full result cannot revive a row
-    /// or replace the payload used to recognize TDLib's response echoes.
-    private func acceptFullTopic(_ response: ForumTopic, read: ReadStamp, head: Bool = false) -> ForumTopic? {
-        let id = response.info.forumTopicId
-        guard response.info.chatId == location.chatID, id > 0,
-              acceptedReadOrdinals[id].map({ $0 <= read.ordinal }) ?? true else { return nil }
-        var topic = rebaseScalars(response, after: read.revision)
-        if let info = infoUpdates[id], info.revision > read.revision { topic = topic.replacing(info: info.value) }
-        if !head {
-            pinnedOrder.observeMembership(
-                id: id, previous: scalarUpdates[id]?.value.isPinned
-                    ?? topics.first { $0.info.forumTopicId == id }?.isPinned,
-                pinned: topic.isPinned,
-            )
-        }
-        acceptedReadOrdinals[id] = read.ordinal
-        if scalarUpdates[id].map({ $0.revision <= read.revision }) ?? true {
-            scalarUpdates[id] = (read.revision, topic.updatePayload)
-        }
-        if infoUpdates[id].map({ $0.revision <= read.revision }) ?? true {
-            infoUpdates[id] = (read.revision, topic.info)
-        }
-        return topic
-    }
-
     private func drainPendingTopicRefreshes() {
         guard contextIsCurrent, !loading else { return }
-        pendingTopicOrder.removeAll { pendingTopicRefreshes[$0] == nil }
-        while topicRequests.count < 2,
-              let index = pendingTopicOrder.firstIndex(where: { topicRequestIDs[$0] == nil })
-        {
-            let id = pendingTopicOrder.remove(at: index)
-            pendingTopicRefreshes[id] = nil
-            let retainedName = retainedTopicName(id: id)
-            if let info = infoUpdates[id]?.value,
-               info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { continue }
-            startTopicRefresh(id: id, retainedName: retainedName)
+        let pending = pendingTopicRefreshes
+        pendingTopicRefreshes.removeAll()
+        for (id, semantic) in pending {
+            if topicRequestIDs[id] != nil { pendingTopicRefreshes[id] = semantic }
+            else { refreshTopic(id: id, afterCurrent: semantic) }
         }
     }
 
     private func refreshTopic(id: Int, afterCurrent: Bool = true) {
         guard contextIsCurrent, id > 0 else { return }
-        let retainedName = retainedTopicName(id: id)
-        if let info = infoUpdates[id]?.value,
-           info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { return }
-        guard loading || topicRequestIDs[id] == nil || afterCurrent else { return }
-        if pendingTopicRefreshes[id] == nil { pendingTopicOrder.append(id) }
-        pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
-        drainPendingTopicRefreshes()
-    }
-
-    private func startTopicRefresh(id: Int, retainedName: String?) {
+        if let info = infoUpdates[id]?.value, info.isHidden || !topicMatchesQuery(info) { return }
+        if loading { pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
+            return
+        }
+        if topicRequestIDs[id] != nil {
+            if afterCurrent { pendingTopicRefreshes[id] = true }
+            return
+        }
         let requestID = UUID()
         topicRequestIDs[id] = requestID
         let currentGeneration = generation
         let query = query
         let location = location
         let readTopic = reads.topic
-        let read = beginRead()
-        let task = Task { [weak self] in
+        let readRevision = liveRevision
+        topicRefreshTasks[id] = Task { [weak self] in
             defer {
-                if let self {
-                    topicRequests[requestID] = nil
-                    if topicRequestIDs[id] == requestID { topicRequestIDs[id] = nil }
-                    drainPendingTopicRefreshes()
+                if let self, topicRequestIDs[id] == requestID {
+                    topicRequestIDs[id] = nil
+                    topicRefreshTasks[id] = nil
+                    if let semantic = pendingTopicRefreshes.removeValue(forKey: id) {
+                        refreshTopic(id: id, afterCurrent: semantic)
+                    }
                 }
             }
             guard !Task.isCancelled, self?.contextIsCurrent == true,
@@ -512,11 +474,18 @@ import TDLibKitDynamic
                   currentGeneration == generation, query == self.query,
                   contextIsCurrent
             else { return }
-            guard let response, response.info.forumTopicId == id,
-                  let topic = acceptFullTopic(response, read: read) else { return }
-            let currentName = retainedTopicName(id: id)
-            let unchangedName = currentName == retainedName ? retainedName : nil
-            if topic.info.isHidden || !topicMatchesQuery(topic.info, retaining: unchangedName) {
+            guard let response, response.info.chatId == location.chatID,
+                  response.info.forumTopicId == id else { return }
+            var topic = rebaseScalars(response, after: readRevision)
+            if let info = infoUpdates[id], info.revision > readRevision { topic = topic.replacing(info: info.value) }
+            if scalarUpdates[id].map({ $0.revision <= readRevision }) ?? true {
+                scalarUpdates[id] = (liveRevision, topic.updatePayload)
+            }
+            if infoUpdates[id].map({ $0.revision <= readRevision }) ?? true { infoUpdates[id] = (
+                liveRevision,
+                topic.info,
+            ) }
+            if topic.info.isHidden || !topicMatchesQuery(topic.info) {
                 topics.removeAll { $0.info.forumTopicId == id }
                 return
             }

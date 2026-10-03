@@ -99,6 +99,7 @@
         }
 
         static func runDebugProbeIfRequested() {
+            ForumTopicsUpdatesProbe.runIfRequested()
             ForumTopicsSearchRenewalProbe.runIfRequested()
             if ProcessInfo.processInfo.arguments.contains("-ui-probe-forum-snapshot") {
                 Task { @MainActor in

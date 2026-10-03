@@ -92,13 +92,7 @@ struct ForumTopicLiveUpdateState {
 
     func applyingLatest(to topic: ForumTopic) -> ForumTopic {
         guard matches(topic), let update = latest else { return topic }
-        return ForumTopic(
-            draftMessage: update.draftMessage, info: topic.info, isPinned: update.isPinned,
-            lastMessage: topic.lastMessage, lastReadInboxMessageId: update.lastReadInboxMessageId,
-            lastReadOutboxMessageId: update.lastReadOutboxMessageId, notificationSettings: update.notificationSettings,
-            order: topic.order, unreadCount: topic.unreadCount, unreadMentionCount: update.unreadMentionCount,
-            unreadPollVoteCount: update.unreadPollVoteCount, unreadReactionCount: update.unreadReactionCount,
-        )
+        return topic.applying(update: update)
     }
 
     @discardableResult mutating func finishRead(
@@ -125,6 +119,29 @@ struct ForumTopicLiveUpdateState {
 
     private func matches(_ topic: ForumTopic) -> Bool {
         topic.info.chatId == location.chatID && topic.info.forumTopicId == location.forumTopicID
+    }
+}
+
+extension ForumTopic {
+    func applying(update: UpdateForumTopic) -> ForumTopic {
+        guard info.chatId == update.chatId, info.forumTopicId == update.forumTopicId else { return self }
+        return ForumTopic(
+            draftMessage: update.draftMessage, info: info, isPinned: update.isPinned,
+            lastMessage: lastMessage, lastReadInboxMessageId: update.lastReadInboxMessageId,
+            lastReadOutboxMessageId: update.lastReadOutboxMessageId, notificationSettings: update.notificationSettings,
+            order: order, unreadCount: unreadCount, unreadMentionCount: update.unreadMentionCount,
+            unreadPollVoteCount: update.unreadPollVoteCount, unreadReactionCount: update.unreadReactionCount,
+        )
+    }
+
+    var updatePayload: UpdateForumTopic {
+        UpdateForumTopic(
+            chatId: info.chatId, draftMessage: draftMessage, forumTopicId: info.forumTopicId,
+            isPinned: isPinned, lastReadInboxMessageId: lastReadInboxMessageId,
+            lastReadOutboxMessageId: lastReadOutboxMessageId, notificationSettings: notificationSettings,
+            unreadMentionCount: unreadMentionCount, unreadPollVoteCount: unreadPollVoteCount,
+            unreadReactionCount: unreadReactionCount,
+        )
     }
 }
 
