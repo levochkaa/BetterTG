@@ -194,6 +194,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var keyboardIsChanging = false
     #if DEBUG
         private var messageNavigationGeometry: ChatMessageNavigationGeometry?
+        private var viewportCompletionProbe: ChatViewportCompletionProbe?
     #endif
 
     private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
@@ -376,6 +377,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        #if DEBUG
+            viewportCompletionProbe?.interrupt("controller disappeared")
+        #endif
         cancelMessageNavigation()
     }
 
@@ -477,6 +481,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
+        #if DEBUG
+            viewportCompletionProbe?.dragBegan()
+        #endif
         recordMessageNavigationGeometry("drag-begin")
         viewportRestorationAuthority.invalidate()
         if hasPendingMessageNavigation { didPerformInitialScroll = true }
@@ -582,7 +589,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         applyPendingQuoteHighlight(to: cell, displayedMessageID: displayedMessageID)
         updateInlineVideoPlaybackVisibility()
-        acknowledgeCommittedVisibleMessages(requestHistory: true)
+        #if DEBUG
+            // Diagnostic motion must not issue read receipts or demand more history.
+            if viewportCompletionProbe?.isExercising == true { return }
+        #endif
+        if presentationMode == .full {
+            chatVM.viewMessages(ids: message.sourceMessages.map(\.id))
+        }
+        if Set(chatVM.messages.suffix(5).map(\.displayedID)).contains(displayedMessageID) {
+            chatVM.loadMessages()
+        }
     }
 
     func collectionView(
@@ -863,48 +879,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return values
         }
     #endif
-
-    private func acknowledgeCommittedVisibleMessages(requestHistory: Bool = false) {
-        guard !timelineSnapshots.isBusy, timelineSourceIsCurrent else { return }
-        #if DEBUG
-            // Diagnostic motion must not issue read receipts or demand more history.
-            if viewportCompletionProbe?.isExercising == true { return }
-        #endif
-        guard viewIfLoaded?.window?.windowScene?.activationState == .foregroundActive,
-              chatListActionOwnerIsAttached
-        else {
-            acknowledgedVisibleRawIDs.removeAll()
-            return
-        }
-        var visibleIDs = Set<Int64>()
-        var tailIDs = Set<Int64>()
-        let tailRows = Set(chatVM.messages.suffix(5).map(\.displayedID))
-        for indexPath in collectionView.indexPathsForVisibleItems {
-            guard let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
-                  let row = currentBoundRenderRow(cell),
-                  timelineSnapshots.committed.rows[.message(row.value.displayedID)]?.message === row else { continue }
-            let ids = Set(row.value.sourceMessages.map(\.id))
-            visibleIDs.formUnion(ids)
-            if tailRows.contains(row.value.displayedID) { tailIDs.formUnion(ids) }
-        }
-        // A context preview may page history, but must never acknowledge it read.
-        if presentationMode == .contextPreview {
-            acknowledgedVisibleRawIDs.removeAll()
-            if requestHistory, !tailIDs.isEmpty { chatVM.loadMessages() }
-            return
-        }
-        guard navigationController?.topViewController === self, presentedViewController == nil,
-              !isTerminatingNavigation
-        else {
-            acknowledgedVisibleRawIDs.removeAll()
-            return
-        }
-        acknowledgedVisibleRawIDs.formIntersection(visibleIDs)
-        let newlyVisible = visibleIDs.subtracting(acknowledgedVisibleRawIDs)
-        acknowledgedVisibleRawIDs.formUnion(newlyVisible)
-        if !newlyVisible.isEmpty { chatVM.viewMessages(ids: Array(newlyVisible)) }
-        if requestHistory, !tailIDs.isEmpty { chatVM.loadMessages() }
-    }
 
     private func openProfile() {
         guard presentationMode == .full,
@@ -2074,8 +2048,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         recordMessageNavigationGeometry("snapshot-before")
         #if DEBUG
             let geometryAtSnapshot = messageNavigationGeometry
+            let probeSnapshot = viewportCompletionProbe?.snapshotWillApply()
+            viewportCompletionProbe?.ownRestoration(sequence: probeSnapshot) { [weak self] in
+                guard let self, let restoration else { return }
+                _ = viewportRestorationAuthority.consume(
+                    restoration.ticket, contextIsCurrent: false, userIsScrolling: true,
+                )
+            }
         #endif
-        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+        let completion = { [weak self] in
             guard let self else { return }
             #if DEBUG
                 if messageNavigationGeometry === geometryAtSnapshot {
@@ -2101,7 +2082,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             performPendingComposerSendTransitions()
         }
-        dataSource.apply(snapshot, animatingDifferences: batch.demand.animated) { [weak self] in
+        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             #if DEBUG
                 if self?.viewportCompletionProbe?.holdNativeCompletion(
                     sequence: probeSnapshot, completion: completion,
@@ -2109,7 +2090,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             #endif
             completion()
         }
-        collectionView.backgroundView = batch.content.ids.isEmpty ? emptyLabel() : nil
+        collectionView.backgroundView = chatVM.messages.isEmpty ? emptyLabel() : nil
     }
 
     private func prepareDeleteTransition(for ids: Set<DisplayedMessageID>) {
@@ -2338,6 +2319,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             contextIsCurrent: !clientOwnerRetired && chatVM.locationContextIsCurrent,
             userIsScrolling: userIsScrollingTimeline,
         ) else { return }
+        #if DEBUG
+            viewportCompletionProbe?.automaticRestore()
+        #endif
         recordMessageNavigationGeometry("automatic-restore", keepsLatest: restoration.keepsLatest)
         if restoration.keepsLatest {
             pinToLatestEdge(animated: false)
@@ -2437,6 +2421,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard !identifiers.isEmpty else { return }
         viewportRestorationAuthority.invalidate()
         #if DEBUG
+            viewportCompletionProbe?.interrupt("highlight snapshot changed")
             if messageNavigationGeometry?.isRecording == true {
                 let diagnostic = messageNavigationGeometry
                 recordMessageNavigationGeometry("highlight-before", command: true)
@@ -2746,82 +2731,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         #endif
     }
 
-    #if DEBUG
-        private func messageNavigationGeometryValues(
-            _ diagnostic: ChatMessageNavigationGeometry,
-            desiredOffset: CGFloat?, animated: Bool?, keepsLatest: Bool?, checkDelay: Double?,
-        ) -> [String: Double] {
-            let displayed = chatVM.displayedMessageID(containing: diagnostic.messageID)
-            let path = displayed.flatMap { dataSource.indexPath(for: .message($0)) }
-            let attributes = path.flatMap { collectionView.layoutAttributesForItem(at: $0) }
-            let insets = collectionView.adjustedContentInset
-            let visible = collectionView.indexPathsForVisibleItems
-            let viewport = CGRect(
-                x: collectionView.contentOffset.x, y: collectionView.contentOffset.y + insets.top,
-                width: collectionView.bounds.width,
-                height: max(0, collectionView.bounds.height - insets.top - insets.bottom),
-            )
-            let mappedMessage = displayed.flatMap { message(for: $0) }
-            let mappedMessageContainsTarget = mappedMessage?.sourceMessages
-                .contains { $0.id == diagnostic.messageID } == true
-            let presentationBoundsY = collectionView.layer.presentation()?.bounds.minY ?? collectionView.bounds.minY
-            var values: [String: Double] = [
-                "sourceCurrent": tdlib.activeUpdateSource == diagnostic.source ? 1 : 0,
-                "ownerCurrent": !clientOwnerRetired && chatVM.locationContextIsCurrent ? 1 : 0,
-                "windowAttached": view.window != nil ? 1 : 0,
-                "controllerIsTop": navigationController?.topViewController === self ? 1 : 0,
-                "initialScrollCompleted": didPerformInitialScroll ? 1 : 0,
-                "pendingNavigation": hasPendingMessageNavigation ? 1 : 0,
-                "pendingClientViewport": restoredViewport?.pending == true ? 1 : 0,
-                "layoutDepth": Double(timelineLayoutMutationDepth),
-                "tracking": collectionView.isTracking ? 1 : 0,
-                "dragging": collectionView.isDragging ? 1 : 0,
-                "decelerating": collectionView.isDecelerating ? 1 : 0,
-                "nearLatest": isNearLatest ? 1 : 0,
-                "offsetX": collectionView.contentOffset.x,
-                "offsetY": collectionView.contentOffset.y,
-                "presentationBoundsY": Double(presentationBoundsY),
-                "contentWidth": collectionView.contentSize.width,
-                "contentHeight": collectionView.contentSize.height,
-                "viewportWidth": collectionView.bounds.width,
-                "viewportHeight": collectionView.bounds.height,
-                "insetTop": insets.top,
-                "insetBottom": insets.bottom,
-                "snapshotCount": Double(dataSource.snapshot().numberOfItems),
-                "visibleCount": Double(visible.count),
-                "visibleIndexMin": Double(visible.map(\.item).min() ?? -1),
-                "visibleIndexMax": Double(visible.map(\.item).max() ?? -1),
-                "targetMapped": displayed != nil ? 1 : 0,
-                "targetSnapshotMember": path != nil ? 1 : 0,
-                "targetIndex": Double(path?.item ?? -1),
-                "targetSection": Double(path?.section ?? -1),
-                "targetVisible": path.map { visible.contains($0) } == true ? 1 : 0,
-                "targetCellPresent": path.flatMap { collectionView.cellForItem(at: $0) } != nil ? 1 : 0,
-                "targetIntersectsViewport": attributes?.frame.intersects(viewport) == true ? 1 : 0,
-                "mappingMatchesCommand": diagnostic.commandTarget.map { $0 == displayed } == true ? 1 : 0,
-                "mappedMessageContainsTarget": mappedMessageContainsTarget ? 1 : 0,
-            ]
-            if let attributes {
-                values["targetMinY"] = attributes.frame.minY
-                values["targetHeight"] = attributes.frame.height
-                values["targetCenterY"] = attributes.center.y
-                let centerOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
-                let maximum = max(
-                    -insets.top,
-                    collectionView.contentSize.height - collectionView.bounds.height + insets.bottom,
-                )
-                let currentTargetOffset = min(max(attributes.center.y - centerOffset, -insets.top), maximum)
-                values["currentTargetOffset"] = currentTargetOffset
-                values["currentTargetOffsetError"] = collectionView.contentOffset.y - currentTargetOffset
-            }
-            if let desiredOffset { values["commandOffset"] = desiredOffset }
-            if let animated { values["animated"] = animated ? 1 : 0 }
-            if let keepsLatest { values["keepsLatest"] = keepsLatest ? 1 : 0 }
-            if let checkDelay { values["checkDelaySeconds"] = checkDelay }
-            return values
-        }
-    #endif
-
     private func scheduleMessageNavigationGeometryChecks() {
         #if DEBUG
             guard let diagnostic = messageNavigationGeometry, diagnostic.beginSettledChecks() else { return }
@@ -3074,10 +2983,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func expandReplyQuote(for message: CustomMessage) {
-        guard !message.isReplyQuoteExpanded else { return }
+        let itemID = ChatTimelineItemID.message(message.displayedID)
+        guard !message.isReplyQuoteExpanded,
+              let indexPath = dataSource.indexPath(for: itemID)
+        else { return }
         #if DEBUG
             viewportCompletionProbe?.interrupt("reply quote snapshot changed")
         #endif
+        collectionView.layoutIfNeeded()
+        let oldFrame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame
+        let ticket = viewportRestorationAuthority.begin()
+        let restoration = (userIsScrollingTimeline ? nil : oldFrame).map {
+            AutomaticViewportRestoration(
+                ticket: ticket, keepsLatest: false,
+                anchor: SnapshotAnchor(
+                    itemID: itemID,
+                    minYRelativeToViewport: $0.minY - collectionView.contentOffset.y,
+                ),
+            )
+        }
         message.isReplyQuoteExpanded = true
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems([itemID])
