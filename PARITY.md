@@ -95,7 +95,10 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: A39 controlled latest-animation-end ordering, then actual queued ChatView mutation/viewport coverage.
+Active queue: attribute A39 launch-time scheduling delay with one bounded native profile, then actual queued ChatView
+mutation/viewport coverage. Do not repeat unchanged PASS/FAIL launches indefinitely or relax the deadline.
+`e70a227` repairs the separately reproduced latest-end sample invalidation: controlled baseline FAIL0.811s becomes PASS;
+the ordinary native viewport/settlement regression also passes. Actual ChatView repeated-end behavior is unverified.
 Passive timing at `31e497a` identifies delayed native callbacks and wait resumptions, not expensive target resolution;
 the specific source of scheduling delay remains unverified. Keep the2s deadline and strict settlement predicates.
 `f799d29` integrates frozen rendering/serialized applies after value prerequisite `d8512b5`; exact reviewed worker tree
@@ -190,7 +193,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A36 | P2 | Folder selector passes empty raw titles through cell/sort/search and labels every `.user` Contact. Actual `1b89dbd` has 11 empty rows, all explicitly deleted/non-contact, with no cell/model mismatch. Nested candidate changes also lack a live presentation subscription | fixed bounded presentation/membership — `c9254f3` title/subtitle/search/sort and `f70cd58` child publishers; native append/remove/replacement and actual deleted-title/search proof pass. `0608d15` corrects modal fixture settlement without weakening ownership checks. Live RootVM/TDLib membership transport remains unverified |
 | A37 | P2 | Actual retained profile editor at `1e072ca` after same-PID Home→foreground keeps fields at y136/y182, but the settled top blur extends to about y150 instead of y116 and covers the first field; reopening fixes it | unresolved intermittent — later focused baseline and actual delayed settled geometry are clean. Preserve the original failure; require a fresh measured reproduction before repair. Data/caret retention passes; root stack replacement/prompt updates remain unproven causes |
 | A38 | P1 | A30f2 `c68c1c2` publishes prior-client Message seeds with fresh reveal/playback authority. B-epoch content/delete updates during metadata await are missed, and settled nonempty seeds are never revalidated | fixed bounded admission — `97ccea8` quarantines seeds with four-read current-client refresh, scoped revisions/tombstones, explicit Retry and synchronous permit/consumer revocation. `b630844` fixes probe settlement only. Native races and actual scrolled profile foreground pass; delayed real RPC/delete/spoiler, new-head discovery and active system PiP remain unverified |
-| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | bounded target repair `6a29431`/`982245f` has actual cold/loaded/foreground proof at `72d74b0`; intermittent native animated-resize deadlines remain open. `31e497a` timing measures delayed callback delivery/wait resumptions with sub-millisecond resolver/callback work; root scheduling cause unverified. Separate latest-end sample invalidation counterexample is next. Live quote, album remap, user interruption and rotation remain separate proof limits |
+| A39 | P1 | At `97ccea8`, explicit navigation retains old viewport intent and stale snapshot state. At `17e3fb4`, actual cold/loaded target navigation still misses. `8b8d149` actual trace proves automatic anchor capture/restore interrupts its animation | bounded target repair `6a29431`/`982245f` has actual cold/loaded/foreground proof at `72d74b0`; `e70a227` separately fixes latest-end sample invalidation with controlled baseline FAIL/fixed PASS and ordinary native regression PASS. Intermittent animated-resize deadlines remain open: `31e497a` measures delayed callback delivery/wait resumptions with sub-millisecond resolver/callback work; root scheduling cause unverified. Live quote, album remap, user interruption and rotation remain separate proof limits |
 | A40 | P1 | `6a29431` integration log contains an AppIntents metadata warning for the notification extension; both wrapper output paths concealed this warning | fixed — `eff2876` removes warning filters and unused extension import, skips its inapplicable AppIntents stage. Complete signed/unsigned/final-signed logs are warning-free after A41. Compact-only historical claims are not proof of zero warnings |
 | A41 | P1 | Existing static TDLib cleanup lacks dependency edges to SwiftPM's automatic package copy/sign, deleting the framework during lipo/sign in two consecutive builds | fixed bounded build DAG — `72d74b0` declares bundle and child signature inputs; copy → child sign → cleanup → app sign. Signed/unsigned/repeated signed builds and strict deep signature check pass; device/archive not exercised |
 | A42 | P1 | Actual forum search at `72d74b0` crashes: queued topics snapshot reconfigures an ID missing from newer VM.topics, so provider returns a different fallback cell | fixed bounded diffable ownership — serialized snapshot-owned models, coalesced pending payload, outgoing retention through completion and exact dequeued fallback. Native real-table/cell probe and actual query changes pass; active-search foreground is separate A30d work |
@@ -1905,6 +1908,40 @@ is imported. This source pass does not prove every content's real rendering/acti
   exact visible/centered settlement, correction budget and deadline. This is separate from scheduling-delay diagnosis above.
 - Timing checkpoint build `162308-41757-22286` PASS8s; complete1385-line log zero warnings/errors. Production/dependency
   prohibited-marker scan empty; AGENTS/CLAUDE identical; only this checkpoint document remained uncommitted before recording.
+- Controlled latest-end baseline `f564580` (worker `d22ea3e`, exact reviewed tree `ea732dcf`) adds a dedicated
+  `-ui-probe-navigation-end-order` fixture. DEBUG manual verifier delivery retains the actual display link and admits calls
+  only while the production checker/current command exists. Native delegates are forwarded; no receivedEnd/sample setters.
+  Its accurate48pt estimates isolate ordering; the existing natural fixture retains80pt estimates and automatic frames.
+  Joint format0/3; primary build `163140-63493-4382` PASS19s/full1486-line log zero warnings/errors; worker
+  `162945-60442-7840` PASS8s/full1450-line log zero warnings/errors. Separate setup/deadline INCONCLUSIVE and contract FAIL.
+- Audit baseline PID64657/container `321FBD05-6B75-4D61-AF06-D916B2846B1D`, report16:32:27: definite FAIL at0.8111s,
+  before2s. Genuine end1 arrives0.4351s; first manual sample0.4444s records1696pt. A deliberately injected second native
+  animation reaches1760pt; genuine end2 arrives0.7736s. Next manual observation resets receivedEnd and stops the checker,
+  while ownership/target remain, commands `[true]`, no result or quote, residual64pt. The hook refuses a further frame after
+  checker retirement. Six automatic callbacks were held. Full report: `astra-a39-diagnostics/end-order-baseline.txt` under
+  `.build/ui-probe-evidence`. This is a controlled driver liveness counterexample, not actual ChatView relocation proof.
+- Bounded repair plan: every accepted end invalidates both previous geometry samples while preserving the existing display
+  link. Require two post-latest-end stable observations before correction/settlement; retain motion/stale-end rejection,
+  visibility/centering, request/command identity, cancellation, correction cap and2s deadline. No loader/timeline rewrite.
+  The independently measured scheduling-delay timeout remains open and is not explained or repaired by this change.
+- `e70a227` (worker `442e33e`, reviewed tree `548cf025`) implements exactly those two sample resets plus a comment.
+  Accepted-end guard, current link/command, resolver calls and all failure/success predicates are unchanged. Reentrant end
+  during resolve invalidates samples before the verifier reads them; movement between new samples still drops stale-end
+  authority. Joint format0/3; primary build `163554-69774-7770` PASS8s/full1450-line log zero warnings/errors; worker
+  `163342-66161-9874` PASS32s/full1450-line log zero warnings/errors. Exact-tree independent review PASS.
+- Same Audit Simulator fixed controlled run PID70456/container `789ECA0E-CC76-4F42-86A2-C043AA4C26C2`, report16:36:36 PASS.
+  The contract now requires two post-latest-end observations before one nonanimated correction; this dedicated scenario
+  does not claim complete settlement, real ChatView relocation or the cause of earlier spontaneous timeouts.
+- Ordinary automatic-frame viewport regression on the same source/product PID70970/container
+  `1016F44C-2C52-4952-B2A4-7D1C9E79362C`, report16:37:19 PASS: native animated resize/quote, album remap, new-target/stale end,
+  drag/latest/source/cover/missing-member cancellation, tracking-only retirement, deferred layout, failure deadline and
+  successive self-size correction bounds. Consumer remains value-only; actual ChatView/TDLib/hardware gestures are not proved.
+  Full reports: `.build/ui-probe-evidence/astra-a39-diagnostics/end-order-{fixed,natural}.txt`. No fixture RPCs or account-store
+  mutations; Simulator remains booted and host focus was not activated.
+- Final latest-end checkpoint build `163857-71725-11058` PASS5s, full1385-line log zero warnings/errors. AGENTS/CLAUDE
+  identical; prohibited production/dependency markers absent; implementation commits and this focused proof record preserve
+  unrelated files. Next: one bounded native startup profile to attribute scheduling delay, then queued ChatView mutations.
+  Goal remains active; repeated-end actual ChatView behavior and spontaneous timeout root cause remain unverified.
 - Documentation checkpoint `build-Debug-20261003-010725-3164-28383.log`: PASS5s, zero warnings. AGENTS/CLAUDE remain identical;
   prohibited production/dependency marker scan is empty. The reusable prompt also records background-only Simulator activation.
 
