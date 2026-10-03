@@ -17,6 +17,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     #if DEBUG
         private static var didOpenForumListForSmoke = false
+        private static var didCheckAllMessagesForumForSmoke = false
+        private var allMessagesForumSmokeAttemptID: UUID?
     #endif
 
     // MARK: Private
@@ -216,6 +218,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureAutomatedSmokeRoute() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-smoke-forum-all-messages") {
+            configureAllMessagesForumSmoke()
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("-ui-smoke-forum-list") {
             guard !Self.didOpenForumListForSmoke else { return }
             let source = TDLib.shared.activeUpdateSource
@@ -324,6 +330,100 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     #if DEBUG
+        private func configureAllMessagesForumSmoke() {
+            guard !Self.didCheckAllMessagesForumForSmoke,
+                  let source = TDLib.shared.activeUpdateSource else { return }
+            let client = TDLib.shared.activeClient
+            let attemptID = UUID()
+            allMessagesForumSmokeAttemptID = attemptID
+            TDLib.shared
+.activeClientChanges
+                .sink { [weak self] current in
+                    guard current != source, self?.allMessagesForumSmokeAttemptID == attemptID else { return }
+                    self?.allMessagesForumSmokeAttemptID = nil
+                }
+                .store(in: &cancellables)
+            // Bound UI authority even when an underlying TDLib read ignores cancellation.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+                guard let self, allMessagesForumSmokeAttemptID == attemptID else { return }
+                writeAllMessagesForumSmoke("Forum all-messages smoke: 15s attempt expired; late navigation revoked")
+            }
+            rootVM.$folders
+                .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
+                .filter { $0.contains { !$0.chats.isEmpty } }
+                .first()
+                .sink { [weak self] folders in
+                    guard self?.permitsAllMessagesForumSmoke(source, attemptID: attemptID) == true else { return }
+                    Self.didCheckAllMessagesForumForSmoke = true
+                    var seen = Set<Int64>()
+                    let forums = folders.flatMap(\.chats).filter {
+                        seen.insert($0.id).inserted && $0.supergroup?.isForum == true
+                    }
+                    let candidates = forums.filter {
+                        $0.unreadCount == 0 && Self.isSafeAllMessagesForumSmokeChat($0.chat)
+                    }
+                    let counts = "loaded-forums=\(forums.count), eligible=\(candidates.count)"
+                    Task { @MainActor [weak self] in
+                        for candidate in candidates.prefix(8) {
+                            guard self?.permitsAllMessagesForumSmoke(source, attemptID: attemptID) == true
+                                else { return }
+                            guard let fresh = try? await client.getChat(chatId: candidate.id),
+                                  fresh.id == candidate.id, Self.isSafeAllMessagesForumSmokeChat(fresh),
+                                  case .chatTypeSupergroup(let peer) = fresh.type, !peer.isChannel
+                            else { continue }
+                            guard self?.permitsAllMessagesForumSmoke(source, attemptID: attemptID) == true
+                                else { return }
+                            guard let group = try? await client.getSupergroup(supergroupId: peer.supergroupId),
+                                  group.id == peer.supergroupId, group.isForum,
+                                  !group.isChannel, !group.isDirectMessagesGroup
+                            else { continue }
+                            guard let self, permitsAllMessagesForumSmoke(source, attemptID: attemptID),
+                                  rootVM.folders.contains(where: { $0.chats.contains { $0 === candidate } }),
+                                  candidate.chat.type == fresh.type, candidate.unreadCount == 0,
+                                  Self.isSafeAllMessagesForumSmokeChat(candidate.chat),
+                                  candidate.supergroup?.id == group.id, candidate.supergroup?.isForum == true,
+                                  candidate.supergroup?.isChannel == false,
+                                  candidate.supergroup?.isDirectMessagesGroup == false
+                            else { return }
+                            NavigationStorage.shared.push(.customChat(candidate), animated: false)
+                            writeAllMessagesForumSmoke(
+                                "Forum all-messages smoke: opened existing route; \(counts); no mode toggle or send",
+                            )
+                            return
+                        }
+                        guard self?.permitsAllMessagesForumSmoke(source, attemptID: attemptID) == true else { return }
+                        self?.writeAllMessagesForumSmoke(
+                            "Forum all-messages smoke: unavailable in loaded safe candidates; \(counts); "
+                                + "fresh candidates checked<=8; not an account-wide absence proof",
+                        )
+                    }
+                }
+                .store(in: &cancellables)
+        }
+
+        private func permitsAllMessagesForumSmoke(_ source: TdUpdateSource, attemptID: UUID) -> Bool {
+            allMessagesForumSmokeAttemptID == attemptID
+                && TDLib.shared.activeUpdateSource == source && actionAuthority.scope(owner: self).isCurrent
+                && navigationController?.topViewController === self
+                && navigationController?.presentedViewController == nil && presentedViewController == nil
+        }
+
+        private static func isSafeAllMessagesForumSmokeChat(_ chat: Chat) -> Bool {
+            !chat.viewAsTopics && !chat.isMarkedAsUnread && chat.unreadCount == 0
+                && chat.unreadMentionCount == 0 && chat.unreadReactionCount == 0 && chat.unreadPollVoteCount == 0
+        }
+
+        private func writeAllMessagesForumSmoke(_ result: String) {
+            allMessagesForumSmokeAttemptID = nil
+            log(result)
+            guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+                else { return }
+            try? result.write(
+                to: documents.appendingPathComponent("forum-all-messages-route-probe.txt"),
+                atomically: true, encoding: .utf8,
+            )
+        }
+
         private func writeForumTopicWriteProbe(_ result: String) {
             log(result)
             guard let documents = FileManager.default

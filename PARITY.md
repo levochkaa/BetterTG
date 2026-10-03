@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: remaining P1 A44b2 all-messages per-topic receipts; P2 A46 pin ordering follows separately.
+Active queue: remaining P1 A44b2 all-messages per-topic receipts; first share and bound existing topic metadata reads (b2a),
+then attach exact per-topic receipts (b2b). P2 A46 pin ordering follows separately.
 A45a/b/c echo/direct-scalar, full-read arbitration and known server-query membership have bounded native proof.
 A44a ordinary and A44b1 explicit-topic bubble states have bounded native and real-history/foreground proof.
 All-messages topic aggregation stays A44b2; no cross-topic/global watermark fallback.
@@ -1927,6 +1928,30 @@ is imported. This source pass does not prove every content's real rendering/acti
   unknown lookups must not gain invented fuzzy authority. A bounded extra unknown refresh after page omission is also recorded;
   it is not the former unbounded echo loop. A46 pin ordering remains separate.
 
+### A44b2 read foundation and safe runtime availability — 2026-10-03
+
+- Source at `835d4bd`: all-messages `refreshForumTopic` starts one task per topic without a concurrency bound, retains its VM
+  across await and publishes returned metadata without checking raw chat/topic identity. Adding an independent receipt queue
+  would duplicate those reads. First share and bound this metadata path; retain exact timeline/composer demands, protect live
+  scalar/info changes, retire on source departure and count canceled-but-unfinished TD calls until their actual completion.
+  Per-topic receipt rendering follows separately. General remains only an explicit composer demand, never a receipt fallback.
+- Exact Telegram reference: `6ad963e` `Postbox/Sources/MessageHistoryView.swift`1155–1217,1364–1374 and pre-Liquid
+  `8e7e5f`1127–1188,1333–1343 collect loaded messages' exact thread IDs, prune departed IDs and default missing per-thread
+  watermark to unread. Adapt the contract only; no Postbox dependency. TDLib `022d6020`: `getForumTopic`, `updateForumTopic`,
+  `updateForumTopicInfo`, exact `Message.topicId`; cached display metadata is not fresh receipt authority.
+- DEBUG-only `-ui-smoke-forum-all-messages` selects only a naturally base-mode forum from loaded folders with zero unread
+  messages/mentions/reactions/poll votes and no marked-unread flag. It rechecks raw getChat/getSupergroup identity, current
+  account/client, attached top controller and the exact current row object before navigation. At most eight candidates are
+  read serially. A source-departure token and 15s watchdog revoke late navigation; the watchdog does not cancel TD transport.
+  No forced viewAsTopics override, synthetic chat, mode toggle, send or scheme change. Independent source review passed.
+- Native availability result on the logged-in audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5, PID5126,
+  source `835d4bd` plus this DEBUG delta: fresh06:12:31 (+04) result has `loaded-forums=9, eligible=0`; no route opened.
+  This is a blocker for live all-messages smoke in the loaded safe candidates, not proof of account-wide absence. Before/after
+  bounded idb type counts remain22 elements; no personal message text was dumped. Evidence:
+  `.build/ui-probe-evidence/astra-a44-all-messages/forum-all-messages-route-probe.txt`. Do not claim reader/receipt success
+  from this availability check; their controlled production-component proofs and integration remain the next implementation.
+- MainView.swift formatted in one invocation; primary061118-3495-7982 PASS26s, full log zero warnings/errors.
+
 ### A45c known server-query row lifetime — 2026-10-03
 
 - `0a4c6af` (worker `656e32c`) retains a known row only when accepted query, topic ID and name still match. Same-name info
@@ -2225,8 +2250,10 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Latest verified implementation includes A04 partial-file buffering `8be1c9a`, A44a ordinary receipts `1630ee1` and native
   geometry proof `909f62b`; actual four Read bubbles retain exact frames through a client foreground epoch (PID62893).
   Explicit forum A44b1 `5b9b322` has native PID86336 and actual topic display/foreground PID90037 proof above.
-  Worker is implementing bounded A45a list echo/individual ownership; A45b page/full arbitration and A44b2 aggregation remain.
-  Checkpoint build `build-Debug-20261003-050026-80761-652.log` PASS6s; complete log zero warnings/errors.
+  A45a/b/c through `0a4c6af` have bounded native and actual search proofs above; documentation checkpoint `835d4bd` is clean.
+  Worker is implementing A44b2a shared bounded topic reads before b2b all-messages receipts. Runtime availability PID5126
+  found nine loaded forums and zero safe base-mode candidates; no route or account preference was changed.
+  Latest DEBUG smoke build `build-Debug-20261003-061118-3495-7982.log` PASS26s; complete log zero warnings/errors.
   AGENTS/CLAUDE match; production/dependency scan still has zero VLC, forbidden UI and imported Telegram-infrastructure markers.
   A30d active-search renewal through `501af59`, native proof through `37e08e8`
   (PID27782 PASS) and actual two-epoch search/clear smoke (PID1590). A43 receipt feed has three native root regressions PASS,
@@ -2309,7 +2336,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   primary DEBUG correction `909f62b` is imported in worker as `2f5b9fe` (do not duplicate-pick).
   A44b1 `caf406d` is integrated as `5b9b322`; A45a `af3a8bb` is integrated as `e3fb6d9` with bounded native proof.
   A45b `9ec934a`/`c84cb18` are integrated as `597d6f3`/`c9317e5`; A45c `656e32c` as `0a4c6af`, native regressions pass.
-  Worker is designing remaining P1 A44b2 all-messages receipts before the P2 pin-order repair.
+  Worker is implementing remaining P1 A44b2a shared metadata read ownership before b2b per-topic receipts and P2 pin ordering.
   A46 pinned ordering is separate.
   Native before/after fixtures and logs were preserved in `.build/ui-probe-evidence/astra-a04-*`.
   `astra-outcome-source/BetterTG` produced integrated A13/A12/A14/A24/A29/A27/A17/A16/A15a/A15b1/A15b2/A08/A09/A20a;
@@ -2327,7 +2354,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: A44b2 all-messages forum delivery receipts, with a bounded exact-topic baseline queue and direct scalar feed.
+- Exact current slice: A44b2a shared bounded all-messages topic metadata reads; b2b then adds exact-topic receipts and scalar feed.
   Derive scope from canonical source messages, never a global watermark, guessed General ID or another MessageTopic kind.
   Preserve A44a/b1 states, A45 no-echo behavior, source/UUID/revision lifetime, wrapper identity and timeline anchors.
   A45a/b/c have bounded real-VM/native-cell proof above. A46 pinned ordering follows separately. A44a/A44b1 have bounded native/actual proofs above;
