@@ -60,7 +60,7 @@ current code before scheduling duplicate work. This section and the current chec
 | P0 | Voice and video notes | Ogg Opus/waveform and H.264/AAC output; hold/cancel/lock, pause/resume, preview/seek/trim, cameras/limits; durable draft/send/retry ownership, interruptions, relaunch and terminal cleanup | reviewed with bounded A11–A17/A26 repairs, including own-draft relocation/reinstall/discard and native lifecycle/finish/handoff probes; actual OS suspension, audio delivery, hardware and server proof remain open |
 | P0 | VOD, FFmpeg and PiP | Playback before full download, finite offset/limit reads, prefix/EOF checks, seek/refetch, lookahead, cancellation leases, buffering/offline/retry; same owner/playhead across inline/fullscreen/PiP, A/V sync and bounded memory | reviewed with bounded A01–A04/A18/A19 repairs; native incomplete-file playback/seek and scoped ownership probes pass. Live streaming, lookahead estimates and active system PiP/device lifecycle remain unverified |
 | P0 | Message content and actions | Current generated MessageContent cases mapped to real rendering/actions and safe fallback; entities/web/captions/spoilers, albums, polls/quiz/dice/service; reply/quote/forward/edit/delete/select/reactions/pins/topics/unread/delivery | reviewed with bounded A10/A20/A31/A43–A48 repairs. A21 secret photo/video/animation and immediate/view-once playback remain incomplete and concealed; exhaustive live content/action matrix is unverified |
-| P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | reviewed with bounded A22/A24/A25/A39/A49a repairs and native/actual checks below. A49b snapshot/action ownership is next; prepend/resize/rotation/keyboard races, live edit/IME and send flights remain unverified |
+| P0 | Composer and timeline | Complete island states and production sends; temporary/final IDs and snapshot transitions; stable IDs, raw pagination, messageId+pixelOffset under prepend/edit/resize/keyboard; cancel/retry, prefetch, off-main work | reviewed with bounded A22/A24/A25/A39/A49a/b repairs and native/actual checks below. A49b physical selection lifetime and snapshot ownership remain open; prepend/resize/rotation/keyboard races, live edit/IME and send flights remain unverified |
 | P0/P1 | Cross-flow account and authority boundaries | Captured client/account/chat/topic; stale callbacks, Combine/task teardown, updates, storage/cache keys, permission revalidation; pending sends/deletes/account switches; shared player/file/audio ownership | reviewed with bounded A05/A06/A12–A14/A18/A19/A23/A29/A30/A34/A35/A38 repairs. A23 remaining subscribers and A30 active capture/full account lifecycle remain partial; no full multi-account/server proof |
 | P1 | Profiles and galleries | Peer/self roles, avatar/history, member/admin/tag rights, shared-media pagination; selected item, transitions, zoom/paging/dismiss/control gestures, rotation, captions, export/forward/delete/open-in-chat | reviewed with bounded A20b/A27/A28 repairs — profile grid concealment, effective info-edit policy and pagination request identity probed; own-profile grid navigation passes at `bdd19cd`; hardware/server/gesture proof incomplete |
 | P1/P2 | Accounts, chat lists/folders and classic shell | Inventory existing add/auth/switch/remove/logout paths and missing isolation; archive/search/edit/reorder/include/exclude/pin/mute/read/delete/clear/drafts; safe-area full-width blur and prohibited production UI markers | reviewed with bounded auth/list/mutation/foreground repairs below; A32 native chrome and intermittent A37 remain unresolved. Live multi-account/logout and complete secondary-surface proof remain unverified |
@@ -95,7 +95,8 @@ integration and verification. Each implementation slice must end with proof, a f
 
 ### Astra findings and repair queue
 
-Active queue: P1 A49b current-action authority, then coherent snapshot rendering/serialized applies. A49a fallback has bounded native proof.
+Active queue: P1 A49b selection touch lifetime, then coherent snapshot rendering/serialized applies. Provider callback authority
+`eeb93b2` and A49a fallback have bounded native proof; physical touch across same-cell reconfiguration remains open.
 A22 actual ChatView completion/control/ended-delegate-drag proof passes at `41f87a5`; physical mutation races remain open.
 A46b forwarding pin ordering and A32 top search placement have bounded native/actual proof below.
 A32 still has native capsule/shadow/Back limitations; A48's early-detachment callback has bounded native proof.
@@ -191,7 +192,7 @@ Locations A01–A10 refer to the reviewed `6b417da` implementation unless a fix 
 | A46 | P2 | At `cb723ab`, topic-page merge and individual refresh sort only TD order/id, while isPinned changes only decoration; TD order excludes pin position | fixed bounded in primary list `34b7868` and Forward `e2dd664`: query-owned raw-head ranks, membership-edge revocation and unchanged raw cursor. Native multi-pin/append/query/selection and actual single-pin lists pass. Live multi-pin/reorder remains unverified; changed-pin echo can need a second stable head and pure remote reorder needs explicit refresh |
 | A47 | P1 | At `69b0212`, distinct unknown same-chat topic info/scalar updates each start an individual getForumTopic; pending drain has no concurrency cap, and reset drops canceled task registrations before native completions | fixed bounded in `09db3f5`: max two individual native reads per VM across canceled query generations, exact-UUID retirement and coalesced FIFO demand. Native PID97812 and existing forum regressions pass. Page concurrency, global cross-VM limits and queue hard memory cap are outside this slice; no live lag/OOM claim |
 | A48 | P1 | At `34b7868`, forwarding topic selector replaces its live topic array before un-serialized animated diffable applies; failed query retry can also merge older-query rows. Native teardown exposed a detached-parent interval before didMove(nil) | fixed bounded through `fe9424c`/`727103c`, diagnostic `1fa99a9`: transaction-owned models, serialized page/toggle applies, accepted-query and immediate containment gates. Native PID68845 passes late-callback/cursor/pending-drain checks before retirement. Natural baseline crash, live permission/TDLib races, modal dismiss and actual interactive cancellation remain unverified |
-| A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | partial — A49a `ca71e33` exact dequeued-cell fallback/reset; corrected native oracle `0404996` passes. No natural Chat crash reproduced. A49b current-action authority, frozen outgoing rendering and serialization remain open; a bare strong-reference dictionary is insufficient for mutable album wrappers |
+| A49 | P1 | At `41f87a5`, ChatView message provider dequeues MessageCell then looks up current VM.messages; a miss returns a new UICollectionViewCell. Main-queue snapshot dispatch and 140ms deletion delay leave outgoing IDs in the old snapshot | partial — A49a `ca71e33` exact-cell fallback/reset and oracle `0404996`; A49b `eeb93b2` provider callback authority have native proof, ordinary selection smoke passes. No natural Chat crash reproduced. Physical touch rebind, frozen outgoing rendering and serialization remain open; retaining mutable wrappers alone is insufficient |
 
 Reference contracts: pre-Liquid `MediaPlayer/Sources/ChunkMediaPlayerDirectFetchSourceImpl.swift` registers range data and cancel
 observers before waiting (lines 20–38), uses bounded read/lookahead windows (lines 189–212) and selects video as the main track
@@ -1226,7 +1227,35 @@ is imported. This source pass does not prove every content's real rendering/acti
   `ChatVM+Publishers`305–322 mutates an album wrapper in place; ChatVM1332–1353 can replace the same album ID's wrapper.
   Retention of mutable references alone is not a coherent rendering transaction. Keep provider rendering separate from live
   action/navigation/prefetch lookup; exclude deleting IDs from reconfigure so configure cannot revive a fading bubble.
-  Next bounded prerequisite is fresh source/route/wrapper/payload authority for provider callbacks; rendering ownership stays separate.
+  The provider-callback prerequisite is repaired below; rendering ownership stays separate.
+
+### A49b rendered message action authority — 2026-10-03
+
+- `eeb93b2` (worker `64299df`, reviewed tree `d755c225`) freezes each provider configuration's source/location, exact wrapper,
+  value payload and derived metadata, cell binding and selected/chosen state. Seven callbacks resolve current live row, attached
+  top route, account/client and intent permissions before acting. Old AX/media bridges cannot invoke newly installed callbacks;
+  swipe completion requires its begin binding. Poll actions carry the exact token returned before synchronous publication reentry;
+  rejection clears only that token in the original captured store, preserving newer retries.
+- References: pre-Liquid `8e7e5fe`, `ChatController.swift`3191–3227 and
+  `Chat/ChatControllerLoadDisplayNode.swift`1578–1619 resolve current reply permissions/history. Pinned TDLibKit
+  `1.5.2-tdlib-1.8.66-022d6020` provides value-typed Equatable Message/MessageProperties; `setPollAnswer` API/schema is unchanged.
+- Worker full log `133819-82229-23159` PASS9s; integration joint SwiftFormat0/7, build `134359-88074-14542` PASS17s,
+  full log zero warnings/errors. Audit59EB535C/iOS26.5 PID90027, fresh container `B00A258F-A101-49FD-8BD7-12DBBF0E6436`,
+  report13:44:48 PASS: real MessageCell/diffable reconfigure and retained AX/media callbacks, changed wrapper/source/payload,
+  selected/chosen state and permissions; actual poll option UIControl accepts fresh submission and rejects closed poll;
+  stale/reentrant rejection preserves the newer exact retry. Existing delivery/A44/A49a probes also pass; RPC/sends=0.
+- Proof limits: source/route inputs are controlled; actual controller detach/index-path races, physical swipe/selection timing,
+  asynchronous action execution, direct child controls and captured menu actions are not covered. No renderer/scheduler rewrite.
+- Same `eeb93b2`/PID90027 actual Saved Messages: existing context Select enters1; provider taps select a second row (2), then
+  deselect it after reconfigure (1); Cancel restores empty composer with selection toolbar absent. Screenshots inspected under
+  `.build/ui-probe-evidence/astra-a49b-actions/`; no send/vote/reaction/forward/delete/link action. This proves ordinary current
+  selection admission in the real controller, not touch-down/update/touch-up or detached-route races.
+- Confirmed next bounded defect at `eeb93b2`: MessageView's persistent selectionControl retains its touch while configure replaces
+  actionBindingID/onSelectionToggle. Late touchUpInside calls the new callback, whose fresh authority can admit the wrong intent.
+  Plan: capture binding on touchDown, consume only matching token on touchUpInside, clear on cancel/outside/reset/configure;
+  preserve independent AX activation and ordinary selection. Prove current, stale/rebound, duplicate/cancel/outside/reset sequences
+  through the real UIControl event targets; synthetic event ordering is not physical UITouch proof. Reaction buttons are separately
+  reset/replaced on each configure, so the same source defect is absent there. No actual unwanted selection has been reproduced.
 
 ### A23e login authorization authority — 2026-10-02
 
@@ -2691,7 +2720,8 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/logs/xcodebuild/build-Debug-20261002-141016-42207-16861.log`. The missing ignored `Secret.swift` was restored from the
   main checkout for the build and is excluded from the commit. Documentation-only peer review passed; no Swift source edits or
   new runtime smoke were performed. This build does not close any implementation-audit row.
-- Exact next slice: P1 A49b current-action authority, then coherent frozen renderer/serialized applies across all five producers.
+- Exact next slice: P1 A49b persistent selection-control touch binding, then coherent frozen renderer/serialized applies across
+  all five producers. Provider callback authority `eeb93b2` has bounded native and actual1→2→1→Cancel selection proof above.
   A49a `ca71e33` with oracle `0404996` has bounded native/ordinary UI proof; earlier test failures and their measured cause remain above.
   A22 `41f87a5` has real unchanged-snapshot control/ended-delegate-drag proof; actual prepend/keyboard/media-resize remains open.
   Keep the initial A39 helper failure and passing standalone retry as separate observations; cause remains unresolved.
