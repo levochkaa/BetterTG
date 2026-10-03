@@ -1545,8 +1545,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     ChatDateHeaderCell.self, from: collectionView, at: indexPath,
                     reuseIdentifier: ChatDateHeaderCell.reuseIdentifier,
                     configure: { [weak self] cell in
-                        guard let self, timelineSourceIsCurrent,
-                              case .date = timelineSnapshots.row(for: itemID) else { return false }
+                        guard self != nil else { return false }
                         cell.configure(id: headerID)
                         return true
                     },
@@ -1557,18 +1556,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     ForumTopicRunHeaderCell.self, from: collectionView, at: indexPath,
                     reuseIdentifier: ForumTopicRunHeaderCell.reuseIdentifier,
                     configure: { [weak self] cell in
-                        guard let self, timelineSourceIsCurrent,
-                              case .topic(_, let info, let client, let source) = timelineSnapshots.row(for: itemID)
-                        else { return false }
+                        guard let self else { return false }
                         cell.configure(
                             id: headerID,
-                            info: info,
-                            client: client,
-                            onOpen: { [weak self] in
-                                guard let self, timelineSourceIsCurrent, navigationClientSource == source,
-                                      timelineSnapshots.committed.ids.contains(itemID) else { return }
-                                openForumTopic(id: headerID.topicID)
-                            },
+                            info: chatVM.forumTopic(id: headerID.topicID)?.info,
+                            client: chatVM.client,
+                            onOpen: { [weak self] in self?.openForumTopic(id: headerID.topicID) },
                         )
                         return true
                     },
@@ -1578,102 +1571,69 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 ChatTimelineCellProvider.dequeue(
                     MessageCell.self, from: collectionView, at: indexPath,
                     reuseIdentifier: MessageCell.reuseIdentifier,
-                    preserve: { [weak self] cell in
-                        self?.timelineSourceIsCurrent == true
-                            && self?.timelineSnapshots.canPreserveDeletingCell(cell, id: displayedMessageID) == true
-                    },
                     configure: { [weak self] cell in
-                        guard let self, timelineSourceIsCurrent,
-                              !timelineSnapshots.deleting.contains(displayedMessageID),
-                              let row = timelineSnapshots.row(for: itemID)?.message else { return false }
-                        let message = row.renderedMessage
-                        let authority = ChatMessageActionAuthority(
-                            message: row.canonical, cell: cell, source: row.source, location: row.location,
-                            selected: row.inputs.selected, renderValue: row.value,
-                        )
+                        guard let self, let message = message(for: displayedMessageID) else { return false }
+                        let messageSelectable = canSelectMessage(message)
+                        mediaRevealSession?.reconcile(message.sourceMessages)
                         cell.configure(
                             message: message,
                             chat: chatVM.customChat,
-                            highlighted: row.inputs.highlighted,
-                            client: row.client,
-                            spoilerSource: row.source,
-                            mediaRevealSession: row.mediaRevealSession,
-                            pollInteractionStore: row.polls,
-                            videoPlaybackOwners: inlineVideoPlaybackOwners(for: row),
-                            canAddReactions: row.inputs.canAddReactions,
-                            selectionActive: row.inputs.selectionActive,
-                            selected: row.inputs.selected,
-                            onSwipeToReply: row.inputs.canReply
-                                ? { [weak self, weak cell] in
-                                    guard let self, let current = currentActionMessage(
-                                        authority,
-                                        cell: cell,
-                                        intent: .reply,
-                                    )
-                                    else { return }
-                                    chatVM.beginReply(to: current)
+                            highlighted: message.sourceMessages.contains(where: {
+                                $0.id == self.chatVM.highlightedMessageId
+                            }),
+                            client: chatVM.client,
+                            spoilerSource: navigationClientSource,
+                            mediaRevealSession: mediaRevealSession,
+                            pollInteractionStore: chatVM.pollInteractionStore,
+                            videoPlaybackOwners: inlineVideoPlaybackOwners(for: message),
+                            canAddReactions: chatVM.canAddReactions,
+                            selectionActive: isSelectingMessages && messageSelectable,
+                            selected: selectedDisplayedMessageIDs.contains(displayedMessageID),
+                            onSwipeToReply: presentationMode == .full
+                                && !isSelectingMessages
+                                && !chatVM.isReadOnlyTopic
+                                && message.properties.canBeReplied
+                                ? { [weak self] in self?.chatVM.beginReply(to: message) }
+                                : nil,
+                            onSelectionToggle: isSelectingMessages && messageSelectable
+                                ? { [weak self] in
+                                    self?.toggleMessageSelection(displayedMessageID: displayedMessageID)
                                 }
                                 : nil,
-                            onSelectionToggle: row.inputs.selectionActive
-                                ? { [weak self, weak cell] in
-                                    guard let self,
-                                          currentActionMessage(authority, cell: cell, intent: .selection) != nil
-                                    else { return }
-                                    toggleMessageSelection(displayedMessageID: displayedMessageID)
-                                }
-                                : nil,
-                            onReactionTap: { [weak self, weak cell] type in
-                                guard let self, let current = currentActionMessage(
-                                    authority,
-                                    cell: cell,
-                                    intent: .reaction(type),
-                                )
-                                else { return }
-                                chatVM.toggleReaction(on: current, type: type, isBig: false)
-                            },
-                            onMetadataNavigate: { [weak self, weak cell] target in
+                            onReactionTap: { [weak self] type in
                                 guard let self,
-                                      currentActionMessage(authority, cell: cell, intent: .metadata(target)) != nil
+                                      presentationMode == .full,
+                                      !isSelectingMessages,
+                                      !chatVM.isReadOnlyTopic
                                 else { return }
-                                navigate(to: target)
+                                chatVM.toggleReaction(on: message, type: type, isBig: false)
                             },
-                            onReplyQuoteExpand: { [weak self, weak cell] in
-                                guard let self, let current = currentActionMessage(
-                                    authority,
-                                    cell: cell,
-                                    intent: .quote,
-                                )
+                            onMetadataNavigate: { [weak self] target in
+                                guard self?.presentationMode == .full,
+                                      self?.isSelectingMessages == false
                                 else { return }
-                                expandReplyQuote(for: current)
+                                self?.navigate(to: target)
                             },
-                            onContentAction: { [
-                                weak self,
-                                weak cell,
-                                weak polls = row.polls,
-                            ] action in
-                                guard let self,
-                                      currentActionMessage(authority, cell: cell, intent: .content(action)) != nil
-                                else {
-                                    action.rejectPollSubmission(in: polls)
-                                    return
-                                }
-                                performContentAction(action)
+                            onReplyQuoteExpand: { [weak self] in
+                                self?.expandReplyQuote(for: message)
                             },
-                            onMediaTap: { [weak self, weak cell] messages, selection in
-                                guard let self, currentActionMessage(authority, cell: cell, intent: .media) != nil
+                            onContentAction: { [weak self] action in
+                                guard self?.presentationMode == .full,
+                                      self?.isSelectingMessages == false
                                 else { return }
-                                showMedia(messages, selection: selection)
+                                self?.performContentAction(action)
                             },
-                            actionBindingID: authority.bindingID,
-                            timelineRowID: row.id,
-                            showsProfileImage: row.inputs.showsProfileImage,
+                            onMediaTap: { [weak self] messages, selection in
+                                guard self?.presentationMode == .full,
+                                      self?.isSelectingMessages == false
+                                else { return }
+                                self?.showMedia(messages, selection: selection)
+                            },
                         )
                         cell.onSelfSizingHeightChange = { [weak self] in
                             self?.messageCellWillChangeHeight()
                         }
-                        if renderRowIsCurrent(row) {
-                            row.videoOwners.keys.forEach { self.pendingInlineVideoOwnerReturns.remove($0) }
-                        }
+                        message.sourceMessages.forEach { self.pendingInlineVideoOwnerReturns.remove($0.id) }
                         return true
                     },
                     unavailable: { $0.resetUnavailableContent() },

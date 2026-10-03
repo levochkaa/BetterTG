@@ -188,7 +188,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     #if DEBUG
         private(set) var probeReuseCount = 0
-        var probeSelectionTouchBindingID: UUID? { selectionTouchBindingID }
 
         var probeUnavailableResourcesAreReset: Bool {
             onSwipeToReply == nil && onMediaTap == nil && onSelectionToggle == nil && onSelfSizingHeightChange == nil
@@ -200,8 +199,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 && timestampLabel.text == nil && mediaTimestampLabel.text == nil
                 && textView.attributedText.length == 0 && bubbleView.isHidden
                 && selectionControl.isHidden && selectionIndicatorView.isHidden
-                && rowStack.transform == .identity && selectionTouchBindingID == nil
-                && contentView.alpha == 1 && contentView.transform == Self.timelineContentTransform
+                && rowStack.transform == .identity
         }
     #endif
 
@@ -323,26 +321,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
-    /// Collection layout attributes own the cell's alpha/transform. Keep deletion
-    /// inside that boundary while retaining the inverted timeline's content flip.
-    func setDeletionPresentation(alpha: CGFloat, transform: CGAffineTransform) {
-        isUserInteractionEnabled = false
-        isAccessibilityElement = false
-        accessibilityElementsHidden = true
-        contentView.alpha = alpha
-        contentView.transform = Self.timelineContentTransform.concatenating(transform)
-    }
-
     /// UIKit can reconfigure the current cell without calling prepareForReuse.
     func resetUnavailableContent() {
-        actionBindingID = nil
-        timelineRowID = nil
-        timelineDisplayedID = nil
-        selectionTouchBindingID = nil
-        swipeReplyBindingID = nil
-        #if DEBUG
-            probeMediaAction = nil
-        #endif
         layer.removeAllAnimations()
         rowStack.layer.removeAllAnimations()
         bubbleContainerView.layer.removeAllAnimations()
@@ -357,7 +337,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         selectionIndicatorView.layer.removeAllAnimations()
         alpha = 1
         transform = .identity
-        resetDeletionPresentation()
         contentView.isHidden = false
         isUserInteractionEnabled = true
         isAccessibilityElement = false
@@ -494,7 +473,6 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         self.actionBindingID = actionBindingID
         alpha = 1
         transform = .identity
-        resetDeletionPresentation()
         bubbleView.isHidden = false
         contentView.isHidden = false
         accessibilityElementsHidden = false

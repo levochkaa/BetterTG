@@ -8,8 +8,23 @@ import UIKit
 @MainActor enum MessageDeliveryProbe {
     private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
 
+    private final class NativeCollection: UICollectionView {
+        private(set) var dequeueIDs = [IndexPath: ObjectIdentifier]()
+        private(set) var dequeueCount = 0
+        var providerCount = 0
+
+        override func dequeueReusableCell(withReuseIdentifier identifier: String, for path: IndexPath)
+            -> UICollectionViewCell
+        {
+            let cell = super.dequeueReusableCell(withReuseIdentifier: identifier, for: path)
+            dequeueIDs[path] = ObjectIdentifier(cell)
+            dequeueCount += 1
+            return cell
+        }
+    }
+
     @MainActor private final class NativeRows {
-        let collection: UICollectionView
+        let collection: NativeCollection
         let chat = RootChatInsertionProbe.chat(
             .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
             id: 100,
@@ -20,12 +35,14 @@ import UIKit
         var owners = ChatMessageRenderOwners()
         var data: UICollectionViewDiffableDataSource<Int, DisplayedMessageID>!
         var completed = 0
+        var selectionActive = false
+        var selectionTaps = 0
 
         init() {
             let layout = UICollectionViewFlowLayout()
             layout.itemSize = CGSize(width: 350, height: 85)
             layout.minimumLineSpacing = 0
-            self.collection = UICollectionView(
+            self.collection = NativeCollection(
                 frame: CGRect(x: 0, y: 0, width: 390, height: 550),
                 collectionViewLayout: layout,
             )
@@ -35,12 +52,17 @@ import UIKit
                     Int,
                     DisplayedMessageID,
                 >(collectionView: collection) { [weak self] list, path, id in
-                let cell = list.dequeueReusableCell(withReuseIdentifier: "delivery", for: path) as! MessageCell
-                if let self, let message = messages.first(where: { $0.displayedID == id }) { configure(
-                    cell,
-                    message: message,
-                ) }
-                return cell
+                (list as? NativeCollection)?.providerCount += 1
+                return ChatTimelineCellProvider.dequeue(
+                    MessageCell.self, from: list, at: path, reuseIdentifier: "delivery",
+                    configure: { [weak self] cell in
+                        guard let self,
+                              let message = messages.first(where: { $0.displayedID == id }) else { return false }
+                        configure(cell, message: message)
+                        return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
+                )
             }
         }
 
@@ -52,10 +74,10 @@ import UIKit
                 client: client,
                 pollInteractionStore: polls,
                 canAddReactions: false,
-                selectionActive: false,
-                selected: false,
+                selectionActive: selectionActive,
+                selected: selectionActive,
                 onSwipeToReply: nil,
-                onSelectionToggle: nil,
+                onSelectionToggle: selectionActive ? { [weak self] in self?.selectionTaps += 1 } : nil,
                 onReactionTap: { _ in },
                 onMetadataNavigate: { _ in },
                 onReplyQuoteExpand: {},
@@ -137,13 +159,17 @@ import UIKit
                 try verifyForumReceipts()
                 try verifyStates()
                 try await verifyCells()
+                try await verifyUnavailableCells()
                 result = "Message delivery probe passed: production-receipt/read-revision/source-route-retirement=true; "
                     + "pending/failed/final/album-canonical-promotion/seed-reset=true; "
                     + "actual-MessageCell/text-footer/media-overlay/spoken-state=true; "
                     + "native-stable-ID-owner-replacement/queued-old-owner/batched-receipt/offset=true; "
+                    + "shared-provider/exact-dequeue/inert-reconfigure/same-ID-recovery/weak-owner=true; "
+                    + "extracted-content-concealed-without-reparenting=true; "
                     + "explicit-forum/raw-topic/revision/echo-dedup/late-draft/targeted-cell=true; "
                     + "all-messages-forum/shared-reader/canonical-topic/targeted-cell/seed-reset=true; "
-                    + "final-self/whole-ChatVM/live-peer-read=unverified; RPC/sends=0"
+                    + "final-self/whole-ChatVM/live-peer-read/real-deletion-window/snapshot-ownership=unverified; "
+                    + "loaded-media/suspended-pan/context-menu-actions=unverified; RPC/sends=0"
             } catch { result = "Message delivery probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -482,6 +508,232 @@ import UIKit
             metadata.finishRead(retiringMetadata, topic: base, source: source) == nil
                 && metadata.beginRead(source: source) == nil,
             "retired metadata key revived",
+        )
+    }
+
+    private static func verifyUnavailableCells() async throws {
+        var owner: NativeRows? = NativeRows()
+        let ownerReleased = { [weak owner] in owner == nil }
+        guard let collection = owner?.collection, let data = owner?.data,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
+        else {
+            throw Failure(description: "missing unavailable-cell fixture")
+        }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(collection)
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let id = DisplayedMessageID.message(70)
+        let path = IndexPath(item: 0, section: 0)
+        func message(_ text: String) -> CustomMessage {
+            CustomMessage(
+                message: fixture(id: 70),
+                formattedText: .init(entities: [], text: text),
+                properties: .default,
+            )
+        }
+        owner?.selectionActive = true
+        owner?.messages = [message("original fallback fixture")]
+        owner?.apply()
+        try await until("configured fallback MessageCell") { owner?.completed == 1 }
+        collection.layoutIfNeeded()
+        guard let cell = collection.cellForItem(at: path) as? MessageCell,
+              let selection = allControls(cell).first(where: {
+                  $0.accessibilityIdentifier == "message-selection-control"
+              }),
+              let oldSelectionAction = cell.accessibilityCustomActions?.first(where: { $0.name == "Deselect Message" }),
+              let container = cell.contextPreviewView as? TelegramContextMenuExtractableView,
+              let extracted = container.probeTakeContextMenuContent()
+        else {
+            throw Failure(description: "missing configured selection or extracted content")
+        }
+        let externalHost = UIView()
+        host.view.addSubview(externalHost)
+        externalHost.addSubview(extracted)
+        var contentReturned = false
+        defer { if !contentReturned { container.probePutBackContextMenuContent(extracted) } }
+        try require(
+            !cell.probeUnavailableResourcesAreReset && !extracted.isHidden,
+            "fallback fixture was not armed with real content",
+        )
+        selection.sendActions(for: .touchUpInside)
+        try require(owner?.selectionTaps == 1, "initial selection callback missing")
+        let reuseCount = cell.probeReuseCount
+        var heightChanges = 0
+        cell.onSelfSizingHeightChange = { heightChanges += 1 }
+        cell.alpha = 0.4
+        cell.transform = CGAffineTransform(translationX: 24, y: 0)
+        container.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+        container.alpha = 0.7
+        extracted.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+        extracted.alpha = 0.8
+        owner?.messages = []
+        owner?.reconfigure([id])
+        try await until("missing-model native reconfigure") { owner?.completed == 2 }
+        try require(
+            collection.cellForItem(at: path) === cell
+            && collection.dequeueIDs[path] == ObjectIdentifier(cell)
+            && cell.probeReuseCount == reuseCount,
+            "fallback replaced dequeued cell or relied on prepareForReuse",
+        )
+        try require(
+            cell.probeUnavailableResourcesAreReset && inert(cell)
+            && cell.alpha == 1 && cell.transform == .identity,
+            "missing-model cell retained resources, accessibility, actions or animation state",
+        )
+        try require(
+            extracted.superview === externalHost && extracted.isHidden
+                && extracted.transform == CGAffineTransform(scaleX: 1.1, y: 1.1) && extracted.alpha == 0.8
+                && container.transform == .identity && container.alpha == 1,
+            "fallback stole or exposed extracted content",
+        )
+        selection.sendActions(for: .touchUpInside)
+        _ = oldSelectionAction.actionHandler?(oldSelectionAction)
+        cell.onSelfSizingHeightChange?()
+        try require(owner?.selectionTaps == 1 && heightChanges == 0, "cleared selection/height callbacks fired")
+        // The external owner restores its own presentation before returning content.
+        extracted.transform = .identity
+        extracted.alpha = 1
+        container.probePutBackContextMenuContent(extracted)
+        contentReturned = true
+        owner?.messages = [message("recovered fallback fixture")]
+        owner?.reconfigure([id])
+        try await until("same-ID native recovery") { owner?.completed == 3 }
+        try require(
+            collection.cellForItem(at: path) === cell && !cell.contentView.isHidden
+            && !extracted.isHidden && !cell.accessibilityElementsHidden && cell.isUserInteractionEnabled
+            && cell.accessibilityLabel?.contains("recovered fallback fixture") == true
+            && cell.accessibilityTraits.contains(.selected),
+            "same-ID recovery did not restore content/selection",
+        )
+        selection.sendActions(for: .touchUpInside)
+        try require(owner?.selectionTaps == 2, "recovered selection callback missing")
+        owner = nil
+        try require(ownerReleased(), "fixture provider owner did not release")
+        var snapshot = data.snapshot()
+        snapshot.reconfigureItems([id])
+        var completed = false
+        data.apply(snapshot, animatingDifferences: false) { completed = true }
+        try await until("released-owner native reconfigure") { completed }
+        try require(
+            collection.cellForItem(at: path) === cell && inert(cell)
+            && cell.probeUnavailableResourcesAreReset && collection.dequeueIDs[path] == ObjectIdentifier(cell),
+            "released owner replaced cell or retained resources",
+        )
+        try require(
+            collection.providerCount > 0 && collection.dequeueCount == collection.providerCount,
+            "provider did not return exactly one dequeue per request",
+        )
+        try await verifyUnavailableHeaders(scene: scene)
+    }
+
+    private static func inert(_ cell: UICollectionViewCell) -> Bool {
+        cell.contentView.isHidden && !cell.isUserInteractionEnabled && !cell.isAccessibilityElement
+            && cell.accessibilityElementsHidden && cell.accessibilityLabel == nil && cell.accessibilityValue == nil
+            && cell.accessibilityHint == nil && cell.accessibilityIdentifier == nil
+            && cell.accessibilityTraits.isEmpty && cell.accessibilityCustomActions == nil
+    }
+
+    private static func allControls(_ view: UIView) -> [UIControl] {
+        ((view as? UIControl).map { [$0] } ?? []) + view.subviews.flatMap(allControls)
+    }
+
+    private static func verifyUnavailableHeaders(scene: UIWindowScene) async throws {
+        let layout = UICollectionViewFlowLayout()
+        layout.itemSize = CGSize(width: 300, height: 50)
+        let collection = NativeCollection(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 500),
+            collectionViewLayout: layout,
+        )
+        collection.register(ChatDateHeaderCell.self, forCellWithReuseIdentifier: "date")
+        collection.register(ForumTopicRunHeaderCell.self, forCellWithReuseIdentifier: "topic")
+        collection.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cast-mismatch")
+        var hasOwner = true
+        var topicTaps = 0
+        var castConfigurationRan = false
+        let client = TDLib.shared.activeClient
+        let data = UICollectionViewDiffableDataSource<Int, Int>(collectionView: collection) { list, path, id in
+            collection.providerCount += 1
+            switch id {
+            case 0:
+                return ChatTimelineCellProvider.dequeue(
+                    ChatDateHeaderCell.self, from: list, at: path, reuseIdentifier: "date",
+                    configure: { cell in
+                        guard hasOwner else { return false }
+                        cell.configure(id: .init(dayTimestamp: 1))
+                        return true
+                    }, unavailable: { $0.resetUnavailableContent() },
+                )
+            case 1:
+                return ChatTimelineCellProvider.dequeue(
+                    ForumTopicRunHeaderCell.self, from: list, at: path, reuseIdentifier: "topic",
+                    configure: { cell in
+                        guard hasOwner else { return false }
+                        cell.configure(id: .init(topicID: 1, runStartMessageID: 7), info: nil, client: client) {
+                            topicTaps += 1
+                        }
+                        return true
+                    }, unavailable: { $0.resetUnavailableContent() },
+                )
+            default:
+                return ChatTimelineCellProvider.dequeue(
+                    MessageCell.self, from: list, at: path, reuseIdentifier: "cast-mismatch",
+                    configure: { _ in castConfigurationRan = true
+                    return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
+                )
+            }
+        }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(collection)
+        window.isHidden = false
+        defer { window.isHidden = true
+        window.rootViewController = nil
+        }
+        var snapshot = NSDiffableDataSourceSnapshot<Int, Int>()
+        snapshot.appendSections([0])
+        snapshot.appendItems([0, 1, 2])
+        var completions = 0
+        data.apply(snapshot, animatingDifferences: false) { completions += 1 }
+        try await until("header and cast fixture initial native apply") { completions == 1 }
+        collection.layoutIfNeeded()
+        let paths = (0...2).map { IndexPath(item: $0, section: 0) }
+        let cells = paths.compactMap { collection.cellForItem(at: $0) }
+        try require(cells.count == 3, "header fixture cells missing")
+        guard let control = allControls(cells[1]).first else { throw Failure(description: "topic control missing") }
+        control.sendActions(for: .touchUpInside)
+        try require(topicTaps == 1 && inert(cells[2]) && !castConfigurationRan, "header/cast fixture not armed")
+        hasOwner = false
+        snapshot.reconfigureItems([0, 1, 2])
+        data.apply(snapshot, animatingDifferences: false) { completions += 1 }
+        try await until("header no-owner native reconfigure") { completions == 2 }
+        try require(zip(paths, cells).allSatisfy { path, cell in
+            collection.cellForItem(at: path) === cell && collection.dequeueIDs[path] == ObjectIdentifier(cell)
+                && inert(cell)
+        }, "header/cast fallback changed dequeued type or exposed old content")
+        control.sendActions(for: .touchUpInside)
+        try require(
+            topicTaps == 1 && control.accessibilityLabel == nil,
+            "unavailable topic retained callback/accessibility",
+        )
+        hasOwner = true
+        data.apply(snapshot, animatingDifferences: false) { completions += 1 }
+        try await until("header native recovery") { completions == 3 }
+        control.sendActions(for: .touchUpInside)
+        try require(
+            topicTaps == 2 && !cells[0].contentView.isHidden && !cells[1].contentView.isHidden
+            && collection.dequeueCount == collection.providerCount && !castConfigurationRan,
+            "header recovery or one-dequeue contract failed",
         )
     }
 
