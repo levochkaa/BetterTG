@@ -204,6 +204,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         updatePlaceholder()
     }
 
+    func moveCaretToEnd() {
+        selectedRange = NSRange(location: attributedText.length, length: 0)
+        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
+    }
+
     func textViewDidChange(_: UITextView) {
         if markedTextRange == nil {
             ComposerText.refresh(textStorage)

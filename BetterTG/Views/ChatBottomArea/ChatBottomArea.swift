@@ -392,6 +392,7 @@ final class ChatComposerView: UIView {
     func update(from chatVM: ChatVM) {
         isApplyingState = true
         let shouldFocus = lastReplyID != chatVM.replyMessage?.id || lastEditID != chatVM.editCustomMessage?.id
+        let beginsEditing = chatVM.editCustomMessage != nil && lastEditID != chatVM.editCustomMessage?.id
         lastReplyID = chatVM.replyMessage?.id
         lastEditID = chatVM.editCustomMessage?.id
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
@@ -419,6 +420,8 @@ final class ChatComposerView: UIView {
         }
         textView.setPlaceholder(chatVM.composerPlaceholder)
         textView.setAttributedText(targetText)
+        // Telegram builds the edit state with ChatTextInputState(inputText:), whose selection is after the text.
+        if beginsEditing { textView.moveCaretToEnd() }
 
         let showsReplyPreview: Bool
         if let edited = chatVM.editCustomMessage {
