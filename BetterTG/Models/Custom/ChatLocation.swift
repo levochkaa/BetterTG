@@ -21,13 +21,17 @@ struct ChatLocation: Hashable {
         topic != nil
     }
 
+    /// The account comes from the same published snapshot as the active client. During an account switch the
+    /// selected account changes before TDLibKit 2 has created its client, so pairing `activeAccountID` with the
+    /// client would mix two epochs; a client that is not the active one gets no account.
     @MainActor static func current(
         chatID: Int64,
         topic: MessageTopic? = nil,
         client: TDLibClient = TDLib.shared.activeClient,
     ) -> ChatLocation {
-        ChatLocation(
-            accountID: TDLib.shared.activeAccountID,
+        let source = TDLib.shared.activeUpdateSource
+        return ChatLocation(
+            accountID: source?.clientID == client.id ? source?.accountID : nil,
             chatID: chatID,
             clientID: client.id,
             topic: topic,
